@@ -16,10 +16,6 @@ def _parse_hhmm(value: str) -> time:
     return time(hour=hour, minute=minute)
 
 
-def _format_hhmm(value: time) -> str:
-    return f"{value.hour:02d}:{value.minute:02d}"
-
-
 @dataclass
 class ChargePeriodConfig:
     """Single charge period definition."""
@@ -91,6 +87,7 @@ class OverrideState:
     mode: str = "baseline"
     periods: list[ChargePeriodConfig] | None = None
     reason: str = ""
+    saved_max_soc: float | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> OverrideState:
@@ -100,11 +97,13 @@ class OverrideState:
             if isinstance(periods_raw, list)
             else None
         )
+        saved = data.get("saved_max_soc")
         return cls(
             active=bool(data.get("active", False)),
             mode=str(data.get("mode", "baseline")),
             periods=periods,
             reason=str(data.get("reason", "")),
+            saved_max_soc=float(saved) if saved is not None else None,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -113,6 +112,64 @@ class OverrideState:
             "mode": self.mode,
             "periods": [p.to_dict() for p in self.periods] if self.periods else None,
             "reason": self.reason,
+            "saved_max_soc": self.saved_max_soc,
+        }
+
+
+@dataclass
+class PrepPolicyConfig:
+    enabled: bool = False
+    trigger_entities: list[str] = field(default_factory=list)
+    charge_periods: list[ChargePeriodConfig] = field(default_factory=list)
+    target_max_soc: float | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], default_periods: list[dict[str, Any]]) -> PrepPolicyConfig:
+        periods_raw = data.get("charge_periods") or default_periods
+        target = data.get("target_max_soc")
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            trigger_entities=list(data.get("trigger_entities", [])),
+            charge_periods=[ChargePeriodConfig.from_dict(p) for p in periods_raw],
+            target_max_soc=float(target) if target is not None else None,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "trigger_entities": self.trigger_entities,
+            "charge_periods": [p.to_dict() for p in self.charge_periods],
+            "target_max_soc": self.target_max_soc,
+        }
+
+
+@dataclass
+class ForecastPrepConfig:
+    enabled: bool = False
+    forecast_entity: str | None = None
+    threshold_kwh: float = 5.0
+    charge_periods: list[ChargePeriodConfig] = field(default_factory=list)
+    target_max_soc: float | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], default_periods: list[dict[str, Any]]) -> ForecastPrepConfig:
+        periods_raw = data.get("charge_periods") or default_periods
+        target = data.get("target_max_soc")
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            forecast_entity=data.get("forecast_entity"),
+            threshold_kwh=float(data.get("threshold_kwh", 5.0)),
+            charge_periods=[ChargePeriodConfig.from_dict(p) for p in periods_raw],
+            target_max_soc=float(target) if target is not None else None,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "forecast_entity": self.forecast_entity,
+            "threshold_kwh": self.threshold_kwh,
+            "charge_periods": [p.to_dict() for p in self.charge_periods],
+            "target_max_soc": self.target_max_soc,
         }
 
 
@@ -125,21 +182,41 @@ class PlantConfig:
     control: ControlConfig = field(default_factory=ControlConfig)
     override: OverrideState = field(default_factory=OverrideState)
     control_active: bool = True
+    storm_prep: PrepPolicyConfig = field(default_factory=PrepPolicyConfig)
+    outage_prep: PrepPolicyConfig = field(default_factory=PrepPolicyConfig)
+    forecast_prep: ForecastPrepConfig = field(default_factory=ForecastPrepConfig)
+    tariff_modes: dict[str, list[ChargePeriodConfig]] = field(default_factory=dict)
 
     @classmethod
     def from_entry_data(cls, data: dict[str, Any]) -> PlantConfig:
-        baseline = [
-            ChargePeriodConfig.from_dict(p)
-            for p in data.get("baseline_periods", [])
-        ]
+        from .const import (
+            DEFAULT_BASELINE_PERIODS,
+            DEFAULT_FORECAST_PREP,
+            DEFAULT_OUTAGE_PREP,
+            DEFAULT_STORM_PREP,
+        )
+
+        baseline = [ChargePeriodConfig.from_dict(p) for p in data.get("baseline_periods", DEFAULT_BASELINE_PERIODS)]
+        tariff_raw = data.get("tariff_modes", {})
+        tariff_modes = {
+            name: [ChargePeriodConfig.from_dict(p) for p in periods]
+            for name, periods in tariff_raw.items()
+            if isinstance(periods, list)
+        }
         return cls(
             device_id=data["device_id"],
-            inverter_target=data["inverter_target"],
+            inverter_target=data.get("inverter_target", data["device_id"]),
             entity_map=dict(data.get("entity_map", {})),
             baseline_periods=baseline,
             control=ControlConfig.from_dict(data.get("control", {})),
             override=OverrideState.from_dict(data.get("override", {})),
             control_active=bool(data.get("control_active", True)),
+            storm_prep=PrepPolicyConfig.from_dict(data.get("storm_prep", {}), DEFAULT_STORM_PREP["charge_periods"]),
+            outage_prep=PrepPolicyConfig.from_dict(data.get("outage_prep", {}), DEFAULT_OUTAGE_PREP["charge_periods"]),
+            forecast_prep=ForecastPrepConfig.from_dict(
+                data.get("forecast_prep", {}), DEFAULT_FORECAST_PREP["charge_periods"]
+            ),
+            tariff_modes=tariff_modes,
         )
 
     def to_entry_data(self) -> dict[str, Any]:
@@ -151,6 +228,12 @@ class PlantConfig:
             "control": self.control.to_dict(),
             "override": self.override.to_dict(),
             "control_active": self.control_active,
+            "storm_prep": self.storm_prep.to_dict(),
+            "outage_prep": self.outage_prep.to_dict(),
+            "forecast_prep": self.forecast_prep.to_dict(),
+            "tariff_modes": {
+                name: [p.to_dict() for p in periods] for name, periods in self.tariff_modes.items()
+            },
         }
 
     def desired_periods(self) -> list[ChargePeriodConfig]:
@@ -164,3 +247,11 @@ class PlantConfig:
         if self.override.active:
             return self.override.mode
         return "baseline"
+
+    def all_trigger_entities(self) -> list[str]:
+        entities: list[str] = []
+        if self.storm_prep.enabled:
+            entities.extend(self.storm_prep.trigger_entities)
+        if self.outage_prep.enabled:
+            entities.extend(self.outage_prep.trigger_entities)
+        return sorted(set(entities))

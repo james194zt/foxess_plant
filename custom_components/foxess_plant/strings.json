@@ -24,11 +24,81 @@
     "step": {
       "init": {
         "title": "Plant settings",
-        "description": "Baseline charge periods and drift detection. Times use HH:MM (24h).",
+        "description": "Choose what to configure."
+      },
+      "baseline": {
+        "title": "Baseline schedule",
+        "description": "Default charge periods and drift detection. Times use HH:MM (24h).",
         "data": {
           "exclusive": "Exclusive control (reapply on drift)",
           "drift_check_interval": "Drift check interval (seconds)",
           "on_drift": "On drift",
+          "p1_force": "Period 1 force charge",
+          "p1_grid": "Period 1 grid charge",
+          "p1_start": "Period 1 start",
+          "p1_end": "Period 1 end",
+          "p2_force": "Period 2 force charge",
+          "p2_grid": "Period 2 grid charge",
+          "p2_start": "Period 2 start",
+          "p2_end": "Period 2 end"
+        }
+      },
+      "storm_prep": {
+        "title": "Storm prep",
+        "description": "When trigger entities turn on, apply storm charge periods (local StormSafe replacement). Disable Fox cloud StormSafe.",
+        "data": {
+          "enabled": "Enable storm prep",
+          "trigger_entities": "Weather / warning entities",
+          "target_max_soc": "Target max SoC during prep (optional)",
+          "p1_force": "Period 1 force charge",
+          "p1_grid": "Period 1 grid charge",
+          "p1_start": "Period 1 start",
+          "p1_end": "Period 1 end",
+          "p2_force": "Period 2 force charge",
+          "p2_grid": "Period 2 grid charge",
+          "p2_start": "Period 2 start",
+          "p2_end": "Period 2 end"
+        }
+      },
+      "outage_prep": {
+        "title": "Outage prep",
+        "description": "When grid outage / backup triggers activate, force charge from grid if available.",
+        "data": {
+          "enabled": "Enable outage prep",
+          "trigger_entities": "Outage / backup trigger entities",
+          "target_max_soc": "Target max SoC during prep (optional)",
+          "p1_force": "Period 1 force charge",
+          "p1_grid": "Period 1 grid charge",
+          "p1_start": "Period 1 start",
+          "p1_end": "Period 1 end",
+          "p2_force": "Period 2 force charge",
+          "p2_grid": "Period 2 grid charge",
+          "p2_start": "Period 2 start",
+          "p2_end": "Period 2 end"
+        }
+      },
+      "forecast_prep": {
+        "title": "Forecast prep",
+        "description": "When tomorrow's solar forecast is below threshold, pre-charge overnight.",
+        "data": {
+          "enabled": "Enable forecast prep",
+          "forecast_entity": "Solar forecast entity (kWh)",
+          "threshold_kwh": "Forecast threshold (kWh)",
+          "target_max_soc": "Target max SoC during prep (optional)",
+          "p1_force": "Period 1 force charge",
+          "p1_grid": "Period 1 grid charge",
+          "p1_start": "Period 1 start",
+          "p1_end": "Period 1 end",
+          "p2_force": "Period 2 force charge",
+          "p2_grid": "Period 2 grid charge",
+          "p2_start": "Period 2 start",
+          "p2_end": "Period 2 end"
+        }
+      },
+      "tariff": {
+        "title": "Cheap import tariff",
+        "description": "Define the cheap_import profile used by foxess_plant.set_tariff_mode.",
+        "data": {
           "p1_force": "Period 1 force charge",
           "p1_grid": "Period 1 grid charge",
           "p1_start": "Period 1 start",

@@ -8,7 +8,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
-from .const import DISCOVERY_SUFFIXES
+from .const import CHARGE_PERIOD_KEYS, DISCOVERY_SUFFIXES
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -40,6 +40,5 @@ def discover_entity_map(hass: HomeAssistant, device_id: str) -> dict[str, str]:
 
 
 def missing_charge_period_entities(entity_map: dict[str, str]) -> list[str]:
-    """Return discovery keys missing from the map (required for drift detection)."""
-    required = list(DISCOVERY_SUFFIXES.keys())
-    return [key for key in required if key not in entity_map]
+    """Return charge-period keys missing from the map."""
+    return [key for key in CHARGE_PERIOD_KEYS if key not in entity_map]

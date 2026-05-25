@@ -12,31 +12,17 @@
 
 **Trigger:** state node on `sensor.octopus_cheap_import` → `true`
 
-**Action:** call service `foxess_plant.set_charge_periods`
+**Action:** call service `foxess_plant.set_tariff_mode`
 
 ```json
 {
-  "charge_periods": [
-    {
-      "enable_force_charge": true,
-      "enable_charge_from_grid": true,
-      "start": "00:30",
-      "end": "05:00"
-    },
-    {
-      "enable_force_charge": false,
-      "enable_charge_from_grid": false,
-      "start": "00:00",
-      "end": "00:00"
-    }
-  ],
-  "as_override": true,
-  "mode": "tariff",
-  "reason": "cheap_import"
+  "mode": "cheap_import"
 }
 ```
 
-**End trigger:** when cheap window ends → `foxess_plant.disarm_storm_prep` (restores baseline).
+Configure the `cheap_import` profile in integration **Options → Tariff profile**, or use `set_tariff_profile` to define it from Node-RED.
+
+**End trigger:** when cheap window ends → `foxess_plant.apply_baseline` or `disarm_storm_prep`.
 
 ## Example: read plant state
 
@@ -46,7 +32,9 @@ Response fields include:
 
 - `mode`, `control_active`, `override_active`
 - `desired_periods`, `actual_periods`, `drift`
-- `plant_id`, `inverter`, `entity_map`
+- `analytics` (self-consumption, self-sufficiency, kWh splits)
+- `active_storm_triggers`, `active_outage_triggers`, `forecast_armed`
+- `plant_id`, `inverter`, `entity_map`, `tariff_modes`
 
 ## Example: listen for drift
 
@@ -56,31 +44,25 @@ Payload includes `desired` and `actual` period arrays. Plant may auto-reapply if
 
 ## Example: storm prep from weather binary
 
+Configure trigger entities in integration **Options → Storm prep**, or call the service directly:
+
 **Trigger:** `binary_sensor.met_office_warning` → on
 
 **Action:** `foxess_plant.arm_storm_prep`
 
 ```json
 {
-  "charge_periods": [
-    {
-      "enable_force_charge": true,
-      "enable_charge_from_grid": true,
-      "start": "00:00",
-      "end": "23:59"
-    },
-    {
-      "enable_force_charge": false,
-      "enable_charge_from_grid": false,
-      "start": "00:00",
-      "end": "00:00"
-    }
-  ],
   "reason": "heavy_rain_warning"
 }
 ```
 
-**Clear:** weather off → `foxess_plant.disarm_storm_prep`
+**Clear:** weather off → `foxess_plant.disarm_storm_prep` (or configure triggers in Options for automatic handling).
+
+## Example: low solar forecast
+
+Configure in **Options → Forecast prep** with your Solcast / Forecast.Solar entity, or monitor `binary_sensor.*_forecast_prep_active`.
+
+When tomorrow's forecast drops below threshold, plant arms overnight charge automatically.
 
 ## Events reference
 
@@ -90,8 +72,13 @@ Payload includes `desired` and `actual` period arrays. Plant may auto-reapply if
 | `foxess_plant_period_apply_failed` | Write failed |
 | `foxess_plant_control_drift` | Actual ≠ desired |
 | `foxess_plant_external_write_detected` | Same as drift (alias) |
-| `foxess_plant_storm_armed` | Storm/tariff override armed |
+| `foxess_plant_storm_armed` | Storm override armed |
 | `foxess_plant_storm_disarmed` | Storm override cleared |
+| `foxess_plant_outage_armed` | Outage override armed |
+| `foxess_plant_outage_disarmed` | Outage override cleared |
+| `foxess_plant_forecast_armed` | Low forecast prep armed |
+| `foxess_plant_forecast_disarmed` | Forecast prep cleared |
+| `foxess_plant_tariff_applied` | Tariff mode applied |
 | `foxess_plant_baseline_restored` | Baseline reapplied |
 
 ## Maintenance mode

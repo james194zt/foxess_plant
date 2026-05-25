@@ -1,0 +1,39 @@
+blueprint:
+  name: FoxESS Plant storm prep clear
+  description: Restore baseline when weather warning clears.
+  domain: automation
+  source_url: https://github.com/james194zt/foxess_plant
+  input:
+    warning_entity:
+      name: Weather warning entity
+      selector:
+        entity:
+          domain:
+            - binary_sensor
+            - input_boolean
+    plant_id:
+      name: Plant ID
+      default: ""
+      selector:
+        text:
+trigger:
+  - platform: state
+    entity_id: !input warning_entity
+    from:
+      - "on"
+      - "true"
+      - "1"
+      - "active"
+      - "warning"
+      - "severe"
+    to:
+      - "off"
+      - "false"
+      - "0"
+      - "inactive"
+      - "idle"
+action:
+  - service: foxess_plant.disarm_storm_prep
+    data:
+      plant_id: !input plant_id
+mode: single

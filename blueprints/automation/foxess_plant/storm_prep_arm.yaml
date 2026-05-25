@@ -1,0 +1,36 @@
+blueprint:
+  name: FoxESS Plant storm prep arm
+  description: Arm storm prep when a weather warning turns on.
+  domain: automation
+  source_url: https://github.com/james194zt/foxess_plant
+  input:
+    warning_entity:
+      name: Weather warning entity
+      description: Binary sensor or input that turns on during storm / severe weather.
+      selector:
+        entity:
+          domain:
+            - binary_sensor
+            - input_boolean
+    plant_id:
+      name: Plant ID
+      description: Optional foxess_plant config entry ID (leave empty if only one plant).
+      default: ""
+      selector:
+        text:
+trigger:
+  - platform: state
+    entity_id: !input warning_entity
+    to:
+      - "on"
+      - "true"
+      - "1"
+      - "active"
+      - "warning"
+      - "severe"
+action:
+  - service: foxess_plant.arm_storm_prep
+    data:
+      plant_id: !input plant_id
+      reason: weather_warning
+mode: single

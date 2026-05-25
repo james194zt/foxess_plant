@@ -13,10 +13,18 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import selector
 
 from .const import (
+    CONF_BASELINE_PERIODS,
     CONF_CONTROL,
     CONF_DEVICE_ID,
+    CONF_FORECAST_PREP,
+    CONF_OUTAGE_PREP,
+    CONF_STORM_PREP,
+    CONF_TARIFF_MODES,
     DEFAULT_BASELINE_PERIODS,
     DEFAULT_CONTROL,
+    DEFAULT_FORECAST_PREP,
+    DEFAULT_OUTAGE_PREP,
+    DEFAULT_STORM_PREP,
     DOMAIN,
     MODBUS_DOMAIN,
 )
@@ -25,11 +33,49 @@ from .models import ChargePeriodConfig, ControlConfig, PlantConfig
 
 _LOGGER = logging.getLogger(__name__)
 
+MENU_BASELINE = "baseline"
+MENU_STORM = "storm_prep"
+MENU_OUTAGE = "outage_prep"
+MENU_FORECAST = "forecast_prep"
+MENU_TARIFF = "tariff"
+
 
 def _device_selector() -> selector.DeviceSelector:
     return selector.DeviceSelector(
         config=selector.DeviceSelectorConfig(integration=MODBUS_DOMAIN)
     )
+
+
+def _entity_multi_selector() -> selector.EntitySelector:
+    return selector.EntitySelector(
+        config=selector.EntitySelectorConfig(multiple=True)
+    )
+
+
+def _period_schema(prefix: str, period: ChargePeriodConfig) -> dict:
+    return {
+        vol.Required(f"{prefix}_force", default=period.enable_force_charge): bool,
+        vol.Required(f"{prefix}_grid", default=period.enable_charge_from_grid): bool,
+        vol.Required(f"{prefix}_start", default=period.start): str,
+        vol.Required(f"{prefix}_end", default=period.end): str,
+    }
+
+
+def _periods_from_form(data: dict[str, Any], p1_prefix: str, p2_prefix: str) -> list[dict[str, Any]]:
+    return [
+        ChargePeriodConfig(
+            enable_force_charge=data[f"{p1_prefix}_force"],
+            enable_charge_from_grid=data[f"{p1_prefix}_grid"],
+            start=data[f"{p1_prefix}_start"],
+            end=data[f"{p1_prefix}_end"],
+        ).to_dict(),
+        ChargePeriodConfig(
+            enable_force_charge=data[f"{p2_prefix}_force"],
+            enable_charge_from_grid=data[f"{p2_prefix}_grid"],
+            start=data[f"{p2_prefix}_start"],
+            end=data[f"{p2_prefix}_end"],
+        ).to_dict(),
+    ]
 
 
 class FoxessPlantConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -120,15 +166,37 @@ class FoxessPlantConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class FoxessPlantOptionsFlow(config_entries.OptionsFlow):
-    """Options flow for baseline periods and control settings."""
+    """Options flow for baseline, prep policies, and tariff profiles."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
         self.config_entry = config_entry
 
+    def _plant(self) -> PlantConfig:
+        return PlantConfig.from_entry_data(self.config_entry.data)
+
+    def _update_data(self, data: dict[str, Any]) -> None:
+        self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+        coordinator = self.hass.data[DOMAIN][self.config_entry.entry_id]["coordinator"]
+        coordinator.update_plant_config(PlantConfig.from_entry_data(data))
+
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.FlowResult:
-        plant = PlantConfig.from_entry_data(self.config_entry.data)
+        return self.async_show_menu(
+            step_id="init",
+            menu_options={
+                MENU_BASELINE: "Baseline schedule & drift detection",
+                MENU_STORM: "Storm prep (weather triggers)",
+                MENU_OUTAGE: "Outage prep (grid-down triggers)",
+                MENU_FORECAST: "Low solar forecast prep",
+                MENU_TARIFF: "Tariff profile (cheap import)",
+            },
+        )
+
+    async def async_step_baseline(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.FlowResult:
+        plant = self._plant()
 
         if user_input is not None:
             data = dict(self.config_entry.data)
@@ -137,22 +205,9 @@ class FoxessPlantOptionsFlow(config_entries.OptionsFlow):
                 "drift_check_interval": user_input["drift_check_interval"],
                 "on_drift": user_input["on_drift"],
             }
-            p1 = ChargePeriodConfig(
-                enable_force_charge=user_input["p1_force"],
-                enable_charge_from_grid=user_input["p1_grid"],
-                start=user_input["p1_start"],
-                end=user_input["p1_end"],
-            )
-            p2 = ChargePeriodConfig(
-                enable_force_charge=user_input["p2_force"],
-                enable_charge_from_grid=user_input["p2_grid"],
-                start=user_input["p2_start"],
-                end=user_input["p2_end"],
-            )
-            data[CONF_BASELINE_PERIODS] = [p1.to_dict(), p2.to_dict()]
-            self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+            data[CONF_BASELINE_PERIODS] = _periods_from_form(user_input, "p1", "p2")
+            self._update_data(data)
             coordinator = self.hass.data[DOMAIN][self.config_entry.entry_id]["coordinator"]
-            coordinator.update_plant_config(PlantConfig.from_entry_data(data))
             await coordinator.async_apply_baseline()
             return self.async_create_entry(title="", data={})
 
@@ -172,14 +227,134 @@ class FoxessPlantOptionsFlow(config_entries.OptionsFlow):
                 vol.Required("on_drift", default=plant.control.on_drift): vol.In(
                     ["reapply", "alert", "ignore"]
                 ),
-                vol.Required("p1_force", default=p1.enable_force_charge): bool,
-                vol.Required("p1_grid", default=p1.enable_charge_from_grid): bool,
-                vol.Required("p1_start", default=p1.start): str,
-                vol.Required("p1_end", default=p1.end): str,
-                vol.Required("p2_force", default=p2.enable_force_charge): bool,
-                vol.Required("p2_grid", default=p2.enable_charge_from_grid): bool,
-                vol.Required("p2_start", default=p2.start): str,
-                vol.Required("p2_end", default=p2.end): str,
+                **_period_schema("p1", p1),
+                **_period_schema("p2", p2),
             }
         )
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return self.async_show_form(step_id="baseline", data_schema=schema)
+
+    async def async_step_storm_prep(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.FlowResult:
+        plant = self._plant()
+        cfg = plant.storm_prep
+
+        if user_input is not None:
+            data = dict(self.config_entry.data)
+            target = user_input.get("target_max_soc")
+            data[CONF_STORM_PREP] = {
+                "enabled": user_input["enabled"],
+                "trigger_entities": user_input.get("trigger_entities") or [],
+                "charge_periods": _periods_from_form(user_input, "p1", "p2"),
+                "target_max_soc": float(target) if target not in (None, "") else None,
+            }
+            self._update_data(data)
+            return self.async_create_entry(title="", data={})
+
+        p1 = cfg.charge_periods[0] if cfg.charge_periods else ChargePeriodConfig()
+        p2 = cfg.charge_periods[1] if len(cfg.charge_periods) > 1 else ChargePeriodConfig()
+        schema = vol.Schema(
+            {
+                vol.Required("enabled", default=cfg.enabled): bool,
+                vol.Optional("trigger_entities", default=cfg.trigger_entities): _entity_multi_selector(),
+                vol.Optional("target_max_soc", default=cfg.target_max_soc): vol.Any(float, None, ""),
+                **_period_schema("p1", p1),
+                **_period_schema("p2", p2),
+            }
+        )
+        return self.async_show_form(step_id="storm_prep", data_schema=schema)
+
+    async def async_step_outage_prep(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.FlowResult:
+        plant = self._plant()
+        cfg = plant.outage_prep
+
+        if user_input is not None:
+            data = dict(self.config_entry.data)
+            target = user_input.get("target_max_soc")
+            data[CONF_OUTAGE_PREP] = {
+                "enabled": user_input["enabled"],
+                "trigger_entities": user_input.get("trigger_entities") or [],
+                "charge_periods": _periods_from_form(user_input, "p1", "p2"),
+                "target_max_soc": float(target) if target not in (None, "") else None,
+            }
+            self._update_data(data)
+            return self.async_create_entry(title="", data={})
+
+        p1 = cfg.charge_periods[0] if cfg.charge_periods else ChargePeriodConfig()
+        p2 = cfg.charge_periods[1] if len(cfg.charge_periods) > 1 else ChargePeriodConfig()
+        schema = vol.Schema(
+            {
+                vol.Required("enabled", default=cfg.enabled): bool,
+                vol.Optional("trigger_entities", default=cfg.trigger_entities): _entity_multi_selector(),
+                vol.Optional("target_max_soc", default=cfg.target_max_soc): vol.Any(float, None, ""),
+                **_period_schema("p1", p1),
+                **_period_schema("p2", p2),
+            }
+        )
+        return self.async_show_form(step_id="outage_prep", data_schema=schema)
+
+    async def async_step_forecast_prep(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.FlowResult:
+        plant = self._plant()
+        cfg = plant.forecast_prep
+
+        if user_input is not None:
+            data = dict(self.config_entry.data)
+            target = user_input.get("target_max_soc")
+            data[CONF_FORECAST_PREP] = {
+                "enabled": user_input["enabled"],
+                "forecast_entity": user_input.get("forecast_entity"),
+                "threshold_kwh": float(user_input["threshold_kwh"]),
+                "charge_periods": _periods_from_form(user_input, "p1", "p2"),
+                "target_max_soc": float(target) if target not in (None, "") else None,
+            }
+            self._update_data(data)
+            return self.async_create_entry(title="", data={})
+
+        p1 = cfg.charge_periods[0] if cfg.charge_periods else ChargePeriodConfig()
+        p2 = cfg.charge_periods[1] if len(cfg.charge_periods) > 1 else ChargePeriodConfig()
+        schema = vol.Schema(
+            {
+                vol.Required("enabled", default=cfg.enabled): bool,
+                vol.Optional("forecast_entity", default=cfg.forecast_entity): selector.EntitySelector(),
+                vol.Required("threshold_kwh", default=cfg.threshold_kwh): vol.All(
+                    vol.Coerce(float), vol.Range(min=0.1, max=100)
+                ),
+                vol.Optional("target_max_soc", default=cfg.target_max_soc): vol.Any(float, None, ""),
+                **_period_schema("p1", p1),
+                **_period_schema("p2", p2),
+            }
+        )
+        return self.async_show_form(step_id="forecast_prep", data_schema=schema)
+
+    async def async_step_tariff(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.FlowResult:
+        plant = self._plant()
+        cheap = plant.tariff_modes.get("cheap_import", [])
+        p1 = ChargePeriodConfig.from_dict(cheap[0]) if cheap else ChargePeriodConfig(
+            enable_force_charge=True,
+            enable_charge_from_grid=True,
+            start="00:30",
+            end="05:00",
+        )
+        p2 = ChargePeriodConfig.from_dict(cheap[1]) if len(cheap) > 1 else ChargePeriodConfig()
+
+        if user_input is not None:
+            data = dict(self.config_entry.data)
+            tariff_modes = dict(data.get(CONF_TARIFF_MODES, {}))
+            tariff_modes["cheap_import"] = _periods_from_form(user_input, "p1", "p2")
+            data[CONF_TARIFF_MODES] = tariff_modes
+            self._update_data(data)
+            return self.async_create_entry(title="", data={})
+
+        schema = vol.Schema(
+            {
+                **_period_schema("p1", p1),
+                **_period_schema("p2", p2),
+            }
+        )
+        return self.async_show_form(step_id="tariff", data_schema=schema)

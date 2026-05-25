@@ -102,19 +102,15 @@ def register_services(hass: HomeAssistant) -> None:
         return _get_coordinator(hass, call).get_plant_state()
 
     async def set_tariff_mode(call: ServiceCall) -> None:
+        await _get_coordinator(hass, call).async_set_tariff_mode(call.data["mode"])
+
+    async def set_tariff_profile(call: ServiceCall) -> None:
         coord = _get_coordinator(hass, call)
-        entry = coord.config_entry
-        modes = entry.data.get("tariff_modes", {})
         mode_name = call.data["mode"]
-        if mode_name not in modes:
-            raise HomeAssistantError(f"Unknown tariff mode '{mode_name}'")
-        mode_cfg = modes[mode_name]
-        periods = _periods_from_service(mode_cfg.get("charge_periods", []))
-        await coord.async_set_override_periods(
-            periods,
-            "tariff",
-            f"tariff:{mode_name}",
-        )
+        periods = _periods_from_service(call.data["charge_periods"])
+        await coord.async_set_tariff_profile(mode_name, periods)
+        if call.data.get("apply_now", False):
+            await coord.async_set_tariff_mode(mode_name)
 
     plant_id = vol.Optional("plant_id")
 
@@ -203,6 +199,19 @@ def register_services(hass: HomeAssistant) -> None:
             {
                 plant_id: cv.string,
                 vol.Required("mode"): cv.string,
+            }
+        ),
+    )
+    hass.services.async_register(
+        DOMAIN,
+        "set_tariff_profile",
+        set_tariff_profile,
+        schema=vol.Schema(
+            {
+                plant_id: cv.string,
+                vol.Required("mode"): cv.string,
+                vol.Required("charge_periods"): [vol.Schema(PERIOD_SCHEMA)],
+                vol.Optional("apply_now", default=False): cv.boolean,
             }
         ),
     )

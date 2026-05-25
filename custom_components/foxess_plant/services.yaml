@@ -173,3 +173,29 @@ set_tariff_mode:
       required: true
       selector:
         text:
+
+set_tariff_profile:
+  name: Set tariff profile
+  description: Store or update a named tariff charge-period profile.
+  fields:
+    plant_id:
+      name: Plant
+      required: false
+      selector:
+        text:
+    mode:
+      name: Mode name
+      required: true
+      selector:
+        text:
+    charge_periods:
+      name: Charge periods
+      required: true
+      selector:
+        object:
+    apply_now:
+      name: Apply now
+      required: false
+      default: false
+      selector:
+        boolean:

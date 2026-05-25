@@ -2,30 +2,38 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
+from .analytics import compute_analytics
 from .charge_period import apply_charge_periods
 from .const import (
+    ANALYTICS_ENTITY_SUFFIXES,
+    AUTOMATION_MODES,
     EVENT_BASELINE_RESTORED,
     EVENT_CONTROL_DRIFT,
     EVENT_EXTERNAL_WRITE,
+    EVENT_FORECAST_ARMED,
+    EVENT_FORECAST_DISARMED,
+    EVENT_OUTAGE_ARMED,
+    EVENT_OUTAGE_DISARMED,
     EVENT_PERIOD_APPLIED,
     EVENT_PERIOD_APPLY_FAILED,
     EVENT_STORM_ARMED,
     EVENT_STORM_DISARMED,
-    MODE_BASELINE,
-    MODE_OVERRIDE,
+    EVENT_TARIFF_APPLIED,
+    MODE_FORECAST,
+    MODE_OUTAGE,
     MODE_STORM,
     MODE_TARIFF,
+    TRIGGER_ON_STATES,
 )
 from .models import ChargePeriodConfig, OverrideState, PlantConfig
 
@@ -40,11 +48,18 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     config_entry: ConfigEntry
     plant: PlantConfig
     _unsub_drift: callable | None = None
+    _unsub_triggers: callable | None = None
     _applying: bool = False
+    _active_storm_triggers: set[str]
+    _active_outage_triggers: set[str]
+    _forecast_armed: bool
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self.config_entry = entry
         self.plant = PlantConfig.from_entry_data(entry.data)
+        self._active_storm_triggers = set()
+        self._active_outage_triggers = set()
+        self._forecast_armed = False
         super().__init__(
             hass,
             _LOGGER,
@@ -53,6 +68,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     async def async_config_entry_first_refresh(self) -> None:
+        self._sync_trigger_membership()
+        self.setup_trigger_listeners()
         await super().async_config_entry_first_refresh()
         self._setup_drift_timer()
         if self.plant.control_active:
@@ -78,7 +95,188 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def update_plant_config(self, plant: PlantConfig) -> None:
         self.plant = plant
+        self._sync_trigger_membership()
+        self.setup_trigger_listeners()
         self._setup_drift_timer()
+
+    def setup_trigger_listeners(self) -> None:
+        if self._unsub_triggers:
+            self._unsub_triggers()
+            self._unsub_triggers = None
+        entities = self.plant.all_trigger_entities()
+        if not entities:
+            return
+
+        @callback
+        def _listener(event: Event) -> None:
+            self.hass.async_create_task(self._async_handle_trigger_event(event))
+
+        self._unsub_triggers = async_track_state_change_event(self.hass, entities, _listener)
+
+    def _sync_trigger_membership(self) -> None:
+        self._active_storm_triggers = {
+            eid
+            for eid in self.plant.storm_prep.trigger_entities
+            if self._is_trigger_active(eid)
+        }
+        self._active_outage_triggers = {
+            eid
+            for eid in self.plant.outage_prep.trigger_entities
+            if self._is_trigger_active(eid)
+        }
+
+    def _is_trigger_active(self, entity_id: str) -> bool:
+        state = self.hass.states.get(entity_id)
+        if state is None:
+            return False
+        return state.state.lower() in TRIGGER_ON_STATES
+
+    async def _async_handle_trigger_event(self, event: Event) -> None:
+        entity_id = event.data.get("entity_id")
+        if not entity_id or not self.plant.control_active:
+            return
+
+        if entity_id in self.plant.storm_prep.trigger_entities:
+            if self._is_trigger_active(entity_id):
+                self._active_storm_triggers.add(entity_id)
+            else:
+                self._active_storm_triggers.discard(entity_id)
+
+        if entity_id in self.plant.outage_prep.trigger_entities:
+            if self._is_trigger_active(entity_id):
+                self._active_outage_triggers.add(entity_id)
+            else:
+                self._active_outage_triggers.discard(entity_id)
+
+        await self._sync_automation_policy()
+
+    async def _sync_automation_policy(self) -> None:
+        if not self.plant.control_active:
+            return
+        if self.plant.override.active and self.plant.override.mode not in AUTOMATION_MODES:
+            return
+
+        if self.plant.outage_prep.enabled and self._active_outage_triggers:
+            reason = f"outage:{','.join(sorted(self._active_outage_triggers))}"
+            if self.plant.override.active and self.plant.override.mode == MODE_OUTAGE:
+                if self.plant.override.reason == reason:
+                    return
+            await self._arm_policy(
+                MODE_OUTAGE,
+                self.plant.outage_prep.charge_periods,
+                reason,
+                self.plant.outage_prep.target_max_soc,
+                EVENT_OUTAGE_ARMED,
+            )
+            return
+
+        if self.plant.storm_prep.enabled and self._active_storm_triggers:
+            reason = f"storm:{','.join(sorted(self._active_storm_triggers))}"
+            if self.plant.override.active and self.plant.override.mode == MODE_STORM:
+                if self.plant.override.reason == reason:
+                    return
+            await self._arm_policy(
+                MODE_STORM,
+                self.plant.storm_prep.charge_periods,
+                reason,
+                self.plant.storm_prep.target_max_soc,
+                EVENT_STORM_ARMED,
+            )
+            return
+
+        if self._forecast_armed:
+            return
+
+        if self.plant.override.active and self.plant.override.mode in AUTOMATION_MODES:
+            mode = self.plant.override.mode
+            event = {
+                MODE_STORM: EVENT_STORM_DISARMED,
+                MODE_OUTAGE: EVENT_OUTAGE_DISARMED,
+                MODE_FORECAST: EVENT_FORECAST_DISARMED,
+            }[mode]
+            await self._disarm_policy(mode, event)
+
+    async def _arm_policy(
+        self,
+        mode: str,
+        periods: list[ChargePeriodConfig],
+        reason: str,
+        target_max_soc: float | None,
+        event_name: str,
+    ) -> None:
+        await self._save_max_soc_if_needed(target_max_soc)
+        await self.async_set_override_periods(periods, mode, reason)
+        if target_max_soc is not None:
+            await self._set_max_soc(target_max_soc)
+        self._fire(event_name, {"reason": reason, "mode": mode})
+
+    async def _disarm_policy(self, mode: str, event_name: str) -> None:
+        if not (self.plant.override.active and self.plant.override.mode == mode):
+            return
+        saved = self.plant.override.saved_max_soc
+        self.plant.override = OverrideState()
+        await self._persist()
+        await self.async_apply_desired()
+        if saved is not None:
+            await self._set_max_soc(saved)
+        self._fire(event_name, {})
+        self._fire(EVENT_BASELINE_RESTORED, {})
+
+    async def _evaluate_forecast_prep(self) -> None:
+        cfg = self.plant.forecast_prep
+        if not cfg.enabled or not cfg.forecast_entity or not self.plant.control_active:
+            return
+        if self.plant.outage_prep.enabled and self._active_outage_triggers:
+            return
+        if self.plant.storm_prep.enabled and self._active_storm_triggers:
+            return
+
+        state = self.hass.states.get(cfg.forecast_entity)
+        if state is None or state.state in ("unknown", "unavailable"):
+            return
+
+        try:
+            forecast_kwh = float(state.state)
+        except (TypeError, ValueError):
+            return
+
+        low_forecast = forecast_kwh < cfg.threshold_kwh
+        if low_forecast and not self._forecast_armed:
+            self._forecast_armed = True
+            if self.plant.override.active and self.plant.override.mode not in AUTOMATION_MODES:
+                return
+            await self._arm_policy(
+                MODE_FORECAST,
+                cfg.charge_periods,
+                f"forecast:{forecast_kwh:.1f}<{cfg.threshold_kwh}",
+                cfg.target_max_soc,
+                EVENT_FORECAST_ARMED,
+            )
+        elif not low_forecast and self._forecast_armed:
+            self._forecast_armed = False
+            if self.plant.override.active and self.plant.override.mode == MODE_FORECAST:
+                await self._disarm_policy(MODE_FORECAST, EVENT_FORECAST_DISARMED)
+
+    async def _save_max_soc_if_needed(self, target: float | None) -> None:
+        if target is None or self.plant.override.saved_max_soc is not None:
+            return
+        current = self._entity_state("max_soc")
+        if current not in (None, "unknown", "unavailable"):
+            try:
+                self.plant.override.saved_max_soc = float(current)
+            except ValueError:
+                pass
+
+    async def _set_max_soc(self, value: float) -> None:
+        entity_id = self.plant.entity_map.get("max_soc")
+        if not entity_id:
+            return
+        await self.hass.services.async_call(
+            "number",
+            "set_value",
+            {"entity_id": entity_id, "value": value},
+            blocking=True,
+        )
 
     async def _persist(self) -> None:
         self.hass.config_entries.async_update_entry(
@@ -90,6 +288,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         desired = [p.to_dict() for p in self.plant.desired_periods()]
         actual = self._read_actual_periods()
         drift = self._compute_drift(desired, actual)
+        analytics = self._read_analytics()
         return {
             "plant_id": self.config_entry.entry_id,
             "title": self.config_entry.title,
@@ -102,11 +301,22 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "actual_periods": actual,
             "drift": drift,
             "entity_map": self.plant.entity_map,
+            "analytics": analytics,
+            "active_storm_triggers": sorted(self._active_storm_triggers),
+            "active_outage_triggers": sorted(self._active_outage_triggers),
+            "forecast_armed": self._forecast_armed,
+            "tariff_modes": sorted(self.plant.tariff_modes.keys()),
         }
 
+    def _read_analytics(self) -> dict[str, Any]:
+        states = {key: self._entity_state(key) for key in ANALYTICS_ENTITY_SUFFIXES}
+        if not any(states.values()):
+            return {}
+        return compute_analytics(states)
+
     async def _async_update_data(self) -> dict[str, Any]:
-        state = self.get_plant_state()
-        return state
+        await self._evaluate_forecast_prep()
+        return self.get_plant_state()
 
     def _entity_state(self, key: str) -> str | None:
         entity_id = self.plant.entity_map.get(key)
@@ -186,9 +396,13 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.async_request_refresh()
 
     async def async_apply_baseline(self) -> None:
+        saved = self.plant.override.saved_max_soc
         self.plant.override = OverrideState()
+        self._forecast_armed = False
         await self._persist()
         await self.async_apply_desired()
+        if saved is not None:
+            await self._set_max_soc(saved)
         self._fire(EVENT_BASELINE_RESTORED, {})
 
     async def async_set_baseline_periods(self, periods: list[ChargePeriodConfig]) -> None:
@@ -225,18 +439,24 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.plant.override.reason = reason
         await self._persist()
         await self.async_apply_desired()
-        if mode == MODE_STORM:
-            self._fire(EVENT_STORM_ARMED, {"reason": reason})
-        elif mode == MODE_TARIFF:
-            self._fire(EVENT_STORM_ARMED, {"reason": reason, "mode": MODE_TARIFF})
 
     async def async_disarm_override(self) -> None:
-        was_storm = self.plant.override.mode == MODE_STORM
+        mode = self.plant.override.mode
+        saved = self.plant.override.saved_max_soc
         self.plant.override = OverrideState()
+        self._forecast_armed = False
+        self._active_storm_triggers.clear()
+        self._active_outage_triggers.clear()
         await self._persist()
         await self.async_apply_desired()
-        if was_storm:
+        if saved is not None:
+            await self._set_max_soc(saved)
+        if mode == MODE_STORM:
             self._fire(EVENT_STORM_DISARMED, {})
+        elif mode == MODE_OUTAGE:
+            self._fire(EVENT_OUTAGE_DISARMED, {})
+        elif mode == MODE_FORECAST:
+            self._fire(EVENT_FORECAST_DISARMED, {})
         self._fire(EVENT_BASELINE_RESTORED, {})
 
     async def async_arm_storm_prep(
@@ -244,8 +464,23 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         periods: list[ChargePeriodConfig] | None,
         reason: str = "storm_prep",
     ) -> None:
-        use_periods = periods if periods else self.plant.baseline_periods
-        await self.async_set_override_periods(use_periods, MODE_STORM, reason)
+        use_periods = periods if periods else self.plant.storm_prep.charge_periods
+        await self._arm_policy(MODE_STORM, use_periods, reason, self.plant.storm_prep.target_max_soc, EVENT_STORM_ARMED)
+
+    async def async_set_tariff_mode(self, mode_name: str) -> None:
+        if mode_name not in self.plant.tariff_modes:
+            raise HomeAssistantError(f"Unknown tariff mode '{mode_name}'")
+        periods = self.plant.tariff_modes[mode_name]
+        await self.async_set_override_periods(periods, MODE_TARIFF, f"tariff:{mode_name}")
+        self._fire(EVENT_TARIFF_APPLIED, {"reason": f"tariff:{mode_name}", "mode": MODE_TARIFF})
+
+    async def async_set_tariff_profile(
+        self,
+        mode_name: str,
+        periods: list[ChargePeriodConfig],
+    ) -> None:
+        self.plant.tariff_modes[mode_name] = periods
+        await self._persist()
 
     async def async_take_control(self) -> None:
         self.plant.control_active = True
@@ -269,17 +504,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         self._fire(
             EVENT_CONTROL_DRIFT,
-            {
-                "desired": state["desired_periods"],
-                "actual": state["actual_periods"],
-            },
+            {"desired": state["desired_periods"], "actual": state["actual_periods"]},
         )
         self._fire(
             EVENT_EXTERNAL_WRITE,
-            {
-                "desired": state["desired_periods"],
-                "actual": state["actual_periods"],
-            },
+            {"desired": state["desired_periods"], "actual": state["actual_periods"]},
         )
 
         if self.plant.control.on_drift == "reapply":
@@ -295,3 +524,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._unsub_drift:
             self._unsub_drift()
             self._unsub_drift = None
+        if self._unsub_triggers:
+            self._unsub_triggers()
+            self._unsub_triggers = None

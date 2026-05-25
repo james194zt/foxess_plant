@@ -24,6 +24,9 @@ async def async_setup_entry(
             FoxessPlantControlActiveBinary(coordinator, entry),
             FoxessPlantOverrideActiveBinary(coordinator, entry),
             FoxessPlantDriftBinary(coordinator, entry),
+            FoxessPlantStormActiveBinary(coordinator, entry),
+            FoxessPlantOutageActiveBinary(coordinator, entry),
+            FoxessPlantForecastActiveBinary(coordinator, entry),
         ]
     )
 
@@ -72,3 +75,33 @@ class FoxessPlantDriftBinary(_PlantBinary):
     def is_on(self) -> bool:
         data = self.coordinator.data or {}
         return bool(data.get("drift"))
+
+
+class FoxessPlantStormActiveBinary(_PlantBinary):
+    def __init__(self, coordinator: FoxessPlantCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry, "storm_prep_active", "storm prep active", "mdi:weather-lightning-rainy")
+
+    @property
+    def is_on(self) -> bool:
+        data = self.coordinator.data or {}
+        return bool(data.get("active_storm_triggers"))
+
+
+class FoxessPlantOutageActiveBinary(_PlantBinary):
+    def __init__(self, coordinator: FoxessPlantCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry, "outage_prep_active", "outage prep active", "mdi:transmission-tower-off")
+
+    @property
+    def is_on(self) -> bool:
+        data = self.coordinator.data or {}
+        return bool(data.get("active_outage_triggers"))
+
+
+class FoxessPlantForecastActiveBinary(_PlantBinary):
+    def __init__(self, coordinator: FoxessPlantCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry, "forecast_prep_active", "forecast prep active", "mdi:weather-sunset-down")
+
+    @property
+    def is_on(self) -> bool:
+        data = self.coordinator.data or {}
+        return bool(data.get("forecast_armed"))
