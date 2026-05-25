@@ -13,7 +13,7 @@ from .const import DOMAIN, PANEL_ICON, PANEL_STATIC_URL, PANEL_TITLE, PANEL_URL_
 _LOGGER = logging.getLogger(__name__)
 
 PANEL_COMPONENT = "foxess-plant-panel"
-WWW_DIR = Path(__path__).parent / "www"
+WWW_DIR = Path(__file__).parent / "www"
 
 
 def _panel_exists(hass: HomeAssistant) -> bool:
