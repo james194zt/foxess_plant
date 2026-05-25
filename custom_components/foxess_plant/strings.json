@@ -1,0 +1,44 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "FoxESS Plant",
+        "description": "Select the foxess_modbus inverter device this plant controller will manage.",
+        "data": {
+          "device_id": "Inverter device"
+        }
+      },
+      "confirm": {
+        "title": "Confirm discovery",
+        "description": "Plant **{device}** will control charge periods via foxess_modbus.\n\nDiscovered entities:\n{entities}\n\nMissing (drift detection may be limited): {missing}"
+      }
+    },
+    "error": {
+      "invalid_device": "Select a valid foxess_modbus inverter device."
+    },
+    "abort": {
+      "already_configured": "This inverter already has a plant controller."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Plant settings",
+        "description": "Baseline charge periods and drift detection. Times use HH:MM (24h).",
+        "data": {
+          "exclusive": "Exclusive control (reapply on drift)",
+          "drift_check_interval": "Drift check interval (seconds)",
+          "on_drift": "On drift",
+          "p1_force": "Period 1 force charge",
+          "p1_grid": "Period 1 grid charge",
+          "p1_start": "Period 1 start",
+          "p1_end": "Period 1 end",
+          "p2_force": "Period 2 force charge",
+          "p2_grid": "Period 2 grid charge",
+          "p2_start": "Period 2 start",
+          "p2_end": "Period 2 end"
+        }
+      }
+    }
+  }
+}

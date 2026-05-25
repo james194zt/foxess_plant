@@ -1,0 +1,175 @@
+apply_baseline:
+  name: Apply baseline schedule
+  description: Restore baseline charge periods and clear overrides.
+  fields:
+    plant_id:
+      name: Plant
+      description: Config entry ID (optional if only one plant).
+      required: false
+      selector:
+        text:
+
+apply_desired:
+  name: Apply desired schedule
+  description: Push the current desired charge periods to the inverter.
+  fields:
+    plant_id:
+      name: Plant
+      required: false
+      selector:
+        text:
+
+set_charge_period:
+  name: Set charge period
+  description: Update one baseline charge period (1 or 2) and optionally apply immediately.
+  fields:
+    plant_id:
+      name: Plant
+      required: false
+      selector:
+        text:
+    charge_period:
+      name: Charge period
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 2
+          mode: box
+    enable_force_charge:
+      name: Force charge
+      required: true
+      selector:
+        boolean:
+    enable_charge_from_grid:
+      name: Charge from grid
+      required: true
+      selector:
+        boolean:
+    start:
+      name: Start (HH:MM)
+      required: false
+      default: "00:00"
+      selector:
+        text:
+    end:
+      name: End (HH:MM)
+      required: false
+      default: "00:00"
+      selector:
+        text:
+    apply_now:
+      name: Apply now
+      required: false
+      default: true
+      selector:
+        boolean:
+
+set_charge_periods:
+  name: Set charge periods
+  description: Replace both charge periods (baseline or temporary override).
+  fields:
+    plant_id:
+      name: Plant
+      required: false
+      selector:
+        text:
+    charge_periods:
+      name: Charge periods
+      required: true
+      selector:
+        object:
+    as_override:
+      name: As override
+      required: false
+      default: false
+      selector:
+        boolean:
+    mode:
+      name: Override mode
+      required: false
+      default: override
+      selector:
+        text:
+    reason:
+      name: Reason
+      required: false
+      default: service
+      selector:
+        text:
+
+arm_storm_prep:
+  name: Arm storm prep
+  description: Apply storm prep charge periods as a temporary override.
+  fields:
+    plant_id:
+      name: Plant
+      required: false
+      selector:
+        text:
+    charge_periods:
+      name: Charge periods
+      required: false
+      selector:
+        object:
+    reason:
+      name: Reason
+      required: false
+      default: storm_prep
+      selector:
+        text:
+
+disarm_storm_prep:
+  name: Disarm storm prep
+  description: Clear override and restore baseline charge periods.
+  fields:
+    plant_id:
+      name: Plant
+      required: false
+      selector:
+        text:
+
+take_control:
+  name: Take control
+  description: Enable exclusive plant control and apply desired state.
+  fields:
+    plant_id:
+      name: Plant
+      required: false
+      selector:
+        text:
+
+release_control:
+  name: Release control
+  description: Stop automatic writes (monitoring continues).
+  fields:
+    plant_id:
+      name: Plant
+      required: false
+      selector:
+        text:
+
+get_plant_state:
+  name: Get plant state
+  description: Return JSON snapshot for Node-RED or debugging.
+  fields:
+    plant_id:
+      name: Plant
+      required: false
+      selector:
+        text:
+
+set_tariff_mode:
+  name: Set tariff mode
+  description: Apply a named tariff mode from integration config (charge_periods profile).
+  fields:
+    plant_id:
+      name: Plant
+      required: false
+      selector:
+        text:
+    mode:
+      name: Mode name
+      required: true
+      selector:
+        text:
