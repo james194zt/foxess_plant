@@ -75,7 +75,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self.plant.control_active:
             try:
                 await self.async_apply_desired(force=True)
-            except HomeAssistantError as err:
+            except Exception as err:
                 _LOGGER.warning("Initial baseline apply failed: %s", err)
 
     def _setup_drift_timer(self) -> None:
@@ -315,7 +315,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return compute_analytics(states)
 
     async def _async_update_data(self) -> dict[str, Any]:
-        await self._evaluate_forecast_prep()
+        try:
+            await self._evaluate_forecast_prep()
+        except Exception as err:
+            _LOGGER.warning("Forecast prep evaluation failed: %s", err)
         return self.get_plant_state()
 
     def _entity_state(self, key: str) -> str | None:

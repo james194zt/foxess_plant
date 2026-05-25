@@ -30,6 +30,8 @@ def build_panel_config(hass: HomeAssistant) -> dict[str, Any]:
     """Build panel config payload passed to the frontend web component."""
     plants: list[dict[str, Any]] = []
     for entry_id, data in hass.data.get(DOMAIN, {}).items():
+        if not isinstance(data, dict):
+            continue
         coordinator = data.get("coordinator")
         if coordinator is None:
             continue

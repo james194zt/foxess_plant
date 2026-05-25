@@ -9,6 +9,7 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from .entity import plant_device_info
 from .const import DOMAIN
 from .coordinator import FoxessPlantCoordinator
 
@@ -41,6 +42,7 @@ class _PlantBinary(CoordinatorEntity[FoxessPlantCoordinator], BinarySensorEntity
         icon: str,
     ) -> None:
         super().__init__(coordinator)
+        self._attr_device_info = plant_device_info(entry)
         self._attr_unique_id = f"{entry.entry_id}_{suffix}"
         self._attr_name = f"{entry.title} {name}"
         self._attr_icon = icon

@@ -23,6 +23,8 @@ def _plant_summary(hass: HomeAssistant, entry_id: str) -> dict[str, Any]:
 @callback
 def async_register_ws_handlers(hass: HomeAssistant) -> None:
     """Register websocket commands for the panel."""
+    if hass.data.get("_foxess_plant_ws_registered"):
+        return
 
     @websocket_api.websocket_command({vol.Required("type"): WS_TYPE_PLANT_LIST})
     @websocket_api.async_response
@@ -33,6 +35,8 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
     ) -> None:
         plants = []
         for entry_id in hass.data.get(DOMAIN, {}):
+            if not isinstance(hass.data[DOMAIN].get(entry_id), dict):
+                continue
             try:
                 summary = _plant_summary(hass, entry_id)
             except KeyError:
@@ -77,3 +81,4 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
 
     websocket_api.async_register_command(hass, ws_plant_list)
     websocket_api.async_register_command(hass, ws_plant_state)
+    hass.data["_foxess_plant_ws_registered"] = True
