@@ -6,8 +6,6 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from homeassistant.components import frontend, panel_custom
-from homeassistant.components.http import StaticPathConfig
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN, PANEL_ICON, PANEL_STATIC_URL, PANEL_TITLE, PANEL_URL_PATH
@@ -16,6 +14,16 @@ _LOGGER = logging.getLogger(__name__)
 
 PANEL_COMPONENT = "foxess-plant-panel"
 WWW_DIR = Path(__path__).parent / "www"
+
+
+def _panel_exists(hass: HomeAssistant) -> bool:
+    """Return True if our panel URL is already registered."""
+    from homeassistant.components import frontend
+
+    if hasattr(frontend, "async_panel_exists"):
+        return frontend.async_panel_exists(hass, PANEL_URL_PATH)
+    panels = hass.data.get("frontend_panels", {})
+    return PANEL_URL_PATH in panels
 
 
 def build_panel_config(hass: HomeAssistant) -> dict[str, Any]:
@@ -39,21 +47,26 @@ def build_panel_config(hass: HomeAssistant) -> dict[str, Any]:
 
 async def async_register_panel(hass: HomeAssistant) -> None:
     """Register the Fox Plant panel in the HA sidebar."""
-    if frontend.async_panel_exists(hass, PANEL_URL_PATH):
+    from homeassistant.components import frontend, panel_custom
+    from homeassistant.components.http import StaticPathConfig
+
+    if not WWW_DIR.is_dir() or not (WWW_DIR / "foxess-plant-panel.js").is_file():
+        _LOGGER.warning("Fox Plant panel assets missing at %s", WWW_DIR)
+        return
+
+    config = build_panel_config(hass)
+
+    if _panel_exists(hass):
         frontend.async_register_built_in_panel(
             hass,
             component_name=PANEL_COMPONENT,
             sidebar_title=PANEL_TITLE,
             sidebar_icon=PANEL_ICON,
             frontend_url_path=PANEL_URL_PATH,
-            config=build_panel_config(hass),
+            config=config,
             require_admin=False,
             update=True,
         )
-        return
-
-    if not WWW_DIR.is_dir():
-        _LOGGER.warning("Fox Plant panel assets missing at %s", WWW_DIR)
         return
 
     await hass.http.async_register_static_paths(
@@ -61,7 +74,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
             StaticPathConfig(
                 PANEL_STATIC_URL,
                 str(WWW_DIR),
-                cache_headers=False,
+                False,
             )
         ]
     )
@@ -75,15 +88,17 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         module_url=f"{PANEL_STATIC_URL}/foxess-plant-panel.js",
         embed_iframe=False,
         require_admin=False,
-        config=build_panel_config(hass),
+        config=config,
     )
     _LOGGER.info("Fox Plant panel registered at /%s", PANEL_URL_PATH)
 
 
 async def async_update_panel(hass: HomeAssistant) -> None:
     """Refresh panel config when plant entries change."""
-    if not frontend.async_panel_exists(hass, PANEL_URL_PATH):
+    if not _panel_exists(hass):
         return
+    from homeassistant.components import frontend
+
     frontend.async_register_built_in_panel(
         hass,
         component_name=PANEL_COMPONENT,

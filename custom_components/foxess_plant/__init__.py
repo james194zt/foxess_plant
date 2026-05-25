@@ -2,29 +2,29 @@
 
 from __future__ import annotations
 
-import logging
-
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import device_registry as dr
 
 from .const import DOMAIN, PLATFORMS
-from .coordinator import FoxessPlantCoordinator
-from .panel import async_register_panel, async_update_panel
-from .services import register_services
-from .websocket_api import async_register_ws_handlers
 
-_LOGGER = logging.getLogger(__name__)
+# Keep module-level imports minimal so config_flow can load without pulling
+# panel / websocket / coordinator dependencies during "Add integration".
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up global handlers for foxess_plant."""
+    from .websocket_api import async_register_ws_handlers
+
     async_register_ws_handlers(hass)
     return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    from .coordinator import FoxessPlantCoordinator
     from .discovery import discover_entity_map
+    from .panel import async_register_panel
+    from .services import register_services
+    from homeassistant.helpers import device_registry as dr
 
     data = dict(entry.data)
     fresh_map = discover_entity_map(hass, data["device_id"])
@@ -41,7 +41,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     register_services(hass)
-    await async_register_panel(hass)
+
+    try:
+        await async_register_panel(hass)
+    except Exception:  # noqa: BLE001 — panel is optional; do not block setup
+        import logging
+
+        logging.getLogger(__name__).exception("Fox Plant panel registration failed")
 
     device_reg = dr.async_get(hass)
     inverter_device = device_reg.async_get(entry.data["device_id"])
@@ -60,19 +66,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    coordinator: FoxessPlantCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     from .models import PlantConfig
+    from .panel import async_update_panel
 
+    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     coordinator.update_plant_config(PlantConfig.from_entry_data(entry.data))
     await coordinator.async_request_refresh()
-    await async_update_panel(hass)
+    try:
+        await async_update_panel(hass)
+    except Exception:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).exception("Fox Plant panel update failed")
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    from .panel import async_update_panel
+
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
-        coordinator: FoxessPlantCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+        coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
         await coordinator.async_shutdown()
         hass.data[DOMAIN].pop(entry.entry_id)
-        await async_update_panel(hass)
+        try:
+            await async_update_panel(hass)
+        except Exception:  # noqa: BLE001
+            pass
     return unload_ok
