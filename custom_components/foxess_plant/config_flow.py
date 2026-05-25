@@ -28,7 +28,12 @@ from .const import (
     DOMAIN,
     MODBUS_DOMAIN,
 )
-from .discovery import discover_entity_map, missing_charge_period_entities
+from .discovery import (
+    discover_entity_map,
+    inverter_target_from_device,
+    is_foxess_modbus_device,
+    missing_charge_period_entities,
+)
 from .models import ChargePeriodConfig, ControlConfig, PlantConfig
 
 _LOGGER = logging.getLogger(__name__)
@@ -85,6 +90,7 @@ class FoxessPlantConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         self._device_id: str | None = None
+        self._inverter_target: str | None = None
         self._entity_map: dict[str, str] = {}
 
     async def async_step_user(
@@ -93,34 +99,41 @@ class FoxessPlantConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            device_id = user_input[CONF_DEVICE_ID]
-            try:
-                await self._validate_device(self.hass, device_id)
-            except HomeAssistantError:
+            device_id = user_input.get(CONF_DEVICE_ID)
+            if not device_id:
                 errors["base"] = "invalid_device"
             else:
-                self._device_id = device_id
-                self._entity_map = discover_entity_map(self.hass, device_id)
-                missing = missing_charge_period_entities(self._entity_map)
-                if missing:
-                    _LOGGER.warning("Missing charge period entities: %s", missing)
-                return await self.async_step_confirm()
+                try:
+                    device = await self._validate_device(self.hass, device_id)
+                except HomeAssistantError as err:
+                    _LOGGER.warning("Device validation failed for %s: %s", device_id, err)
+                    errors["base"] = "invalid_device"
+                else:
+                    self._device_id = device_id
+                    self._inverter_target = inverter_target_from_device(device)
+                    self._entity_map = discover_entity_map(self.hass, device_id)
+                    missing = missing_charge_period_entities(self._entity_map)
+                    if missing:
+                        _LOGGER.warning("Missing charge period entities: %s", missing)
+                    return await self.async_step_confirm()
 
         schema = vol.Schema({vol.Required(CONF_DEVICE_ID): _device_selector()})
         return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
 
-    async def _validate_device(self, hass: HomeAssistant, device_id: str) -> None:
+    async def _validate_device(self, hass: HomeAssistant, device_id: str) -> dr.DeviceEntry:
         device_reg = dr.async_get(hass)
         device = device_reg.async_get(device_id)
         if device is None:
             raise HomeAssistantError("Device not found")
-        if MODBUS_DOMAIN not in device.identifiers:
+        if not is_foxess_modbus_device(device):
             raise HomeAssistantError("Not a foxess_modbus device")
+        return device
 
     async def async_step_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.FlowResult:
         assert self._device_id is not None
+        assert self._inverter_target is not None
         device_reg = dr.async_get(self.hass)
         device = device_reg.async_get(self._device_id)
         title = device.name or "FoxESS Plant"
@@ -131,7 +144,7 @@ class FoxessPlantConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             ]
             plant = PlantConfig(
                 device_id=self._device_id,
-                inverter_target=self._device_id,
+                inverter_target=self._inverter_target,
                 entity_map=self._entity_map,
                 baseline_periods=baseline,
                 control=ControlConfig.from_dict(DEFAULT_CONTROL),

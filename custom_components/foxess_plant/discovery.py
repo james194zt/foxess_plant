@@ -8,9 +8,24 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
-from .const import CHARGE_PERIOD_KEYS, DISCOVERY_SUFFIXES
+from .const import CHARGE_PERIOD_KEYS, DISCOVERY_SUFFIXES, MODBUS_DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def is_foxess_modbus_device(device: dr.DeviceEntry) -> bool:
+    """Return True if the device belongs to foxess_modbus."""
+    return any(identifier[0] == MODBUS_DOMAIN for identifier in device.identifiers)
+
+
+def inverter_target_from_device(device: dr.DeviceEntry) -> str:
+    """Resolve the inverter target string accepted by foxess_modbus services."""
+    for identifier in device.identifiers:
+        if identifier[0] == MODBUS_DOMAIN and len(identifier) >= 4:
+            friendly_name = identifier[3]
+            if friendly_name:
+                return str(friendly_name)
+    return device.id
 
 
 def discover_entity_map(hass: HomeAssistant, device_id: str) -> dict[str, str]:
