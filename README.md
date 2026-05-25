@@ -17,6 +17,12 @@ Central **plant controller** for FoxESS inverters running [foxess_modbus](https:
 - Home Assistant 2025.1+
 - **FoxESS - Modbus** integration configured and working
 
+## Fox Plant panel
+
+Open **Fox Plant** from the HA sidebar for a full GUI: live energy-flow diagram, device overview, analytics, and settings (including StormSafe illustration).
+
+See [docs/PANEL.md](docs/PANEL.md).
+
 ## Install
 
 ### HACS custom repository

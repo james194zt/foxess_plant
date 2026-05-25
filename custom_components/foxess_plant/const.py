@@ -47,6 +47,23 @@ DISCOVERY_SUFFIXES = {
     **ANALYTICS_ENTITY_SUFFIXES,
 }
 
+# Panel live-data keys → candidate entity_id / unique_id suffixes (first match wins).
+PANEL_ENTITY_SUFFIXES: dict[str, tuple[str, ...]] = {
+    "pv_power": ("pv1_power", "pv_power", "pv_power_total"),
+    "load_power": ("load_power", "load_power_total"),
+    "grid_import": ("grid_consumption",),
+    "grid_export": ("feed_in", "grid_ct"),
+    "battery_soc": ("battery_soc_1", "battery_soc"),
+    "battery_power": ("invbatpower_1", "invbatpower", "battery_power"),
+    "battery_status": ("battery_status",),
+    "bms_temp_low": ("bms_cell_temp_low_1", "bms_cell_temp_low"),
+}
+
+PANEL_URL_PATH = "foxess-plant"
+PANEL_TITLE = "Fox Plant"
+PANEL_ICON = "mdi:solar-power-variant"
+PANEL_STATIC_URL = "/foxess_plant_panel"
+
 MODBUS_DOMAIN = "foxess_modbus"
 
 ATTR_PLANT_ID = "plant_id"

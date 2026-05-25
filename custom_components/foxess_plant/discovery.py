@@ -8,7 +8,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
-from .const import CHARGE_PERIOD_KEYS, DISCOVERY_SUFFIXES, MODBUS_DOMAIN
+from .const import (
+    CHARGE_PERIOD_KEYS,
+    DISCOVERY_SUFFIXES,
+    MODBUS_DOMAIN,
+    PANEL_ENTITY_SUFFIXES,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -26,6 +31,10 @@ def inverter_target_from_device(device: dr.DeviceEntry) -> str:
             if friendly_name:
                 return str(friendly_name)
     return device.id
+
+
+def _match_suffix(entry: er.RegistryEntry, suffix: str) -> bool:
+    return entry.entity_id.endswith(f"_{suffix}") or entry.unique_id.endswith(f"_{suffix}")
 
 
 def discover_entity_map(hass: HomeAssistant, device_id: str) -> dict[str, str]:
@@ -47,8 +56,16 @@ def discover_entity_map(hass: HomeAssistant, device_id: str) -> dict[str, str]:
         for key, suffix in DISCOVERY_SUFFIXES.items():
             if key in entity_map:
                 continue
-            if entry.entity_id.endswith(f"_{suffix}") or entry.unique_id.endswith(f"_{suffix}"):
+            if _match_suffix(entry, suffix):
                 entity_map[key] = entry.entity_id
+
+        for key, suffixes in PANEL_ENTITY_SUFFIXES.items():
+            if key in entity_map:
+                continue
+            for suffix in suffixes:
+                if _match_suffix(entry, suffix):
+                    entity_map[key] = entry.entity_id
+                    break
 
     _LOGGER.debug("Discovered entity map for %s: %s", device_id, entity_map)
     return entity_map
