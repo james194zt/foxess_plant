@@ -141,6 +141,38 @@ async function callService(hass, domain, service, data) {
   await hass.callService(domain, service, data, undefined, true, true);
 }
 
+const SOC_THUMBS = [
+  { key: "min_soc", label: "Off-grid min", short: "Off-grid", color: "#e53935" },
+  { key: "min_soc_on_grid", label: "System min", short: "On-grid", color: "#f9a825" },
+  { key: "max_soc", label: "System max", short: "Max", color: "#2e7d32" },
+];
+
+const SOC_GAP = 2;
+
+function clampSocDraft(d) {
+  let min = Math.round(Number(d.min_soc) || 0);
+  let mid = Math.round(Number(d.min_soc_on_grid) || 0);
+  let max = Math.round(Number(d.max_soc) || 100);
+  min = Math.max(0, Math.min(100, min));
+  max = Math.max(0, Math.min(100, max));
+  mid = Math.max(0, Math.min(100, mid));
+  if (max < min + SOC_GAP * 2) {
+    max = Math.min(100, min + SOC_GAP * 2);
+    mid = min + SOC_GAP;
+  }
+  if (min > mid - SOC_GAP) min = Math.max(0, mid - SOC_GAP);
+  if (mid < min + SOC_GAP) mid = min + SOC_GAP;
+  if (mid > max - SOC_GAP) mid = max - SOC_GAP;
+  if (max < mid + SOC_GAP) max = Math.min(100, mid + SOC_GAP);
+  min = Math.max(0, Math.min(100, min));
+  max = Math.max(min + SOC_GAP, Math.min(100, max));
+  mid = Math.max(min + SOC_GAP, Math.min(max - SOC_GAP, mid));
+  d.min_soc = min;
+  d.min_soc_on_grid = mid;
+  d.max_soc = max;
+  return d;
+}
+
 const STYLES = `
 :host {
   display: block;
@@ -292,12 +324,73 @@ const STYLES = `
 }
 .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; font-size: 14px; }
 .toggle-row input { width: 18px; height: 18px; accent-color: var(--fp-accent); }
-.soc-track { position: relative; height: 48px; margin: 24px 0 8px; background: linear-gradient(90deg, #c62828 0%, #f9a825 35%, #2e7d32 100%); border-radius: 8px; opacity: 0.35; }
-.soc-labels { display: flex; justify-content: space-between; font-size: 11px; color: var(--secondary-text-color); margin-bottom: 16px; }
-.soc-slider { margin-bottom: 18px; }
-.soc-slider label { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 6px; }
-.soc-slider label strong { color: var(--fp-accent); }
-.soc-slider input[type="range"] { width: 100%; accent-color: var(--fp-accent); }
+.triple-soc { padding: 8px 4px 4px; user-select: none; touch-action: none; }
+.triple-soc-head { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+.triple-soc-battery {
+  width: 52px; height: 88px; flex-shrink: 0; border-radius: 10px;
+  border: 2px solid var(--divider-color); position: relative; overflow: hidden;
+  background: var(--secondary-background-color);
+}
+.triple-soc-battery-fill {
+  position: absolute; left: 4px; right: 4px; bottom: 4px; border-radius: 6px;
+  background: linear-gradient(180deg, #66bb6a 0%, #2e7d32 100%);
+  transition: height 0.35s ease;
+}
+.triple-soc-battery-cap {
+  position: absolute; top: -8px; left: 50%; transform: translateX(-50%);
+  width: 22px; height: 8px; border-radius: 4px 4px 0 0;
+  background: var(--divider-color);
+}
+.triple-soc-battery-pct {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 15px; font-weight: 700; z-index: 1; text-shadow: 0 1px 2px rgba(0,0,0,0.35);
+}
+.triple-soc-summary { flex: 1; font-size: 13px; color: var(--secondary-text-color); line-height: 1.5; }
+.triple-soc-summary strong { color: var(--primary-text-color); font-weight: 600; }
+.triple-soc-track-wrap { position: relative; padding: 52px 8px 28px; margin: 0 -4px; }
+.triple-soc-labels { position: absolute; left: 8px; right: 8px; top: 0; height: 48px; pointer-events: none; }
+.triple-soc-label {
+  position: absolute; top: 0; transform: translateX(-50%);
+  text-align: center; min-width: 72px; font-size: 11px; color: var(--secondary-text-color);
+}
+.triple-soc-label strong { display: block; font-size: 17px; font-weight: 700; color: var(--primary-text-color); margin-top: 2px; }
+.triple-soc-track {
+  position: relative; height: 14px; border-radius: 999px;
+  background: var(--divider-color); overflow: visible;
+}
+.triple-soc-zones { position: absolute; inset: 0; border-radius: 999px; overflow: hidden; display: flex; }
+.triple-soc-zone { height: 100%; }
+.triple-soc-zone.critical { background: color-mix(in srgb, #e53935 55%, var(--divider-color)); }
+.triple-soc-zone.reserve { background: color-mix(in srgb, #f9a825 50%, var(--divider-color)); }
+.triple-soc-zone.usable { background: color-mix(in srgb, #2e7d32 55%, var(--divider-color)); }
+.triple-soc-zone.headroom { background: color-mix(in srgb, var(--fp-accent) 35%, var(--divider-color)); }
+.triple-soc-live {
+  position: absolute; top: -6px; bottom: -6px; width: 3px; margin-left: -1px;
+  background: var(--primary-text-color); border-radius: 2px; z-index: 2;
+  box-shadow: 0 0 0 2px var(--card-background-color);
+  pointer-events: none;
+}
+.triple-soc-live::after {
+  content: "Now"; position: absolute; top: -20px; left: 50%; transform: translateX(-50%);
+  font-size: 10px; font-weight: 600; white-space: nowrap; color: var(--primary-text-color);
+}
+.triple-soc-thumb {
+  position: absolute; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px;
+  border-radius: 50%; border: 3px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+  cursor: grab; z-index: 4; padding: 0; transition: transform 0.1s;
+}
+.triple-soc-thumb:active { cursor: grabbing; transform: scale(1.08); }
+.triple-soc-scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--secondary-text-color); margin-top: 10px; padding: 0 4px; }
+.soc-legend { display: flex; flex-wrap: wrap; gap: 12px 16px; margin-top: 16px; font-size: 12px; color: var(--secondary-text-color); }
+.soc-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.soc-legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.soc-numeric { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
+.soc-numeric label { font-size: 11px; color: var(--secondary-text-color); display: block; margin-bottom: 4px; }
+.soc-numeric input {
+  width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: 8px;
+  border: 1px solid var(--divider-color); background: var(--card-background-color);
+  color: var(--primary-text-color); font-size: 15px; font-weight: 600; text-align: center; font-family: inherit;
+}
 .mode-grid { display: grid; gap: 8px; }
 .mode-option {
   display: block; width: 100%; text-align: left; padding: 14px 16px;
@@ -335,6 +428,9 @@ class FoxessPlantPanel extends HTMLElement {
     this._chargeDraft = null;
     this._socDraft = null;
     this._workModeDraft = null;
+    this._socDrag = null;
+    this._onSocMove = this._onSocMove.bind(this);
+    this._onSocEnd = this._onSocEnd.bind(this);
     const root = document.createElement("div");
     root.className = "root";
     this.shadowRoot.append(
@@ -359,13 +455,14 @@ class FoxessPlantPanel extends HTMLElement {
     this._root.removeEventListener("click", this._onClick);
     this._root.removeEventListener("input", this._onInput);
     this._root.removeEventListener("change", this._onInput);
+    this._endSocDrag();
     if (this._timer) window.clearInterval(this._timer);
     if (this._toastTimer) window.clearTimeout(this._toastTimer);
   }
 
   set hass(v) {
     this._hass = v;
-    this._render();
+    if (!this._socDrag) this._render();
   }
   get hass() {
     return this._hass;
@@ -418,7 +515,7 @@ class FoxessPlantPanel extends HTMLElement {
       if (this._settingsView !== "schedules") this._chargeDraft = null;
       if (this._settingsView !== "quick") this._socDraft = null;
       if (this._settingsView !== "workmode") this._workModeDraft = null;
-      this._render();
+      if (!this._socDrag) this._render();
     } catch {
       /* ws optional */
     }
@@ -437,11 +534,11 @@ class FoxessPlantPanel extends HTMLElement {
 
   _initSocDraft() {
     const s = this._plantState?.settings ?? {};
-    this._socDraft = {
+    this._socDraft = clampSocDraft({
       min_soc: s.min_soc ?? 10,
-      min_soc_on_grid: s.min_soc_on_grid ?? 10,
+      min_soc_on_grid: s.min_soc_on_grid ?? 20,
       max_soc: s.max_soc ?? 100,
-    };
+    });
   }
 
   _initWorkModeDraft() {
@@ -543,14 +640,152 @@ class FoxessPlantPanel extends HTMLElement {
       }
       return;
     }
-    if (kind === "soc" && this._socDraft) {
+    if ((kind === "soc" || kind === "soc-num") && this._socDraft) {
       const field = parts[1];
       this._socDraft[field] = parseFloat(el.value);
-      const labels = this._root.querySelectorAll(`[data-soc-val="${field}"]`);
-      labels.forEach((n) => {
-        n.textContent = `${Math.round(this._socDraft[field])}%`;
-      });
+      clampSocDraft(this._socDraft);
+      this._updateTripleSocDom();
     }
+  }
+
+  _endSocDrag() {
+    if (!this._socDrag) return;
+    window.removeEventListener("pointermove", this._onSocMove);
+    window.removeEventListener("pointerup", this._onSocEnd);
+    window.removeEventListener("pointercancel", this._onSocEnd);
+    this._socDrag = null;
+  }
+
+  _onSocMove(e) {
+    if (!this._socDrag || !this._socDraft) return;
+    const rect = this._socDrag.track.getBoundingClientRect();
+    if (!rect.width) return;
+    let pct = Math.round(((e.clientX - rect.left) / rect.width) * 100);
+    pct = Math.max(0, Math.min(100, pct));
+    const key = this._socDrag.thumb;
+    const d = this._socDraft;
+    if (key === "min_soc") {
+      d.min_soc = Math.min(pct, d.min_soc_on_grid - SOC_GAP);
+    } else if (key === "min_soc_on_grid") {
+      d.min_soc_on_grid = Math.max(d.min_soc + SOC_GAP, Math.min(pct, d.max_soc - SOC_GAP));
+    } else if (key === "max_soc") {
+      d.max_soc = Math.max(d.min_soc_on_grid + SOC_GAP, pct);
+    }
+    clampSocDraft(d);
+    this._updateTripleSocDom();
+  }
+
+  _onSocEnd() {
+    this._endSocDrag();
+  }
+
+  _bindTripleSoc() {
+    const track = this._root.querySelector(".triple-soc-track");
+    if (!track) return;
+    track.querySelectorAll("[data-soc-thumb]").forEach((thumb) => {
+      thumb.addEventListener("pointerdown", (e) => {
+        if (this._busy) return;
+        e.preventDefault();
+        thumb.setPointerCapture(e.pointerId);
+        this._socDrag = { thumb: thumb.dataset.socThumb, track };
+        window.addEventListener("pointermove", this._onSocMove);
+        window.addEventListener("pointerup", this._onSocEnd);
+        window.addEventListener("pointercancel", this._onSocEnd);
+      });
+    });
+  }
+
+  _updateTripleSocDom() {
+    const wrap = this._root.querySelector(".triple-soc");
+    if (!wrap || !this._socDraft) return;
+    const d = clampSocDraft(this._socDraft);
+    const min = d.min_soc;
+    const mid = d.min_soc_on_grid;
+    const max = d.max_soc;
+    const zones = wrap.querySelector(".triple-soc-zones");
+    if (zones) {
+      zones.innerHTML = `
+<div class="triple-soc-zone critical" style="width:${min}%"></div>
+<div class="triple-soc-zone reserve" style="width:${mid - min}%"></div>
+<div class="triple-soc-zone usable" style="width:${max - mid}%"></div>
+<div class="triple-soc-zone headroom" style="width:${100 - max}%"></div>`;
+    }
+    SOC_THUMBS.forEach((t) => {
+      const thumb = wrap.querySelector(`[data-soc-thumb="${t.key}"]`);
+      const label = wrap.querySelector(`[data-soc-label="${t.key}"]`);
+      const val = d[t.key];
+      if (thumb) {
+        thumb.style.left = `${val}%`;
+        thumb.style.background = t.color;
+      }
+      if (label) {
+        const strong = label.querySelector("strong");
+        if (strong) strong.textContent = `${val}%`;
+        label.style.left = `${val}%`;
+      }
+      const num = wrap.querySelector(`[data-field="soc-num:${t.key}"]`);
+      if (num && document.activeElement !== num) num.value = String(val);
+    });
+  }
+
+  _renderTripleSoc(plant, d, liveSoc) {
+    const clamped = clampSocDraft({ ...d });
+    const min = clamped.min_soc;
+    const mid = clamped.min_soc_on_grid;
+    const max = clamped.max_soc;
+    const live = Math.max(0, Math.min(100, Math.round(liveSoc ?? 0)));
+    const fillH = Math.max(4, live);
+
+    const labelsHtml = SOC_THUMBS.map((t) => {
+      const v = clamped[t.key];
+      return `<div class="triple-soc-label" data-soc-label="${t.key}" style="left:${v}%">
+<span>${esc(t.short)}</span><strong>${v}%</strong></div>`;
+    }).join("");
+
+    const thumbsHtml = SOC_THUMBS.map(
+      (t) =>
+        `<button type="button" class="triple-soc-thumb" data-soc-thumb="${t.key}" style="left:${clamped[t.key]}%;background:${t.color}" aria-label="${esc(t.label)}"></button>`
+    ).join("");
+
+    const numericHtml = SOC_THUMBS.map(
+      (t) =>
+        `<div><label>${esc(t.label)}</label><input type="number" min="0" max="100" step="1" data-field="soc-num:${t.key}" value="${clamped[t.key]}"></div>`
+    ).join("");
+
+    return `<div class="triple-soc">
+<div class="triple-soc-head">
+<div class="triple-soc-battery" aria-hidden="true">
+<div class="triple-soc-battery-cap"></div>
+<div class="triple-soc-battery-fill" style="height:${fillH}%"></div>
+<div class="triple-soc-battery-pct">${live}%</div>
+</div>
+<div class="triple-soc-summary">
+<strong>Reserve band</strong> ${min}% – ${mid}%<br>
+<strong>Usable to</strong> ${max}% · <strong>Now</strong> ${live}%
+</div>
+</div>
+<div class="triple-soc-track-wrap">
+<div class="triple-soc-labels">${labelsHtml}</div>
+<div class="triple-soc-track">
+<div class="triple-soc-zones">
+<div class="triple-soc-zone critical" style="width:${min}%"></div>
+<div class="triple-soc-zone reserve" style="width:${mid - min}%"></div>
+<div class="triple-soc-zone usable" style="width:${max - mid}%"></div>
+<div class="triple-soc-zone headroom" style="width:${100 - max}%"></div>
+</div>
+<div class="triple-soc-live" style="left:${live}%"></div>
+${thumbsHtml}
+</div>
+<div class="triple-soc-scale"><span>0%</span><span>100%</span></div>
+</div>
+<div class="soc-legend">
+<span><i style="background:#e53935"></i> Below off-grid min</span>
+<span><i style="background:#f9a825"></i> Off-grid reserve</span>
+<span><i style="background:#2e7d32"></i> Normal use</span>
+<span><i style="background:var(--fp-accent)"></i> Charge headroom</span>
+</div>
+<div class="soc-numeric">${numericHtml}</div>
+</div>`;
   }
 
   async _runPlantService(service, extra = {}) {
@@ -601,10 +836,9 @@ class FoxessPlantPanel extends HTMLElement {
     const plant = this._getPlant();
     const map = plant?.entity_map ?? {};
     if (!plant || !this._socDraft) return;
-    let { min_soc, min_soc_on_grid, max_soc } = this._socDraft;
-    min_soc = Math.min(min_soc, min_soc_on_grid, max_soc);
-    min_soc_on_grid = Math.max(min_soc, Math.min(min_soc_on_grid, max_soc));
-    max_soc = Math.max(min_soc, min_soc_on_grid, max_soc);
+    const clamped = clampSocDraft({ ...this._socDraft });
+    const { min_soc, min_soc_on_grid, max_soc } = clamped;
+    this._socDraft = clamped;
     this._busy = true;
     this._render();
     try {
@@ -839,16 +1073,13 @@ ${this._modeBanner()}
 
   _renderSettingsQuick() {
     if (!this._socDraft) this._initSocDraft();
-    const d = this._socDraft;
-    return `<header class="header"><h1>Quick Settings</h1><p>System SOC limits (written to inverter)</p></header>
+    const plant = this._getPlant();
+    const liveSoc = plant ? stateNumber(this._hass, plant.entity_map?.battery_soc) : 0;
+    return `<header class="header"><h1>Quick Settings</h1><p>Drag the three handles — off-grid min, system min, system max</p></header>
 <div class="card">
-<div class="soc-slider"><label><span>System min SOC</span><strong data-soc-val="min_soc">${Math.round(d.min_soc)}%</strong></label>
-<input type="range" min="0" max="100" step="1" data-field="soc:min_soc" value="${d.min_soc}"></div>
-<div class="soc-slider"><label><span>Off-grid min SOC</span><strong data-soc-val="min_soc_on_grid">${Math.round(d.min_soc_on_grid)}%</strong></label>
-<input type="range" min="0" max="100" step="1" data-field="soc:min_soc_on_grid" value="${d.min_soc_on_grid}"></div>
-<div class="soc-slider"><label><span>System max SOC</span><strong data-soc-val="max_soc">${Math.round(d.max_soc)}%</strong></label>
-<input type="range" min="0" max="100" step="1" data-field="soc:max_soc" value="${d.max_soc}"></div>
-<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-soc" ${this._busy ? "disabled" : ""}>Save SOC limits</button></div>
+<p class="card-title">SOC limits</p>
+${this._renderTripleSoc(plant, this._socDraft, liveSoc)}
+<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-soc" ${this._busy ? "disabled" : ""}>Save to inverter</button></div>
 </div>`;
   }
 
@@ -967,6 +1198,9 @@ ${active
 ${pageHeader}
 <main class="main">${this._renderView(plant)}</main>
 </div>`;
+    if (this._view === "settings" && this._settingsView === "quick") {
+      this._bindTripleSoc();
+    }
   }
 }
 

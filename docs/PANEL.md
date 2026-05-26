@@ -34,7 +34,7 @@ Animated dashed lines show direction and magnitude of power flow.
 
 | Screen | What it does |
 |--------|----------------|
-| **Quick Settings** | Sliders for min / off-grid min / max SOC → writes `number` entities |
+| **Quick Settings** | Fox-style triple-handle SOC bar (off-grid min · system min · system max) + numeric inputs |
 | **Charge schedule** | Edit both baseline periods → `foxess_plant.set_charge_periods` + apply |
 | **Work mode** | Pick inverter mode → `select.select_option` on work_mode entity |
 | **StormSafe** | Status, test arm/disarm, configured triggers |
