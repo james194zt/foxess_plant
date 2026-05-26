@@ -10,7 +10,7 @@
       },
       "confirm": {
         "title": "Confirm discovery",
-        "description": "Plant **{device}** will control charge periods via foxess_modbus.\n\nDiscovered entities:\n{entities}\n\nMissing (drift detection may be limited): {missing}"
+        "description": "Plant **{device}** will control charge periods via foxess_modbus.\n\nDiscovered entities:\n{entities}\n\nMissing (drift detection may be limited): {missing}\n\n**Weather:** {google_weather}"
       }
     },
     "error": {

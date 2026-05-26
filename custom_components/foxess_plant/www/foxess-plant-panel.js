@@ -139,10 +139,9 @@ async function fetchPlantState(hass, plantId) {
 }
 
 async function fetchTriggerCandidates(hass) {
-  const res = await hass.connection.sendMessagePromise({
+  return hass.connection.sendMessagePromise({
     type: "foxess_plant/trigger_candidates",
   });
-  return res?.entities ?? [];
 }
 
 const DEFAULT_BRAND_DOMAIN = "foxess_plant";
@@ -528,6 +527,19 @@ const STYLES = `
 .trigger-row .entity-state { font-size: 11px; color: var(--fp-accent); margin-left: auto; white-space: nowrap; }
 .trigger-section-title { font-size: 12px; font-weight: 600; color: var(--secondary-text-color); margin: 10px 0 6px; text-transform: uppercase; letter-spacing: 0.04em; }
 .storm-hint { margin: 0 0 12px; font-size: 13px; line-height: 1.45; color: var(--secondary-text-color); }
+.gw-card { border-left: 3px solid var(--fp-accent); }
+.gw-card.gw-ready { border-left-color: var(--fp-green, #4caf50); }
+.gw-card.gw-warn { border-left-color: var(--fp-amber); }
+.gw-status { font-size: 13px; line-height: 1.45; margin: 0 0 10px; color: var(--secondary-text-color); }
+.gw-status strong { color: inherit; }
+.gw-select { width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--divider-color); background: var(--card-background-color); color: inherit; font-family: inherit; font-size: 14px; margin-bottom: 10px; }
+.gw-linked { font-size: 12px; color: var(--secondary-text-color); margin: 8px 0 0; line-height: 1.45; }
+.gw-linked code { font-size: 11px; }
+.storm-advanced summary { cursor: pointer; font-weight: 600; font-size: 13px; padding: 4px 0; color: var(--secondary-text-color); }
+.storm-advanced[open] summary { margin-bottom: 10px; color: inherit; }
+.storm-advanced { margin-top: 4px; }
+.trigger-row.google-weather { background: color-mix(in srgb, var(--fp-accent) 10%, transparent); }
+.trigger-role { display: inline-block; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 6px; border-radius: 6px; margin-left: 6px; background: var(--secondary-background-color); color: var(--fp-accent); }
 @media (max-width: 600px) { .device-grid { grid-template-columns: 1fr; } .scene-card svg { max-height: 220px; } }
 `;
 
@@ -551,9 +563,12 @@ class FoxessPlantPanel extends HTMLElement {
     this._socDraft = null;
     this._workModeDraft = null;
     this._stormDraft = null;
+    this._triggerMeta = null;
     this._triggerCandidates = null;
     this._triggerFilter = "";
     this._triggerShowAll = false;
+    this._triggerGoogleOnly = false;
+    this._stormShowAdvanced = false;
     this._triggerFilterTimer = undefined;
     this._brandIconSrc = DEFAULT_BRAND_ICON_STATIC;
     this._brandIconFallback = DEFAULT_BRAND_ICON_STATIC;
@@ -780,32 +795,103 @@ class FoxessPlantPanel extends HTMLElement {
     while (periods.length < 2) periods.push({ ...DEFAULT_PERIODS[0] });
     this._stormDraft = {
       enabled: Boolean(storm.enabled),
+      alert_provider: storm.alert_provider || "google_weather",
+      google_weather_entry_id: storm.google_weather_entry_id ?? null,
+      use_weather_condition: storm.use_weather_condition !== false,
+      use_forecast_lead: storm.use_forecast_lead !== false,
+      forecast_lead_hours: storm.forecast_lead_hours ?? 4,
+      condition_entity_id: storm.condition_entity_id ?? null,
+      weather_entity_id: storm.weather_entity_id ?? null,
       trigger_entities: [...(storm.trigger_entities ?? [])],
       charge_periods: periods,
       target_max_soc: storm.target_max_soc ?? null,
     };
   }
 
+  _getGoogleWeatherEntries() {
+    return this._triggerMeta?.google_weather?.entries ?? [];
+  }
+
+  _getSelectedGoogleWeatherEntry() {
+    const id = this._stormDraft?.google_weather_entry_id;
+    if (!id) return null;
+    return this._getGoogleWeatherEntries().find((e) => e.entry_id === id) ?? null;
+  }
+
+  _applyGoogleWeatherEntry(entryId) {
+    if (!this._stormDraft) return;
+    this._stormDraft.google_weather_entry_id = entryId || null;
+    this._stormDraft.alert_provider = "google_weather";
+    const entry = this._getGoogleWeatherEntries().find((e) => e.entry_id === entryId);
+    if (!entryId || !entry) {
+      this._stormDraft.trigger_entities = [];
+      this._stormDraft.condition_entity_id = null;
+      this._stormDraft.weather_entity_id = null;
+      this._stormDraft.use_weather_condition = false;
+      return;
+    }
+    this._stormDraft.condition_entity_id = entry.condition_entity_id ?? null;
+    this._stormDraft.weather_entity_id = entry.weather_entity ?? null;
+    this._stormDraft.use_weather_condition = Boolean(
+      entry.condition_entity_id || entry.weather_entity
+    );
+    if (entry.alert_trigger_ids?.length) {
+      this._stormDraft.trigger_entities = [...entry.alert_trigger_ids];
+    } else {
+      this._stormDraft.trigger_entities = [];
+    }
+  }
+
+  _inferGoogleWeatherEntryId() {
+    const entries = this._getGoogleWeatherEntries();
+    const draft = this._stormDraft;
+    if (!entries.length || !draft) return null;
+    if (draft.condition_entity_id) {
+      const match = entries.find((e) => e.condition_entity_id === draft.condition_entity_id);
+      if (match) return match.entry_id;
+    }
+    if (draft.weather_entity_id) {
+      const match = entries.find((e) => e.weather_entity === draft.weather_entity_id);
+      if (match) return match.entry_id;
+    }
+    const triggers = draft.trigger_entities ?? [];
+    if (triggers.length) {
+      for (const entry of entries) {
+        const ids = new Set(entry.alert_trigger_ids || []);
+        if (triggers.every((t) => ids.has(t)) && ids.size) {
+          return entry.entry_id;
+        }
+      }
+    }
+    if (entries.length === 1) return entries[0].entry_id;
+    return draft.google_weather_entry_id ?? null;
+  }
+
   _enterStormSettings() {
     this._initStormDraft();
     this._triggerFilter = "";
     this._triggerShowAll = false;
+    this._triggerGoogleOnly = false;
+    this._stormShowAdvanced = false;
     void this._loadTriggerCandidates();
   }
 
   async _loadTriggerCandidates() {
     if (!this._hass) return;
     try {
-      this._triggerCandidates = await fetchTriggerCandidates(this._hass);
-      if (this._settingsView === "storm") {
-        if (this._triggerCandidates?.some((r) => r.suggested)) {
-          this._triggerShowAll = false;
-        } else {
-          this._triggerShowAll = true;
+      this._triggerMeta = await fetchTriggerCandidates(this._hass);
+      this._triggerCandidates = this._triggerMeta?.entities ?? [];
+      if (this._settingsView === "storm" && this._stormDraft) {
+        const inferred = this._inferGoogleWeatherEntryId();
+        if (inferred && !this._stormDraft.google_weather_entry_id) {
+          this._applyGoogleWeatherEntry(inferred);
+        } else if (this._stormDraft.google_weather_entry_id) {
+          this._applyGoogleWeatherEntry(this._stormDraft.google_weather_entry_id);
         }
         this._scheduleRender();
       }
     } catch {
+      this._triggerMeta = null;
       this._triggerCandidates = [];
     }
   }
@@ -817,14 +903,23 @@ class FoxessPlantPanel extends HTMLElement {
     this._render();
     try {
       const target = this._stormDraft.target_max_soc;
-      const state = await this._hass.connection.sendMessagePromise({
+      const payload = {
         type: "foxess_plant/update_storm_prep",
         plant_id: plant.entry_id,
         enabled: this._stormDraft.enabled,
         trigger_entities: this._stormDraft.trigger_entities,
         charge_periods: this._stormDraft.charge_periods,
         target_max_soc: target == null || target === "" ? null : Number(target),
-      });
+      };
+      if (this._stormDraft.alert_provider) {
+        payload.alert_provider = this._stormDraft.alert_provider;
+      }
+      if (this._stormDraft.google_weather_entry_id) {
+        payload.google_weather_entry_id = this._stormDraft.google_weather_entry_id;
+      }
+      payload.use_forecast_lead = Boolean(this._stormDraft.use_forecast_lead);
+      payload.forecast_lead_hours = Number(this._stormDraft.forecast_lead_hours) || 4;
+      const state = await this._hass.connection.sendMessagePromise(payload);
       if (state) this._plantState = state;
       this._initStormDraft();
       this._showToast("StormSafe settings saved");
@@ -944,12 +1039,45 @@ class FoxessPlantPanel extends HTMLElement {
       this._syncStormTriggerPicker();
       return;
     }
+    if (action === "toggle-storm-advanced") {
+      this._stormShowAdvanced = !this._stormShowAdvanced;
+      this._scheduleRender();
+      return;
+    }
+    if (action === "storm-google-quick-setup") {
+      if (!this._stormDraft) this._initStormDraft();
+      const entries = this._getGoogleWeatherEntries();
+      if (!entries.length) {
+        this._showToast("Install Google Weather first", "err");
+        return;
+      }
+      const entry = entries.length === 1 ? entries[0] : entries.find((e) => e.entry_id === this._stormDraft.google_weather_entry_id);
+      if (!entry) {
+        this._showToast("Select a Google Weather location first", "err");
+        return;
+      }
+      this._applyGoogleWeatherEntry(entry.entry_id);
+      this._stormDraft.enabled = true;
+      this._stormDraft.use_forecast_lead = true;
+      if (!this._stormDraft.forecast_lead_hours) this._stormDraft.forecast_lead_hours = 4;
+      await this._saveStormPrep();
+      return;
+    }
+    if (action === "storm-show-google-only") {
+      this._triggerGoogleOnly = true;
+      this._triggerShowAll = false;
+      this._triggerFilter = "";
+      this._syncStormTriggerPicker();
+      return;
+    }
     if (action === "storm-show-suggested") {
+      this._triggerGoogleOnly = false;
       this._triggerShowAll = false;
       this._syncStormTriggerPicker();
       return;
     }
     if (action === "storm-show-all") {
+      this._triggerGoogleOnly = false;
       this._triggerShowAll = true;
       this._syncStormTriggerPicker();
     }
@@ -979,6 +1107,12 @@ class FoxessPlantPanel extends HTMLElement {
 
   _handleInput(e) {
     const el = e.target;
+    if (el?.dataset?.action === "pick-google-weather-entry") {
+      if (!this._stormDraft) return;
+      this._applyGoogleWeatherEntry(el.value || null);
+      this._scheduleRender();
+      return;
+    }
     if (el?.dataset?.action === "pick-plant") {
       const id = el.value;
       if (!id || id === this._selectedPlantId) return;
@@ -1016,6 +1150,16 @@ class FoxessPlantPanel extends HTMLElement {
     if (kind === "storm-max-soc" && this._stormDraft) {
       const raw = String(el.value).trim();
       this._stormDraft.target_max_soc = raw === "" ? null : Math.max(10, Math.min(100, parseFloat(raw) || 100));
+      return;
+    }
+    if (kind === "storm-lead-hours" && this._stormDraft) {
+      const n = parseInt(String(el.value).trim(), 10);
+      this._stormDraft.forecast_lead_hours = Math.max(1, Math.min(48, Number.isFinite(n) ? n : 4));
+      return;
+    }
+    if (kind === "toggle-storm-forecast" && this._stormDraft) {
+      this._stormDraft.use_forecast_lead = el.checked;
+      this._scheduleRender();
       return;
     }
     if (kind === "period" && this._chargeDraft) {
@@ -1547,11 +1691,126 @@ ${has ? this._renderEnergyTodayBreakdown(a) : ""}
         const blob = `${row.entity_id} ${row.name}`.toLowerCase();
         return blob.includes(filter);
       });
+    } else if (this._triggerGoogleOnly) {
+      const gw = all.filter((row) => row.provider === "google_weather");
+      rows = gw.length ? gw : all.filter((row) => row.suggested);
     } else if (!this._triggerShowAll) {
       const suggested = all.filter((row) => row.suggested);
       rows = suggested.length ? suggested : all;
     }
     return rows;
+  }
+
+  _googleRoleLabel(role) {
+    if (role === "urgent") return "Urgent";
+    if (role === "severe") return "Severe";
+    if (role === "any") return "Alert";
+    return "";
+  }
+
+  _renderGoogleWeatherSource() {
+    const gw = this._triggerMeta?.google_weather;
+    const draft = this._stormDraft;
+    if (!gw || !draft) {
+      return `<div class="card gw-card gw-warn"><p class="card-title">Weather source</p><p class="gw-status">Loading…</p></div>`;
+    }
+    const repo = gw.hacs_repo || "https://github.com/safepay/ha_google_weather";
+    const entries = gw.entries ?? [];
+    const selectedId = draft.google_weather_entry_id || "";
+    const selected = this._getSelectedGoogleWeatherEntry();
+
+    if (!gw.installed) {
+      return `<div class="card gw-card gw-warn"><p class="card-title">Install Google Weather (2 minutes)</p>
+<ol class="storm-hint" style="margin:0;padding-left:18px;line-height:1.6">
+<li>HACS → Custom repositories → <a href="${esc(repo)}" target="_blank" rel="noopener">ha_google_weather</a></li>
+<li>Install <strong>Google Weather</strong>, restart Home Assistant</li>
+<li>Settings → Integrations → Add → Google Weather (API key + your home location)</li>
+<li>Return here and press <strong>Turn on StormSafe</strong></li>
+</ol></div>`;
+    }
+
+    if (!entries.length) {
+      return `<div class="card gw-card gw-warn"><p class="card-title">Google Weather</p>
+<p class="gw-status">No Google Weather config entries found. Add the integration under Settings → Devices &amp; services.</p></div>`;
+    }
+
+    const options = entries
+      .map(
+        (e) =>
+          `<option value="${esc(e.entry_id)}" ${e.entry_id === selectedId ? "selected" : ""}>${esc(e.title)}</option>`
+      )
+      .join("");
+    let cls = "gw-card";
+    let detail = "";
+
+    const cond = selected?.current_condition;
+    const savedStorm = this._plantState?.storm_prep ?? {};
+    const forecast = savedStorm.forecast_detail ?? {};
+    const forecastActive = Boolean(savedStorm.forecast_active);
+
+    if (selected?.alerts_supported) {
+      cls += " gw-ready";
+      const names = selected.alert_entities.map((a) => esc(a.name)).join(", ");
+      detail = `<p class="gw-linked"><strong>Alert triggers:</strong> ${names} (when <em>on</em>).</p>`;
+    }
+
+    if (selected?.condition_supported || selected?.weather_entity) {
+      cls += selected?.alerts_supported ? "" : " gw-ready";
+      detail += `<p class="gw-linked"><strong>Native Google Weather</strong> — current conditions + hourly forecast. Pre-charges when a storm is due within your lead time (below).</p>`;
+      if (cond) {
+        const stormNow = cond.is_storm
+          ? '<strong style="color:var(--fp-amber)">storm now</strong>'
+          : "clear now";
+        detail += `<p class="gw-linked">Now: <strong>${esc(cond.label || cond.text)}</strong> (<code>${esc(cond.type || "—")}</code>) — ${stormNow}.</p>`;
+      } else if (selected.condition_entity_id) {
+        detail += `<p class="gw-linked">Enable the <strong>Weather condition</strong> sensor in HA if hidden (eye icon).</p>`;
+      }
+      if (forecastActive && forecast.next_storm) {
+        detail += `<p class="gw-linked">Forecast: storm in ~<strong>${esc(String(forecast.next_storm.hours_until))}</strong>h (<code>${esc(forecast.next_storm.condition)}</code>) — <strong style="color:var(--fp-amber)">pre-charge active</strong>.</p>`;
+      } else if (draft.use_forecast_lead && selected.weather_entity) {
+        detail += `<p class="gw-linked">Forecast: no storm in the next <strong>${esc(String(draft.forecast_lead_hours || 4))}</strong> hours.</p>`;
+      }
+    } else if (selected) {
+      cls += " gw-warn";
+      detail = `<p class="gw-linked">No weather condition sensor found for this integration entry. Update Google Weather or pick another source under Advanced.</p>`;
+    } else {
+      detail = `<p class="gw-linked">Choose your Google Weather location. StormSafe uses official alert binaries (if available) and/or the weather condition sensor.</p>`;
+    }
+
+    if (selected?.weather_entity) {
+      detail += `<p class="gw-linked">Also watches: <code>${esc(selected.weather_entity)}</code></p>`;
+    }
+
+    const quickBtn =
+      entries.length && selected
+        ? `<div class="btn-row" style="margin-top:10px"><button type="button" class="btn btn-primary" data-action="storm-google-quick-setup" ${this._busy ? "disabled" : ""}>Turn on StormSafe</button></div>`
+        : "";
+    return `<div class="card ${cls}"><p class="card-title">Google Weather</p>
+<label class="field"><span style="font-size:12px;color:var(--secondary-text-color)">Location</span>
+<select class="gw-select" data-action="pick-google-weather-entry" ${this._busy ? "disabled" : ""}>
+<option value="">— Select location —</option>
+${options}
+</select></label>
+${detail}${quickBtn}</div>`;
+  }
+
+  _renderStormAdvancedTriggers() {
+    const draft = this._stormDraft;
+    if (!this._stormShowAdvanced) {
+      return `<details class="storm-advanced"><summary data-action="toggle-storm-advanced">Advanced: pick individual trigger entities</summary></details>`;
+    }
+    return `<details class="storm-advanced" open>
+<summary data-action="toggle-storm-advanced">Advanced: pick individual trigger entities</summary>
+<p class="storm-hint">Only needed if you are not using Google Weather alerts, or you want extra sensors (MeteoAlarm, NWS, templates).</p>
+<div data-storm-trigger-chips>${this._renderTriggerChips()}</div>
+<input type="search" class="trigger-filter" data-action="storm-trigger-filter" placeholder="Search entities…" value="${esc(this._triggerFilter)}" aria-label="Filter trigger entities">
+<div class="trigger-filter-actions">
+<button type="button" class="btn btn-secondary" data-action="storm-show-suggested" ${!this._triggerShowAll && !this._triggerFilter ? "disabled" : ""}>Weather matches</button>
+<button type="button" class="btn btn-secondary" data-action="storm-show-all" ${this._triggerShowAll ? "disabled" : ""}>All binary sensors</button>
+</div>
+<div data-storm-trigger-list>${this._renderTriggerPickerListHtml()}</div>
+<p style="margin:10px 0 0;font-size:12px;color:var(--secondary-text-color)" data-storm-trigger-count>${draft.trigger_entities.length} selected</p>
+</details>`;
   }
 
   _renderTriggerChips() {
@@ -1578,33 +1837,55 @@ ${has ? this._renderEnergyTodayBreakdown(a) : ""}
       return `<p class="placeholder" style="margin:8px 0 0">Loading entities… If this stays empty, reload FoxESS Plant and ensure weather warning binary sensors exist in Home Assistant.</p>`;
     }
     if (!rows.length) {
-      return `<p class="placeholder" style="margin:8px 0 0">No matches for “${esc(this._triggerFilter)}”. Try “met”, “warning”, or show all sensors.</p>`;
+      const hint = this._triggerGoogleOnly
+        ? "No Google Weather alerts match. Install Google Weather with alerts enabled, or show all sensors."
+        : `No matches for “${esc(this._triggerFilter)}”. Try “alert”, “warning”, or show all sensors.`;
+      return `<p class="placeholder" style="margin:8px 0 0">${hint}</p>`;
     }
 
-    const showSuggestedHeader = !this._triggerFilter && this._triggerShowAll && suggestedCount > 0;
-    const suggestedRows = showSuggestedHeader ? rows.filter((r) => r.suggested) : [];
-    const otherRows = showSuggestedHeader ? rows.filter((r) => !r.suggested) : rows;
+    const showGroupedHeader =
+      !this._triggerFilter && !this._triggerGoogleOnly && this._triggerShowAll && suggestedCount > 0;
+    const googleRows = showGroupedHeader ? rows.filter((r) => r.provider === "google_weather") : [];
+    const suggestedRows = showGroupedHeader
+      ? rows.filter((r) => r.suggested && r.provider !== "google_weather")
+      : [];
+    const otherRows = showGroupedHeader
+      ? rows.filter((r) => !r.suggested && r.provider !== "google_weather")
+      : rows;
 
     const renderRows = (list) =>
       list
         .map((row) => {
           const on = selected.has(row.entity_id);
-          const cls = row.suggested ? "trigger-row suggested" : "trigger-row";
+          const cls = [
+            "trigger-row",
+            row.provider === "google_weather" ? "google-weather" : "",
+            row.suggested ? "suggested" : "",
+          ]
+            .filter(Boolean)
+            .join(" ");
           const id = this._triggerRowId(row.entity_id);
+          const role = row.provider === "google_weather" ? this._googleRoleLabel(row.role) : "";
+          const roleHtml = role ? `<span class="trigger-role">${esc(role)}</span>` : "";
           return `<div class="${cls}">
 <input type="checkbox" id="${id}" data-action="toggle-storm-trigger" data-entity="${esc(row.entity_id)}" ${on ? "checked" : ""}>
-<label for="${id}">${esc(row.name)}<span class="entity-id">${esc(row.entity_id)}</span></label>
+<label for="${id}">${esc(row.name)}${roleHtml}<span class="entity-id">${esc(row.entity_id)}</span></label>
 <span class="entity-state">${esc(row.state)}</span>
 </div>`;
         })
         .join("");
 
     let body = "";
-    if (showSuggestedHeader && suggestedRows.length) {
-      body += `<p class="trigger-section-title">Weather &amp; warnings (${suggestedRows.length})</p>${renderRows(suggestedRows)}`;
+    if (showGroupedHeader && googleRows.length) {
+      body += `<p class="trigger-section-title">Google Weather (${googleRows.length})</p>${renderRows(googleRows)}`;
+      if (suggestedRows.length) {
+        body += `<p class="trigger-section-title">Other weather &amp; warnings (${suggestedRows.length})</p>${renderRows(suggestedRows)}`;
+      }
       if (otherRows.length) {
         body += `<p class="trigger-section-title">Other binary sensors (${otherRows.length})</p>${renderRows(otherRows)}`;
       }
+    } else if (this._triggerGoogleOnly && rows.length) {
+      body += `<p class="trigger-section-title">Google Weather alerts (${rows.length})</p>${renderRows(rows)}`;
     } else {
       body = renderRows(rows);
     }
@@ -1655,12 +1936,20 @@ ${has ? this._renderEnergyTodayBreakdown(a) : ""}
     const overrideArmed =
       Boolean(this._plantState?.override_active) && String(this._plantState?.mode ?? "") === "storm";
     const armed = triggersArmed || overrideArmed;
+    const gwEntry = (this._getGoogleWeatherEntries() || []).find(
+      (e) => e.entry_id === storm.google_weather_entry_id
+    );
+    const stormSub = storm.enabled
+      ? gwEntry
+        ? `${gwEntry.title}${armed ? " · active" : ""}`
+        : `${(storm.trigger_entities ?? []).length} trigger(s)`
+      : "Off";
     return `<header class="header"><h1>Settings</h1><p>Quick controls for your plant</p></header>
 ${this._modeBanner()}
 <button type="button" class="list-btn" data-action="settings-sub" data-sub="quick"><span>Quick Settings<span class="sub">Max ${s.max_soc ?? "—"}% · Min ${s.min_soc ?? "—"}% · Off-grid ${s.min_soc_on_grid ?? "—"}%</span></span><span class="chev">›</span></button>
 <button type="button" class="list-btn" data-action="settings-sub" data-sub="schedules"><span>Charge schedule<span class="sub">Two charge windows (baseline)</span></span><span class="chev">›</span></button>
 <button type="button" class="list-btn" data-action="settings-sub" data-sub="workmode"><span>Work mode<span class="sub">${esc(s.work_mode ?? "—")}</span></span><span class="chev">›</span></button>
-<button type="button" class="list-btn" data-action="settings-sub" data-sub="storm"><span>StormSafe<span class="sub">${storm.enabled ? (armed ? "Active now" : "Enabled") : "Off"} · ${(storm.trigger_entities ?? []).length} trigger(s)</span></span><span class="chev">›</span></button>
+<button type="button" class="list-btn" data-action="settings-sub" data-sub="storm"><span>StormSafe<span class="sub">${stormSub}</span></span><span class="chev">›</span></button>
 <button type="button" class="list-btn" data-action="settings-sub" data-sub="control"><span>Plant control<span class="sub">${this._plantState?.control_active ? "Fox Plant manages periods" : "Released to manual"}</span></span><span class="chev">›</span></button>`;
   }
 
@@ -1728,21 +2017,18 @@ ${activeTriggers.length ? `<div>${activeTriggers.map((t) => `<span class="trigge
 </div>
 </div>
 <div class="card">
-<div class="toggle-row"><span><strong>Enable StormSafe</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">When a selected warning sensor turns on, Fox Plant arms storm prep automatically</span></span>
+<div class="toggle-row"><span><strong>Enable StormSafe</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Arms when Google Weather reports a storm-type condition (or alert binaries turn on)</span></span>
 <input type="checkbox" data-action="toggle-storm-enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 </div>
-<div class="card" data-storm-triggers-card>
-<p class="card-title">Warning triggers</p>
-<p class="storm-hint">Select binary sensors from your weather integration (e.g. Met Office). Install the integration in HA first, then tick the warning entities here and press <strong>Save StormSafe settings</strong>.</p>
-<div data-storm-trigger-chips>${this._renderTriggerChips()}</div>
-<input type="search" class="trigger-filter" data-action="storm-trigger-filter" placeholder="Search by name or entity id (e.g. met, warning)…" value="${esc(this._triggerFilter)}" aria-label="Filter trigger entities">
-<div class="trigger-filter-actions">
-<button type="button" class="btn btn-secondary" data-action="storm-show-suggested" ${!this._triggerShowAll && !this._triggerFilter ? "disabled" : ""}>Weather matches only</button>
-<button type="button" class="btn btn-secondary" data-action="storm-show-all" ${this._triggerShowAll ? "disabled" : ""}>Show all binary sensors</button>
+${this._renderGoogleWeatherSource()}
+<div class="card">
+<p class="card-title">Pre-charge timing</p>
+<div class="toggle-row"><span><strong>Forecast pre-charge</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Start storm schedule when Google hourly forecast shows severe weather within the lead time</span></span>
+<input type="checkbox" data-field="toggle-storm-forecast" ${draft.use_forecast_lead ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+<div class="field" style="margin-top:10px"><label>Lead time (hours before forecast storm)</label>
+<input type="number" min="1" max="48" step="1" data-field="storm-lead-hours" value="${esc(String(draft.forecast_lead_hours ?? 4))}" ${!draft.use_forecast_lead || this._busy ? "disabled" : ""}></div>
 </div>
-<div data-storm-trigger-list>${this._renderTriggerPickerListHtml()}</div>
-<p style="margin:10px 0 0;font-size:12px;color:var(--secondary-text-color)" data-storm-trigger-count>${draft.trigger_entities.length} selected</p>
-</div>
+${this._renderStormAdvancedTriggers()}
 <div class="card">
 <p class="card-title">Storm charge schedule</p>
 <p class="storm-hint">Applied while a trigger is active (separate from your baseline schedule).</p>

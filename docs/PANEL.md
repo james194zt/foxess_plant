@@ -44,7 +44,7 @@ Animated dashed lines show direction and magnitude of power flow.
 
 Settings → StormSafe shows the Fox-style split-scene hero (prepared vs unprepared house). It highlights when storm prep triggers are active.
 
-Configure everything under **Settings → StormSafe** in this panel. Pick entities from your weather integrations (e.g. Met Office warning sensors); no blueprint import required. Integration **Configure** (cog) remains available as a fallback for advanced options.
+**StormSafe** uses **Google Weather** only (install guide: [INSTALL.md](INSTALL.md)). Pick your location, set pre-charge **lead time**, press **Turn on StormSafe**. No entity lists unless you open Advanced. See [STORMSAFE_GOOGLE_WEATHER.md](STORMSAFE_GOOGLE_WEATHER.md).
 
 ## Building the frontend (optional)
 

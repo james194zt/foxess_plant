@@ -145,8 +145,26 @@ DEFAULT_OVERRIDE = {
 
 AUTOMATION_MODES = frozenset({MODE_STORM, MODE_OUTAGE, MODE_FORECAST})
 
+GOOGLE_WEATHER_DOMAIN = "google_weather"
+STORM_ALERT_PROVIDER_GOOGLE = "google_weather"
+GOOGLE_WEATHER_ALERT_SUFFIXES = (
+    "_weather_alert",
+    "_severe_weather_alert",
+    "_urgent_weather_alert",
+)
+
+DEFAULT_STORM_FORECAST_LEAD_HOURS = 4
+
 DEFAULT_STORM_PREP = {
     "enabled": False,
+    "alert_provider": STORM_ALERT_PROVIDER_GOOGLE,
+    "google_weather_entry_id": None,
+    "use_weather_condition": True,
+    "use_forecast_lead": True,
+    "forecast_lead_hours": DEFAULT_STORM_FORECAST_LEAD_HOURS,
+    "condition_entity_id": None,
+    "weather_entity_id": None,
+    "storm_google_types": None,
     "trigger_entities": [],
     "charge_periods": [
         {

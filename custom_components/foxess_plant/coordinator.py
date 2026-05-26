@@ -55,6 +55,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     _active_storm_triggers: set[str]
     _active_outage_triggers: set[str]
     _forecast_armed: bool
+    _storm_forecast_active: bool
+    _storm_forecast_detail: dict[str, Any]
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         self.config_entry = entry
@@ -62,6 +64,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._active_storm_triggers = set()
         self._active_outage_triggers = set()
         self._forecast_armed = False
+        self._storm_forecast_active = False
+        self._storm_forecast_detail = {}
         super().__init__(
             hass,
             _LOGGER,
@@ -74,7 +78,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.setup_trigger_listeners()
         await super().async_config_entry_first_refresh()
         self._setup_drift_timer()
+        self._setup_storm_forecast_timer()
         try:
+            await self._async_refresh_storm_weather()
             await self._sync_automation_policy()
         except Exception as err:
             _LOGGER.warning("Initial automation policy sync failed: %s", err)
@@ -98,6 +104,39 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     @callback
     def _drift_timer_callback(self, _now) -> None:
         self.hass.async_create_task(self.async_check_drift())
+
+    def _setup_storm_forecast_timer(self) -> None:
+        if getattr(self, "_unsub_storm_forecast", None):
+            self._unsub_storm_forecast()
+            self._unsub_storm_forecast = None
+        self._unsub_storm_forecast = async_track_time_interval(
+            self.hass,
+            self._storm_forecast_timer_callback,
+            timedelta(minutes=15),
+        )
+
+    @callback
+    def _storm_forecast_timer_callback(self, _now) -> None:
+        self.hass.async_create_task(self._async_refresh_storm_weather())
+
+    async def _async_refresh_storm_weather(self) -> None:
+        """Re-evaluate Google condition + hourly forecast for StormSafe."""
+        from .storm_forecast import async_storm_in_forecast_window
+
+        cfg = self.plant.storm_prep
+        if cfg.enabled and cfg.use_forecast_lead and cfg.weather_entity_id:
+            active, detail = await async_storm_in_forecast_window(
+                self.hass,
+                cfg.weather_entity_id,
+                cfg.forecast_lead_hours,
+            )
+            self._storm_forecast_active = active
+            self._storm_forecast_detail = detail
+        else:
+            self._storm_forecast_active = False
+            self._storm_forecast_detail = {}
+        self._sync_trigger_membership()
+        await self._sync_automation_policy()
 
     def update_plant_config(self, plant: PlantConfig) -> None:
         self.plant = plant
@@ -123,33 +162,60 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._active_storm_triggers = {
             eid
             for eid in self.plant.storm_prep.trigger_entities
-            if self._is_trigger_active(eid)
+            if self._is_binary_trigger_active(eid)
         }
+        self._sync_storm_condition_trigger()
         self._active_outage_triggers = {
             eid
             for eid in self.plant.outage_prep.trigger_entities
-            if self._is_trigger_active(eid)
+            if self._is_binary_trigger_active(eid)
         }
 
-    def _is_trigger_active(self, entity_id: str) -> bool:
+    def _sync_storm_condition_trigger(self) -> None:
+        cfg = self.plant.storm_prep
+        watch = {cfg.condition_entity_id, cfg.weather_entity_id} - {None}
+        for eid in list(self._active_storm_triggers):
+            if eid in watch:
+                self._active_storm_triggers.discard(eid)
+        if self._is_storm_condition_active():
+            entity_id = cfg.condition_entity_id or cfg.weather_entity_id
+            if entity_id:
+                self._active_storm_triggers.add(entity_id)
+        if self._storm_forecast_active and cfg.weather_entity_id:
+            self._active_storm_triggers.add(cfg.weather_entity_id)
+
+    def _is_binary_trigger_active(self, entity_id: str) -> bool:
         state = self.hass.states.get(entity_id)
         if state is None:
             return False
         return state.state.lower() in TRIGGER_ON_STATES
+
+    def _is_storm_condition_active(self) -> bool:
+        from .storm_weather import is_storm_weather_active
+
+        cfg = self.plant.storm_prep
+        return is_storm_weather_active(
+            self.hass,
+            condition_entity_id=cfg.condition_entity_id,
+            weather_entity_id=cfg.weather_entity_id,
+            use_weather_condition=cfg.use_weather_condition,
+            storm_types=cfg.storm_google_types,
+        )
 
     async def _async_handle_trigger_event(self, event: Event) -> None:
         entity_id = event.data.get("entity_id")
         if not entity_id or not self.plant.control_active:
             return
 
-        if entity_id in self.plant.storm_prep.trigger_entities:
-            if self._is_trigger_active(entity_id):
-                self._active_storm_triggers.add(entity_id)
-            else:
-                self._active_storm_triggers.discard(entity_id)
+        storm_watch = set(self.plant.storm_prep.storm_watch_entities())
+        if entity_id in storm_watch:
+            self._sync_trigger_membership()
+            if entity_id == self.plant.storm_prep.weather_entity_id:
+                await self._async_refresh_storm_weather()
+                return
 
         if entity_id in self.plant.outage_prep.trigger_entities:
-            if self._is_trigger_active(entity_id):
+            if self._is_binary_trigger_active(entity_id):
                 self._active_outage_triggers.add(entity_id)
             else:
                 self._active_outage_triggers.discard(entity_id)
@@ -290,6 +356,22 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             data=self.plant.to_entry_data(),
         )
 
+    def _storm_prep_state(self) -> dict[str, Any]:
+        from .storm_weather import read_condition_snapshot
+
+        out = self.plant.storm_prep.to_dict()
+        snap = read_condition_snapshot(
+            self.hass,
+            self.plant.storm_prep.condition_entity_id,
+            self.plant.storm_prep.weather_entity_id,
+            storm_types=self.plant.storm_prep.storm_google_types,
+        )
+        out["current_condition"] = snap
+        out["condition_active"] = self._is_storm_condition_active()
+        out["forecast_active"] = self._storm_forecast_active
+        out["forecast_detail"] = self._storm_forecast_detail
+        return out
+
     def get_plant_state(self) -> dict[str, Any]:
         desired = [p.to_dict() for p in self.plant.desired_periods()]
         actual = self._read_actual_periods()
@@ -313,7 +395,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "active_outage_triggers": sorted(self._active_outage_triggers),
             "forecast_armed": self._forecast_armed,
             "tariff_modes": sorted(self.plant.tariff_modes.keys()),
-            "storm_prep": self.plant.storm_prep.to_dict(),
+            "storm_prep": self._storm_prep_state(),
             "outage_prep": self.plant.outage_prep.to_dict(),
             "settings": {
                 "max_soc": self._entity_float("max_soc"),
@@ -521,19 +603,52 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         trigger_entities: list[str],
         charge_periods: list[dict[str, Any]],
         target_max_soc: float | None,
+        alert_provider: str | None = None,
+        google_weather_entry_id: str | None = None,
+        use_forecast_lead: bool | None = None,
+        forecast_lead_hours: int | None = None,
     ) -> None:
         """Persist storm prep from the Fox Plant panel."""
+        from .panel_config import resolve_google_weather_entry
+
         periods = [ChargePeriodConfig.from_dict(p) for p in charge_periods]
+        triggers = list(trigger_entities)
+        use_weather_condition = True
+        use_forecast = True if use_forecast_lead is None else use_forecast_lead
+        lead_hours = 4 if forecast_lead_hours is None else max(1, min(int(forecast_lead_hours), 48))
+        condition_entity_id: str | None = None
+        weather_entity_id: str | None = None
+        if google_weather_entry_id:
+            sources = resolve_google_weather_entry(self.hass, google_weather_entry_id)
+            if sources["alert_trigger_ids"]:
+                triggers = sources["alert_trigger_ids"]
+            condition_entity_id = sources["condition_entity_id"]
+            weather_entity_id = sources["weather_entity_id"]
+            use_weather_condition = bool(condition_entity_id)
+            if use_forecast_lead is None:
+                use_forecast = bool(weather_entity_id)
         data = dict(self.config_entry.data)
-        data[CONF_STORM_PREP] = {
+        storm_data: dict[str, Any] = {
             "enabled": enabled,
-            "trigger_entities": list(trigger_entities),
+            "use_weather_condition": use_weather_condition,
+            "use_forecast_lead": use_forecast,
+            "forecast_lead_hours": lead_hours,
+            "trigger_entities": triggers,
             "charge_periods": [p.to_dict() for p in periods],
             "target_max_soc": target_max_soc,
         }
+        if alert_provider:
+            storm_data["alert_provider"] = alert_provider
+        if google_weather_entry_id:
+            storm_data["google_weather_entry_id"] = google_weather_entry_id
+        if condition_entity_id:
+            storm_data["condition_entity_id"] = condition_entity_id
+        if weather_entity_id:
+            storm_data["weather_entity_id"] = weather_entity_id
+        data[CONF_STORM_PREP] = storm_data
         self.hass.config_entries.async_update_entry(self.config_entry, data=data)
         self.update_plant_config(PlantConfig.from_entry_data(data))
-        await self._sync_automation_policy()
+        await self._async_refresh_storm_weather()
         await self.async_request_refresh()
 
     async def async_set_tariff_mode(self, mode_name: str) -> None:
@@ -593,6 +708,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._unsub_drift:
             self._unsub_drift()
             self._unsub_drift = None
+        if getattr(self, "_unsub_storm_forecast", None):
+            self._unsub_storm_forecast()
+            self._unsub_storm_forecast = None
         if self._unsub_triggers:
             self._unsub_triggers()
             self._unsub_triggers = None

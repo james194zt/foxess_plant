@@ -6,90 +6,56 @@ Central **plant controller** for FoxESS inverters running [foxess_modbus](https:
 
 - Single writer for charge periods (via `foxess_modbus.update_all_charge_periods`)
 - No dependency on the community charge-period Lovelace card
-- Local replacements for Fox cloud StormSafe, outage prep, and low-solar forecast prep
-- Daily energy analytics (self-consumption / self-sufficiency) from mapped inverter entities
-- Configurable entity map (auto-discovered from your inverter device)
-- Events and services for Node-RED and automations
-- Drift detection when something else changes inverter periods
+- Local **StormSafe** using **[Google Weather](docs/STORMSAFE_GOOGLE_WEATHER.md)** (forecast + conditions)
+- Outage prep and low-solar forecast prep
+- Daily energy analytics from mapped inverter entities
+- **Fox Plant** sidebar panel — configure everything without blueprints
 
 ## Requirements
 
 - Home Assistant 2025.1+
 - **FoxESS - Modbus** integration configured and working
+- **[Google Weather](https://github.com/safepay/ha_google_weather)** (HACS) for StormSafe — see [docs/INSTALL.md](docs/INSTALL.md)
+
+## Quick install
+
+See **[docs/INSTALL.md](docs/INSTALL.md)** — Fox Plant + Google Weather in four steps, then **Turn on StormSafe** in the panel.
 
 ## Fox Plant panel
 
-Open **Fox Plant** from the HA sidebar for a full GUI: live energy-flow diagram, device overview, analytics, and settings (including StormSafe illustration).
+Open **Fox Plant** from the HA sidebar: live energy diagram, schedules, SOC, work mode, and **StormSafe** (Google Weather location + pre-charge lead time).
 
 See [docs/PANEL.md](docs/PANEL.md).
 
-## Install
+## StormSafe (Google Weather)
 
-### HACS custom repository
+| Trigger | When it arms |
+|---------|----------------|
+| **Forecast** | Hourly forecast shows storm within your **lead time** (default 4 h) |
+| **Current condition** | Google weather condition type is severe now |
+| **Alerts** | Official alert binaries on (if available in your region) |
 
-1. HACS → Custom repositories → `https://github.com/james194zt/foxess_plant`
-2. Install **FoxESS Plant**, restart HA
-3. Settings → Devices & services → Add integration → **FoxESS Plant**
-4. Select your `foxess_modbus` inverter device
+Configure in **Fox Plant → Settings → StormSafe** only. Disable Fox cloud StormSafe when using this.
 
-### Manual
-
-Copy `custom_components/foxess_plant` to your HA `config/custom_components/` and restart.
-
-## Setup
-
-1. Add integration and pick inverter device (entities auto-discovered).
-2. Open **Fox Plant** → **Settings** → configure baseline schedule, StormSafe triggers, SOC limits, and work mode in the panel.
-3. Disable Fox cloud schedules / StormSafe if using local storm prep.
-4. Use **`foxess_plant.*` services** in automations and Node-RED only when you need automation beyond the panel — avoid calling `foxess_modbus.update_charge_period` directly.
-
-## Prep policies (local Fox cloud replacements)
+## Prep policies
 
 | Policy | Trigger | Action |
 |--------|---------|--------|
-| **Storm prep** | Weather / warning binary sensors | Force charge + optional max SoC |
-| **Outage prep** | Grid-down / backup triggers | Force charge while trigger active |
-| **Forecast prep** | Solar forecast entity below threshold | Overnight pre-charge |
-| **Tariff** | `set_tariff_mode` service / automation | Apply named charge profile |
+| **Storm prep** | Google Weather (above) | Force charge + optional max SoC |
+| **Outage prep** | Grid-down / backup triggers | Force charge while active |
+| **Forecast prep** | Solar forecast below threshold | Overnight pre-charge |
+| **Tariff** | `set_tariff_mode` / automation | Named charge profile |
 
-Priority when multiple triggers are active: **outage → storm → forecast → baseline**.
+Priority: **outage → storm → forecast → baseline**.
 
-## Entities
+## Manual install
 
-| Entity | Purpose |
-|--------|---------|
-| `sensor.*_plant_mode` | `baseline` / `storm` / `outage` / `forecast` / `tariff` / `manual` |
-| `sensor.*_self_consumption_percent_today` | PV self-consumption % |
-| `sensor.*_self_sufficiency_percent_today` | Load self-sufficiency % |
-| `binary_sensor.*_control_active` | Plant is allowed to write |
-| `binary_sensor.*_period_override` | Temporary override active |
-| `binary_sensor.*_control_drift` | Inverter ≠ desired periods |
-| `binary_sensor.*_storm_prep_active` | Storm trigger(s) active |
-| `binary_sensor.*_outage_prep_active` | Outage trigger(s) active |
-| `binary_sensor.*_forecast_prep_active` | Low forecast prep armed |
-| `button.*_apply_baseline` | Restore baseline |
-| `button.*_disarm_override` | Clear override |
+Copy `custom_components/foxess_plant` to `config/custom_components/` and restart HA.
 
-## Services (Node-RED / automations)
+## Services & blueprints
 
-See [docs/NODE_RED.md](docs/NODE_RED.md).
-
-Key services:
-
-- `foxess_plant.set_charge_period` / `set_charge_periods`
-- `foxess_plant.apply_baseline` / `apply_desired`
-- `foxess_plant.arm_storm_prep` / `disarm_storm_prep`
-- `foxess_plant.set_tariff_mode` / `set_tariff_profile`
-- `foxess_plant.take_control` / `release_control`
-- `foxess_plant.get_plant_state` (returns JSON)
-
-## Blueprints (optional)
-
-StormSafe is configured in the **Fox Plant** panel (Settings → StormSafe). Blueprints under `blueprints/automation/foxess_plant/` are optional extras for advanced automations — you do not need to import them for normal use.
-
-## Events
-
-Listen on HA event bus, e.g. `foxess_plant_period_applied`, `foxess_plant_control_drift`, `foxess_plant_storm_armed`, `foxess_plant_forecast_armed`.
+- Services: [docs/NODE_RED.md](docs/NODE_RED.md)
+- Blueprints under `blueprints/automation/foxess_plant/` are **optional** — not required for normal use
 
 ## License
 

@@ -119,6 +119,14 @@ class OverrideState:
 @dataclass
 class PrepPolicyConfig:
     enabled: bool = False
+    alert_provider: str | None = None
+    google_weather_entry_id: str | None = None
+    use_weather_condition: bool = True
+    use_forecast_lead: bool = True
+    forecast_lead_hours: int = 4
+    condition_entity_id: str | None = None
+    weather_entity_id: str | None = None
+    storm_google_types: list[str] | None = None
     trigger_entities: list[str] = field(default_factory=list)
     charge_periods: list[ChargePeriodConfig] = field(default_factory=list)
     target_max_soc: float | None = None
@@ -127,20 +135,56 @@ class PrepPolicyConfig:
     def from_dict(cls, data: dict[str, Any], default_periods: list[dict[str, Any]]) -> PrepPolicyConfig:
         periods_raw = data.get("charge_periods") or default_periods
         target = data.get("target_max_soc")
+        provider = data.get("alert_provider")
+        gw_entry = data.get("google_weather_entry_id")
+        condition_entity = data.get("condition_entity_id")
+        weather_entity = data.get("weather_entity_id")
+        raw_types = data.get("storm_google_types")
         return cls(
             enabled=bool(data.get("enabled", False)),
+            alert_provider=str(provider) if provider else None,
+            google_weather_entry_id=str(gw_entry) if gw_entry else None,
+            use_weather_condition=bool(data.get("use_weather_condition", True)),
+            use_forecast_lead=bool(data.get("use_forecast_lead", True)),
+            forecast_lead_hours=int(data.get("forecast_lead_hours", 4)),
+            condition_entity_id=str(condition_entity) if condition_entity else None,
+            weather_entity_id=str(weather_entity) if weather_entity else None,
+            storm_google_types=list(raw_types) if raw_types else None,
             trigger_entities=list(data.get("trigger_entities", [])),
             charge_periods=[ChargePeriodConfig.from_dict(p) for p in periods_raw],
             target_max_soc=float(target) if target is not None else None,
         )
 
+    def storm_watch_entities(self) -> list[str]:
+        entities = list(self.trigger_entities)
+        if self.use_weather_condition:
+            if self.condition_entity_id:
+                entities.append(self.condition_entity_id)
+            if self.weather_entity_id:
+                entities.append(self.weather_entity_id)
+        return sorted(set(entities))
+
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "enabled": self.enabled,
+            "use_weather_condition": self.use_weather_condition,
+            "use_forecast_lead": self.use_forecast_lead,
+            "forecast_lead_hours": self.forecast_lead_hours,
             "trigger_entities": self.trigger_entities,
             "charge_periods": [p.to_dict() for p in self.charge_periods],
             "target_max_soc": self.target_max_soc,
         }
+        if self.alert_provider:
+            out["alert_provider"] = self.alert_provider
+        if self.google_weather_entry_id:
+            out["google_weather_entry_id"] = self.google_weather_entry_id
+        if self.condition_entity_id:
+            out["condition_entity_id"] = self.condition_entity_id
+        if self.weather_entity_id:
+            out["weather_entity_id"] = self.weather_entity_id
+        if self.storm_google_types:
+            out["storm_google_types"] = self.storm_google_types
+        return out
 
 
 @dataclass
@@ -251,7 +295,7 @@ class PlantConfig:
     def all_trigger_entities(self) -> list[str]:
         entities: list[str] = []
         if self.storm_prep.enabled:
-            entities.extend(self.storm_prep.trigger_entities)
+            entities.extend(self.storm_prep.storm_watch_entities())
         if self.outage_prep.enabled:
             entities.extend(self.outage_prep.trigger_entities)
         return sorted(set(entities))

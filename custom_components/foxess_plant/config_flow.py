@@ -31,6 +31,7 @@ from .discovery import (
     is_foxess_modbus_device,
     missing_charge_period_entities,
 )
+from .google_weather_setup import apply_google_weather_storm_defaults, google_weather_install_status
 from .models import ChargePeriodConfig, ControlConfig, PlantConfig
 
 _LOGGER = logging.getLogger(__name__)
@@ -155,12 +156,21 @@ class FoxessPlantConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
             await self.async_set_unique_id(self._device_id)
             self._abort_if_unique_id_configured()
+            entry_data = apply_google_weather_storm_defaults(
+                self.hass, plant.to_entry_data()
+            )
             return self.async_create_entry(
                 title=title,
-                data=plant.to_entry_data(),
+                data=entry_data,
             )
 
         missing = missing_charge_period_entities(self._entity_map)
+        gw = google_weather_install_status(self.hass)
+        gw_note = (
+            "Google Weather detected — StormSafe is pre-linked in Fox Plant."
+            if gw.get("auto_link_ready")
+            else "Add Google Weather (HACS) for StormSafe — configure in Fox Plant → Settings → StormSafe."
+        )
         description_placeholders = {
             "device": title,
             "entities": "\n".join(
@@ -168,6 +178,7 @@ class FoxessPlantConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             )
             or "(none discovered)",
             "missing": ", ".join(missing) if missing else "none",
+            "google_weather": gw_note,
         }
         return self.async_show_form(
             step_id="confirm",
