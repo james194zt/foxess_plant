@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.4.7
+ * @version 0.4.8
  */
 
 const NAV = [
@@ -401,6 +401,13 @@ const STYLES = `
   border: 1px solid var(--divider-color); background: var(--card-background-color);
   color: var(--primary-text-color); font-size: 15px; font-weight: 600; text-align: center; font-family: inherit;
 }
+.soc-limit-note {
+  margin-top: 14px; padding: 10px 12px; font-size: 12px; line-height: 1.45;
+  color: var(--secondary-text-color);
+  background: color-mix(in srgb, var(--fp-amber) 14%, var(--card-background-color));
+  border-radius: 10px; border-left: 3px solid var(--fp-amber);
+}
+.soc-limit-note strong { color: var(--primary-text-color); font-weight: 600; }
 .mode-grid { display: grid; gap: 8px; }
 .mode-option {
   display: block; width: 100%; text-align: left; padding: 14px 16px;
@@ -652,8 +659,14 @@ class FoxessPlantPanel extends HTMLElement {
     }
     if (kind === "soc-num" && this._socDraft) {
       const field = parts[1];
-      applySocDrag(this._socDraft, field, parseFloat(el.value));
-      this._updateTripleSocDom();
+      const raw = String(el.value).trim();
+      if (raw === "") return;
+      const v = parseFloat(raw);
+      if (Number.isNaN(v)) return;
+      if (e.type === "change" || (v >= SOC_MIN_PCT && v <= 100)) {
+        applySocDrag(this._socDraft, field, v);
+        this._updateTripleSocDom();
+      }
     }
   }
 
@@ -669,7 +682,8 @@ class FoxessPlantPanel extends HTMLElement {
     if (!this._socDrag || !this._socDraft) return;
     const rect = this._socDrag.track.getBoundingClientRect();
     if (!rect.width) return;
-    let pct = Math.round(((e.clientX - rect.left) / rect.width) * 100);
+    const t = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const pct = Math.round(SOC_MIN_PCT + t * (100 - SOC_MIN_PCT));
     applySocDrag(this._socDraft, this._socDrag.thumb, pct);
     this._updateTripleSocDom();
   }
@@ -787,6 +801,7 @@ ${thumbsHtml}
 <span><i style="background:var(--fp-accent)"></i> Charge headroom</span>
 </div>
 <div class="soc-numeric">${numericHtml}</div>
+<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. The inverter rejects lower values over Modbus; the Fox app may allow 5% but behaviour is inconsistent.</p>
 </div>`;
   }
 
