@@ -4,10 +4,10 @@
  */
 
 const NAV = [
-  { id: "overview", label: "Overview", icon: "mdi:home-lightning-bolt" },
-  { id: "device", label: "Device", icon: "mdi:solar-power-variant" },
-  { id: "energy", label: "Energy", icon: "mdi:chart-line" },
-  { id: "settings", label: "Settings", icon: "mdi:cog" },
+  { id: "overview", label: "Overview", glyph: "⌂" },
+  { id: "device", label: "Device", glyph: "☀" },
+  { id: "energy", label: "Energy", glyph: "▤" },
+  { id: "settings", label: "Settings", glyph: "⚙" },
 ];
 
 const FLOW_PATHS = {
@@ -113,7 +113,7 @@ const STYLES = `
 .shell.narrow .nav-btn { flex: 1; justify-content: center; min-width: 72px; margin-bottom: 0; }
 .nav-btn:hover { background: var(--secondary-background-color, rgba(127,127,127,0.15)); }
 .nav-btn.active { background: rgba(var(--rgb-primary-color, 3, 169, 244), 0.15); color: var(--primary-color, #03a9f4); font-weight: 600; }
-.nav-btn ha-icon { --mdc-icon-size: 22px; color: inherit; }
+.nav-glyph { width: 22px; text-align: center; font-size: 16px; line-height: 1; opacity: 0.9; }
 .main { flex: 1; overflow-y: auto; padding: 20px 24px 32px; max-width: 960px; }
 .shell.narrow .main { padding: 16px; max-width: none; }
 .header { margin-bottom: 20px; }
@@ -188,6 +188,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._hass = undefined;
     this._narrow = false;
     this._panel = undefined;
+    this._route = undefined;
     this._view = "overview";
     this._settingsView = "main";
     this._deviceSub = "main";
@@ -241,6 +242,13 @@ class FoxessPlantPanel extends HTMLElement {
   }
   get panel() {
     return this._panel;
+  }
+
+  set route(v) {
+    this._route = v;
+  }
+  get route() {
+    return this._route;
   }
 
   _getPlant() {
@@ -524,6 +532,11 @@ ${this._renderStormHero(armed, armed)}
   }
 
   _render() {
+    if (!this._hass) {
+      this._root.innerHTML = `<div class="main"><div class="placeholder">Loading Fox Plant…</div></div>`;
+      return;
+    }
+
     const plant = this._getPlant();
     if (!plant) {
       this._root.innerHTML = `<div class="main"><div class="placeholder">Add FoxESS Plant integration and select your inverter to use this panel.</div></div>`;
@@ -533,7 +546,7 @@ ${this._renderStormHero(armed, armed)}
     const navHtml = NAV.map(
       (item) =>
         `<button type="button" class="nav-btn ${this._view === item.id ? "active" : ""}" data-action="nav" data-view="${item.id}">
-<ha-icon icon="${item.icon}"></ha-icon>${this._narrow ? "" : esc(item.label)}
+<span class="nav-glyph" aria-hidden="true">${item.glyph}</span>${this._narrow ? "" : esc(item.label)}
 </button>`
     ).join("");
 

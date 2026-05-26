@@ -53,5 +53,6 @@ npm run build
 ## Troubleshooting
 
 - **Panel missing from sidebar** — Confirm `custom_components/foxess_plant/www/foxess-plant-panel.js` exists and restart HA.
+- **Blank panel page** — Update to the latest `foxess_plant` release and restart HA (fixes panel registration after reboot). Hard-refresh the browser (Ctrl+F5). Check browser devtools → Network for `/foxess_plant_panel/foxess-plant-panel.js` (should be 200).
 - **Empty energy diagram** — Reload the integration so panel entities are re-discovered into `entity_map`.
 - **Analytics show —** — Wait for coordinator refresh or check plant sensors exist.

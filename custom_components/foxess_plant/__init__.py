@@ -15,9 +15,18 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up global handlers for foxess_plant."""
+    from .panel import async_register_panel
     from .websocket_api import async_register_ws_handlers
 
     async_register_ws_handlers(hass)
+
+    # Re-register panel + static assets after restart when config entries exist.
+    if hass.config_entries.async_entries(DOMAIN):
+        try:
+            await async_register_panel(hass)
+        except Exception:
+            _LOGGER.exception("Fox Plant panel registration failed during setup")
+
     return True
 
 
