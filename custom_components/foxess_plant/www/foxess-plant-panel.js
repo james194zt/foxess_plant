@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.4.5
+ * @version 0.4.6
  */
 
 const NAV = [
@@ -139,7 +139,7 @@ async function fetchPlantState(hass, plantId) {
 }
 
 async function callService(hass, domain, service, data) {
-  await hass.callService(domain, service, data, undefined, true, true);
+  await hass.callService(domain, service, data, undefined, { blocking: true });
 }
 
 const SOC_THUMBS = [
