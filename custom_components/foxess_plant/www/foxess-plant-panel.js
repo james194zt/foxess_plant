@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.4.10
+ * @version 0.4.13
  */
 
 const NAV = [
@@ -208,6 +208,25 @@ const STYLES = `
   position: relative; z-index: 2;
   border-bottom: 1px solid var(--divider-color);
   background: var(--app-header-background-color, var(--primary-background-color));
+}
+.plant-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 8px 0;
+}
+.plant-row label {
+  font-size: 12px; color: var(--secondary-text-color);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.plant-row select {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--divider-color);
+  background: var(--card-background-color);
+  color: var(--primary-text-color);
+  width: 180px;
 }
 .tab-bar {
   display: flex; align-items: stretch; gap: 0;
@@ -569,9 +588,24 @@ class FoxessPlantPanel extends HTMLElement {
     });
   }
 
+  _renderPlantSelect() {
+    const plants = this._panel?.config?.plants ?? [];
+    if (plants.length <= 1) return "";
+    const selectedId = this._selectedPlantId ?? plants[0]?.entry_id;
+    return `<div class="plant-row"><label>Plant</label><select data-action="pick-plant" aria-label="Plant selector">${plants
+      .map(
+        (p) =>
+          `<option value="${esc(p.entry_id)}" ${p.entry_id === selectedId ? "selected" : ""}>${esc(
+            p.title
+          )}</option>`
+      )
+      .join("")}</select></div>`;
+  }
+
   _rebuildPageHeader(headerEl) {
     const showSubTabs = this._view === "settings";
     headerEl.innerHTML =
+      this._renderPlantSelect() +
       this._renderTabBar(NAV, this._view, "nav", "view") +
       (showSubTabs
         ? this._renderTabBar(SETTINGS_NAV, this._settingsView, "settings-tab", "sub", true)
@@ -685,6 +719,18 @@ class FoxessPlantPanel extends HTMLElement {
 
   _handleInput(e) {
     const el = e.target;
+    if (el?.dataset?.action === "pick-plant") {
+      const id = el.value;
+      if (!id || id === this._selectedPlantId) return;
+      this._selectedPlantId = id;
+      this._plantState = undefined;
+      this._settingsView = "main";
+      this._deviceSub = "main";
+      this._view = "overview";
+      void this._refreshPlantState();
+      this._render();
+      return;
+    }
     if (!el?.dataset?.field) return;
     const parts = el.dataset.field.split(":");
     const kind = parts[0];
@@ -1165,7 +1211,10 @@ ${this._stat("Battery discharge", a.battery_discharge_kwh_today, " kWh")}
   _renderSettingsMain(plant) {
     const s = this._plantState?.settings ?? {};
     const storm = this._plantState?.storm_prep ?? {};
-    const armed = Boolean(this._plantState?.active_storm_triggers?.length);
+    const triggersArmed = Boolean(this._plantState?.active_storm_triggers?.length);
+    const overrideArmed =
+      Boolean(this._plantState?.override_active) && String(this._plantState?.mode ?? "") === "storm";
+    const armed = triggersArmed || overrideArmed;
     return `<header class="header"><h1>Settings</h1><p>Quick controls for your plant</p></header>
 ${this._modeBanner()}
 <button type="button" class="list-btn" data-action="settings-sub" data-sub="quick"><span>Quick Settings<span class="sub">Max ${s.max_soc ?? "—"}% · Min ${s.min_soc ?? "—"}% · Off-grid ${s.min_soc_on_grid ?? "—"}%</span></span><span class="chev">›</span></button>
@@ -1218,7 +1267,10 @@ ${this._renderPeriodCard(1, this._chargeDraft[1])}
 
   _renderSettingsStorm() {
     const storm = this._plantState?.storm_prep ?? {};
-    const armed = Boolean(this._plantState?.active_storm_triggers?.length);
+    const triggersArmed = Boolean(this._plantState?.active_storm_triggers?.length);
+    const overrideArmed =
+      Boolean(this._plantState?.override_active) && String(this._plantState?.mode ?? "") === "storm";
+    const armed = triggersArmed || overrideArmed;
     const triggers = this._plantState?.active_storm_triggers ?? [];
     const configured = storm.trigger_entities ?? [];
     return `<header class="header"><h1>StormSafe</h1><p>${storm.enabled ? "Enabled in integration config" : "Enable under Integration → Configure"}</p></header>

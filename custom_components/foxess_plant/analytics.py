@@ -44,4 +44,7 @@ def compute_analytics(entity_states: dict[str, str | None]) -> dict[str, Any]:
         "load_from_grid_kwh_today": round(from_grid, 2),
         "self_consumption_percent_today": round(self_consumption, 1),
         "self_sufficiency_percent_today": round(self_sufficiency, 1),
+        # Panel expects these balance keys (aliases for balance card).
+        "battery_charge_kwh_today": round(battery_charge, 2),
+        "battery_discharge_kwh_today": round(battery_discharge, 2),
     }
