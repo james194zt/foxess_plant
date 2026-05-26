@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.4.15
+ * @version 0.4.16
  */
 
 const NAV = [
@@ -1347,7 +1347,7 @@ ${this._renderPeriodCard(1, this._chargeDraft[1])}
     const armed = triggersArmed || overrideArmed;
     const triggers = this._plantState?.active_storm_triggers ?? [];
     const configured = storm.trigger_entities ?? [];
-    return `<header class="header"><h1>StormSafe</h1><p>${storm.enabled ? "Enabled in integration config" : "Enable under Integration → Configure"}</p></header>
+    return `<header class="header"><h1>StormSafe</h1><p>${storm.enabled ? "Enabled in integration config" : "Enable under Settings → Devices &amp; services → FoxESS Plant → Configure (cog)"}</p></header>
 ${this._renderStormHero(armed)}
 <div class="card">
 <p class="card-title">Status</p>

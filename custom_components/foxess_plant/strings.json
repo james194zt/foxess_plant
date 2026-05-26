@@ -20,11 +20,18 @@
       "already_configured": "This inverter already has a plant controller."
     }
   },
-  "options": {
+  "option": {
     "step": {
       "init": {
         "title": "Plant settings",
-        "description": "Choose what to configure."
+        "description": "Choose what to configure.",
+        "menu_options": {
+          "baseline": "Baseline schedule & drift detection",
+          "storm_prep": "Storm prep (weather triggers)",
+          "outage_prep": "Outage prep (grid-down triggers)",
+          "forecast_prep": "Low solar forecast prep",
+          "tariff": "Tariff profile (cheap import)"
+        }
       },
       "baseline": {
         "title": "Baseline schedule",
@@ -109,6 +116,9 @@
           "p2_end": "Period 2 end"
         }
       }
+    },
+    "error": {
+      "unknown": "Something went wrong loading settings. Check Home Assistant logs."
     }
   }
 }

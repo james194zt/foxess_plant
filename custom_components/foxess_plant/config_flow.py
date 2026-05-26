@@ -54,6 +54,13 @@ def _entity_multi_selector() -> selector.EntitySelector:
     )
 
 
+def _optional_max_soc_schema(default: float | None):
+    """HA form schema for optional max SoC (empty = not set)."""
+    if default is None:
+        return vol.Optional("target_max_soc", default="")
+    return vol.Optional("target_max_soc", default=default)
+
+
 def _period_schema(prefix: str, period: ChargePeriodConfig) -> dict:
     return {
         vol.Required(f"{prefix}_force", default=period.enable_force_charge): bool,
@@ -192,16 +199,24 @@ class FoxessPlantOptionsFlow(config_entries.OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.FlowResult:
-        return self.async_show_menu(
-            step_id="init",
-            menu_options={
-                MENU_BASELINE: "Baseline schedule & drift detection",
-                MENU_STORM: "Storm prep (weather triggers)",
-                MENU_OUTAGE: "Outage prep (grid-down triggers)",
-                MENU_FORECAST: "Low solar forecast prep",
-                MENU_TARIFF: "Tariff profile (cheap import)",
-            },
-        )
+        try:
+            return self.async_show_menu(
+                step_id="init",
+                menu_options=[
+                    MENU_BASELINE,
+                    MENU_STORM,
+                    MENU_OUTAGE,
+                    MENU_FORECAST,
+                    MENU_TARIFF,
+                ],
+            )
+        except Exception as err:
+            _LOGGER.exception("FoxESS Plant options menu failed: %s", err)
+            return self.async_show_form(
+                step_id="init",
+                errors={"base": "unknown"},
+                description_placeholders={"error": str(err)},
+            )
 
     async def async_step_baseline(
         self, user_input: dict[str, Any] | None = None
@@ -267,7 +282,9 @@ class FoxessPlantOptionsFlow(config_entries.OptionsFlow):
             {
                 vol.Required("enabled", default=cfg.enabled): bool,
                 vol.Optional("trigger_entities", default=cfg.trigger_entities): _entity_multi_selector(),
-                vol.Optional("target_max_soc", default=cfg.target_max_soc): vol.Any(float, None, ""),
+                _optional_max_soc_schema(cfg.target_max_soc): vol.Any(
+                    vol.Coerce(float), "", None
+                ),
                 **_period_schema("p1", p1),
                 **_period_schema("p2", p2),
             }
@@ -298,7 +315,9 @@ class FoxessPlantOptionsFlow(config_entries.OptionsFlow):
             {
                 vol.Required("enabled", default=cfg.enabled): bool,
                 vol.Optional("trigger_entities", default=cfg.trigger_entities): _entity_multi_selector(),
-                vol.Optional("target_max_soc", default=cfg.target_max_soc): vol.Any(float, None, ""),
+                _optional_max_soc_schema(cfg.target_max_soc): vol.Any(
+                    vol.Coerce(float), "", None
+                ),
                 **_period_schema("p1", p1),
                 **_period_schema("p2", p2),
             }
@@ -333,7 +352,9 @@ class FoxessPlantOptionsFlow(config_entries.OptionsFlow):
                 vol.Required("threshold_kwh", default=cfg.threshold_kwh): vol.All(
                     vol.Coerce(float), vol.Range(min=0.1, max=100)
                 ),
-                vol.Optional("target_max_soc", default=cfg.target_max_soc): vol.Any(float, None, ""),
+                _optional_max_soc_schema(cfg.target_max_soc): vol.Any(
+                    vol.Coerce(float), "", None
+                ),
                 **_period_schema("p1", p1),
                 **_period_schema("p2", p2),
             }
