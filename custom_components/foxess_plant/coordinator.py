@@ -14,6 +14,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .analytics import compute_analytics
 from .charge_period import apply_charge_periods
+from .discovery import missing_charge_period_entities
 from .const import (
     ANALYTICS_ENTITY_SUFFIXES,
     AUTOMATION_MODES,
@@ -381,6 +382,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "plant_id": self.config_entry.entry_id,
             "title": self.config_entry.title,
             "inverter": self.plant.inverter_target,
+            "inverter_device_id": self.plant.device_id,
+            "charge_periods_ready": not missing_charge_period_entities(self.plant.entity_map),
             "control_active": self.plant.control_active,
             "mode": self.plant.plant_mode(),
             "override_active": self.plant.override.active,
@@ -509,7 +512,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         self._applying = True
         try:
-            await apply_charge_periods(self.hass, self.plant.inverter_target, periods)
+            await apply_charge_periods(
+                self.hass,
+                self.plant.device_id,
+                periods,
+                entity_map=self.plant.entity_map,
+            )
             self._fire(
                 EVENT_PERIOD_APPLIED,
                 {
