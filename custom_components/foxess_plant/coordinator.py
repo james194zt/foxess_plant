@@ -298,6 +298,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "override_active": self.plant.override.active,
             "override_reason": self.plant.override.reason,
             "desired_periods": desired,
+            "baseline_periods": [p.to_dict() for p in self.plant.baseline_periods],
             "actual_periods": actual,
             "drift": drift,
             "entity_map": self.plant.entity_map,
@@ -306,6 +307,15 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "active_outage_triggers": sorted(self._active_outage_triggers),
             "forecast_armed": self._forecast_armed,
             "tariff_modes": sorted(self.plant.tariff_modes.keys()),
+            "storm_prep": self.plant.storm_prep.to_dict(),
+            "outage_prep": self.plant.outage_prep.to_dict(),
+            "settings": {
+                "max_soc": self._entity_float("max_soc"),
+                "min_soc": self._entity_float("min_soc"),
+                "min_soc_on_grid": self._entity_float("min_soc_on_grid"),
+                "work_mode": self._entity_state("work_mode"),
+                "work_mode_options": self._entity_options("work_mode"),
+            },
         }
 
     def _read_analytics(self) -> dict[str, Any]:
@@ -327,6 +337,25 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return None
         state = self.hass.states.get(entity_id)
         return state.state if state else None
+
+    def _entity_float(self, key: str) -> float | None:
+        raw = self._entity_state(key)
+        if raw in (None, "unavailable", "unknown"):
+            return None
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
+
+    def _entity_options(self, key: str) -> list[str]:
+        entity_id = self.plant.entity_map.get(key)
+        if not entity_id:
+            return []
+        state = self.hass.states.get(entity_id)
+        if not state:
+            return []
+        options = state.attributes.get("options")
+        return list(options) if isinstance(options, list) else []
 
     def _read_period_from_entities(self, index: int) -> dict[str, Any]:
         prefix = f"time_period_{index}"

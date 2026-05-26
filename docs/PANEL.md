@@ -18,7 +18,7 @@ The panel registers automatically when at least one plant config entry exists.
 | **Overview** | Live energy-flow diagram (solar → home ← grid ↔ battery) + today’s analytics |
 | **Device** | PV gauge, battery card, detailed parameters, battery list |
 | **Energy** | Daily kWh / self-consumption stats |
-| **Settings** | SOC & work mode (read-only for now), StormSafe hero + config link |
+| **Settings** | Quick SOC sliders, charge schedule editor, work mode picker, StormSafe, plant control |
 
 No bottom tab bar — left sidebar on desktop, horizontal section picker on mobile.
 
@@ -29,6 +29,16 @@ The overview diagram reads power entities discovered from your inverter device:
 - `pv_power`, `load_power`, `grid_import`, `grid_export`, `battery_power`, `battery_soc`
 
 Animated dashed lines show direction and magnitude of power flow.
+
+## Settings (interactive)
+
+| Screen | What it does |
+|--------|----------------|
+| **Quick Settings** | Sliders for min / off-grid min / max SOC → writes `number` entities |
+| **Charge schedule** | Edit both baseline periods → `foxess_plant.set_charge_periods` + apply |
+| **Work mode** | Pick inverter mode → `select.select_option` on work_mode entity |
+| **StormSafe** | Status, test arm/disarm, configured triggers |
+| **Plant control** | Take / release exclusive period control |
 
 ## StormSafe illustration
 
