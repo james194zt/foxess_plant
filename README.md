@@ -39,9 +39,9 @@ Copy `custom_components/foxess_plant` to your HA `config/custom_components/` and
 ## Setup
 
 1. Add integration and pick inverter device (entities auto-discovered).
-2. Open integration **Configure** → choose **Baseline schedule**, **Storm prep**, etc.
+2. Open **Fox Plant** → **Settings** → configure baseline schedule, StormSafe triggers, SOC limits, and work mode in the panel.
 3. Disable Fox cloud schedules / StormSafe if using local storm prep.
-4. Use **`foxess_plant.*` services** in automations and Node-RED — avoid calling `foxess_modbus.update_charge_period` directly.
+4. Use **`foxess_plant.*` services** in automations and Node-RED only when you need automation beyond the panel — avoid calling `foxess_modbus.update_charge_period` directly.
 
 ## Prep policies (local Fox cloud replacements)
 
@@ -83,9 +83,9 @@ Key services:
 - `foxess_plant.take_control` / `release_control`
 - `foxess_plant.get_plant_state` (returns JSON)
 
-## Blueprints
+## Blueprints (optional)
 
-Import from `blueprints/automation/foxess_plant/storm_prep.yaml` for weather-triggered storm prep.
+StormSafe is configured in the **Fox Plant** panel (Settings → StormSafe). Blueprints under `blueprints/automation/foxess_plant/` are optional extras for advanced automations — you do not need to import them for normal use.
 
 ## Events
 

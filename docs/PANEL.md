@@ -37,14 +37,14 @@ Animated dashed lines show direction and magnitude of power flow.
 | **Quick Settings** | Fox-style triple-handle SOC bar (off-grid min · system min · system max) + numeric inputs |
 | **Charge schedule** | Edit both baseline periods → `foxess_plant.set_charge_periods` + apply |
 | **Work mode** | Pick inverter mode → `select.select_option` on work_mode entity |
-| **StormSafe** | Status, test arm/disarm, configured triggers |
+| **StormSafe** | Enable, pick warning binary sensors, storm charge periods, optional max SoC, test arm/disarm |
 | **Plant control** | Take / release exclusive period control |
 
 ## StormSafe illustration
 
 Settings → StormSafe shows the Fox-style split-scene hero (prepared vs unprepared house). It highlights when storm prep triggers are active.
 
-Configure triggers under **Integration → Configure → Storm prep**.
+Configure everything under **Settings → StormSafe** in this panel. Pick entities from your weather integrations (e.g. Met Office warning sensors); no blueprint import required. Integration **Configure** (cog) remains available as a fallback for advanced options.
 
 ## Building the frontend (optional)
 

@@ -17,6 +17,7 @@ from .charge_period import apply_charge_periods
 from .const import (
     ANALYTICS_ENTITY_SUFFIXES,
     AUTOMATION_MODES,
+    CONF_STORM_PREP,
     IDENTITY_ENTITY_SUFFIXES,
     EVENT_BASELINE_RESTORED,
     EVENT_CONTROL_DRIFT,
@@ -73,6 +74,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.setup_trigger_listeners()
         await super().async_config_entry_first_refresh()
         self._setup_drift_timer()
+        try:
+            await self._sync_automation_policy()
+        except Exception as err:
+            _LOGGER.warning("Initial automation policy sync failed: %s", err)
         if self.plant.control_active:
             try:
                 await self.async_apply_desired(force=True)
@@ -508,6 +513,28 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> None:
         use_periods = periods if periods else self.plant.storm_prep.charge_periods
         await self._arm_policy(MODE_STORM, use_periods, reason, self.plant.storm_prep.target_max_soc, EVENT_STORM_ARMED)
+
+    async def async_save_storm_prep(
+        self,
+        *,
+        enabled: bool,
+        trigger_entities: list[str],
+        charge_periods: list[dict[str, Any]],
+        target_max_soc: float | None,
+    ) -> None:
+        """Persist storm prep from the Fox Plant panel."""
+        periods = [ChargePeriodConfig.from_dict(p) for p in charge_periods]
+        data = dict(self.config_entry.data)
+        data[CONF_STORM_PREP] = {
+            "enabled": enabled,
+            "trigger_entities": list(trigger_entities),
+            "charge_periods": [p.to_dict() for p in periods],
+            "target_max_soc": target_max_soc,
+        }
+        self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+        self.update_plant_config(PlantConfig.from_entry_data(data))
+        await self._sync_automation_policy()
+        await self.async_request_refresh()
 
     async def async_set_tariff_mode(self, mode_name: str) -> None:
         if mode_name not in self.plant.tariff_modes:

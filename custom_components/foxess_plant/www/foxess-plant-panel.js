@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.4.16
+ * @version 0.5.0
  */
 
 const NAV = [
@@ -136,6 +136,13 @@ async function fetchPlantState(hass, plantId) {
     type: "foxess_plant/plant_state",
     plant_id: plantId,
   });
+}
+
+async function fetchTriggerCandidates(hass) {
+  const res = await hass.connection.sendMessagePromise({
+    type: "foxess_plant/trigger_candidates",
+  });
+  return res?.entities ?? [];
 }
 
 async function callService(hass, domain, service, data) {
@@ -462,6 +469,15 @@ const STYLES = `
 .prepared { opacity: 1; } .unprepared { opacity: 0.35; }
 .hero.armed .unprepared { opacity: 0.2; } .hero:not(.armed) .prepared { opacity: 0.45; }
 .trigger-chip { display: inline-block; padding: 4px 10px; border-radius: 8px; font-size: 12px; background: var(--secondary-background-color); margin: 4px 4px 0 0; }
+.trigger-filter { width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--divider-color); background: var(--card-background-color); color: inherit; font-family: inherit; font-size: 14px; margin-bottom: 8px; }
+.trigger-list { max-height: 260px; overflow-y: auto; border: 1px solid var(--divider-color); border-radius: 10px; padding: 0 12px; background: var(--card-background-color); }
+.trigger-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--divider-color); font-size: 13px; }
+.trigger-row:last-child { border-bottom: none; }
+.trigger-row.suggested { background: color-mix(in srgb, var(--fp-amber) 8%, transparent); margin: 0 -12px; padding-left: 12px; padding-right: 12px; }
+.trigger-row label { flex: 1; cursor: pointer; line-height: 1.35; }
+.trigger-row .entity-id { display: block; font-size: 11px; color: var(--secondary-text-color); margin-top: 2px; }
+.trigger-row .entity-state { font-size: 11px; color: var(--fp-accent); margin-left: auto; white-space: nowrap; }
+.storm-hint { margin: 0 0 12px; font-size: 13px; line-height: 1.45; color: var(--secondary-text-color); }
 @media (max-width: 600px) { .device-grid { grid-template-columns: 1fr; } .scene-card svg { max-height: 220px; } }
 `;
 
@@ -484,6 +500,9 @@ class FoxessPlantPanel extends HTMLElement {
     this._chargeDraft = null;
     this._socDraft = null;
     this._workModeDraft = null;
+    this._stormDraft = null;
+    this._triggerCandidates = null;
+    this._triggerFilter = "";
     this._socDrag = null;
     this._headerHasSubTabs = undefined;
     this._renderRaf = 0;
@@ -574,6 +593,7 @@ class FoxessPlantPanel extends HTMLElement {
       if (this._settingsView !== "schedules") this._chargeDraft = null;
       if (this._settingsView !== "quick") this._socDraft = null;
       if (this._settingsView !== "workmode") this._workModeDraft = null;
+      if (this._settingsView !== "storm") this._stormDraft = null;
       if (!this._socDrag) this._scheduleRender();
     } catch {
       /* ws optional */
@@ -652,6 +672,59 @@ class FoxessPlantPanel extends HTMLElement {
       stateString(this._hass, this._getPlant()?.entity_map?.work_mode);
   }
 
+  _initStormDraft() {
+    const storm = this._plantState?.storm_prep ?? {};
+    const periods = JSON.parse(JSON.stringify(storm.charge_periods ?? DEFAULT_PERIODS)).slice(0, 2);
+    while (periods.length < 2) periods.push({ ...DEFAULT_PERIODS[0] });
+    this._stormDraft = {
+      enabled: Boolean(storm.enabled),
+      trigger_entities: [...(storm.trigger_entities ?? [])],
+      charge_periods: periods,
+      target_max_soc: storm.target_max_soc ?? null,
+    };
+  }
+
+  _enterStormSettings() {
+    this._initStormDraft();
+    void this._loadTriggerCandidates();
+  }
+
+  async _loadTriggerCandidates() {
+    if (!this._hass) return;
+    try {
+      this._triggerCandidates = await fetchTriggerCandidates(this._hass);
+      if (this._settingsView === "storm") this._scheduleRender();
+    } catch {
+      this._triggerCandidates = [];
+    }
+  }
+
+  async _saveStormPrep() {
+    const plant = this._getPlant();
+    if (!plant || !this._stormDraft) return;
+    this._busy = true;
+    this._render();
+    try {
+      const target = this._stormDraft.target_max_soc;
+      const state = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/update_storm_prep",
+        plant_id: plant.entry_id,
+        enabled: this._stormDraft.enabled,
+        trigger_entities: this._stormDraft.trigger_entities,
+        charge_periods: this._stormDraft.charge_periods,
+        target_max_soc: target == null || target === "" ? null : Number(target),
+      });
+      if (state) this._plantState = state;
+      this._initStormDraft();
+      this._showToast("StormSafe settings saved");
+    } catch (err) {
+      this._showToast(err?.message || "Save failed", "err");
+    } finally {
+      this._busy = false;
+      this._render();
+    }
+  }
+
   async _handleClick(e) {
     const btn = e.target.closest("[data-action]");
     if (!btn || this._busy) return;
@@ -680,6 +753,7 @@ class FoxessPlantPanel extends HTMLElement {
       if (btn.dataset.sub === "schedules") this._initChargeDraft();
       if (btn.dataset.sub === "quick") this._initSocDraft();
       if (btn.dataset.sub === "workmode") this._initWorkModeDraft();
+      if (btn.dataset.sub === "storm") this._enterStormSettings();
       this._render();
       return;
     }
@@ -689,6 +763,7 @@ class FoxessPlantPanel extends HTMLElement {
       if (btn.dataset.sub === "schedules") this._initChargeDraft();
       if (btn.dataset.sub === "quick") this._initSocDraft();
       if (btn.dataset.sub === "workmode") this._initWorkModeDraft();
+      if (btn.dataset.sub === "storm") this._enterStormSettings();
       this._render();
       return;
     }
@@ -744,6 +819,27 @@ class FoxessPlantPanel extends HTMLElement {
     }
     if (action === "disarm-storm") {
       await this._runPlantService("disarm_storm_prep");
+      return;
+    }
+    if (action === "save-storm-prep") {
+      await this._saveStormPrep();
+      return;
+    }
+    if (action === "toggle-storm-trigger") {
+      if (!this._stormDraft) return;
+      const entityId = btn.dataset.entity;
+      if (!entityId) return;
+      const list = this._stormDraft.trigger_entities;
+      const idx = list.indexOf(entityId);
+      if (idx >= 0) list.splice(idx, 1);
+      else list.push(entityId);
+      this._render();
+      return;
+    }
+    if (action === "toggle-storm-enabled") {
+      if (!this._stormDraft) this._initStormDraft();
+      this._stormDraft.enabled = !this._stormDraft.enabled;
+      this._render();
     }
   }
 
@@ -761,9 +857,29 @@ class FoxessPlantPanel extends HTMLElement {
       this._render();
       return;
     }
+    if (el?.dataset?.action === "storm-trigger-filter") {
+      this._triggerFilter = el.value;
+      this._render();
+      return;
+    }
     if (!el?.dataset?.field) return;
     const parts = el.dataset.field.split(":");
     const kind = parts[0];
+    if (kind === "storm-period" && this._stormDraft) {
+      const i = parseInt(parts[1], 10);
+      const field = parts[2];
+      if (el.type === "checkbox") {
+        this._stormDraft.charge_periods[i][field] = el.checked;
+      } else {
+        this._stormDraft.charge_periods[i][field] = el.value;
+      }
+      return;
+    }
+    if (kind === "storm-max-soc" && this._stormDraft) {
+      const raw = String(el.value).trim();
+      this._stormDraft.target_max_soc = raw === "" ? null : Math.max(10, Math.min(100, parseFloat(raw) || 100));
+      return;
+    }
     if (kind === "period" && this._chargeDraft) {
       const i = parseInt(parts[1], 10);
       const field = parts[2];
@@ -1262,22 +1378,47 @@ ${has ? this._renderEnergyTodayBreakdown(a) : ""}
 <p class="placeholder" style="margin-top:14px;font-size:13px">Day / month / year charts — phase 5f (next).</p>`;
   }
 
-  _renderPeriodCard(idx, period) {
+  _renderPeriodCard(idx, period, fieldPrefix = "period", titlePrefix = "Period") {
     const p = period || DEFAULT_PERIODS[0];
-    const actual = this._plantState?.actual_periods?.[idx];
+    const actual = fieldPrefix === "period" ? this._plantState?.actual_periods?.[idx] : null;
     const drift =
       actual &&
       (Boolean(p.enable_force_charge) !== Boolean(actual.enable_force_charge) ||
         Boolean(p.enable_charge_from_grid) !== Boolean(actual.enable_charge_from_grid));
     return `<div class="period-card">
-<h4>Period ${idx + 1} ${drift ? '<span style="color:var(--fp-amber);font-size:12px">≠ inverter</span>' : ""}</h4>
-<div class="toggle-row"><span>Force charge</span><input type="checkbox" data-field="period:${idx}:enable_force_charge" ${p.enable_force_charge ? "checked" : ""}></div>
-<div class="toggle-row"><span>Charge from grid</span><input type="checkbox" data-field="period:${idx}:enable_charge_from_grid" ${p.enable_charge_from_grid ? "checked" : ""}></div>
+<h4>${titlePrefix} ${idx + 1} ${drift ? '<span style="color:var(--fp-amber);font-size:12px">≠ inverter</span>' : ""}</h4>
+<div class="toggle-row"><span>Force charge</span><input type="checkbox" data-field="${fieldPrefix}:${idx}:enable_force_charge" ${p.enable_force_charge ? "checked" : ""}></div>
+<div class="toggle-row"><span>Charge from grid</span><input type="checkbox" data-field="${fieldPrefix}:${idx}:enable_charge_from_grid" ${p.enable_charge_from_grid ? "checked" : ""}></div>
 <div class="period-times">
-<div class="field"><label>Start</label><input type="time" data-field="period:${idx}:start" value="${esc(timeForInput(p.start))}"></div>
-<div class="field"><label>End</label><input type="time" data-field="period:${idx}:end" value="${esc(timeForInput(p.end))}"></div>
+<div class="field"><label>Start</label><input type="time" data-field="${fieldPrefix}:${idx}:start" value="${esc(timeForInput(p.start))}"></div>
+<div class="field"><label>End</label><input type="time" data-field="${fieldPrefix}:${idx}:end" value="${esc(timeForInput(p.end))}"></div>
 </div>
 </div>`;
+  }
+
+  _renderTriggerPicker() {
+    const selected = new Set(this._stormDraft?.trigger_entities ?? []);
+    const filter = (this._triggerFilter || "").trim().toLowerCase();
+    const rows = (this._triggerCandidates ?? []).filter((row) => {
+      if (!filter) return true;
+      const blob = `${row.entity_id} ${row.name}`.toLowerCase();
+      return blob.includes(filter);
+    });
+    if (!rows.length) {
+      return `<p class="placeholder" style="margin:8px 0 0">No matching entities. Add Met Office or other warning binary sensors in Home Assistant first.</p>`;
+    }
+    return `<div class="trigger-list">${rows
+      .map((row, i) => {
+        const on = selected.has(row.entity_id);
+        const cls = row.suggested ? "trigger-row suggested" : "trigger-row";
+        const id = `tr-${i}`;
+        return `<div class="${cls}">
+<input type="checkbox" id="${id}" data-action="toggle-storm-trigger" data-entity="${esc(row.entity_id)}" ${on ? "checked" : ""}>
+<label for="${id}">${esc(row.name)}<span class="entity-id">${esc(row.entity_id)}</span></label>
+<span class="entity-state">${esc(row.state)}</span>
+</div>`;
+      })
+      .join("")}</div>`;
   }
 
   _renderSettingsMain(plant) {
@@ -1292,7 +1433,7 @@ ${this._modeBanner()}
 <button type="button" class="list-btn" data-action="settings-sub" data-sub="quick"><span>Quick Settings<span class="sub">Max ${s.max_soc ?? "—"}% · Min ${s.min_soc ?? "—"}% · Off-grid ${s.min_soc_on_grid ?? "—"}%</span></span><span class="chev">›</span></button>
 <button type="button" class="list-btn" data-action="settings-sub" data-sub="schedules"><span>Charge schedule<span class="sub">Two charge windows (baseline)</span></span><span class="chev">›</span></button>
 <button type="button" class="list-btn" data-action="settings-sub" data-sub="workmode"><span>Work mode<span class="sub">${esc(s.work_mode ?? "—")}</span></span><span class="chev">›</span></button>
-<button type="button" class="list-btn" data-action="settings-sub" data-sub="storm"><span>StormSafe<span class="sub">${storm.enabled ? (armed ? "Active now" : "Armed") : "Disabled in config"}</span></span><span class="chev">›</span></button>
+<button type="button" class="list-btn" data-action="settings-sub" data-sub="storm"><span>StormSafe<span class="sub">${storm.enabled ? (armed ? "Active now" : "Enabled") : "Off"} · ${(storm.trigger_entities ?? []).length} trigger(s)</span></span><span class="chev">›</span></button>
 <button type="button" class="list-btn" data-action="settings-sub" data-sub="control"><span>Plant control<span class="sub">${this._plantState?.control_active ? "Fox Plant manages periods" : "Released to manual"}</span></span><span class="chev">›</span></button>`;
   }
 
@@ -1340,26 +1481,49 @@ ${this._renderPeriodCard(1, this._chargeDraft[1])}
   }
 
   _renderSettingsStorm() {
-    const storm = this._plantState?.storm_prep ?? {};
+    if (!this._stormDraft) this._initStormDraft();
+    const draft = this._stormDraft;
     const triggersArmed = Boolean(this._plantState?.active_storm_triggers?.length);
     const overrideArmed =
       Boolean(this._plantState?.override_active) && String(this._plantState?.mode ?? "") === "storm";
     const armed = triggersArmed || overrideArmed;
-    const triggers = this._plantState?.active_storm_triggers ?? [];
-    const configured = storm.trigger_entities ?? [];
-    return `<header class="header"><h1>StormSafe</h1><p>${storm.enabled ? "Enabled in integration config" : "Enable under Settings → Devices &amp; services → FoxESS Plant → Configure (cog)"}</p></header>
+    const activeTriggers = this._plantState?.active_storm_triggers ?? [];
+    const maxSocVal = draft.target_max_soc == null ? "" : String(draft.target_max_soc);
+    return `<header class="header"><h1>StormSafe</h1><p>Pre-charge before severe weather — configured here, no blueprints required</p></header>
 ${this._renderStormHero(armed)}
 <div class="card">
 <p class="card-title">Status</p>
-<p style="margin:0 0 10px;font-size:14px">${armed ? "Storm prep is <strong>active</strong> — override schedule applied." : "No storm triggers active."}</p>
-${triggers.length ? `<div>${triggers.map((t) => `<span class="trigger-chip">${esc(t)}</span>`).join("")}</div>` : ""}
-<div class="btn-row">
-<button type="button" class="btn btn-primary" data-action="arm-storm" ${this._busy ? "disabled" : ""}>Test arm storm prep</button>
+<p style="margin:0 0 10px;font-size:14px">${armed ? "Storm prep is <strong>active</strong> — storm charge schedule applied." : "No storm triggers active right now."}</p>
+${activeTriggers.length ? `<div>${activeTriggers.map((t) => `<span class="trigger-chip">${esc(t)}</span>`).join("")}</div>` : ""}
+<div class="btn-row" style="margin-top:12px">
+<button type="button" class="btn btn-primary" data-action="arm-storm" ${this._busy ? "disabled" : ""}>Test arm</button>
 <button type="button" class="btn btn-secondary" data-action="disarm-storm" ${this._busy ? "disabled" : ""}>Disarm override</button>
 </div>
 </div>
-<div class="card"><p class="card-title">Configured triggers (${configured.length})</p>
-${configured.length ? configured.map((t) => `<span class="trigger-chip">${esc(t)}</span>`).join("") : '<p style="margin:0;font-size:13px;color:var(--secondary-text-color)">Add weather or binary sensors in storm prep options.</p>'}
+<div class="card">
+<div class="toggle-row"><span><strong>Enable StormSafe</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">When a selected warning sensor turns on, Fox Plant arms storm prep automatically</span></span>
+<input type="checkbox" data-action="toggle-storm-enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+</div>
+<div class="card">
+<p class="card-title">Warning triggers</p>
+<p class="storm-hint">Pick binary sensors from your weather integrations (e.g. Met Office National Severe Weather Warnings). Suggested matches appear first. States <code>on</code>, <code>warning</code>, or <code>severe</code> count as active.</p>
+<input type="search" class="trigger-filter" data-action="storm-trigger-filter" placeholder="Filter entities…" value="${esc(this._triggerFilter)}" aria-label="Filter trigger entities">
+${this._renderTriggerPicker()}
+<p style="margin:10px 0 0;font-size:12px;color:var(--secondary-text-color)">${draft.trigger_entities.length} selected</p>
+</div>
+<div class="card">
+<p class="card-title">Storm charge schedule</p>
+<p class="storm-hint">Applied while a trigger is active (separate from your baseline schedule).</p>
+${this._renderPeriodCard(0, draft.charge_periods[0], "storm-period", "Storm period")}
+${this._renderPeriodCard(1, draft.charge_periods[1], "storm-period", "Storm period")}
+</div>
+<div class="card">
+<p class="card-title">Optional max SoC during storm</p>
+<div class="field"><label>Target max % (leave empty to keep current max)</label>
+<input type="number" min="10" max="100" step="1" data-field="storm-max-soc" value="${esc(maxSocVal)}" placeholder="e.g. 100"></div>
+</div>
+<div class="btn-row">
+<button type="button" class="btn btn-primary" data-action="save-storm-prep" ${this._busy ? "disabled" : ""}>Save StormSafe settings</button>
 </div>`;
   }
 
