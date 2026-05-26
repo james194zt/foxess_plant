@@ -9,7 +9,15 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN, PANEL_ICON, PANEL_STATIC_URL, PANEL_TITLE, PANEL_URL_PATH
+from .const import (
+    DOMAIN,
+    MODBUS_DOMAIN,
+    PANEL_BRAND_ICON_STATIC,
+    PANEL_ICON,
+    PANEL_STATIC_URL,
+    PANEL_TITLE,
+    PANEL_URL_PATH,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -49,7 +57,12 @@ def build_panel_config(hass: HomeAssistant) -> dict[str, Any]:
                 "entity_map": plant.entity_map,
             }
         )
-    return {"plants": plants}
+    return {
+        "plants": plants,
+        "brand_domain": DOMAIN,
+        "modbus_brand_domain": MODBUS_DOMAIN,
+        "brand_icon_static": PANEL_BRAND_ICON_STATIC,
+    }
 
 
 def _build_frontend_panel_config(hass: HomeAssistant) -> dict[str, Any]:
@@ -108,6 +121,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         config=config,
         require_admin=False,
         update=update,
+        config_panel_domain=DOMAIN,
     )
     _LOGGER.info(
         "Fox Plant panel %s at /%s",

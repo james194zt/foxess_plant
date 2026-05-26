@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.5.0
+ * @version 0.5.1
  */
 
 const NAV = [
@@ -145,6 +145,30 @@ async function fetchTriggerCandidates(hass) {
   return res?.entities ?? [];
 }
 
+const DEFAULT_BRAND_DOMAIN = "foxess_plant";
+const DEFAULT_MODBUS_BRAND_DOMAIN = "foxess_modbus";
+const DEFAULT_BRAND_ICON_STATIC = "/foxess_plant_panel/icon.png";
+
+let _brandsAccessToken;
+
+async function ensureBrandsAccessToken(hass) {
+  if (_brandsAccessToken || !hass?.connection) return _brandsAccessToken;
+  try {
+    const res = await hass.connection.sendMessagePromise({ type: "brands/access_token" });
+    _brandsAccessToken = res?.token;
+  } catch {
+    /* brands API optional on older HA */
+  }
+  return _brandsAccessToken;
+}
+
+function buildBrandIconUrl(domain) {
+  const base = `/api/brands/integration/${domain}/icon.png`;
+  const url = new URL(base, location.origin);
+  if (_brandsAccessToken) url.searchParams.set("token", _brandsAccessToken);
+  return url.toString();
+}
+
 async function callService(hass, domain, service, data) {
   await hass.callService(domain, service, data, undefined, { blocking: true });
 }
@@ -215,6 +239,21 @@ const STYLES = `
   position: relative; z-index: 2;
   border-bottom: 1px solid var(--divider-color);
   background: var(--app-header-background-color, var(--primary-background-color));
+}
+.panel-brand-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 16px 4px;
+}
+.panel-brand-icon {
+  width: 40px; height: 40px; flex-shrink: 0;
+  object-fit: contain; border-radius: 8px;
+}
+.panel-brand-title {
+  font-size: 18px; font-weight: 600; line-height: 1.2;
+  color: var(--primary-text-color);
+}
+.panel-brand-sub {
+  font-size: 12px; color: var(--secondary-text-color); margin-top: 2px;
 }
 .plant-row {
   display: flex; align-items: center; gap: 10px;
@@ -503,6 +542,9 @@ class FoxessPlantPanel extends HTMLElement {
     this._stormDraft = null;
     this._triggerCandidates = null;
     this._triggerFilter = "";
+    this._brandIconSrc = DEFAULT_BRAND_ICON_STATIC;
+    this._brandIconFallback = DEFAULT_BRAND_ICON_STATIC;
+    this._brandIconStatic = DEFAULT_BRAND_ICON_STATIC;
     this._socDrag = null;
     this._headerHasSubTabs = undefined;
     this._renderRaf = 0;
@@ -523,6 +565,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._root.addEventListener("click", this._onClick);
     this._root.addEventListener("input", this._onInput);
     this._root.addEventListener("change", this._onInput);
+    void this._initBrandIcons();
     void this._refreshPlantState();
     this._timer = window.setInterval(() => void this._refreshPlantState(), 30000);
     this._render();
@@ -539,6 +582,7 @@ class FoxessPlantPanel extends HTMLElement {
 
   set hass(v) {
     this._hass = v;
+    if (v) void this._initBrandIcons();
     if (!this._socDrag) this._scheduleRender();
   }
   get hass() {
@@ -572,6 +616,47 @@ class FoxessPlantPanel extends HTMLElement {
   _getPlant() {
     const plants = this._panel?.config?.plants ?? [];
     return plants.find((p) => p.entry_id === this._selectedPlantId) ?? plants[0];
+  }
+
+  async _initBrandIcons() {
+    const cfg = this._panel?.config ?? {};
+    this._brandIconStatic = cfg.brand_icon_static || DEFAULT_BRAND_ICON_STATIC;
+    const plantDomain = cfg.brand_domain || DEFAULT_BRAND_DOMAIN;
+    const modbusDomain = cfg.modbus_brand_domain || DEFAULT_MODBUS_BRAND_DOMAIN;
+    if (!this._hass) {
+      this._brandIconSrc = this._brandIconStatic;
+      this._brandIconFallback = this._brandIconStatic;
+      return;
+    }
+    await ensureBrandsAccessToken(this._hass);
+    this._brandIconSrc = buildBrandIconUrl(plantDomain);
+    this._brandIconFallback = buildBrandIconUrl(modbusDomain);
+    if (this.isConnected) this._scheduleRender();
+  }
+
+  _renderPanelBrand() {
+    return `<div class="panel-brand-row">
+<img class="panel-brand-icon" src="${esc(this._brandIconSrc)}" data-fallback="${esc(this._brandIconFallback)}" data-static="${esc(this._brandIconStatic)}" width="40" height="40" alt="FoxESS">
+<div>
+<div class="panel-brand-title">Fox Plant</div>
+<div class="panel-brand-sub">FoxESS inverter control</div>
+</div>
+</div>`;
+  }
+
+  _bindPanelBrandIcon(headerEl) {
+    const img = headerEl?.querySelector(".panel-brand-icon");
+    if (!img || img.dataset.bound) return;
+    img.dataset.bound = "1";
+    img.addEventListener("error", () => {
+      const fallback = img.dataset.fallback;
+      const staticSrc = img.dataset.static;
+      if (fallback && img.src !== fallback) {
+        img.src = fallback;
+      } else if (staticSrc) {
+        img.src = staticSrc;
+      }
+    });
   }
 
   _showToast(msg, type = "ok") {
@@ -638,11 +723,13 @@ class FoxessPlantPanel extends HTMLElement {
   _rebuildPageHeader(headerEl) {
     const showSubTabs = this._view === "settings";
     headerEl.innerHTML =
+      this._renderPanelBrand() +
       this._renderPlantSelect() +
       this._renderTabBar(NAV, this._view, "nav", "view") +
       (showSubTabs
         ? this._renderTabBar(SETTINGS_NAV, this._settingsView, "settings-tab", "sub", true)
         : "");
+    this._bindPanelBrandIcon(headerEl);
     this._headerHasSubTabs = showSubTabs;
   }
 

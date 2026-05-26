@@ -6,7 +6,7 @@ The **Fox Plant** panel is a Home Assistant sidebar app (like ESPHome / Z-Wave J
 
 After adding the FoxESS Plant integration and restarting HA:
 
-1. Look for **Fox Plant** in the left sidebar (`mdi:solar-power-variant`)
+1. Look for **Fox Plant** in the left sidebar (the panel header uses the same FoxESS logo as **FoxESS - Modbus** in HACS and Settings → Integrations)
 2. Or browse to `/foxess-plant`
 
 The panel registers automatically when at least one plant config entry exists.

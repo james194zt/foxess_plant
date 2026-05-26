@@ -80,8 +80,10 @@ PANEL_ENTITY_SUFFIXES: dict[str, tuple[str, ...]] = {
 
 PANEL_URL_PATH = "foxess-plant"
 PANEL_TITLE = "Fox Plant"
+# Sidebar still uses MDI; Fox logo is shown in-panel via brand/ + brands API (same as modbus).
 PANEL_ICON = "mdi:solar-power-variant"
 PANEL_STATIC_URL = "/foxess_plant_panel"
+PANEL_BRAND_ICON_STATIC = f"{PANEL_STATIC_URL}/icon.png"
 
 MODBUS_DOMAIN = "foxess_modbus"
 
