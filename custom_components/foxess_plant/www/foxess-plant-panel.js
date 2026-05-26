@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.4.4
+ * @version 0.4.5
  */
 
 const NAV = [
@@ -162,6 +162,25 @@ function clampSocDraft(d) {
   d.min_soc_on_grid = mid;
   d.max_soc = max;
   return d;
+}
+
+/** Apply drag to the active thumb first, then push siblings (Fox-app style). */
+function applySocDrag(d, thumb, pct) {
+  const p = Math.max(0, Math.min(100, Math.round(pct)));
+  if (thumb === "min_soc") {
+    d.min_soc = p;
+    if (d.min_soc_on_grid < p) d.min_soc_on_grid = p;
+    if (d.max_soc < d.min_soc_on_grid) d.max_soc = d.min_soc_on_grid;
+  } else if (thumb === "min_soc_on_grid") {
+    d.min_soc_on_grid = p;
+    if (d.min_soc > p) d.min_soc = p;
+    if (d.max_soc < p) d.max_soc = p;
+  } else if (thumb === "max_soc") {
+    d.max_soc = p;
+    if (d.min_soc_on_grid > p) d.min_soc_on_grid = p;
+    if (d.min_soc > d.min_soc_on_grid) d.min_soc = d.min_soc_on_grid;
+  }
+  return clampSocDraft(d);
 }
 
 const STYLES = `
@@ -629,10 +648,9 @@ class FoxessPlantPanel extends HTMLElement {
       }
       return;
     }
-    if ((kind === "soc" || kind === "soc-num") && this._socDraft) {
+    if (kind === "soc-num" && this._socDraft) {
       const field = parts[1];
-      this._socDraft[field] = parseFloat(el.value);
-      clampSocDraft(this._socDraft);
+      applySocDrag(this._socDraft, field, parseFloat(el.value));
       this._updateTripleSocDom();
     }
   }
@@ -650,17 +668,7 @@ class FoxessPlantPanel extends HTMLElement {
     const rect = this._socDrag.track.getBoundingClientRect();
     if (!rect.width) return;
     let pct = Math.round(((e.clientX - rect.left) / rect.width) * 100);
-    pct = Math.max(0, Math.min(100, pct));
-    const key = this._socDrag.thumb;
-    const d = this._socDraft;
-    if (key === "min_soc") {
-      d.min_soc = Math.min(pct, d.min_soc_on_grid);
-    } else if (key === "min_soc_on_grid") {
-      d.min_soc_on_grid = Math.max(d.min_soc, Math.min(pct, d.max_soc));
-    } else if (key === "max_soc") {
-      d.max_soc = Math.max(d.min_soc_on_grid, pct);
-    }
-    clampSocDraft(d);
+    applySocDrag(this._socDraft, this._socDrag.thumb, pct);
     this._updateTripleSocDom();
   }
 
