@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.4.3
+ * @version 0.4.4
  */
 
 const NAV = [
@@ -148,26 +148,16 @@ const SOC_THUMBS = [
   { key: "max_soc", label: "System max", short: "Max", color: "#2e7d32" },
 ];
 
-const SOC_GAP = 2;
-
+/** Enforce min ≤ system min ≤ max; equal values allowed (e.g. both at 5%). */
 function clampSocDraft(d) {
   let min = Math.round(Number(d.min_soc) || 0);
   let mid = Math.round(Number(d.min_soc_on_grid) || 0);
   let max = Math.round(Number(d.max_soc) || 100);
   min = Math.max(0, Math.min(100, min));
-  max = Math.max(0, Math.min(100, max));
   mid = Math.max(0, Math.min(100, mid));
-  if (max < min + SOC_GAP * 2) {
-    max = Math.min(100, min + SOC_GAP * 2);
-    mid = min + SOC_GAP;
-  }
-  if (min > mid - SOC_GAP) min = Math.max(0, mid - SOC_GAP);
-  if (mid < min + SOC_GAP) mid = min + SOC_GAP;
-  if (mid > max - SOC_GAP) mid = max - SOC_GAP;
-  if (max < mid + SOC_GAP) max = Math.min(100, mid + SOC_GAP);
-  min = Math.max(0, Math.min(100, min));
-  max = Math.max(min + SOC_GAP, Math.min(100, max));
-  mid = Math.max(min + SOC_GAP, Math.min(max - SOC_GAP, mid));
+  max = Math.max(0, Math.min(100, max));
+  if (mid < min) mid = min;
+  if (max < mid) max = mid;
   d.min_soc = min;
   d.min_soc_on_grid = mid;
   d.max_soc = max;
@@ -348,13 +338,7 @@ const STYLES = `
 }
 .triple-soc-summary { flex: 1; font-size: 13px; color: var(--secondary-text-color); line-height: 1.5; }
 .triple-soc-summary strong { color: var(--primary-text-color); font-weight: 600; }
-.triple-soc-track-wrap { position: relative; padding: 52px 8px 28px; margin: 0 -4px; }
-.triple-soc-labels { position: absolute; left: 8px; right: 8px; top: 0; height: 48px; pointer-events: none; }
-.triple-soc-label {
-  position: absolute; top: 0; transform: translateX(-50%);
-  text-align: center; min-width: 72px; font-size: 11px; color: var(--secondary-text-color);
-}
-.triple-soc-label strong { display: block; font-size: 17px; font-weight: 700; color: var(--primary-text-color); margin-top: 2px; }
+.triple-soc-track-wrap { position: relative; padding: 16px 8px 8px; margin: 0 -4px; }
 .triple-soc-track {
   position: relative; height: 14px; border-radius: 999px;
   background: var(--divider-color); overflow: visible;
@@ -378,9 +362,13 @@ const STYLES = `
 .triple-soc-thumb {
   position: absolute; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px;
   border-radius: 50%; border: 3px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.35);
-  cursor: grab; z-index: 4; padding: 0; transition: transform 0.1s;
+  cursor: grab; padding: 0; transition: transform 0.1s;
 }
-.triple-soc-thumb:active { cursor: grabbing; transform: scale(1.08); }
+.triple-soc-thumb[data-soc-thumb="min_soc"] { z-index: 3; }
+.triple-soc-thumb[data-soc-thumb="min_soc_on_grid"] { z-index: 4; }
+.triple-soc-thumb[data-soc-thumb="max_soc"] { z-index: 5; }
+.triple-soc-thumb.is-dragging { z-index: 10; transform: scale(1.1); }
+.triple-soc-thumb:active { cursor: grabbing; }
 .triple-soc-scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--secondary-text-color); margin-top: 10px; padding: 0 4px; }
 .soc-legend { display: flex; flex-wrap: wrap; gap: 12px 16px; margin-top: 16px; font-size: 12px; color: var(--secondary-text-color); }
 .soc-legend span { display: inline-flex; align-items: center; gap: 6px; }
@@ -666,17 +654,19 @@ class FoxessPlantPanel extends HTMLElement {
     const key = this._socDrag.thumb;
     const d = this._socDraft;
     if (key === "min_soc") {
-      d.min_soc = Math.min(pct, d.min_soc_on_grid - SOC_GAP);
+      d.min_soc = Math.min(pct, d.min_soc_on_grid);
     } else if (key === "min_soc_on_grid") {
-      d.min_soc_on_grid = Math.max(d.min_soc + SOC_GAP, Math.min(pct, d.max_soc - SOC_GAP));
+      d.min_soc_on_grid = Math.max(d.min_soc, Math.min(pct, d.max_soc));
     } else if (key === "max_soc") {
-      d.max_soc = Math.max(d.min_soc_on_grid + SOC_GAP, pct);
+      d.max_soc = Math.max(d.min_soc_on_grid, pct);
     }
     clampSocDraft(d);
     this._updateTripleSocDom();
   }
 
   _onSocEnd() {
+    const thumb = this._socDrag?.thumbEl;
+    if (thumb) thumb.classList.remove("is-dragging");
     this._endSocDrag();
   }
 
@@ -687,8 +677,10 @@ class FoxessPlantPanel extends HTMLElement {
       thumb.addEventListener("pointerdown", (e) => {
         if (this._busy) return;
         e.preventDefault();
+        track.querySelectorAll(".triple-soc-thumb").forEach((t) => t.classList.remove("is-dragging"));
+        thumb.classList.add("is-dragging");
         thumb.setPointerCapture(e.pointerId);
-        this._socDrag = { thumb: thumb.dataset.socThumb, track };
+        this._socDrag = { thumb: thumb.dataset.socThumb, thumbEl: thumb, track };
         window.addEventListener("pointermove", this._onSocMove);
         window.addEventListener("pointerup", this._onSocEnd);
         window.addEventListener("pointercancel", this._onSocEnd);
@@ -713,20 +705,23 @@ class FoxessPlantPanel extends HTMLElement {
     }
     SOC_THUMBS.forEach((t) => {
       const thumb = wrap.querySelector(`[data-soc-thumb="${t.key}"]`);
-      const label = wrap.querySelector(`[data-soc-label="${t.key}"]`);
       const val = d[t.key];
       if (thumb) {
         thumb.style.left = `${val}%`;
         thumb.style.background = t.color;
-      }
-      if (label) {
-        const strong = label.querySelector("strong");
-        if (strong) strong.textContent = `${val}%`;
-        label.style.left = `${val}%`;
+        thumb.title = `${t.label}: ${val}%`;
       }
       const num = wrap.querySelector(`[data-field="soc-num:${t.key}"]`);
       if (num && document.activeElement !== num) num.value = String(val);
     });
+    const summary = wrap.querySelector(".triple-soc-summary");
+    if (summary) {
+      const live = wrap.querySelector(".triple-soc-battery-pct")?.textContent?.replace("%", "") ?? "0";
+      summary.innerHTML =
+        min === mid
+          ? `<strong>Reserve from</strong> ${min}%<br><strong>Usable to</strong> ${max}% · <strong>Now</strong> ${live}%`
+          : `<strong>Reserve band</strong> ${min}% – ${mid}%<br><strong>Usable to</strong> ${max}% · <strong>Now</strong> ${live}%`;
+    }
   }
 
   _renderTripleSoc(plant, d, liveSoc) {
@@ -737,15 +732,9 @@ class FoxessPlantPanel extends HTMLElement {
     const live = Math.max(0, Math.min(100, Math.round(liveSoc ?? 0)));
     const fillH = Math.max(4, live);
 
-    const labelsHtml = SOC_THUMBS.map((t) => {
-      const v = clamped[t.key];
-      return `<div class="triple-soc-label" data-soc-label="${t.key}" style="left:${v}%">
-<span>${esc(t.short)}</span><strong>${v}%</strong></div>`;
-    }).join("");
-
     const thumbsHtml = SOC_THUMBS.map(
       (t) =>
-        `<button type="button" class="triple-soc-thumb" data-soc-thumb="${t.key}" style="left:${clamped[t.key]}%;background:${t.color}" aria-label="${esc(t.label)}"></button>`
+        `<button type="button" class="triple-soc-thumb" data-soc-thumb="${t.key}" style="left:${clamped[t.key]}%;background:${t.color}" title="${esc(t.label)}: ${clamped[t.key]}%" aria-label="${esc(t.label)} ${clamped[t.key]}%"></button>`
     ).join("");
 
     const numericHtml = SOC_THUMBS.map(
@@ -761,12 +750,14 @@ class FoxessPlantPanel extends HTMLElement {
 <div class="triple-soc-battery-pct">${live}%</div>
 </div>
 <div class="triple-soc-summary">
-<strong>Reserve band</strong> ${min}% – ${mid}%<br>
-<strong>Usable to</strong> ${max}% · <strong>Now</strong> ${live}%
+${
+      min === mid
+        ? `<strong>Reserve from</strong> ${min}%<br><strong>Usable to</strong> ${max}% · <strong>Now</strong> ${live}%`
+        : `<strong>Reserve band</strong> ${min}% – ${mid}%<br><strong>Usable to</strong> ${max}% · <strong>Now</strong> ${live}%`
+    }
 </div>
 </div>
 <div class="triple-soc-track-wrap">
-<div class="triple-soc-labels">${labelsHtml}</div>
 <div class="triple-soc-track">
 <div class="triple-soc-zones">
 <div class="triple-soc-zone critical" style="width:${min}%"></div>
