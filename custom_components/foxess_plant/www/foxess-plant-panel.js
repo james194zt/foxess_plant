@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.4.14
+ * @version 0.4.15
  */
 
 const NAV = [
@@ -697,6 +697,23 @@ class FoxessPlantPanel extends HTMLElement {
       this._render();
       return;
     }
+    if (action === "copy-period") {
+      if (!this._chargeDraft) return;
+      const from = parseInt(btn.dataset.from, 10);
+      const to = parseInt(btn.dataset.to, 10);
+      if (Number.isNaN(from) || Number.isNaN(to)) return;
+      this._chargeDraft[to] = { ...this._chargeDraft[from] };
+      this._render();
+      return;
+    }
+    if (action === "swap-periods") {
+      if (!this._chargeDraft) return;
+      const tmp = this._chargeDraft[0];
+      this._chargeDraft[0] = this._chargeDraft[1];
+      this._chargeDraft[1] = tmp;
+      this._render();
+      return;
+    }
     if (action === "save-schedules") {
       await this._saveSchedules();
       return;
@@ -1299,6 +1316,8 @@ ${this._renderPeriodCard(1, this._chargeDraft[1])}
 <div class="btn-row">
 <button type="button" class="btn btn-primary" data-action="save-schedules" ${this._busy ? "disabled" : ""}>Save & apply</button>
 <button type="button" class="btn btn-secondary" data-action="apply-baseline" ${this._busy ? "disabled" : ""}>Re-apply only</button>
+<button type="button" class="btn btn-secondary" data-action="copy-period" data-from="0" data-to="1" ${this._busy ? "disabled" : ""}>Copy period 1 → 2</button>
+<button type="button" class="btn btn-secondary" data-action="swap-periods" ${this._busy ? "disabled" : ""}>Swap 1 ↔ 2</button>
 </div>`;
   }
 
