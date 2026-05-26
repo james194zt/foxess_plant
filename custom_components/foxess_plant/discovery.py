@@ -38,6 +38,16 @@ def _match_suffix(entry: er.RegistryEntry, suffix: str) -> bool:
     return entry.entity_id.endswith(f"_{suffix}") or entry.unique_id.endswith(f"_{suffix}")
 
 
+def _should_assign_entity(key: str, entity_id: str, entity_map: dict[str, str]) -> bool:
+    """Prefer writable number entities over read-only sensors for SOC controls."""
+    existing = entity_map.get(key)
+    if existing is None:
+        return True
+    if entity_id.startswith("number."):
+        return True
+    return not existing.startswith("number.")
+
+
 def discover_entity_map(hass: HomeAssistant, device_id: str) -> dict[str, str]:
     """Map logical plant keys to entity IDs on the given foxess_modbus device."""
     device_reg = dr.async_get(hass)
@@ -55,9 +65,7 @@ def discover_entity_map(hass: HomeAssistant, device_id: str) -> dict[str, str]:
         if not entry.entity_id:
             continue
         for key, suffix in DISCOVERY_SUFFIXES.items():
-            if key in entity_map:
-                continue
-            if _match_suffix(entry, suffix):
+            if _match_suffix(entry, suffix) and _should_assign_entity(key, entry.entity_id, entity_map):
                 entity_map[key] = entry.entity_id
 
         for key, suffixes in PANEL_ENTITY_SUFFIXES.items():

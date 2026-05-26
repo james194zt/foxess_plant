@@ -15,6 +15,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from .analytics import compute_analytics
 from .charge_period import apply_charge_periods
 from .discovery import missing_charge_period_entities
+from .soc_limits import apply_soc_limits, clamp_soc_values
 from .const import (
     ANALYTICS_ENTITY_SUFFIXES,
     AUTOMATION_MODES,
@@ -341,14 +342,45 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 pass
 
     async def _set_max_soc(self, value: float) -> None:
-        entity_id = self.plant.entity_map.get("max_soc")
-        if not entity_id:
-            return
-        await self.hass.services.async_call(
-            "number",
-            "set_value",
-            {"entity_id": entity_id, "value": value},
-            blocking=True,
+        current = {
+            "min_soc": self._entity_float("min_soc"),
+            "min_soc_on_grid": self._entity_float("min_soc_on_grid"),
+            "max_soc": self._entity_float("max_soc"),
+        }
+        target = clamp_soc_values(
+            int(current.get("min_soc") or 10),
+            int(current.get("min_soc_on_grid") or 10),
+            int(round(value)),
+        )
+        await apply_soc_limits(
+            self.hass,
+            self.plant.entity_map,
+            min_soc=target["min_soc"],
+            min_soc_on_grid=target["min_soc_on_grid"],
+            max_soc=target["max_soc"],
+            current=current,
+        )
+
+    async def async_set_soc_limits(
+        self,
+        min_soc: int,
+        min_soc_on_grid: int,
+        max_soc: int,
+    ) -> None:
+        """Write all three SOC limits in an inverter-safe order."""
+        current = {
+            "min_soc": self._entity_float("min_soc"),
+            "min_soc_on_grid": self._entity_float("min_soc_on_grid"),
+            "max_soc": self._entity_float("max_soc"),
+        }
+        target = clamp_soc_values(min_soc, min_soc_on_grid, max_soc)
+        await apply_soc_limits(
+            self.hass,
+            self.plant.entity_map,
+            min_soc=target["min_soc"],
+            min_soc_on_grid=target["min_soc_on_grid"],
+            max_soc=target["max_soc"],
+            current=current,
         )
 
     async def _persist(self) -> None:

@@ -16,6 +16,7 @@ WS_TYPE_PLANT_STATE = "foxess_plant/plant_state"
 WS_TYPE_PLANT_LIST = "foxess_plant/plant_list"
 WS_TYPE_TRIGGER_CANDIDATES = "foxess_plant/trigger_candidates"
 WS_TYPE_UPDATE_STORM_PREP = "foxess_plant/update_storm_prep"
+WS_TYPE_SET_SOC_LIMITS = "foxess_plant/set_soc_limits"
 
 PERIOD_SCHEMA = vol.Schema(
     {
@@ -144,8 +145,36 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
         )
         connection.send_result(msg["id"], coordinator.get_plant_state())
 
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): WS_TYPE_SET_SOC_LIMITS,
+            vol.Optional("plant_id"): str,
+            vol.Required("min_soc"): vol.All(vol.Coerce(int), vol.Range(min=10, max=100)),
+            vol.Required("min_soc_on_grid"): vol.All(vol.Coerce(int), vol.Range(min=10, max=100)),
+            vol.Required("max_soc"): vol.All(vol.Coerce(int), vol.Range(min=10, max=100)),
+        }
+    )
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def ws_set_soc_limits(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        await coordinator.async_set_soc_limits(
+            msg["min_soc"],
+            msg["min_soc_on_grid"],
+            msg["max_soc"],
+        )
+        connection.send_result(msg["id"], coordinator.get_plant_state())
+
     websocket_api.async_register_command(hass, ws_plant_list)
     websocket_api.async_register_command(hass, ws_plant_state)
     websocket_api.async_register_command(hass, ws_trigger_candidates)
     websocket_api.async_register_command(hass, ws_update_storm_prep)
+    websocket_api.async_register_command(hass, ws_set_soc_limits)
     hass.data["_foxess_plant_ws_registered"] = True

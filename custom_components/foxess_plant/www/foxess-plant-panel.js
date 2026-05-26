@@ -1366,7 +1366,6 @@ ${thumbsHtml}
 
   async _saveSoc() {
     const plant = this._getPlant();
-    const map = plant?.entity_map ?? {};
     if (!plant || !this._socDraft) return;
     const clamped = clampSocDraft({ ...this._socDraft });
     const { min_soc, min_soc_on_grid, max_soc } = clamped;
@@ -1374,17 +1373,14 @@ ${thumbsHtml}
     this._busy = true;
     this._render();
     try {
-      const pairs = [
-        ["min_soc", min_soc],
-        ["min_soc_on_grid", min_soc_on_grid],
-        ["max_soc", max_soc],
-      ];
-      for (const [key, value] of pairs) {
-        const entity_id = map[key];
-        if (entity_id) {
-          await callService(this._hass, "number", "set_value", { entity_id, value });
-        }
-      }
+      const state = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/set_soc_limits",
+        plant_id: plant.entry_id,
+        min_soc,
+        min_soc_on_grid,
+        max_soc,
+      });
+      if (state) this._plantState = state;
       await this._refreshPlantState();
       this._showToast("SOC limits saved");
     } catch (err) {
