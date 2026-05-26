@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.4.8
+ * @version 0.4.9
  */
 
 const NAV = [
@@ -330,10 +330,17 @@ const STYLES = `
 .period-card h4 { margin: 0 0 12px; font-size: 15px; }
 .field { margin-bottom: 12px; }
 .field label { display: block; font-size: 12px; color: var(--secondary-text-color); margin-bottom: 6px; }
-.field input[type="time"], .field select {
+.field input[type="time"] {
+  width: 9rem; max-width: 100%; box-sizing: border-box;
+  padding: 8px 10px; border-radius: 8px; border: 1px solid var(--divider-color);
+  background: var(--card-background-color); color: var(--primary-text-color); font-size: 14px; font-family: inherit;
+}
+.field select {
   width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--divider-color);
   background: var(--card-background-color); color: var(--primary-text-color); font-size: 14px; font-family: inherit;
 }
+.period-times { display: flex; flex-wrap: wrap; gap: 20px 24px; margin-bottom: 4px; }
+.period-times .field { margin-bottom: 0; }
 .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; font-size: 14px; }
 .toggle-row input { width: 18px; height: 18px; accent-color: var(--fp-accent); }
 .triple-soc { padding: 8px 4px 4px; user-select: none; touch-action: none; }
@@ -1070,8 +1077,10 @@ ${this._stat("Battery discharge", a.battery_discharge_kwh_today, " kWh")}
 <h4>Period ${idx + 1} ${drift ? '<span style="color:var(--fp-amber);font-size:12px">≠ inverter</span>' : ""}</h4>
 <div class="toggle-row"><span>Force charge</span><input type="checkbox" data-field="period:${idx}:enable_force_charge" ${p.enable_force_charge ? "checked" : ""}></div>
 <div class="toggle-row"><span>Charge from grid</span><input type="checkbox" data-field="period:${idx}:enable_charge_from_grid" ${p.enable_charge_from_grid ? "checked" : ""}></div>
+<div class="period-times">
 <div class="field"><label>Start</label><input type="time" data-field="period:${idx}:start" value="${esc(timeForInput(p.start))}"></div>
 <div class="field"><label>End</label><input type="time" data-field="period:${idx}:end" value="${esc(timeForInput(p.end))}"></div>
+</div>
 </div>`;
   }
 
