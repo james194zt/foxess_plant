@@ -48,6 +48,25 @@ DISCOVERY_SUFFIXES = {
 }
 
 # Panel live-data keys → candidate entity_id / unique_id suffixes (first match wins).
+# PCS / BMS identity and firmware (first matching entity suffix wins).
+IDENTITY_ENTITY_SUFFIXES: dict[str, tuple[str, ...]] = {
+    "pcs_model_name": ("pcs_model_name", "inverter_model_name"),
+    "pcs_serial_number": ("pcs_serial_number", "inverter_serial_number"),
+    "modbus_protocol_version": ("modbus_protocol_version",),
+    "master_version": ("master_version",),
+    "slave_version": ("slave_version",),
+    "manager_version": ("manager_version",),
+    "bms_online": ("bms_online",),
+    "bms_pack_serial_modbus": ("bms_pack_serial_modbus",),
+    "bms_pack_count": ("bms_pack_count",),
+    "bms_pack_1_version": ("bms_pack_1_version",),
+    "bms_pack_2_version": ("bms_pack_2_version",),
+    "bms_pack_3_version": ("bms_pack_3_version",),
+    "bms_pack_4_version": ("bms_pack_4_version",),
+    "grid_status": ("grid_status",),
+    "inverter_state": ("inverter_state",),
+}
+
 PANEL_ENTITY_SUFFIXES: dict[str, tuple[str, ...]] = {
     "pv_power": ("pv1_power", "pv_power", "pv_power_total"),
     "load_power": ("load_power", "load_power_total"),

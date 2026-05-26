@@ -11,6 +11,7 @@ from homeassistant.helpers import entity_registry as er
 from .const import (
     CHARGE_PERIOD_KEYS,
     DISCOVERY_SUFFIXES,
+    IDENTITY_ENTITY_SUFFIXES,
     MODBUS_DOMAIN,
     PANEL_ENTITY_SUFFIXES,
 )
@@ -60,6 +61,14 @@ def discover_entity_map(hass: HomeAssistant, device_id: str) -> dict[str, str]:
                 entity_map[key] = entry.entity_id
 
         for key, suffixes in PANEL_ENTITY_SUFFIXES.items():
+            if key in entity_map:
+                continue
+            for suffix in suffixes:
+                if _match_suffix(entry, suffix):
+                    entity_map[key] = entry.entity_id
+                    break
+
+        for key, suffixes in IDENTITY_ENTITY_SUFFIXES.items():
             if key in entity_map:
                 continue
             for suffix in suffixes:

@@ -17,6 +17,7 @@ from .charge_period import apply_charge_periods
 from .const import (
     ANALYTICS_ENTITY_SUFFIXES,
     AUTOMATION_MODES,
+    IDENTITY_ENTITY_SUFFIXES,
     EVENT_BASELINE_RESTORED,
     EVENT_CONTROL_DRIFT,
     EVENT_EXTERNAL_WRITE,
@@ -316,6 +317,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "work_mode": self._entity_state("work_mode"),
                 "work_mode_options": self._entity_options("work_mode"),
             },
+            "identity": self._read_identity(),
         }
 
     def _read_analytics(self) -> dict[str, Any]:
@@ -323,6 +325,14 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not any(states.values()):
             return {}
         return compute_analytics(states)
+
+    def _read_identity(self) -> dict[str, str | None]:
+        """PCS/BMS identity and firmware from discovered foxess_modbus entities."""
+        return {
+            key: self._entity_state(key)
+            for key in IDENTITY_ENTITY_SUFFIXES
+            if self.plant.entity_map.get(key)
+        }
 
     async def _async_update_data(self) -> dict[str, Any]:
         try:

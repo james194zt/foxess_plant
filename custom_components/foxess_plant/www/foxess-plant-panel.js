@@ -1029,7 +1029,50 @@ ${this._stat("PV today", a.pv_production_kwh_today, a.pv_production_kwh_today !=
 </div>`;
   }
 
+  _identityRows() {
+    const id = this._plantState?.identity ?? {};
+    const rows = [
+      ["pcs_model_name", "PCS model"],
+      ["pcs_serial_number", "PCS serial"],
+      ["grid_status", "Grid status"],
+      ["inverter_state", "System status"],
+      ["modbus_protocol_version", "Modbus protocol"],
+      ["master_version", "Master firmware"],
+      ["slave_version", "Slave firmware"],
+      ["manager_version", "Manager firmware"],
+      ["bms_online", "BMS online"],
+      ["bms_pack_serial_modbus", "BMS pack serial (Modbus)"],
+      ["bms_pack_count", "BMS pack count"],
+      ["bms_pack_1_version", "Pack 1 version"],
+      ["bms_pack_2_version", "Pack 2 version"],
+      ["bms_pack_3_version", "Pack 3 version"],
+      ["bms_pack_4_version", "Pack 4 version"],
+    ];
+    return rows
+      .map(([key, label]) => {
+        const value = id[key];
+        if (value == null || value === "" || value === "unavailable" || value === "unknown") return null;
+        return { label, value };
+      })
+      .filter(Boolean);
+  }
+
+  _identityValueList(rows) {
+    if (!rows.length) {
+      return `<p class="placeholder">No identity entities discovered yet. Update foxess_modbus, reload Home Assistant, then reload this panel.</p>`;
+    }
+    return `<div class="entity-list">${rows
+      .map(
+        (r) =>
+          `<div class="entity-row"><span class="entity-name">${esc(r.label)}</span><span class="entity-value">${esc(r.value)}</span></div>`
+      )
+      .join("")}</div>`;
+  }
+
   _renderDevice(plant) {
+    if (this._deviceSub === "system") {
+      return `<button type="button" class="back-btn" data-action="device-back">← Device</button><header class="header"><h1>System info</h1><p>From Modbus (matches Fox app where confirmed)</p></header>${this._identityValueList(this._identityRows())}`;
+    }
     if (this._deviceSub === "parameters") {
       const rows = [
         ["pv_power", "PV power"],
@@ -1064,6 +1107,7 @@ ${this._stat("PV today", a.pv_production_kwh_today, a.pv_production_kwh_today !=
 <div class="device-card"><div class="gauge"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" fill="none" stroke="var(--divider-color)" stroke-width="8"/><circle cx="50" cy="50" r="40" fill="none" stroke="var(--fp-accent)" stroke-width="8" stroke-dasharray="${circ}" stroke-dashoffset="${off}" transform="rotate(-90 50 50)" stroke-linecap="round"/></svg><div class="gauge-value"><span>${pvKw.toFixed(2)}</span><span class="gauge-label">kW PV</span></div></div></div>
 <div class="device-card"><div class="battery-pct">${esc(formatPercent(flows.batterySoc))}</div><div style="font-size:13px;color:var(--secondary-text-color);margin-top:8px">${esc(flows.batteryStatus)} · ${esc(formatKw(Math.abs(flows.batteryW), 2))}</div><div style="font-size:12px;margin-top:6px;color:var(--secondary-text-color)">Min temp ${esc(temp !== "—" ? temp + "°C" : "—")}</div></div>
 </div>
+<button type="button" class="list-btn" data-action="device-sub" data-sub="system"><span>System info<span class="sub">PCS model/serial, firmware, BMS</span></span><span class="chev">›</span></button>
 <button type="button" class="list-btn" data-action="device-sub" data-sub="parameters"><span>Detailed parameters<span class="sub">Live Modbus values</span></span><span class="chev">›</span></button>
 <button type="button" class="list-btn" data-action="device-sub" data-sub="battery"><span>Battery<span class="sub">SOC, power, temperature</span></span><span class="chev">›</span></button>`;
   }
