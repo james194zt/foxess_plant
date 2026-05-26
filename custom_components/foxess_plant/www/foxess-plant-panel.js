@@ -4,10 +4,19 @@
  */
 
 const NAV = [
-  { id: "overview", label: "Overview", icon: "M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z" },
-  { id: "device", label: "Device", icon: "M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.8 1.41-1.41zM4 10.5H1v2h3v-2zm9-9.95h-2V3.5h2V.55zm7.45 3.91l-1.41-1.41-1.79 1.79 1.41 1.41 1.79-1.79zm-3.21 13.7l1.79 1.8 1.41-1.41-1.8-1.79-1.4 1.4zM20 10.5v2h3v-2h-3zm-8-5c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm-1 16.95h2V19.5h-2v2.95zm-7.45-3.91l1.41 1.41 1.79-1.8-1.41-1.41-1.79 1.8z" },
-  { id: "energy", label: "Energy", icon: "M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z" },
-  { id: "settings", label: "Settings", icon: "M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z" },
+  { id: "overview", label: "Overview" },
+  { id: "device", label: "Device" },
+  { id: "energy", label: "Energy" },
+  { id: "settings", label: "Settings" },
+];
+
+const SETTINGS_NAV = [
+  { id: "main", label: "All" },
+  { id: "quick", label: "Quick" },
+  { id: "schedules", label: "Schedule" },
+  { id: "workmode", label: "Work mode" },
+  { id: "storm", label: "StormSafe" },
+  { id: "control", label: "Control" },
 ];
 
 const FLOW_PATHS = {
@@ -139,37 +148,56 @@ const STYLES = `
   font-family: var(--ha-font-family, Roboto, sans-serif);
   background: var(--primary-background-color);
   color: var(--primary-text-color);
-  --fp-sidebar: 248px;
   --fp-radius: 14px;
   --fp-accent: var(--primary-color, #03a9f4);
   --fp-green: #2e7d32;
   --fp-amber: #f9a825;
   --fp-red: #e53935;
 }
-.shell { display: flex; height: 100%; min-height: calc(100vh - 56px); }
-.shell.narrow { flex-direction: column; }
-.sidebar {
-  width: var(--fp-sidebar); flex-shrink: 0;
-  border-right: 1px solid var(--divider-color);
-  background: var(--sidebar-background-color, var(--card-background-color));
-  padding: 20px 12px; display: flex; flex-direction: column;
+.shell {
+  display: flex; flex-direction: column; height: 100%;
+  min-height: calc(100vh - 56px);
+  background: var(--primary-background-color);
 }
-.brand { padding: 4px 12px 20px; font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--secondary-text-color); }
-.brand strong { display: block; font-size: 18px; letter-spacing: 0; text-transform: none; color: var(--primary-text-color); margin-top: 2px; }
-.shell.narrow .sidebar { width: 100%; flex-direction: row; overflow-x: auto; padding: 10px 8px; border-right: none; border-bottom: 1px solid var(--divider-color); }
-.shell.narrow .brand { display: none; }
-.nav-btn {
-  display: flex; align-items: center; gap: 12px; width: 100%;
-  padding: 11px 14px; margin-bottom: 4px; border: none; border-radius: 12px;
-  background: transparent; color: var(--primary-text-color); font-size: 14px;
-  cursor: pointer; text-align: left; font-family: inherit; transition: background 0.15s;
+.page-header {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--divider-color);
+  background: var(--app-header-background-color, var(--primary-background-color));
 }
-.shell.narrow .nav-btn { flex: 1; justify-content: center; min-width: 64px; margin-bottom: 0; padding: 10px 8px; }
-.nav-btn:hover { background: var(--secondary-background-color); }
-.nav-btn.active { background: color-mix(in srgb, var(--fp-accent) 18%, transparent); color: var(--fp-accent); font-weight: 600; }
-.nav-icon { width: 22px; height: 22px; flex-shrink: 0; opacity: 0.85; }
-.main { flex: 1; overflow-y: auto; padding: 24px 28px 40px; max-width: 920px; }
-.shell.narrow .main { padding: 16px; max-width: none; }
+.tab-bar {
+  display: flex; align-items: stretch; gap: 0;
+  padding: 0 8px; overflow-x: auto; -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.tab-bar::-webkit-scrollbar { display: none; }
+.tab {
+  flex-shrink: 0;
+  padding: 14px 20px 12px;
+  border: none; border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: transparent;
+  color: var(--secondary-text-color);
+  font-size: 14px; font-weight: 500; font-family: inherit;
+  cursor: pointer; white-space: nowrap;
+  transition: color 0.15s, border-color 0.15s;
+}
+.tab:hover { color: var(--primary-text-color); }
+.tab.active {
+  color: var(--primary-text-color);
+  font-weight: 600;
+  border-bottom-color: var(--primary-text-color);
+}
+.tab-bar.sub { padding: 0 16px; border-top: 1px solid var(--divider-color); background: var(--secondary-background-color, transparent); }
+.tab-bar.sub .tab { padding: 10px 16px 8px; font-size: 13px; }
+.main {
+  flex: 1; overflow-y: auto;
+  padding: 20px 24px 40px;
+  max-width: 1100px; width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+.shell.narrow .main { padding: 16px; }
+.shell.narrow .tab { padding: 12px 14px 10px; font-size: 13px; }
 .header { margin-bottom: 20px; }
 .header h1 { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
 .header p { margin: 6px 0 0; color: var(--secondary-text-color); font-size: 14px; }
@@ -445,6 +473,7 @@ class FoxessPlantPanel extends HTMLElement {
       return;
     }
     if (action === "settings-sub") {
+      this._view = "settings";
       this._settingsView = btn.dataset.sub;
       if (btn.dataset.sub === "schedules") this._initChargeDraft();
       if (btn.dataset.sub === "quick") this._initSocDraft();
@@ -452,8 +481,12 @@ class FoxessPlantPanel extends HTMLElement {
       this._render();
       return;
     }
-    if (action === "settings-back") {
-      this._settingsView = "main";
+    if (action === "settings-tab") {
+      this._view = "settings";
+      this._settingsView = btn.dataset.sub;
+      if (btn.dataset.sub === "schedules") this._initChargeDraft();
+      if (btn.dataset.sub === "quick") this._initSocDraft();
+      if (btn.dataset.sub === "workmode") this._initWorkModeDraft();
       this._render();
       return;
     }
@@ -617,8 +650,14 @@ class FoxessPlantPanel extends HTMLElement {
     }
   }
 
-  _navIcon(path) {
-    return `<svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="${path}"/></svg>`;
+  _renderTabBar(items, activeId, actionName, dataAttr = "view", sub = false) {
+    const barClass = sub ? "tab-bar sub" : "tab-bar";
+    return `<nav class="${barClass}" role="tablist">${items
+      .map(
+        (item) =>
+          `<button type="button" class="tab ${activeId === item.id ? "active" : ""}" role="tab" aria-selected="${activeId === item.id}" data-action="${actionName}" data-${dataAttr}="${item.id}">${esc(item.label)}</button>`
+      )
+      .join("")}</nav>`;
   }
 
   _modeBanner() {
@@ -801,8 +840,7 @@ ${this._modeBanner()}
   _renderSettingsQuick() {
     if (!this._socDraft) this._initSocDraft();
     const d = this._socDraft;
-    return `<button type="button" class="back-btn" data-action="settings-back">← Settings</button>
-<header class="header"><h1>Quick Settings</h1><p>System SOC limits (written to inverter)</p></header>
+    return `<header class="header"><h1>Quick Settings</h1><p>System SOC limits (written to inverter)</p></header>
 <div class="card">
 <div class="soc-slider"><label><span>System min SOC</span><strong data-soc-val="min_soc">${Math.round(d.min_soc)}%</strong></label>
 <input type="range" min="0" max="100" step="1" data-field="soc:min_soc" value="${d.min_soc}"></div>
@@ -816,8 +854,7 @@ ${this._modeBanner()}
 
   _renderSettingsSchedules() {
     if (!this._chargeDraft) this._initChargeDraft();
-    return `<button type="button" class="back-btn" data-action="settings-back">← Settings</button>
-<header class="header"><h1>Charge schedule</h1><p>Baseline periods — Fox Plant keeps the inverter in sync</p></header>
+    return `<header class="header"><h1>Charge schedule</h1><p>Baseline periods — Fox Plant keeps the inverter in sync</p></header>
 ${this._renderPeriodCard(0, this._chargeDraft[0])}
 ${this._renderPeriodCard(1, this._chargeDraft[1])}
 <div class="btn-row">
@@ -830,11 +867,9 @@ ${this._renderPeriodCard(1, this._chargeDraft[1])}
     if (!this._workModeDraft) this._initWorkModeDraft();
     const options = this._plantState?.settings?.work_mode_options ?? [];
     if (!options.length) {
-      return `<button type="button" class="back-btn" data-action="settings-back">← Settings</button>
-<header class="header"><h1>Work mode</h1></header><p class="placeholder">Work mode entity not found. Reload the integration.</p>`;
+      return `<header class="header"><h1>Work mode</h1></header><p class="placeholder">Work mode entity not found. Reload the integration.</p>`;
     }
-    return `<button type="button" class="back-btn" data-action="settings-back">← Settings</button>
-<header class="header"><h1>Work mode</h1><p>Matches the FoxESS inverter modes</p></header>
+    return `<header class="header"><h1>Work mode</h1><p>Matches the FoxESS inverter modes</p></header>
 <div class="mode-grid">${options
       .map((opt) => {
         const sel = opt === this._workModeDraft ? "selected" : "";
@@ -851,8 +886,7 @@ ${this._renderPeriodCard(1, this._chargeDraft[1])}
     const armed = Boolean(this._plantState?.active_storm_triggers?.length);
     const triggers = this._plantState?.active_storm_triggers ?? [];
     const configured = storm.trigger_entities ?? [];
-    return `<button type="button" class="back-btn" data-action="settings-back">← Settings</button>
-<header class="header"><h1>StormSafe</h1><p>${storm.enabled ? "Enabled in integration config" : "Enable under Integration → Configure"}</p></header>
+    return `<header class="header"><h1>StormSafe</h1><p>${storm.enabled ? "Enabled in integration config" : "Enable under Integration → Configure"}</p></header>
 ${this._renderStormHero(armed)}
 <div class="card">
 <p class="card-title">Status</p>
@@ -870,8 +904,7 @@ ${configured.length ? configured.map((t) => `<span class="trigger-chip">${esc(t)
 
   _renderSettingsControl() {
     const active = this._plantState?.control_active;
-    return `<button type="button" class="back-btn" data-action="settings-back">← Settings</button>
-<header class="header"><h1>Plant control</h1></header>
+    return `<header class="header"><h1>Plant control</h1></header>
 <div class="card">
 <p style="margin:0 0 12px;line-height:1.5;font-size:14px">When <strong>active</strong>, Fox Plant is the only writer for charge periods (via <code>foxess_modbus</code>). Release control if you need to edit schedules in the Fox app temporarily.</p>
 <div class="btn-row">
@@ -924,14 +957,14 @@ ${active
       this._root.innerHTML = `<div class="main"><p class="placeholder">Add FoxESS Plant and select your inverter device.</p></div>`;
       return;
     }
-    const navHtml = NAV.map(
-      (item) =>
-        `<button type="button" class="nav-btn ${this._view === item.id ? "active" : ""}" data-action="nav" data-view="${item.id}">
-${this._navIcon(item.icon)}${this._narrow ? "" : `<span>${esc(item.label)}</span>`}
-</button>`
-    ).join("");
+    const subTabs =
+      this._view === "settings"
+        ? this._renderTabBar(SETTINGS_NAV, this._settingsView, "settings-tab", "sub", true)
+        : "";
+    const pageHeader = `<header class="page-header">${this._renderTabBar(NAV, this._view, "nav", "view")}${subTabs}</header>`;
+
     this._root.innerHTML = `<div class="shell ${this._narrow ? "narrow" : ""}">
-<nav class="sidebar"><div class="brand">FoxESS<strong>Plant</strong></div>${navHtml}</nav>
+${pageHeader}
 <main class="main">${this._renderView(plant)}</main>
 </div>`;
   }

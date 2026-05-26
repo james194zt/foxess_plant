@@ -13,14 +13,14 @@ The panel registers automatically when at least one plant config entry exists.
 
 ## Navigation (HA-style)
 
-| Section | Content |
-|---------|---------|
-| **Overview** | Live energy-flow diagram (solar → home ← grid ↔ battery) + today’s analytics |
-| **Device** | PV gauge, battery card, detailed parameters, battery list |
-| **Energy** | Daily kWh / self-consumption stats |
-| **Settings** | Quick SOC sliders, charge schedule editor, work mode picker, StormSafe, plant control |
+Top tabs (like **Energy → Summary / Electricity / Gas**):
 
-No bottom tab bar — left sidebar on desktop, horizontal section picker on mobile.
+| Tab | Content |
+|-----|---------|
+| **Overview** | Live energy-flow diagram + today’s analytics |
+| **Device** | PV gauge, battery card, detailed parameters |
+| **Energy** | Daily kWh / self-consumption stats |
+| **Settings** | Sub-tabs: Quick, Schedule, Work mode, StormSafe, Control |
 
 ## Live energy scene
 
