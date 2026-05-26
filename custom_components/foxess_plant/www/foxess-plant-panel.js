@@ -77,6 +77,107 @@ function formatPercent(value) {
   return `${Math.round(value)}%`;
 }
 
+/** Fox app Solar Analysis palette (matches dashboard plotly cards). */
+const FOX_ENERGY = {
+  pv: "#05989A",
+  load: "#7F3DFF",
+  muted: "#C3C8D1",
+};
+
+function polarToCartesian(cx, cy, r, deg) {
+  const rad = ((deg - 90) * Math.PI) / 180;
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+}
+
+function describeDonutSlice(cx, cy, rOuter, rInner, startDeg, endDeg) {
+  const sweep = endDeg - startDeg;
+  if (sweep <= 0) return "";
+  if (sweep >= 359.99) endDeg = startDeg + 359.99;
+  const startOuter = polarToCartesian(cx, cy, rOuter, endDeg);
+  const endOuter = polarToCartesian(cx, cy, rOuter, startDeg);
+  const startInner = polarToCartesian(cx, cy, rInner, startDeg);
+  const endInner = polarToCartesian(cx, cy, rInner, endDeg);
+  const large = endDeg - startDeg > 180 ? 1 : 0;
+  return [
+    "M",
+    startOuter.x,
+    startOuter.y,
+    "A",
+    rOuter,
+    rOuter,
+    0,
+    large,
+    0,
+    endOuter.x,
+    endOuter.y,
+    "L",
+    startInner.x,
+    startInner.y,
+    "A",
+    rInner,
+    rInner,
+    0,
+    large,
+    1,
+    endInner.x,
+    endInner.y,
+    "Z",
+  ].join(" ");
+}
+
+function renderEnergyDonut(segments, gapDeg = 3) {
+  const active = segments.filter((s) => s.value > 0);
+  const total = active.reduce((sum, s) => sum + s.value, 0);
+  const cx = 50;
+  const cy = 50;
+  const rOuter = 44;
+  const rInner = 34;
+  const stroke = "var(--card-background-color, #17191d)";
+
+  if (total <= 0) {
+    return `<svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${(rOuter + rInner) / 2}" fill="none" stroke="${FOX_ENERGY.muted}" stroke-width="${rOuter - rInner}" opacity="0.35"/></svg>`;
+  }
+
+  let angle = -90;
+  const gap = active.length > 1 ? gapDeg : 0;
+  const sweepTotal = 360 - gap * active.length;
+  const paths = active.map((seg) => {
+    const sweep = (seg.value / total) * sweepTotal;
+    const start = angle;
+    const end = angle + sweep;
+    angle = end + gap;
+    const d = describeDonutSlice(cx, cy, rOuter, rInner, start, end);
+    return `<path d="${d}" fill="${seg.color}" stroke="${stroke}" stroke-width="2"/>`;
+  });
+  return `<svg viewBox="0 0 100 100" aria-hidden="true">${paths.join("")}</svg>`;
+}
+
+function renderEnergyBreakdownRow({ heading, totalKwh, metrics, segments, centerPct, centerLabel, accent }) {
+  const donut = renderEnergyDonut(segments);
+  const metricsHtml = metrics
+    .map(
+      (m) => `<div class="fox-energy-metric">
+<div class="fox-energy-metric-label">${esc(m.label)}</div>
+<div class="fox-energy-metric-value" style="color:${esc(m.color)}">${m.value.toFixed(2)}<span class="fox-energy-metric-unit"> kWh</span></div>
+</div>`
+    )
+    .join("");
+  return `<div class="fox-energy-row">
+<div class="fox-energy-copy">
+<div class="fox-energy-heading">${esc(heading)}</div>
+<div class="fox-energy-total">${totalKwh.toFixed(2)}<span>kWh</span></div>
+${metricsHtml}
+</div>
+<div class="fox-energy-chart" role="img" aria-label="${esc(heading)}">
+${donut}
+<div class="fox-energy-chart-center">
+<div class="fox-energy-chart-pct" style="color:${esc(accent)}">${Math.round(centerPct)}%</div>
+<div class="fox-energy-chart-label">${esc(centerLabel)}</div>
+</div>
+</div>
+</div>`;
+}
+
 function formatW(w) {
   const kw = Math.abs(w) / 1000;
   return kw < 10 ? `${kw.toFixed(2)} kW` : `${kw.toFixed(1)} kW`;
@@ -318,19 +419,41 @@ const STYLES = `
 }
 .card-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--secondary-text-color); margin: 0 0 14px; }
 .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 12px; }
-.breakdown-card { margin-top: 14px; }
-.breakdown-section { margin-top: 14px; }
-.breakdown-section:first-child { margin-top: 0; }
-.breakdown-title { font-size: 13px; font-weight: 700; margin-bottom: 8px; color: var(--primary-text-color); }
-.stackbar { height: 12px; border-radius: 10px; background: var(--divider-color); overflow: hidden; display: flex; }
-.stackseg { height: 100%; }
-.stackseg.pv-load { background: var(--fp-green); }
-.stackseg.pv-grid { background: #4285f4; }
-.stackseg.load-pv { background: var(--fp-green); }
-.stackseg.load-grid { background: var(--fp-amber); }
-.breakdown-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; font-size: 12px; color: var(--secondary-text-color); }
-.legend-item { display: inline-flex; align-items: center; gap: 8px; }
-.legend-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.breakdown-card { margin-top: 14px; padding-bottom: 8px; }
+.fox-energy-panel { display: flex; flex-direction: column; }
+.fox-energy-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) min(40vw, 156px);
+  gap: 8px 18px;
+  align-items: center;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--divider-color, rgba(127,127,127,0.25));
+}
+.fox-energy-row:last-child { border-bottom: none; padding-bottom: 6px; }
+.fox-energy-row:first-child { padding-top: 2px; }
+.fox-energy-copy { min-width: 0; }
+.fox-energy-heading { font-size: 15px; color: var(--secondary-text-color); margin: 0 0 6px; font-weight: 500; }
+.fox-energy-total { font-size: 30px; font-weight: 700; margin: 0 0 16px; line-height: 1.05; letter-spacing: -0.02em; }
+.fox-energy-total span { font-size: 15px; font-weight: 500; color: var(--secondary-text-color); margin-left: 5px; }
+.fox-energy-metric { margin-bottom: 14px; }
+.fox-energy-metric:last-child { margin-bottom: 0; }
+.fox-energy-metric-label { font-size: 14px; color: var(--secondary-text-color); margin-bottom: 3px; }
+.fox-energy-metric-value { font-size: 26px; font-weight: 700; line-height: 1.15; letter-spacing: -0.02em; }
+.fox-energy-metric-unit { font-size: 15px; font-weight: 500; color: var(--secondary-text-color); margin-left: 3px; }
+.fox-energy-chart { position: relative; width: 100%; aspect-ratio: 1; max-width: 156px; margin-left: auto; }
+.fox-energy-chart svg { width: 100%; height: 100%; display: block; }
+.fox-energy-chart-center {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; text-align: center; pointer-events: none; padding: 8px;
+}
+.fox-energy-chart-pct { font-size: 30px; font-weight: 700; line-height: 1; letter-spacing: -0.03em; }
+.fox-energy-chart-label { font-size: 11px; color: var(--secondary-text-color); margin-top: 5px; line-height: 1.25; max-width: 88px; }
+@media (max-width: 420px) {
+  .fox-energy-row { grid-template-columns: 1fr 132px; gap: 6px 12px; }
+  .fox-energy-total { font-size: 26px; }
+  .fox-energy-metric-value { font-size: 22px; }
+  .fox-energy-chart-pct { font-size: 26px; }
+}
 .stat { background: var(--card-background-color); border-radius: var(--fp-radius); padding: 16px; border: 1px solid var(--divider-color, transparent); box-shadow: var(--ha-card-box-shadow, 0 1px 2px rgba(0,0,0,0.06)); }
 .stat label { font-size: 12px; color: var(--secondary-text-color); display: block; }
 .stat strong { font-size: 22px; display: block; margin-top: 6px; font-weight: 600; }
@@ -1599,37 +1722,45 @@ ${this._stat("PV today", a.pv_production_kwh_today, a.pv_production_kwh_today !=
     const loadTotal = Number(a.load_consumption_kwh_today ?? 0) || 0;
     const loadFromPvBattery = Number(a.load_from_pv_battery_kwh_today ?? 0) || 0;
     const loadFromGrid = Number(a.load_from_grid_kwh_today ?? 0) || 0;
+    const selfConsumption = Number(a.self_consumption_percent_today ?? 0) || 0;
+    const selfSufficiency = Number(a.self_sufficiency_percent_today ?? 0) || 0;
+    const textMain = "var(--primary-text-color)";
 
-    const pvLoadPct = pvTotal > 0 ? Math.max(0, Math.min(100, (pvToLoadBattery / pvTotal) * 100)) : 0;
-    const pvGridPct = 100 - pvLoadPct;
+    const pvRow = renderEnergyBreakdownRow({
+      heading: "PV Production",
+      totalKwh: pvTotal,
+      metrics: [
+        { label: "To Load & Battery", value: pvToLoadBattery, color: FOX_ENERGY.pv },
+        { label: "To Grid", value: pvToGrid, color: textMain },
+      ],
+      segments: [
+        { value: pvToLoadBattery, color: FOX_ENERGY.pv },
+        { value: pvToGrid, color: FOX_ENERGY.muted },
+      ],
+      centerPct: selfConsumption,
+      centerLabel: "Self-Consumption",
+      accent: FOX_ENERGY.pv,
+    });
 
-    const loadPvPct = loadTotal > 0 ? Math.max(0, Math.min(100, (loadFromPvBattery / loadTotal) * 100)) : 0;
-    const loadGridPct = 100 - loadPvPct;
+    const loadRow = renderEnergyBreakdownRow({
+      heading: "Load Consumption",
+      totalKwh: loadTotal,
+      metrics: [
+        { label: "From PV & Battery", value: loadFromPvBattery, color: FOX_ENERGY.load },
+        { label: "From Grid", value: loadFromGrid, color: textMain },
+      ],
+      segments: [
+        { value: loadFromPvBattery, color: FOX_ENERGY.load },
+        { value: loadFromGrid, color: FOX_ENERGY.muted },
+      ],
+      centerPct: selfSufficiency,
+      centerLabel: "Self-Sufficiency",
+      accent: FOX_ENERGY.load,
+    });
 
     return `<div class="card breakdown-card">
 <p class="card-title">Today energy breakdown</p>
-<div class="breakdown-section">
-<div class="breakdown-title">PV production (${pvTotal.toFixed(2)} kWh)</div>
-<div class="stackbar" role="img" aria-label="PV split">
-<div class="stackseg pv-load" style="width:${pvLoadPct.toFixed(1)}%"></div>
-<div class="stackseg pv-grid" style="width:${pvGridPct.toFixed(1)}%"></div>
-</div>
-<div class="breakdown-legend">
-  <span class="legend-item"><i class="legend-dot" style="background: var(--fp-green)"></i> PV → battery (${pvToLoadBattery.toFixed(2)} kWh)</span>
-  <span class="legend-item"><i class="legend-dot" style="background: #4285f4"></i> PV → grid (${pvToGrid.toFixed(2)} kWh)</span>
-</div>
-</div>
-<div class="breakdown-section">
-<div class="breakdown-title">Load consumption (${loadTotal.toFixed(2)} kWh)</div>
-<div class="stackbar" role="img" aria-label="Load split">
-<div class="stackseg load-pv" style="width:${loadPvPct.toFixed(1)}%"></div>
-<div class="stackseg load-grid" style="width:${loadGridPct.toFixed(1)}%"></div>
-</div>
-<div class="breakdown-legend">
-  <span class="legend-item"><i class="legend-dot" style="background: var(--fp-green)"></i> From PV/battery (${loadFromPvBattery.toFixed(2)} kWh)</span>
-  <span class="legend-item"><i class="legend-dot" style="background: var(--fp-amber)"></i> From grid (${loadFromGrid.toFixed(2)} kWh)</span>
-</div>
-</div>
+<div class="fox-energy-panel">${pvRow}${loadRow}</div>
 </div>`;
   }
 
