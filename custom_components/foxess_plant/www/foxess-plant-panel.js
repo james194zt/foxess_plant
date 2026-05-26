@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.4.9
+ * @version 0.4.10
  */
 
 const NAV = [
@@ -205,6 +205,7 @@ const STYLES = `
 }
 .page-header {
   flex-shrink: 0;
+  position: relative; z-index: 2;
   border-bottom: 1px solid var(--divider-color);
   background: var(--app-header-background-color, var(--primary-background-color));
 }
@@ -218,12 +219,11 @@ const STYLES = `
   flex-shrink: 0;
   padding: 14px 20px 12px;
   border: none; border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
   background: transparent;
   color: var(--secondary-text-color);
   font-size: 14px; font-weight: 500; font-family: inherit;
   cursor: pointer; white-space: nowrap;
-  transition: color 0.15s, border-color 0.15s;
+  position: relative; z-index: 1;
 }
 .tab:hover { color: var(--primary-text-color); }
 .tab.active {
@@ -453,6 +453,8 @@ class FoxessPlantPanel extends HTMLElement {
     this._socDraft = null;
     this._workModeDraft = null;
     this._socDrag = null;
+    this._headerHasSubTabs = undefined;
+    this._renderRaf = 0;
     this._onSocMove = this._onSocMove.bind(this);
     this._onSocEnd = this._onSocEnd.bind(this);
     const root = document.createElement("div");
@@ -486,14 +488,15 @@ class FoxessPlantPanel extends HTMLElement {
 
   set hass(v) {
     this._hass = v;
-    if (!this._socDrag) this._render();
+    if (!this._socDrag) this._scheduleRender();
   }
   get hass() {
     return this._hass;
   }
   set narrow(v) {
     this._narrow = Boolean(v);
-    this._render();
+    const shell = this._root.querySelector(".shell");
+    if (shell) shell.classList.toggle("narrow", this._narrow);
   }
   get narrow() {
     return this._narrow;
@@ -539,10 +542,41 @@ class FoxessPlantPanel extends HTMLElement {
       if (this._settingsView !== "schedules") this._chargeDraft = null;
       if (this._settingsView !== "quick") this._socDraft = null;
       if (this._settingsView !== "workmode") this._workModeDraft = null;
-      if (!this._socDrag) this._render();
+      if (!this._socDrag) this._scheduleRender();
     } catch {
       /* ws optional */
     }
+  }
+
+  _scheduleRender() {
+    if (this._renderRaf) return;
+    this._renderRaf = requestAnimationFrame(() => {
+      this._renderRaf = 0;
+      this._render();
+    });
+  }
+
+  _syncTabActive(headerEl) {
+    headerEl.querySelectorAll('[data-action="nav"]').forEach((btn) => {
+      const on = btn.dataset.view === this._view;
+      btn.classList.toggle("active", on);
+      btn.setAttribute("aria-selected", String(on));
+    });
+    headerEl.querySelectorAll('[data-action="settings-tab"]').forEach((btn) => {
+      const on = btn.dataset.sub === this._settingsView;
+      btn.classList.toggle("active", on);
+      btn.setAttribute("aria-selected", String(on));
+    });
+  }
+
+  _rebuildPageHeader(headerEl) {
+    const showSubTabs = this._view === "settings";
+    headerEl.innerHTML =
+      this._renderTabBar(NAV, this._view, "nav", "view") +
+      (showSubTabs
+        ? this._renderTabBar(SETTINGS_NAV, this._settingsView, "settings-tab", "sub", true)
+        : "");
+    this._headerHasSubTabs = showSubTabs;
   }
 
   _initChargeDraft() {
@@ -1206,24 +1240,41 @@ ${active
 
   _render() {
     if (!this._hass) {
+      this._headerHasSubTabs = undefined;
       this._root.innerHTML = `<div class="main"><p class="placeholder">Loading Fox Plant…</p></div>`;
       return;
     }
     const plant = this._getPlant();
     if (!plant) {
+      this._headerHasSubTabs = undefined;
       this._root.innerHTML = `<div class="main"><p class="placeholder">Add FoxESS Plant and select your inverter device.</p></div>`;
       return;
     }
-    const subTabs =
-      this._view === "settings"
-        ? this._renderTabBar(SETTINGS_NAV, this._settingsView, "settings-tab", "sub", true)
-        : "";
-    const pageHeader = `<header class="page-header">${this._renderTabBar(NAV, this._view, "nav", "view")}${subTabs}</header>`;
 
-    this._root.innerHTML = `<div class="shell ${this._narrow ? "narrow" : ""}">
-${pageHeader}
-<main class="main">${this._renderView(plant)}</main>
-</div>`;
+    const showSubTabs = this._view === "settings";
+    let shell = this._root.querySelector(".shell");
+    if (!shell) {
+      shell = document.createElement("div");
+      shell.className = `shell${this._narrow ? " narrow" : ""}`;
+      shell.append(
+        Object.assign(document.createElement("header"), { className: "page-header" }),
+        Object.assign(document.createElement("main"), { className: "main" })
+      );
+      this._root.replaceChildren(shell);
+      this._headerHasSubTabs = undefined;
+    } else {
+      shell.classList.toggle("narrow", this._narrow);
+    }
+
+    const headerEl = shell.querySelector(".page-header");
+    if (this._headerHasSubTabs !== showSubTabs) {
+      this._rebuildPageHeader(headerEl);
+    } else {
+      this._syncTabActive(headerEl);
+    }
+
+    shell.querySelector(".main").innerHTML = this._renderView(plant);
+
     if (this._view === "settings" && this._settingsView === "quick") {
       this._bindTripleSoc();
     }
