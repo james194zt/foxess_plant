@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.4.13
+ * @version 0.4.14
  */
 
 const NAV = [
@@ -273,6 +273,19 @@ const STYLES = `
 }
 .card-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--secondary-text-color); margin: 0 0 14px; }
 .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 12px; }
+.breakdown-card { margin-top: 14px; }
+.breakdown-section { margin-top: 14px; }
+.breakdown-section:first-child { margin-top: 0; }
+.breakdown-title { font-size: 13px; font-weight: 700; margin-bottom: 8px; color: var(--primary-text-color); }
+.stackbar { height: 12px; border-radius: 10px; background: var(--divider-color); overflow: hidden; display: flex; }
+.stackseg { height: 100%; }
+.stackseg.pv-load { background: var(--fp-green); }
+.stackseg.pv-grid { background: #4285f4; }
+.stackseg.load-pv { background: var(--fp-green); }
+.stackseg.load-grid { background: var(--fp-amber); }
+.breakdown-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; font-size: 12px; color: var(--secondary-text-color); }
+.legend-item { display: inline-flex; align-items: center; gap: 8px; }
+.legend-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
 .stat { background: var(--card-background-color); border-radius: var(--fp-radius); padding: 16px; border: 1px solid var(--divider-color, transparent); box-shadow: var(--ha-card-box-shadow, 0 1px 2px rgba(0,0,0,0.06)); }
 .stat label { font-size: 12px; color: var(--secondary-text-color); display: block; }
 .stat strong { font-size: 22px; display: block; margin-top: 6px; font-weight: 600; }
@@ -1168,6 +1181,47 @@ ${this._stat("PV today", a.pv_production_kwh_today, a.pv_production_kwh_today !=
       .join("")}</div>`;
   }
 
+  _renderEnergyTodayBreakdown(a) {
+    const pvTotal = Number(a.pv_production_kwh_today ?? 0) || 0;
+    const pvToLoadBattery = Number(a.pv_to_load_battery_kwh_today ?? 0) || 0;
+    const pvToGrid = Number(a.pv_to_grid_kwh_today ?? 0) || 0;
+    const loadTotal = Number(a.load_consumption_kwh_today ?? 0) || 0;
+    const loadFromPvBattery = Number(a.load_from_pv_battery_kwh_today ?? 0) || 0;
+    const loadFromGrid = Number(a.load_from_grid_kwh_today ?? 0) || 0;
+
+    const pvLoadPct = pvTotal > 0 ? Math.max(0, Math.min(100, (pvToLoadBattery / pvTotal) * 100)) : 0;
+    const pvGridPct = 100 - pvLoadPct;
+
+    const loadPvPct = loadTotal > 0 ? Math.max(0, Math.min(100, (loadFromPvBattery / loadTotal) * 100)) : 0;
+    const loadGridPct = 100 - loadPvPct;
+
+    return `<div class="card breakdown-card">
+<p class="card-title">Today energy breakdown</p>
+<div class="breakdown-section">
+<div class="breakdown-title">PV production (${pvTotal.toFixed(2)} kWh)</div>
+<div class="stackbar" role="img" aria-label="PV split">
+<div class="stackseg pv-load" style="width:${pvLoadPct.toFixed(1)}%"></div>
+<div class="stackseg pv-grid" style="width:${pvGridPct.toFixed(1)}%"></div>
+</div>
+<div class="breakdown-legend">
+  <span class="legend-item"><i class="legend-dot" style="background: var(--fp-green)"></i> PV → battery (${pvToLoadBattery.toFixed(2)} kWh)</span>
+  <span class="legend-item"><i class="legend-dot" style="background: #4285f4"></i> PV → grid (${pvToGrid.toFixed(2)} kWh)</span>
+</div>
+</div>
+<div class="breakdown-section">
+<div class="breakdown-title">Load consumption (${loadTotal.toFixed(2)} kWh)</div>
+<div class="stackbar" role="img" aria-label="Load split">
+<div class="stackseg load-pv" style="width:${loadPvPct.toFixed(1)}%"></div>
+<div class="stackseg load-grid" style="width:${loadGridPct.toFixed(1)}%"></div>
+</div>
+<div class="breakdown-legend">
+  <span class="legend-item"><i class="legend-dot" style="background: var(--fp-green)"></i> From PV/battery (${loadFromPvBattery.toFixed(2)} kWh)</span>
+  <span class="legend-item"><i class="legend-dot" style="background: var(--fp-amber)"></i> From grid (${loadFromGrid.toFixed(2)} kWh)</span>
+</div>
+</div>
+</div>`;
+  }
+
   _renderEnergy() {
     const a = this._plantState?.analytics ?? {};
     const has = Object.keys(a).length > 0;
@@ -1187,6 +1241,7 @@ ${this._stat("Battery discharge", a.battery_discharge_kwh_today, " kWh")}
 </div></div>`
     : `<p class="placeholder">Analytics appear after the coordinator refreshes.</p>`
 }
+${has ? this._renderEnergyTodayBreakdown(a) : ""}
 <p class="placeholder" style="margin-top:14px;font-size:13px">Day / month / year charts — phase 5f (next).</p>`;
   }
 
