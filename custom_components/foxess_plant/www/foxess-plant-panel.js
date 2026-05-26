@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.4.6
+ * @version 0.4.7
  */
 
 const NAV = [
@@ -142,20 +142,22 @@ async function callService(hass, domain, service, data) {
   await hass.callService(domain, service, data, undefined, { blocking: true });
 }
 
+const SOC_MIN_PCT = 10;
+
 const SOC_THUMBS = [
   { key: "min_soc", label: "Off-grid min", short: "Off-grid", color: "#e53935" },
   { key: "min_soc_on_grid", label: "System min", short: "On-grid", color: "#f9a825" },
   { key: "max_soc", label: "System max", short: "Max", color: "#2e7d32" },
 ];
 
-/** Enforce min ≤ system min ≤ max; equal values allowed (e.g. both at 5%). */
+/** Enforce 10–100%, min ≤ system min ≤ max (inverter rejects below 10%). */
 function clampSocDraft(d) {
-  let min = Math.round(Number(d.min_soc) || 0);
-  let mid = Math.round(Number(d.min_soc_on_grid) || 0);
+  let min = Math.round(Number(d.min_soc) || SOC_MIN_PCT);
+  let mid = Math.round(Number(d.min_soc_on_grid) || SOC_MIN_PCT);
   let max = Math.round(Number(d.max_soc) || 100);
-  min = Math.max(0, Math.min(100, min));
-  mid = Math.max(0, Math.min(100, mid));
-  max = Math.max(0, Math.min(100, max));
+  min = Math.max(SOC_MIN_PCT, Math.min(100, min));
+  mid = Math.max(SOC_MIN_PCT, Math.min(100, mid));
+  max = Math.max(SOC_MIN_PCT, Math.min(100, max));
   if (mid < min) mid = min;
   if (max < mid) max = mid;
   d.min_soc = min;
@@ -166,7 +168,7 @@ function clampSocDraft(d) {
 
 /** Apply drag to the active thumb first, then push siblings (Fox-app style). */
 function applySocDrag(d, thumb, pct) {
-  const p = Math.max(0, Math.min(100, Math.round(pct)));
+  const p = Math.max(SOC_MIN_PCT, Math.min(100, Math.round(pct)));
   if (thumb === "min_soc") {
     d.min_soc = p;
     if (d.min_soc_on_grid < p) d.min_soc_on_grid = p;
@@ -747,7 +749,7 @@ class FoxessPlantPanel extends HTMLElement {
 
     const numericHtml = SOC_THUMBS.map(
       (t) =>
-        `<div><label>${esc(t.label)}</label><input type="number" min="0" max="100" step="1" data-field="soc-num:${t.key}" value="${clamped[t.key]}"></div>`
+        `<div><label>${esc(t.label)}</label><input type="number" min="${SOC_MIN_PCT}" max="100" step="1" data-field="soc-num:${t.key}" value="${clamped[t.key]}"></div>`
     ).join("");
 
     return `<div class="triple-soc">
@@ -776,7 +778,7 @@ ${
 <div class="triple-soc-live" style="left:${live}%"></div>
 ${thumbsHtml}
 </div>
-<div class="triple-soc-scale"><span>0%</span><span>100%</span></div>
+<div class="triple-soc-scale"><span>${SOC_MIN_PCT}%</span><span>100%</span></div>
 </div>
 <div class="soc-legend">
 <span><i style="background:#e53935"></i> Below off-grid min</span>
