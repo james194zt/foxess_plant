@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.5.1
+ * @version 0.5.2
  */
 
 const NAV = [
@@ -508,14 +508,25 @@ const STYLES = `
 .prepared { opacity: 1; } .unprepared { opacity: 0.35; }
 .hero.armed .unprepared { opacity: 0.2; } .hero:not(.armed) .prepared { opacity: 0.45; }
 .trigger-chip { display: inline-block; padding: 4px 10px; border-radius: 8px; font-size: 12px; background: var(--secondary-background-color); margin: 4px 4px 0 0; }
+.trigger-chips-wrap { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; min-height: 28px; }
+.trigger-chip-selected { display: inline-flex; align-items: center; gap: 4px; padding-right: 8px; background: color-mix(in srgb, var(--fp-accent) 18%, var(--secondary-background-color)); }
+.trigger-chip-selected button {
+  border: none; background: transparent; color: var(--secondary-text-color);
+  cursor: pointer; font-size: 16px; line-height: 1; padding: 0 4px; font-family: inherit;
+}
+.trigger-chip-selected button:hover { color: var(--fp-red); }
 .trigger-filter { width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--divider-color); background: var(--card-background-color); color: inherit; font-family: inherit; font-size: 14px; margin-bottom: 8px; }
-.trigger-list { max-height: 260px; overflow-y: auto; border: 1px solid var(--divider-color); border-radius: 10px; padding: 0 12px; background: var(--card-background-color); }
+.trigger-filter-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.trigger-filter-actions .btn { padding: 8px 12px; font-size: 13px; }
+.trigger-list { max-height: 280px; overflow-y: auto; border: 1px solid var(--divider-color); border-radius: 10px; padding: 0 12px; background: var(--card-background-color); }
 .trigger-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--divider-color); font-size: 13px; }
 .trigger-row:last-child { border-bottom: none; }
 .trigger-row.suggested { background: color-mix(in srgb, var(--fp-amber) 8%, transparent); margin: 0 -12px; padding-left: 12px; padding-right: 12px; }
-.trigger-row label { flex: 1; cursor: pointer; line-height: 1.35; }
+.trigger-row label { flex: 1; cursor: pointer; line-height: 1.35; user-select: none; }
+.trigger-row input[type="checkbox"] { margin-top: 3px; flex-shrink: 0; width: 18px; height: 18px; accent-color: var(--fp-accent); cursor: pointer; }
 .trigger-row .entity-id { display: block; font-size: 11px; color: var(--secondary-text-color); margin-top: 2px; }
 .trigger-row .entity-state { font-size: 11px; color: var(--fp-accent); margin-left: auto; white-space: nowrap; }
+.trigger-section-title { font-size: 12px; font-weight: 600; color: var(--secondary-text-color); margin: 10px 0 6px; text-transform: uppercase; letter-spacing: 0.04em; }
 .storm-hint { margin: 0 0 12px; font-size: 13px; line-height: 1.45; color: var(--secondary-text-color); }
 @media (max-width: 600px) { .device-grid { grid-template-columns: 1fr; } .scene-card svg { max-height: 220px; } }
 `;
@@ -542,6 +553,8 @@ class FoxessPlantPanel extends HTMLElement {
     this._stormDraft = null;
     this._triggerCandidates = null;
     this._triggerFilter = "";
+    this._triggerShowAll = false;
+    this._triggerFilterTimer = undefined;
     this._brandIconSrc = DEFAULT_BRAND_ICON_STATIC;
     this._brandIconFallback = DEFAULT_BRAND_ICON_STATIC;
     this._brandIconStatic = DEFAULT_BRAND_ICON_STATIC;
@@ -559,12 +572,13 @@ class FoxessPlantPanel extends HTMLElement {
     this._root = root;
     this._onClick = this._handleClick.bind(this);
     this._onInput = this._handleInput.bind(this);
+    this._onChange = this._handleChange.bind(this);
   }
 
   connectedCallback() {
     this._root.addEventListener("click", this._onClick);
     this._root.addEventListener("input", this._onInput);
-    this._root.addEventListener("change", this._onInput);
+    this._root.addEventListener("change", this._onChange);
     void this._initBrandIcons();
     void this._refreshPlantState();
     this._timer = window.setInterval(() => void this._refreshPlantState(), 30000);
@@ -574,7 +588,8 @@ class FoxessPlantPanel extends HTMLElement {
   disconnectedCallback() {
     this._root.removeEventListener("click", this._onClick);
     this._root.removeEventListener("input", this._onInput);
-    this._root.removeEventListener("change", this._onInput);
+    this._root.removeEventListener("change", this._onChange);
+    if (this._triggerFilterTimer) window.clearTimeout(this._triggerFilterTimer);
     this._endSocDrag();
     if (this._timer) window.clearInterval(this._timer);
     if (this._toastTimer) window.clearTimeout(this._toastTimer);
@@ -773,6 +788,8 @@ class FoxessPlantPanel extends HTMLElement {
 
   _enterStormSettings() {
     this._initStormDraft();
+    this._triggerFilter = "";
+    this._triggerShowAll = false;
     void this._loadTriggerCandidates();
   }
 
@@ -780,7 +797,14 @@ class FoxessPlantPanel extends HTMLElement {
     if (!this._hass) return;
     try {
       this._triggerCandidates = await fetchTriggerCandidates(this._hass);
-      if (this._settingsView === "storm") this._scheduleRender();
+      if (this._settingsView === "storm") {
+        if (this._triggerCandidates?.some((r) => r.suggested)) {
+          this._triggerShowAll = false;
+        } else {
+          this._triggerShowAll = true;
+        }
+        this._scheduleRender();
+      }
     } catch {
       this._triggerCandidates = [];
     }
@@ -912,21 +936,44 @@ class FoxessPlantPanel extends HTMLElement {
       await this._saveStormPrep();
       return;
     }
-    if (action === "toggle-storm-trigger") {
+    if (action === "remove-storm-trigger") {
       if (!this._stormDraft) return;
       const entityId = btn.dataset.entity;
       if (!entityId) return;
-      const list = this._stormDraft.trigger_entities;
-      const idx = list.indexOf(entityId);
-      if (idx >= 0) list.splice(idx, 1);
-      else list.push(entityId);
-      this._render();
+      this._stormDraft.trigger_entities = this._stormDraft.trigger_entities.filter((id) => id !== entityId);
+      this._syncStormTriggerPicker();
       return;
     }
-    if (action === "toggle-storm-enabled") {
+    if (action === "storm-show-suggested") {
+      this._triggerShowAll = false;
+      this._syncStormTriggerPicker();
+      return;
+    }
+    if (action === "storm-show-all") {
+      this._triggerShowAll = true;
+      this._syncStormTriggerPicker();
+    }
+  }
+
+  _handleChange(e) {
+    const el = e.target;
+    if (!el?.dataset?.action || this._busy) return;
+    if (el.dataset.action === "toggle-storm-trigger") {
+      if (!this._stormDraft) return;
+      const entityId = el.dataset.entity;
+      if (!entityId) return;
+      const list = this._stormDraft.trigger_entities;
+      if (el.checked) {
+        if (!list.includes(entityId)) list.push(entityId);
+      } else {
+        this._stormDraft.trigger_entities = list.filter((id) => id !== entityId);
+      }
+      this._syncStormTriggerPicker();
+      return;
+    }
+    if (el.dataset.action === "toggle-storm-enabled") {
       if (!this._stormDraft) this._initStormDraft();
-      this._stormDraft.enabled = !this._stormDraft.enabled;
-      this._render();
+      this._stormDraft.enabled = el.checked;
     }
   }
 
@@ -946,7 +993,11 @@ class FoxessPlantPanel extends HTMLElement {
     }
     if (el?.dataset?.action === "storm-trigger-filter") {
       this._triggerFilter = el.value;
-      this._render();
+      if (this._triggerFilterTimer) window.clearTimeout(this._triggerFilterTimer);
+      this._triggerFilterTimer = window.setTimeout(() => {
+        this._triggerFilterTimer = undefined;
+        this._syncStormTriggerPicker();
+      }, 120);
       return;
     }
     if (!el?.dataset?.field) return;
@@ -1483,29 +1534,118 @@ ${has ? this._renderEnergyTodayBreakdown(a) : ""}
 </div>`;
   }
 
-  _renderTriggerPicker() {
-    const selected = new Set(this._stormDraft?.trigger_entities ?? []);
+  _triggerRowId(entityId) {
+    return `tr-${String(entityId).replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+  }
+
+  _getFilteredTriggerRows() {
+    const all = this._triggerCandidates ?? [];
     const filter = (this._triggerFilter || "").trim().toLowerCase();
-    const rows = (this._triggerCandidates ?? []).filter((row) => {
-      if (!filter) return true;
-      const blob = `${row.entity_id} ${row.name}`.toLowerCase();
-      return blob.includes(filter);
-    });
-    if (!rows.length) {
-      return `<p class="placeholder" style="margin:8px 0 0">No matching entities. Add Met Office or other warning binary sensors in Home Assistant first.</p>`;
+    let rows = all;
+    if (filter) {
+      rows = all.filter((row) => {
+        const blob = `${row.entity_id} ${row.name}`.toLowerCase();
+        return blob.includes(filter);
+      });
+    } else if (!this._triggerShowAll) {
+      const suggested = all.filter((row) => row.suggested);
+      rows = suggested.length ? suggested : all;
     }
-    return `<div class="trigger-list">${rows
-      .map((row, i) => {
-        const on = selected.has(row.entity_id);
-        const cls = row.suggested ? "trigger-row suggested" : "trigger-row";
-        const id = `tr-${i}`;
-        return `<div class="${cls}">
+    return rows;
+  }
+
+  _renderTriggerChips() {
+    const selected = this._stormDraft?.trigger_entities ?? [];
+    if (!selected.length) {
+      return '<p class="storm-hint" style="margin:0">Selected triggers appear here. Tick entities below, or use the search box.</p>';
+    }
+    return `<div class="trigger-chips-wrap">${selected
+      .map((entityId) => {
+        const row = (this._triggerCandidates ?? []).find((r) => r.entity_id === entityId);
+        const name = row?.name ?? entityId;
+        return `<span class="trigger-chip trigger-chip-selected"><button type="button" data-action="remove-storm-trigger" data-entity="${esc(entityId)}" aria-label="Remove ${esc(name)}">×</button>${esc(name)}</span>`;
+      })
+      .join("")}</div>`;
+  }
+
+  _renderTriggerPickerListHtml() {
+    const selected = new Set(this._stormDraft?.trigger_entities ?? []);
+    const rows = this._getFilteredTriggerRows();
+    const all = this._triggerCandidates ?? [];
+    const suggestedCount = all.filter((r) => r.suggested).length;
+
+    if (!all.length) {
+      return `<p class="placeholder" style="margin:8px 0 0">Loading entities… If this stays empty, reload FoxESS Plant and ensure weather warning binary sensors exist in Home Assistant.</p>`;
+    }
+    if (!rows.length) {
+      return `<p class="placeholder" style="margin:8px 0 0">No matches for “${esc(this._triggerFilter)}”. Try “met”, “warning”, or show all sensors.</p>`;
+    }
+
+    const showSuggestedHeader = !this._triggerFilter && this._triggerShowAll && suggestedCount > 0;
+    const suggestedRows = showSuggestedHeader ? rows.filter((r) => r.suggested) : [];
+    const otherRows = showSuggestedHeader ? rows.filter((r) => !r.suggested) : rows;
+
+    const renderRows = (list) =>
+      list
+        .map((row) => {
+          const on = selected.has(row.entity_id);
+          const cls = row.suggested ? "trigger-row suggested" : "trigger-row";
+          const id = this._triggerRowId(row.entity_id);
+          return `<div class="${cls}">
 <input type="checkbox" id="${id}" data-action="toggle-storm-trigger" data-entity="${esc(row.entity_id)}" ${on ? "checked" : ""}>
 <label for="${id}">${esc(row.name)}<span class="entity-id">${esc(row.entity_id)}</span></label>
 <span class="entity-state">${esc(row.state)}</span>
 </div>`;
-      })
-      .join("")}</div>`;
+        })
+        .join("");
+
+    let body = "";
+    if (showSuggestedHeader && suggestedRows.length) {
+      body += `<p class="trigger-section-title">Weather &amp; warnings (${suggestedRows.length})</p>${renderRows(suggestedRows)}`;
+      if (otherRows.length) {
+        body += `<p class="trigger-section-title">Other binary sensors (${otherRows.length})</p>${renderRows(otherRows)}`;
+      }
+    } else {
+      body = renderRows(rows);
+    }
+
+    return `<div class="trigger-list">${body}</div>`;
+  }
+
+  _syncStormTriggerPicker() {
+    if (this._settingsView !== "storm" || !this._stormDraft) return;
+    const main = this._root.querySelector(".main");
+    if (!main) return;
+
+    const listHost = main.querySelector("[data-storm-trigger-list]");
+    const chipsHost = main.querySelector("[data-storm-trigger-chips]");
+    const countEl = main.querySelector("[data-storm-trigger-count]");
+    const filterEl = main.querySelector('[data-action="storm-trigger-filter"]');
+    if (!listHost) return;
+
+    const scrollEl = listHost.querySelector(".trigger-list");
+    const scrollTop = scrollEl?.scrollTop ?? 0;
+    const filterHadFocus = document.activeElement === filterEl;
+    const selStart = filterEl?.selectionStart ?? 0;
+    const selEnd = filterEl?.selectionEnd ?? 0;
+
+    if (chipsHost) chipsHost.innerHTML = this._renderTriggerChips();
+    listHost.innerHTML = this._renderTriggerPickerListHtml();
+    if (countEl) {
+      countEl.textContent = `${this._stormDraft.trigger_entities.length} selected`;
+    }
+
+    const newScroll = listHost.querySelector(".trigger-list");
+    if (newScroll) newScroll.scrollTop = scrollTop;
+
+    if (filterHadFocus && filterEl) {
+      filterEl.focus();
+      try {
+        filterEl.setSelectionRange(selStart, selEnd);
+      } catch {
+        /* some browsers reject on type=search */
+      }
+    }
   }
 
   _renderSettingsMain(plant) {
@@ -1591,12 +1731,17 @@ ${activeTriggers.length ? `<div>${activeTriggers.map((t) => `<span class="trigge
 <div class="toggle-row"><span><strong>Enable StormSafe</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">When a selected warning sensor turns on, Fox Plant arms storm prep automatically</span></span>
 <input type="checkbox" data-action="toggle-storm-enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 </div>
-<div class="card">
+<div class="card" data-storm-triggers-card>
 <p class="card-title">Warning triggers</p>
-<p class="storm-hint">Pick binary sensors from your weather integrations (e.g. Met Office National Severe Weather Warnings). Suggested matches appear first. States <code>on</code>, <code>warning</code>, or <code>severe</code> count as active.</p>
-<input type="search" class="trigger-filter" data-action="storm-trigger-filter" placeholder="Filter entities…" value="${esc(this._triggerFilter)}" aria-label="Filter trigger entities">
-${this._renderTriggerPicker()}
-<p style="margin:10px 0 0;font-size:12px;color:var(--secondary-text-color)">${draft.trigger_entities.length} selected</p>
+<p class="storm-hint">Select binary sensors from your weather integration (e.g. Met Office). Install the integration in HA first, then tick the warning entities here and press <strong>Save StormSafe settings</strong>.</p>
+<div data-storm-trigger-chips>${this._renderTriggerChips()}</div>
+<input type="search" class="trigger-filter" data-action="storm-trigger-filter" placeholder="Search by name or entity id (e.g. met, warning)…" value="${esc(this._triggerFilter)}" aria-label="Filter trigger entities">
+<div class="trigger-filter-actions">
+<button type="button" class="btn btn-secondary" data-action="storm-show-suggested" ${!this._triggerShowAll && !this._triggerFilter ? "disabled" : ""}>Weather matches only</button>
+<button type="button" class="btn btn-secondary" data-action="storm-show-all" ${this._triggerShowAll ? "disabled" : ""}>Show all binary sensors</button>
+</div>
+<div data-storm-trigger-list>${this._renderTriggerPickerListHtml()}</div>
+<p style="margin:10px 0 0;font-size:12px;color:var(--secondary-text-color)" data-storm-trigger-count>${draft.trigger_entities.length} selected</p>
 </div>
 <div class="card">
 <p class="card-title">Storm charge schedule</p>
@@ -1698,6 +1843,9 @@ ${active
 
     if (this._view === "settings" && this._settingsView === "quick") {
       this._bindTripleSoc();
+    }
+    if (this._view === "settings" && this._settingsView === "storm" && this._stormDraft) {
+      this._syncStormTriggerPicker();
     }
   }
 }

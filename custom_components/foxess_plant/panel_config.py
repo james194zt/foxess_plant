@@ -14,6 +14,11 @@ _TRIGGER_HINTS = (
     "storm",
     "metoffice",
     "met_office",
+    "met office",
+    "openweathermap",
+    "accuweather",
+    "bureau",
+    "bom",
     "amber",
     "severe",
     "hail",
@@ -22,7 +27,16 @@ _TRIGGER_HINTS = (
     "thunder",
     "lightning",
     "nws",
-    "bureau",
+    "yr.no",
+    "forecast",
+)
+
+_WARNING_DEVICE_CLASSES = frozenset(
+    {
+        "safety",
+        "problem",
+        "opening",
+    }
 )
 
 
@@ -33,12 +47,19 @@ def _friendly_name(state: State) -> str:
 
 def _is_trigger_candidate(state: State) -> bool:
     domain = state.entity_id.split(".", 1)[0]
-    return domain in ("binary_sensor", "input_boolean")
+    if domain in ("binary_sensor", "input_boolean"):
+        return True
+    if domain == "sensor" and _is_suggested_trigger(state):
+        return True
+    return False
 
 
 def _is_suggested_trigger(state: State) -> bool:
     blob = f"{state.entity_id} {_friendly_name(state)}".lower()
-    return any(hint in blob for hint in _TRIGGER_HINTS)
+    if any(hint in blob for hint in _TRIGGER_HINTS):
+        return True
+    device_class = state.attributes.get("device_class")
+    return device_class in _WARNING_DEVICE_CLASSES
 
 
 def list_trigger_candidates(hass: HomeAssistant) -> list[dict[str, Any]]:
