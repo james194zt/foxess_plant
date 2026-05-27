@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from datetime import datetime as dt
 from typing import Any
 
 import voluptuous as vol
 from homeassistant.components import websocket_api
+from homeassistant.components.recorder import get_instance, history
+from homeassistant.components.recorder.util import session_scope
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, STORM_ALERT_PROVIDER_GOOGLE
 from .panel_config import list_forecast_entity_candidates, list_trigger_candidates
@@ -19,6 +23,7 @@ WS_TYPE_UPDATE_STORM_PREP = "foxess_plant/update_storm_prep"
 WS_TYPE_SET_SOC_LIMITS = "foxess_plant/set_soc_limits"
 WS_TYPE_FORECAST_ENTITY_CANDIDATES = "foxess_plant/forecast_entity_candidates"
 WS_TYPE_UPDATE_PANEL_DISPLAY = "foxess_plant/update_panel_display"
+WS_TYPE_FETCH_HISTORY = "foxess_plant/fetch_history"
 
 PERIOD_SCHEMA = vol.Schema(
     {
@@ -48,6 +53,46 @@ def _plant_summary(hass: HomeAssistant, entry_id: str) -> dict[str, Any]:
     data = hass.data[DOMAIN][entry_id]
     coordinator = data["coordinator"]
     return coordinator.get_plant_state()
+
+
+def _fetch_history_points(
+    hass: HomeAssistant,
+    start_time: dt,
+    end_time: dt,
+    entity_ids: list[str],
+    *,
+    significant_changes_only: bool,
+) -> dict[str, list[dict[str, float]]]:
+    """Same recorder query Lovelace history graphs use."""
+    with session_scope(hass=hass, read_only=True) as session:
+        states_map = history.get_significant_states_with_session(
+            hass,
+            session,
+            start_time,
+            end_time,
+            entity_ids,
+            None,
+            include_start_time_state=True,
+            significant_changes_only=significant_changes_only,
+            minimal_response=True,
+            no_attributes=True,
+        )
+    out: dict[str, list[dict[str, float]]] = {}
+    for entity_id in entity_ids:
+        points: list[dict[str, float]] = []
+        for state in states_map.get(entity_id) or []:
+            try:
+                value = float(state.state)
+            except (TypeError, ValueError):
+                continue
+            points.append(
+                {
+                    "t": state.last_updated.timestamp() * 1000,
+                    "v": value,
+                }
+            )
+        out[entity_id] = points
+    return out
 
 
 @callback
@@ -209,6 +254,43 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
         await coordinator.async_save_panel_display(forecast_entity_id=forecast_entity_id)
         connection.send_result(msg["id"], coordinator.get_plant_state())
 
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): WS_TYPE_FETCH_HISTORY,
+            vol.Required("start_time"): str,
+            vol.Optional("end_time"): str,
+            vol.Required("entity_ids"): [cv.entity_id],
+            vol.Optional("significant_changes_only", default=False): bool,
+        }
+    )
+    @websocket_api.async_response
+    async def ws_fetch_history(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        start = dt_util.parse_datetime(msg["start_time"])
+        if start is None:
+            connection.send_error(msg["id"], "invalid_start", "Invalid start_time")
+            return
+        end_raw = msg.get("end_time")
+        end = dt_util.parse_datetime(end_raw) if end_raw else dt_util.utcnow()
+        if end is None:
+            connection.send_error(msg["id"], "invalid_end", "Invalid end_time")
+            return
+        start_utc = dt_util.as_utc(start)
+        end_utc = dt_util.as_utc(end)
+        entity_ids = list(msg["entity_ids"])
+        result = await get_instance(hass).async_add_executor_job(
+            _fetch_history_points,
+            hass,
+            start_utc,
+            end_utc,
+            entity_ids,
+            msg.get("significant_changes_only", False),
+        )
+        connection.send_result(msg["id"], result)
+
     websocket_api.async_register_command(hass, ws_plant_list)
     websocket_api.async_register_command(hass, ws_plant_state)
     websocket_api.async_register_command(hass, ws_trigger_candidates)
@@ -216,4 +298,5 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_set_soc_limits)
     websocket_api.async_register_command(hass, ws_forecast_entity_candidates)
     websocket_api.async_register_command(hass, ws_update_panel_display)
+    websocket_api.async_register_command(hass, ws_fetch_history)
     hass.data["_foxess_plant_ws_registered"] = True

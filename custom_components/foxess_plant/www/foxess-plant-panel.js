@@ -225,9 +225,63 @@ function endOfLocalDay(d) {
   return x;
 }
 
+/** Merge plant config map with live WS state and hass.states fallbacks (matches Lovelace entity ids). */
+const CHART_ENTITY_FALLBACKS = {
+  pv_power: ["pv1_power", "pv_power", "pv_power_total", "pv_power_evo_10", "pv_power_now"],
+  battery_charge: ["battery_charge_1", "battery_charge"],
+  battery_discharge: ["battery_discharge_1", "battery_discharge"],
+  grid_import: ["grid_consumption", "grid_import"],
+  grid_export: ["feed_in", "grid_ct", "grid_export"],
+  load_power: ["load_power", "load_power_total"],
+  solar_energy_today: ["solar_energy_today"],
+  load_energy_today: ["load_energy_today"],
+  battery_discharge_today: ["battery_discharge_today"],
+  battery_charge_today: ["battery_charge_today"],
+  grid_consumption_energy_today: ["grid_consumption_energy_today"],
+};
+
+function entityIdMatchesSuffix(entityId, suffix) {
+  return (
+    entityId.endsWith(`_${suffix}`) ||
+    entityId.includes(`_${suffix}_`) ||
+    entityId.endsWith(suffix)
+  );
+}
+
+function resolveEntityMap(hass, plant, plantState) {
+  const map = { ...(plant?.entity_map || {}), ...(plantState?.entity_map || {}) };
+  if (!hass?.states) return map;
+  const ids = Object.keys(hass.states);
+  for (const [key, suffixes] of Object.entries(CHART_ENTITY_FALLBACKS)) {
+    if (map[key] && hass.states[map[key]]) continue;
+    for (const suffix of suffixes) {
+      const hit = ids.find((id) => entityIdMatchesSuffix(id, suffix));
+      if (hit) {
+        map[key] = hit;
+        break;
+      }
+    }
+  }
+  return map;
+}
+
 async function fetchHistoryDuring(hass, entityIds, start, end) {
   const ids = entityIds.filter(Boolean);
   if (!ids.length) return {};
+  try {
+    const viaPlant = await hass.connection.sendMessagePromise({
+      type: "foxess_plant/fetch_history",
+      start_time: start.toISOString(),
+      end_time: end.toISOString(),
+      entity_ids: ids,
+      significant_changes_only: false,
+    });
+    if (viaPlant && typeof viaPlant === "object" && !Array.isArray(viaPlant)) {
+      return viaPlant;
+    }
+  } catch {
+    /* older integration without fetch_history */
+  }
   const raw = await hass.connection.sendMessagePromise({
     type: "history/history_during_period",
     start_time: start.toISOString(),
@@ -268,6 +322,10 @@ function historyToPoints(rows) {
   if (!rows?.length) return [];
   return rows
     .map((row) => {
+      if (typeof row.t === "number" && typeof row.v === "number") {
+        const t = row.t > 1e12 ? row.t : row.t * 1000;
+        return Number.isFinite(t) ? { t, v: row.v } : null;
+      }
       const t = historyRowTimeMs(row);
       const v = parseFloat(row.s ?? row.state);
       if (!Number.isFinite(t) || !Number.isFinite(v)) return null;
@@ -466,8 +524,8 @@ function modeClass(mode) {
   return "mode-baseline";
 }
 
-function readEnergyFlows(hass, plant) {
-  const map = plant.entity_map || {};
+function readEnergyFlows(hass, plant, plantState) {
+  const map = resolveEntityMap(hass, plant, plantState);
   const pvW = stateNumber(hass, map.pv_power);
   const loadW = Math.abs(stateNumber(hass, map.load_power));
   const gridImportW = stateNumber(hass, map.grid_import);
@@ -1971,7 +2029,7 @@ ${thumbsHtml}
   }
 
   _renderEnergyScene(plant) {
-    const flows = readEnergyFlows(this._hass, plant);
+    const flows = readEnergyFlows(this._hass, plant, this._plantState);
     const lines = computeFlowLines(flows);
     const activeIds = new Set(lines.map((l) => l.id));
     const soc = Math.min(100, Math.max(0, flows.batterySoc));
@@ -2105,7 +2163,7 @@ ${this._renderStatisticsChartBody()}
         .filter(Boolean);
       return `<button type="button" class="back-btn" data-action="device-back">← Device</button><header class="header"><h1>Battery</h1></header>${this._entityList(rows)}`;
     }
-    const flows = readEnergyFlows(this._hass, plant);
+    const flows = readEnergyFlows(this._hass, plant, this._plantState);
     const pvKw = flows.pvW / 1000;
     const circ = 2 * Math.PI * 40;
     const off = circ * (1 - Math.min(100, (pvKw / 5) * 100) / 100);
@@ -2131,7 +2189,7 @@ ${this._renderStatisticsChartBody()}
   }
 
   _energyHistoryEntities(plant) {
-    const map = plant.entity_map || {};
+    const map = resolveEntityMap(this._hass, plant, this._plantState);
     return {
       pv: map.solar_energy_today,
       load: map.load_energy_today,
@@ -2147,6 +2205,7 @@ ${this._renderStatisticsChartBody()}
     if (this._energyPeriod === "day") {
       return this._loadStatisticsChart();
     }
+    if (!this._plantState) await this._refreshPlantState();
     const plantId = plant.entry_id;
     this._energyChartLoading = true;
     this._energyChart = null;
@@ -2176,6 +2235,7 @@ ${this._renderStatisticsChartBody()}
     this._statisticsChartPlantId = plantId;
     this._scheduleRender();
     try {
+      if (!this._plantState) await this._refreshPlantState();
       const svg = await this._fetchStatisticsChartSvg(plant);
       this._statisticsChart = { svg };
     } catch (err) {
@@ -2191,7 +2251,7 @@ ${this._renderStatisticsChartBody()}
   }
 
   async _fetchStatisticsChartSvg(plant) {
-    const map = plant.entity_map || {};
+    const map = resolveEntityMap(this._hass, plant, this._plantState);
     const specs = STATISTICS_CHART_SERIES.map((s) => ({ ...s, entity_id: map[s.key] })).filter(
       (s) => s.entity_id
     );
@@ -2226,6 +2286,10 @@ ${this._renderStatisticsChartBody()}
           points: fPoints,
         });
       }
+    }
+    if (!series.some((s) => s.points.length)) {
+      const listed = specs.map((s) => s.entity_id).join(", ");
+      return `<p class="placeholder chart-empty">No recorder history for: ${esc(listed)}. Confirm the Recorder includes these entities (same as your Lovelace statistics card).</p>`;
     }
     return renderLineChartSvg(series, { height: 260, title: "Statistics" });
   }

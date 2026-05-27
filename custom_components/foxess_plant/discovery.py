@@ -38,6 +38,15 @@ def _match_suffix(entry: er.RegistryEntry, suffix: str) -> bool:
     return entry.entity_id.endswith(f"_{suffix}") or entry.unique_id.endswith(f"_{suffix}")
 
 
+def _match_panel_suffix(entry: er.RegistryEntry, suffix: str) -> bool:
+    """Match standard suffixes and long EVO ids such as ``..._pv_power_evo_10``."""
+    if _match_suffix(entry, suffix):
+        return True
+    needle = f"_{suffix}_"
+    uid = entry.unique_id or ""
+    return needle in entry.entity_id or needle in uid
+
+
 def _should_assign_entity(key: str, entity_id: str, entity_map: dict[str, str]) -> bool:
     """Prefer writable number entities over read-only sensors for SOC controls."""
     existing = entity_map.get(key)
@@ -72,7 +81,7 @@ def discover_entity_map(hass: HomeAssistant, device_id: str) -> dict[str, str]:
             if key in entity_map:
                 continue
             for suffix in suffixes:
-                if _match_suffix(entry, suffix):
+                if _match_panel_suffix(entry, suffix):
                     entity_map[key] = entry.entity_id
                     break
 
