@@ -58,6 +58,23 @@ function stateNumber(hass, entityId) {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** Normalise HA power sensors to watts (foxess_modbus uses kW). */
+function statePowerWatts(hass, entityId) {
+  if (!entityId || !hass?.states) return 0;
+  const st = hass.states[entityId];
+  if (!st || st.state === "unavailable" || st.state === "unknown") return 0;
+  const n = parseFloat(st.state);
+  if (!Number.isFinite(n)) return 0;
+  const unit = String(st.attributes?.unit_of_measurement ?? "")
+    .trim()
+    .toLowerCase();
+  if (unit === "kw") return n * 1000;
+  if (unit === "w") return n;
+  // foxess_modbus power entities are kW; very large bare numbers are likely watts
+  if (Math.abs(n) > 500) return n;
+  return n * 1000;
+}
+
 function stateString(hass, entityId) {
   if (!entityId || !hass?.states) return "—";
   const st = hass.states[entityId];
@@ -152,14 +169,10 @@ function plantDeviceSerial(hass, plant, plantState) {
   return "—";
 }
 
-function formatDevicePvKw(watts) {
-  const kw = Math.max(0, watts) / 1000;
-  return kw < 10 ? `${kw.toFixed(3)}kW` : `${kw.toFixed(2)}kW`;
-}
-
-function formatDeviceKw(watts) {
+function formatDevicePowerKw(watts) {
   const kw = Math.abs(watts) / 1000;
-  return kw < 10 ? `${kw.toFixed(3)}kW` : `${kw.toFixed(2)}kW`;
+  if (kw < 10) return `${kw.toFixed(3)}kW`;
+  return `${kw.toFixed(2)}kW`;
 }
 
 function deviceBatteryToneClass(status) {
@@ -180,10 +193,10 @@ function renderPvThreeQuarterGauge(pvKw, maxKw, valueText, labelText) {
   const rot = 135;
   const pct = maxKw > 0 ? Math.min(1, Math.max(0, pvKw / maxKw)) : 0;
   const fillLen = arcLen * pct;
-  const track = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--divider-color)" stroke-width="7" stroke-linecap="round" stroke-dasharray="${arcLen} ${gapLen}" transform="rotate(${rot} ${cx} ${cy})"/>`;
+  const track = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--divider-color)" stroke-width="9" stroke-linecap="round" stroke-dasharray="${arcLen} ${gapLen}" transform="rotate(${rot} ${cx} ${cy})"/>`;
   const fill =
     fillLen > 0.5
-      ? `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--fp-accent)" stroke-width="7" stroke-linecap="round" stroke-dasharray="${fillLen} ${circ - fillLen}" transform="rotate(${rot} ${cx} ${cy})"/>`
+      ? `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--fp-accent)" stroke-width="9" stroke-linecap="round" stroke-dasharray="${fillLen} ${circ - fillLen}" transform="rotate(${rot} ${cx} ${cy})"/>`
       : "";
   return `<div class="device-pv-gauge" role="img" aria-label="${esc(labelText)} ${esc(valueText)}">
 <svg viewBox="0 0 100 104" aria-hidden="true">${track}${fill}</svg>
@@ -210,7 +223,7 @@ function renderDeviceBatteryCard(flows, tempDisplay) {
 <div class="device-battery-pct">${esc(formatPercent(flows.batterySoc))}</div>
 </div>
 <div class="device-battery-metrics">
-<div class="device-battery-metric"><span class="device-battery-metric-label">Power</span><span class="device-battery-metric-value">${esc(formatDeviceKw(flows.batteryW))}</span></div>
+<div class="device-battery-metric"><span class="device-battery-metric-label">Power</span><span class="device-battery-metric-value">${esc(formatDevicePowerKw(flows.batteryW))}</span></div>
 <div class="device-battery-metric"><span class="device-battery-metric-label">Temp.</span><span class="device-battery-metric-value">${esc(tempDisplay)}</span></div>
 </div>
 </div>`;
@@ -949,11 +962,11 @@ function modeClass(mode) {
 
 function readEnergyFlows(hass, plant, plantState) {
   const map = resolveEntityMap(hass, plant, plantState);
-  const pvW = stateNumber(hass, map.pv_power);
-  const loadW = Math.abs(stateNumber(hass, map.load_power));
-  const gridImportW = stateNumber(hass, map.grid_import);
-  const gridExportW = stateNumber(hass, map.grid_export);
-  const batteryW = stateNumber(hass, map.battery_power);
+  const pvW = statePowerWatts(hass, map.pv_power);
+  const loadW = Math.abs(statePowerWatts(hass, map.load_power));
+  const gridImportW = statePowerWatts(hass, map.grid_import);
+  const gridExportW = statePowerWatts(hass, map.grid_export);
+  const batteryW = statePowerWatts(hass, map.battery_power);
   let batteryStatus = "Idle";
   const statusEntity = map.battery_status;
   if (statusEntity && hass.states[statusEntity]) {
@@ -997,7 +1010,7 @@ async function fetchTriggerCandidates(hass) {
 const DEFAULT_BRAND_DOMAIN = "foxess_plant";
 const DEFAULT_MODBUS_BRAND_DOMAIN = "foxess_modbus";
 const DEFAULT_BRAND_ICON_STATIC = "/foxess_plant_panel/icon.png";
-const DEVICE_EVO_IMAGE_STATIC = "/foxess_plant_panel/evo10.png";
+const DEVICE_EVO_IMAGE_STATIC = "/foxess_plant_panel/evo10.png?v=12";
 const DEVICE_PV_GAUGE_MAX_KW = 5;
 
 let _brandsAccessToken;
@@ -1443,8 +1456,12 @@ const STYLES = `
 .device-fox-pill.is-fault { background: rgba(229, 57, 53, 0.15); color: var(--fp-red, #e53935); }
 .device-fox-pill.is-checking { background: var(--secondary-background-color); color: var(--secondary-text-color); }
 .device-fox-pill.is-offgrid { background: rgba(255, 179, 0, 0.15); color: var(--fp-amber, #ffb300); }
-.device-hero { text-align: center; margin: 4px 0 18px; }
-.device-hero-img { max-width: min(200px, 58vw); height: auto; display: block; margin: 0 auto; object-fit: contain; }
+.device-hero { text-align: center; margin: 4px 0 20px; padding: 0 8px; }
+.device-hero-img {
+  max-width: min(240px, 72vw); max-height: 320px; width: auto; height: auto;
+  display: block; margin: 0 auto; object-fit: contain;
+  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.45));
+}
 .device-serial-btn {
   display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 6px 10px;
   border: none; background: transparent; color: var(--primary-text-color); font: inherit; font-size: 13px;
@@ -1453,33 +1470,33 @@ const STYLES = `
 .device-serial-btn:hover { background: var(--secondary-background-color, rgba(127,127,127,0.12)); }
 .device-serial { font-family: ui-monospace, monospace; letter-spacing: 0.02em; }
 .device-serial-muted { margin: 10px 0 0; font-size: 13px; color: var(--secondary-text-color); }
-.device-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+.device-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
 .device-card {
-  background: var(--card-background-color); border-radius: var(--fp-radius); padding: 16px 12px;
-  border: 1px solid var(--divider-color, transparent); min-height: 168px;
+  background: var(--card-background-color); border-radius: var(--fp-radius); padding: 20px 14px;
+  border: 1px solid var(--divider-color, transparent); min-height: 200px;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
 }
-.device-pv-gauge { width: 120px; height: 124px; position: relative; }
+.device-pv-gauge { width: min(100%, 168px); height: auto; aspect-ratio: 100 / 104; position: relative; }
 .device-pv-gauge svg { width: 100%; height: 100%; display: block; }
 .device-pv-gauge-center {
   position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
-  justify-content: center; padding-top: 8px; text-align: center;
+  justify-content: center; padding-top: 10px; text-align: center;
 }
-.device-pv-value { font-size: 17px; font-weight: 700; line-height: 1.2; }
-.device-pv-label { font-size: 11px; color: var(--secondary-text-color); margin-top: 2px; }
-.device-battery-card { width: 100%; padding: 4px 6px; }
-.device-battery-head { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
-.device-battery-svg { width: 44px; height: 22px; flex-shrink: 0; }
+.device-pv-value { font-size: clamp(20px, 5vw, 26px); font-weight: 700; line-height: 1.15; letter-spacing: -0.02em; }
+.device-pv-label { font-size: 13px; color: var(--secondary-text-color); margin-top: 4px; font-weight: 500; }
+.device-battery-card { width: 100%; padding: 6px 8px; box-sizing: border-box; }
+.device-battery-head { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; flex-wrap: nowrap; }
+.device-battery-svg { width: 52px; height: 26px; flex-shrink: 0; }
 .device-battery-shell { fill: none; stroke: var(--secondary-text-color); stroke-width: 1.5; }
 .device-battery-cap { fill: var(--secondary-text-color); }
 .device-battery-fill { fill: #4caf50; }
 .device-battery-card.is-discharging .device-battery-fill { fill: var(--fp-accent); }
 .device-battery-card.is-charging .device-battery-fill { fill: #4caf50; }
-.device-battery-status { font-size: 13px; font-weight: 600; flex: 1; min-width: 72px; }
-.device-battery-pct { font-size: 26px; font-weight: 700; line-height: 1; margin-left: auto; }
-.device-battery-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
-.device-battery-metric-label { display: block; font-size: 11px; color: var(--secondary-text-color); margin-bottom: 4px; }
-.device-battery-metric-value { font-size: 14px; font-weight: 600; }
+.device-battery-status { font-size: 16px; font-weight: 600; flex: 1; min-width: 0; }
+.device-battery-pct { font-size: clamp(28px, 6vw, 34px); font-weight: 700; line-height: 1; margin-left: auto; flex-shrink: 0; }
+.device-battery-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; width: 100%; }
+.device-battery-metric-label { display: block; font-size: 12px; color: var(--secondary-text-color); margin-bottom: 6px; font-weight: 500; }
+.device-battery-metric-value { font-size: clamp(16px, 4vw, 20px); font-weight: 700; line-height: 1.2; }
 .entity-list { border-radius: var(--fp-radius); overflow: hidden; border: 1px solid var(--divider-color, transparent); }
 .entity-row { display: flex; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--divider-color); font-size: 14px; }
 .entity-row:last-child { border-bottom: none; }
@@ -2853,7 +2870,7 @@ ${this._renderStatisticsChartBody()}
 ${statusPill}
 <div class="device-hero"><img class="device-hero-img" src="${esc(DEVICE_EVO_IMAGE_STATIC)}" alt="${esc(modelLine !== "—" ? modelLine : "Inverter")}" loading="lazy" />${serialRow}</div>
 <div class="device-grid">
-<div class="device-card">${renderPvThreeQuarterGauge(pvKw, DEVICE_PV_GAUGE_MAX_KW, formatDevicePvKw(flows.pvW), "PV Power")}</div>
+<div class="device-card">${renderPvThreeQuarterGauge(pvKw, DEVICE_PV_GAUGE_MAX_KW, formatDevicePowerKw(flows.pvW), "PV Power")}</div>
 <div class="device-card">${renderDeviceBatteryCard(flows, tempDisplay)}</div>
 </div>
 <button type="button" class="list-btn" data-action="device-sub" data-sub="parameters"><span>Detailed parameters<span class="sub">Live Modbus values</span></span><span class="chev">›</span></button>
