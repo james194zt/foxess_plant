@@ -267,6 +267,9 @@ const STATISTICS_CHART_LAYOUT = {
   xTickCount: 8,
 };
 
+/** Matches dashboard plotly-graph defaults: statistic mean, period 5minute. */
+const STATISTICS_PERIOD_MS = 5 * 60 * 1000;
+
 const ENERGY_CHART_BAR = {
   pv: { suffix: "solar_energy_today", label: "PV", color: FOX_ENERGY.pv },
   load: { suffix: "load_energy_today", label: "Load", color: FOX_ENERGY.load, computed: true },
@@ -423,6 +426,30 @@ function getStatisticsDayRange(now = new Date()) {
   const start = startOfLocalDay(now);
   const tMin = start.getTime();
   return { tMin, tMax: tMin + 24 * 60 * 60 * 1000, nowMs: now.getTime() };
+}
+
+/** Bucket raw recorder points into fixed intervals using mean (plotly-graph 5minute). */
+function resamplePointsMean(points, periodMs, originMs, endMs) {
+  if (!points.length) return [];
+  const buckets = new Map();
+  for (const p of points) {
+    if (p.t < originMs || p.t > endMs) continue;
+    const bucket = originMs + Math.floor((p.t - originMs) / periodMs) * periodMs;
+    let entry = buckets.get(bucket);
+    if (!entry) {
+      entry = { sum: 0, count: 0 };
+      buckets.set(bucket, entry);
+    }
+    entry.sum += p.v;
+    entry.count += 1;
+  }
+  return Array.from(buckets.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([t, { sum, count }]) => ({ t, v: sum / count }));
+}
+
+function statisticsChartPoints(points, range) {
+  return resamplePointsMean(points, STATISTICS_PERIOD_MS, range.tMin, range.nowMs);
 }
 
 function interpolateSeriesAt(points, t) {
@@ -2674,25 +2701,29 @@ ${this._renderStatisticsChartBody()}
     const start = startOfLocalDay(now);
     const range = getStatisticsDayRange(now);
     const hist = await fetchHistoryDuring(this._hass, entityIds, start, now);
-    const series = specs.map((spec) => ({
-      id: spec.key,
-      label: spec.label,
-      legendGroup: spec.legendGroup,
-      color: spec.color,
-      fill: spec.fill,
-      fillColor: spec.fillColor,
-      hideLegend: spec.hideLegend,
-      lineWidth: spec.lineWidth,
-      points: historyToPoints(historyRowsForEntity(hist, spec.entity_id)).map((p) => ({
+    const series = specs.map((spec) => {
+      const raw = historyToPoints(historyRowsForEntity(hist, spec.entity_id)).map((p) => ({
         t: p.t,
         v: transformHistoryPoint(this._hass, spec.entity_id, p.v, spec),
-      })),
-    }));
+      }));
+      return {
+        id: spec.key,
+        label: spec.label,
+        legendGroup: spec.legendGroup,
+        color: spec.color,
+        fill: spec.fill,
+        fillColor: spec.fillColor,
+        hideLegend: spec.hideLegend,
+        lineWidth: spec.lineWidth,
+        points: statisticsChartPoints(raw, range),
+      };
+    });
     if (forecastId) {
-      const fPoints = historyToPoints(historyRowsForEntity(hist, forecastId)).map((p) => ({
+      const fRaw = historyToPoints(historyRowsForEntity(hist, forecastId)).map((p) => ({
         t: p.t,
         v: transformHistoryPoint(this._hass, forecastId, p.v, { toKw: true }),
       }));
+      const fPoints = statisticsChartPoints(fRaw, range);
       if (fPoints.length) {
         series.push({
           id: "forecast",
