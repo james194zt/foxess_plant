@@ -50,6 +50,17 @@ function esc(s) {
     .replace(/"/g, "&quot;");
 }
 
+/** Sidebar-style row: title + subtitle stacked (not inline). */
+function renderListButton(attrs, title, subtitle) {
+  const parts = ['type="button"', 'class="list-btn"'];
+  for (const [key, value] of Object.entries(attrs || {})) {
+    if (value != null && value !== "") parts.push(`data-${esc(key)}="${esc(String(value))}"`);
+  }
+  return `<button ${parts.join(" ")}>
+<span class="list-btn-body"><span class="list-btn-title">${esc(title)}</span><span class="list-btn-sub">${esc(subtitle)}</span></span>
+<span class="chev" aria-hidden="true">›</span></button>`;
+}
+
 function stateNumber(hass, entityId) {
   if (!entityId || !hass?.states) return 0;
   const st = hass.states[entityId];
@@ -218,8 +229,8 @@ function renderDeviceBatteryCard(flows, tempDisplay) {
   const tone = deviceBatteryToneClass(flows.batteryStatus);
   const icon = renderDeviceBatteryIcon(flows.batterySoc);
   return `<div class="device-battery-card ${tone}">
-<div class="device-battery-head">${icon}
-<div class="device-battery-status">${esc(flows.batteryStatus)}</div>
+<div class="device-battery-top">
+<div class="device-battery-status-row">${icon}<span class="device-battery-status">${esc(flows.batteryStatus)}</span></div>
 <div class="device-battery-pct">${esc(formatPercent(flows.batterySoc))}</div>
 </div>
 <div class="device-battery-metrics">
@@ -1010,7 +1021,7 @@ async function fetchTriggerCandidates(hass) {
 const DEFAULT_BRAND_DOMAIN = "foxess_plant";
 const DEFAULT_MODBUS_BRAND_DOMAIN = "foxess_modbus";
 const DEFAULT_BRAND_ICON_STATIC = "/foxess_plant_panel/icon.png";
-const DEVICE_EVO_IMAGE_STATIC = "/foxess_plant_panel/evo10.png?v=12";
+const DEVICE_EVO_IMAGE_STATIC = "/foxess_plant_panel/evo10.png?v=raw";
 const DEVICE_PV_GAUGE_MAX_KW = 5;
 
 let _brandsAccessToken;
@@ -1414,14 +1425,17 @@ const STYLES = `
 .list-btn {
   display: flex; justify-content: space-between; align-items: center; width: 100%;
   padding: 16px 18px; border: none; border-radius: var(--fp-radius);
-  background: var(--card-background-color); color: inherit; font-size: 15px;
-  cursor: pointer; text-align: left; font-family: inherit; margin-bottom: 8px;
+  background: var(--card-background-color); color: inherit;
+  cursor: pointer; text-align: left; font-family: inherit; margin-bottom: 10px;
   box-shadow: var(--ha-card-box-shadow, 0 1px 2px rgba(0,0,0,0.06));
-  border: 1px solid var(--divider-color, transparent);
+  border: 1px solid var(--divider-color, transparent); gap: 12px;
 }
 .list-btn:hover { background: var(--secondary-background-color); }
-.list-btn .chev { opacity: 0.4; font-size: 18px; }
-.list-btn .sub { font-size: 12px; color: var(--secondary-text-color); margin-top: 2px; }
+.list-btn-body { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; flex: 1; min-width: 0; }
+.list-btn-title { display: block; font-size: 15px; font-weight: 600; line-height: 1.3; color: var(--primary-text-color); }
+.list-btn-sub { display: block; font-size: 13px; font-weight: 400; line-height: 1.35; color: var(--secondary-text-color); }
+.list-btn .chev { opacity: 0.45; font-size: 20px; flex-shrink: 0; line-height: 1; }
+.list-btn .sub { font-size: 13px; color: var(--secondary-text-color); }
 .placeholder { padding: 28px; text-align: center; color: var(--secondary-text-color); background: var(--card-background-color); border-radius: var(--fp-radius); border: 1px dashed var(--divider-color); }
 .toast {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
@@ -1456,11 +1470,16 @@ const STYLES = `
 .device-fox-pill.is-fault { background: rgba(229, 57, 53, 0.15); color: var(--fp-red, #e53935); }
 .device-fox-pill.is-checking { background: var(--secondary-background-color); color: var(--secondary-text-color); }
 .device-fox-pill.is-offgrid { background: rgba(255, 179, 0, 0.15); color: var(--fp-amber, #ffb300); }
-.device-hero { text-align: center; margin: 4px 0 20px; padding: 0 8px; }
+.device-hero { text-align: center; margin: 8px 0 22px; padding: 0 12px; }
+.device-hero-frame {
+  display: inline-block; max-width: min(280px, 88vw); margin: 0 auto;
+  padding: 20px 28px; border-radius: 16px;
+  background: linear-gradient(180deg, #f4f5f7 0%, #e8eaee 100%);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+}
 .device-hero-img {
-  max-width: min(240px, 72vw); max-height: 320px; width: auto; height: auto;
-  display: block; margin: 0 auto; object-fit: contain;
-  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.45));
+  max-width: 100%; max-height: 280px; width: auto; height: auto;
+  display: block; margin: 0 auto; object-fit: contain; vertical-align: middle;
 }
 .device-serial-btn {
   display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 6px 10px;
@@ -1472,10 +1491,12 @@ const STYLES = `
 .device-serial-muted { margin: 10px 0 0; font-size: 13px; color: var(--secondary-text-color); }
 .device-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
 .device-card {
-  background: var(--card-background-color); border-radius: var(--fp-radius); padding: 20px 14px;
+  background: var(--card-background-color); border-radius: var(--fp-radius); padding: 20px 16px;
   border: 1px solid var(--divider-color, transparent); min-height: 200px;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  display: flex; flex-direction: column; box-sizing: border-box;
 }
+.device-card--gauge { align-items: center; justify-content: center; }
+.device-card--battery { align-items: stretch; justify-content: flex-start; }
 .device-pv-gauge { width: min(100%, 168px); height: auto; aspect-ratio: 100 / 104; position: relative; }
 .device-pv-gauge svg { width: 100%; height: 100%; display: block; }
 .device-pv-gauge-center {
@@ -1484,19 +1505,27 @@ const STYLES = `
 }
 .device-pv-value { font-size: clamp(20px, 5vw, 26px); font-weight: 700; line-height: 1.15; letter-spacing: -0.02em; }
 .device-pv-label { font-size: 13px; color: var(--secondary-text-color); margin-top: 4px; font-weight: 500; }
-.device-battery-card { width: 100%; padding: 6px 8px; box-sizing: border-box; }
-.device-battery-head { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; flex-wrap: nowrap; }
-.device-battery-svg { width: 52px; height: 26px; flex-shrink: 0; }
+.device-battery-card { width: 100%; box-sizing: border-box; }
+.device-battery-top {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  width: 100%; margin-bottom: 16px;
+}
+.device-battery-status-row { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+.device-battery-svg { width: 48px; height: 24px; flex-shrink: 0; }
 .device-battery-shell { fill: none; stroke: var(--secondary-text-color); stroke-width: 1.5; }
 .device-battery-cap { fill: var(--secondary-text-color); }
 .device-battery-fill { fill: #4caf50; }
 .device-battery-card.is-discharging .device-battery-fill { fill: var(--fp-accent); }
 .device-battery-card.is-charging .device-battery-fill { fill: #4caf50; }
-.device-battery-status { font-size: 16px; font-weight: 600; flex: 1; min-width: 0; }
-.device-battery-pct { font-size: clamp(28px, 6vw, 34px); font-weight: 700; line-height: 1; margin-left: auto; flex-shrink: 0; }
-.device-battery-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; width: 100%; }
-.device-battery-metric-label { display: block; font-size: 12px; color: var(--secondary-text-color); margin-bottom: 6px; font-weight: 500; }
-.device-battery-metric-value { font-size: clamp(16px, 4vw, 20px); font-weight: 700; line-height: 1.2; }
+.device-battery-status { font-size: 15px; font-weight: 600; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.device-battery-pct { font-size: 30px; font-weight: 700; line-height: 1; flex-shrink: 0; letter-spacing: -0.02em; }
+.device-battery-metrics {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px 20px; width: 100%;
+  padding-top: 16px; border-top: 1px solid var(--divider-color, rgba(127,127,127,0.35));
+}
+.device-battery-metric { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.device-battery-metric-label { font-size: 12px; color: var(--secondary-text-color); font-weight: 500; line-height: 1.2; }
+.device-battery-metric-value { font-size: 17px; font-weight: 700; line-height: 1.2; letter-spacing: -0.01em; }
 .entity-list { border-radius: var(--fp-radius); overflow: hidden; border: 1px solid var(--divider-color, transparent); }
 .entity-row { display: flex; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--divider-color); font-size: 14px; }
 .entity-row:last-child { border-bottom: none; }
@@ -2868,14 +2897,14 @@ ${this._renderStatisticsChartBody()}
         : `<p class="device-serial device-serial-muted">Serial unavailable</p>`;
     return `<header class="header device-header"><h1>${esc(plant.title)}</h1>${modelLine !== "—" ? `<p class="device-model">${esc(modelLine)}</p>` : ""}</header>
 ${statusPill}
-<div class="device-hero"><img class="device-hero-img" src="${esc(DEVICE_EVO_IMAGE_STATIC)}" alt="${esc(modelLine !== "—" ? modelLine : "Inverter")}" loading="lazy" />${serialRow}</div>
+<div class="device-hero"><div class="device-hero-frame"><img class="device-hero-img" src="${esc(DEVICE_EVO_IMAGE_STATIC)}" alt="${esc(modelLine !== "—" ? modelLine : "Inverter")}" loading="lazy" /></div>${serialRow}</div>
 <div class="device-grid">
-<div class="device-card">${renderPvThreeQuarterGauge(pvKw, DEVICE_PV_GAUGE_MAX_KW, formatDevicePowerKw(flows.pvW), "PV Power")}</div>
-<div class="device-card">${renderDeviceBatteryCard(flows, tempDisplay)}</div>
+<div class="device-card device-card--gauge">${renderPvThreeQuarterGauge(pvKw, DEVICE_PV_GAUGE_MAX_KW, formatDevicePowerKw(flows.pvW), "PV Power")}</div>
+<div class="device-card device-card--battery">${renderDeviceBatteryCard(flows, tempDisplay)}</div>
 </div>
-<button type="button" class="list-btn" data-action="device-sub" data-sub="parameters"><span>Detailed parameters<span class="sub">Live Modbus values</span></span><span class="chev">›</span></button>
-<button type="button" class="list-btn" data-action="nav" data-view="overview"><span>Analysis graph<span class="sub">Today’s statistics chart</span></span><span class="chev">›</span></button>
-<button type="button" class="list-btn" data-action="device-sub" data-sub="system"><span>System info<span class="sub">Firmware, BMS, grid status</span></span><span class="chev">›</span></button>`;
+${renderListButton({ action: "device-sub", sub: "parameters" }, "Detailed parameters", "Live Modbus values")}
+${renderListButton({ action: "nav", view: "overview" }, "Analysis graph", "Today's statistics chart")}
+${renderListButton({ action: "device-sub", sub: "system" }, "System info", "Firmware, BMS, grid status")}`;
   }
 
   _entityList(rows) {
@@ -3528,12 +3557,12 @@ ${detail}${quickBtn}</div>`;
       : "Off";
     return `<header class="header"><h1>Settings</h1><p>Quick controls for your plant</p></header>
 ${this._modeBanner()}
-<button type="button" class="list-btn" data-action="settings-sub" data-sub="quick"><span>Quick Settings<span class="sub">Max ${s.max_soc ?? "—"}% · Min ${s.min_soc ?? "—"}% · Off-grid ${s.min_soc_on_grid ?? "—"}%</span></span><span class="chev">›</span></button>
-<button type="button" class="list-btn" data-action="settings-sub" data-sub="schedules"><span>Charge schedule<span class="sub">Two charge windows (baseline)</span></span><span class="chev">›</span></button>
-<button type="button" class="list-btn" data-action="settings-sub" data-sub="workmode"><span>Work mode<span class="sub">${esc(s.work_mode ?? "—")}</span></span><span class="chev">›</span></button>
-<button type="button" class="list-btn" data-action="settings-sub" data-sub="storm"><span>StormSafe<span class="sub">${stormSub}</span></span><span class="chev">›</span></button>
-<button type="button" class="list-btn" data-action="settings-sub" data-sub="charts"><span>Charts<span class="sub">${esc(this._forecastEntityLabel())}</span></span><span class="chev">›</span></button>
-<button type="button" class="list-btn" data-action="settings-sub" data-sub="control"><span>Plant control<span class="sub">${this._plantState?.control_active ? "Fox Plant manages periods" : "Released to manual"}</span></span><span class="chev">›</span></button>`;
+${renderListButton({ action: "settings-sub", sub: "quick" }, "Quick Settings", `Max ${s.max_soc ?? "—"}% · Min ${s.min_soc ?? "—"}% · Off-grid ${s.min_soc_on_grid ?? "—"}%`)}
+${renderListButton({ action: "settings-sub", sub: "schedules" }, "Charge schedule", "Two charge windows (baseline)")}
+${renderListButton({ action: "settings-sub", sub: "workmode" }, "Work mode", String(s.work_mode ?? "—"))}
+${renderListButton({ action: "settings-sub", sub: "storm" }, "StormSafe", stormSub)}
+${renderListButton({ action: "settings-sub", sub: "charts" }, "Charts", this._forecastEntityLabel())}
+${renderListButton({ action: "settings-sub", sub: "control" }, "Plant control", this._plantState?.control_active ? "Fox Plant manages periods" : "Released to manual")}`;
   }
 
   _forecastEntityLabel() {
