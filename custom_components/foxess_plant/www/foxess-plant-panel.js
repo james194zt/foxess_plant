@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.1
+ * @version 0.8.2
  */
 
 const NAV = [
@@ -227,8 +227,8 @@ function endOfLocalDay(d) {
 
 async function fetchHistoryDuring(hass, entityIds, start, end) {
   const ids = entityIds.filter(Boolean);
-  if (!ids.length) return [];
-  return hass.connection.sendMessagePromise({
+  if (!ids.length) return {};
+  const raw = await hass.connection.sendMessagePromise({
     type: "history/history_during_period",
     start_time: start.toISOString(),
     end_time: end.toISOString(),
@@ -236,17 +236,42 @@ async function fetchHistoryDuring(hass, entityIds, start, end) {
     minimal_response: true,
     significant_changes_only: false,
     no_attributes: true,
+    include_start_time_state: true,
   });
+  if (!raw || typeof raw !== "object") return {};
+  // HA returns { "sensor.foo": [...] }, not a positional array.
+  if (Array.isArray(raw)) {
+    const map = {};
+    ids.forEach((id, i) => {
+      map[id] = raw[i] || [];
+    });
+    return map;
+  }
+  return raw;
+}
+
+function historyRowsForEntity(histMap, entityId) {
+  if (!histMap || !entityId) return [];
+  return histMap[entityId] || [];
+}
+
+function historyRowTimeMs(row) {
+  const raw = row.lu ?? row.last_updated ?? row.last_changed ?? row.lc;
+  if (typeof raw === "number") {
+    return raw > 1e12 ? raw : raw * 1000;
+  }
+  const ms = new Date(raw).getTime();
+  return Number.isFinite(ms) ? ms : NaN;
 }
 
 function historyToPoints(rows) {
   if (!rows?.length) return [];
   return rows
     .map((row) => {
-      const t = new Date(row.lu || row.last_changed);
-      const v = parseFloat(row.s);
-      if (!Number.isFinite(v)) return null;
-      return { t: t.getTime(), v };
+      const t = historyRowTimeMs(row);
+      const v = parseFloat(row.s ?? row.state);
+      if (!Number.isFinite(t) || !Number.isFinite(v)) return null;
+      return { t, v };
     })
     .filter(Boolean)
     .sort((a, b) => a.t - b.t);
@@ -2179,20 +2204,19 @@ ${this._renderStatisticsChartBody()}
     const now = new Date();
     const start = startOfLocalDay(now);
     const hist = await fetchHistoryDuring(this._hass, entityIds, start, now);
-    const series = specs.map((spec, idx) => ({
+    const series = specs.map((spec) => ({
       label: spec.label,
       color: spec.color,
       dash: spec.dash,
       fill: spec.fill,
       hideLegend: spec.hideLegend,
-      points: historyToPoints(hist[idx]).map((p) => ({
+      points: historyToPoints(historyRowsForEntity(hist, spec.entity_id)).map((p) => ({
         t: p.t,
         v: transformHistoryPoint(this._hass, spec.entity_id, p.v, spec),
       })),
     }));
     if (forecastId) {
-      const fIdx = entityIds.indexOf(forecastId);
-      const fPoints = historyToPoints(hist[fIdx]).map((p) => ({
+      const fPoints = historyToPoints(historyRowsForEntity(hist, forecastId)).map((p) => ({
         t: p.t,
         v: transformHistoryPoint(this._hass, forecastId, p.v, { toKw: true }),
       }));
@@ -2242,19 +2266,12 @@ ${this._renderStatisticsChartBody()}
       title = String(now.getFullYear());
     }
     const hist = await fetchHistoryDuring(this._hass, ids, rangeStart, now);
-    const idx = {
-      pv: ids.indexOf(ent.pv),
-      load: ids.indexOf(ent.load),
-      discharge: ids.indexOf(ent.discharge),
-      charge: ids.indexOf(ent.charge),
-      grid: ids.indexOf(ent.grid),
-    };
     const points = {
-      pv: historyToPoints(hist[idx.pv]),
-      load: historyToPoints(hist[idx.load]),
-      discharge: historyToPoints(hist[idx.discharge]),
-      charge: historyToPoints(hist[idx.charge]),
-      grid: historyToPoints(hist[idx.grid]),
+      pv: historyToPoints(historyRowsForEntity(hist, ent.pv)),
+      load: historyToPoints(historyRowsForEntity(hist, ent.load)),
+      discharge: historyToPoints(historyRowsForEntity(hist, ent.discharge)),
+      charge: historyToPoints(historyRowsForEntity(hist, ent.charge)),
+      grid: historyToPoints(historyRowsForEntity(hist, ent.grid)),
     };
 
     const bucketDaily = (pSeries, lSeries, dSeries, cSeries, gSeries) => {
