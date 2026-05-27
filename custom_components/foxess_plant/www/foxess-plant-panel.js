@@ -443,9 +443,9 @@ const STATISTICS_LEGEND_COLORS = {
 };
 
 const STATISTICS_CHART_LAYOUT = {
-  width: 800,
-  height: 480,
-  pad: { l: 54, r: 10, t: 12, b: 40 },
+  width: 1000,
+  height: 440,
+  pad: { l: 52, r: 4, t: 12, b: 40 },
   xTickHours: 3,
   xTickCount: 8,
   yTickStepKw: 0.5,
@@ -733,19 +733,28 @@ function formatStatisticsYTick(v) {
   return Number.isInteger(r) ? String(r) : r.toFixed(1);
 }
 
-/** Map pointer X to chart time when SVG uses uniform scaling (meet). */
-function statisticsPointerScale(svg, padL, plotW, tMin, daySpan) {
+/** Map screen coords to viewBox when SVG uses meet or slice scaling. */
+function statisticsPointerScale(svg) {
   const rect = svg.getBoundingClientRect();
   const vb = svg.viewBox.baseVal;
-  const scale = Math.min(rect.width / vb.width, rect.height / vb.height);
+  const par = svg.getAttribute("preserveAspectRatio") || "xMidYMid meet";
+  const slice = par.includes("slice");
+  const scale = slice
+    ? Math.max(rect.width / vb.width, rect.height / vb.height)
+    : Math.min(rect.width / vb.width, rect.height / vb.height);
   const renderedW = vb.width * scale;
-  const offsetX = (rect.width - renderedW) / 2;
-  return { scale, offsetX, vb };
+  const renderedH = vb.height * scale;
+  return {
+    scale,
+    offsetX: (rect.width - renderedW) / 2,
+    offsetY: (rect.height - renderedH) / 2,
+    vb,
+  };
 }
 
 function statisticsClientToTime(svg, clientX, padL, plotW, tMin, daySpan) {
   const rect = svg.getBoundingClientRect();
-  const { scale, offsetX } = statisticsPointerScale(svg, padL, plotW, tMin, daySpan);
+  const { scale, offsetX } = statisticsPointerScale(svg);
   const relX = (clientX - rect.left - offsetX) / scale - padL;
   const frac = Math.max(0, Math.min(1, relX / plotW));
   return tMin + frac * daySpan;
@@ -760,7 +769,7 @@ function statisticsTooltipRowsHtml(seriesMeta, t, hiddenGroups) {
       const v = interpolateSeriesAt(s.points, t);
       if (v == null) return "";
       const label = s.tooltipLabel || s.label;
-      return `<div class="statistics-tooltip-row"><span>${esc(label)}</span><strong>${formatStatisticsKw(v)}</strong></div>`;
+      return `<div class="statistics-tooltip-row"><span class="statistics-tooltip-label"><i class="statistics-tooltip-swatch" style="background:${esc(s.color)}"></i>${esc(label)}</span><strong>${formatStatisticsKw(v)}</strong></div>`;
     })
     .filter(Boolean)
     .join("");
@@ -871,7 +880,7 @@ function renderStatisticsChartHtml(series, range) {
   return `<div class="statistics-chart-wrap" data-statistics-chart="1">
 <div class="statistics-chart-legend">${legendItems}</div>
 <div class="statistics-chart-plot" data-pad-l="${pad.l}" data-pad-t="${pad.t}" data-pad-b="${pad.b}" data-plot-w="${w}" data-plot-h="${h}" data-t-min="${tMin}" data-t-max="${tMax}" data-y-min="${yMin}" data-y-max="${yMax}" data-now-ms="${nowMs}">
-<svg class="statistics-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Statistics power chart">
+<svg class="statistics-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Statistics power chart">
 <text x="${yUnitX}" y="${(pad.t + h / 2).toFixed(1)}" class="statistics-y-label" transform="rotate(-90 ${yUnitX} ${(pad.t + h / 2).toFixed(1)})">kW</text>
 ${grid}
 <line x1="${yAxisX}" y1="${pad.t}" x2="${yAxisX}" y2="${(pad.t + h).toFixed(1)}" class="statistics-y-axis"/>
@@ -941,10 +950,9 @@ function bindStatisticsChart(root, seriesMeta) {
   const showHover = (clientX) => {
     const t = Math.min(statisticsClientToTime(svg, clientX, padL, plotW, tMin, daySpan), nowMs);
     const rect = svg.getBoundingClientRect();
-    const { scale, offsetX, vb } = statisticsPointerScale(svg, padL, plotW, tMin, daySpan);
+    const { scale, offsetX, offsetY } = statisticsPointerScale(svg);
     const xPx = padL + ((t - tMin) / daySpan) * plotW;
     const screenX = offsetX + xPx * scale;
-    const offsetY = (rect.height - vb.height * scale) / 2;
     crosshair.hidden = false;
     crosshair.style.left = `${screenX}px`;
     crosshair.style.top = `${offsetY + padT * scale}px`;
@@ -1283,6 +1291,8 @@ const STYLES = `
 .card-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--secondary-text-color); margin: 0 0 14px; }
 .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 12px; }
 .breakdown-card { margin-top: 14px; padding-bottom: 8px; }
+.statistics-card { padding-bottom: 16px; }
+.statistics-card .card-title { margin-bottom: 12px; }
 .fox-energy-panel {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1358,10 +1368,9 @@ const STYLES = `
 .statistics-legend-item i {
   width: 10px; height: 10px; border-radius: 2px; display: inline-block; flex-shrink: 0;
 }
-.statistics-chart-plot { position: relative; width: 100%; }
+.statistics-chart-plot { position: relative; width: 100%; margin: 0; }
 .statistics-chart-svg {
-  width: 100%; height: auto; min-height: 280px; max-height: 400px;
-  display: block; aspect-ratio: 800 / 480;
+  width: 100%; height: 440px; display: block;
 }
 .statistics-y-label {
   fill: var(--secondary-text-color); font-size: 12px; font-weight: 600; text-anchor: middle;
@@ -1393,10 +1402,16 @@ const STYLES = `
   font-size: 12px; color: var(--secondary-text-color); margin-bottom: 8px;
 }
 .statistics-tooltip-row {
-  display: flex; justify-content: space-between; gap: 12px; margin-bottom: 4px;
+  display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 6px;
 }
 .statistics-tooltip-row:last-child { margin-bottom: 0; }
-.statistics-tooltip-row strong { font-weight: 600; white-space: nowrap; }
+.statistics-tooltip-label {
+  display: inline-flex; align-items: center; gap: 8px; min-width: 0; flex: 1;
+}
+.statistics-tooltip-swatch {
+  width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; display: inline-block;
+}
+.statistics-tooltip-row strong { font-weight: 600; white-space: nowrap; flex-shrink: 0; }
 .charts-entity-select {
   width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 10px;
   border: 1px solid var(--divider-color); background: var(--card-background-color);
