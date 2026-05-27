@@ -356,7 +356,7 @@ const STATISTICS_CHART_SERIES = [
   {
     key: "battery_charge",
     label: "Battery",
-    tooltipLabel: "Battery charge",
+    tooltipLabel: "Battery charging",
     legendGroup: "battery",
     color: "#8DB6FF",
     fillColor: "rgba(141,182,255,0.14)",
@@ -368,7 +368,7 @@ const STATISTICS_CHART_SERIES = [
   {
     key: "battery_discharge",
     label: "Battery",
-    tooltipLabel: "Battery discharge",
+    tooltipLabel: "Battery discharging",
     legendGroup: "battery",
     color: "#8DB6FF",
     fillColor: "rgba(141,182,255,0.14)",
@@ -418,6 +418,7 @@ const STATISTICS_CHART_SERIES = [
 
 const FORECAST_CHART_STYLE = {
   label: "Forecast",
+  tooltipLabel: "Forecast",
   legendGroup: "forecast",
   color: "#FFD700",
   fillColor: "rgba(255,215,0,0.14)",
@@ -760,7 +761,20 @@ function statisticsClientToTime(svg, clientX, padL, plotW, tMin, daySpan) {
   return tMin + frac * daySpan;
 }
 
-/** Hover tooltip: every series (charge, discharge, import, export, …). */
+const STATISTICS_TOOLTIP_LABEL_BY_ID = {
+  battery_charge: "Battery charging",
+  battery_discharge: "Battery discharging",
+  grid_import: "Grid import",
+  grid_export: "Grid export",
+};
+
+function statisticsSeriesTooltipLabel(s) {
+  if (s.tooltipLabel) return s.tooltipLabel;
+  if (s.id && STATISTICS_TOOLTIP_LABEL_BY_ID[s.id]) return STATISTICS_TOOLTIP_LABEL_BY_ID[s.id];
+  return s.label;
+}
+
+/** Hover tooltip: every series (charging, discharging, import, export, …). */
 function statisticsTooltipRowsHtml(seriesMeta, t, hiddenGroups) {
   return seriesMeta
     .map((s) => {
@@ -768,7 +782,7 @@ function statisticsTooltipRowsHtml(seriesMeta, t, hiddenGroups) {
       if (g && hiddenGroups.has(g)) return "";
       const v = interpolateSeriesAt(s.points, t);
       if (v == null) return "";
-      const label = s.tooltipLabel || s.label;
+      const label = statisticsSeriesTooltipLabel(s);
       return `<div class="statistics-tooltip-row"><span class="statistics-tooltip-label"><i class="statistics-tooltip-swatch" style="background:${esc(s.color)}"></i>${esc(label)}</span><strong>${formatStatisticsKw(v)}</strong></div>`;
     })
     .filter(Boolean)
