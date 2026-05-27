@@ -2435,7 +2435,7 @@ ${pathsHtml}
     if (imp.co2_kg == null && imp.trees_planted == null && imp.oil_litres == null) {
       return `<div class="card impact-card" style="margin-top:14px">
 <p class="card-title">Impact</p>
-<p class="placeholder impact-placeholder">Lifetime solar total not available yet. Reload FoxESS Plant after foxess_modbus exposes <code>solar_energy_total</code>.</p>
+<p class="placeholder impact-placeholder">Lifetime energy totals not available yet. Reload FoxESS Plant after foxess_modbus exposes <code>solar_energy_total</code> and <code>feed_in_energy_total</code>.</p>
 </div>`;
     }
     const items = [
@@ -2475,9 +2475,11 @@ ${pathsHtml}
       })
       .join("");
     const basis =
-      imp.solar_kwh_total != null
-        ? `<p class="impact-basis">Based on ${Number(imp.solar_kwh_total).toFixed(1)} kWh lifetime solar generation</p>`
-        : "";
+      imp.self_consumption_kwh_total != null
+        ? `<p class="impact-basis">Based on ${Number(imp.self_consumption_kwh_total).toFixed(1)} kWh lifetime self-consumption (solar − export)</p>`
+        : imp.solar_kwh_total != null
+          ? `<p class="impact-basis">Based on ${Number(imp.solar_kwh_total).toFixed(1)} kWh lifetime solar generation</p>`
+          : "";
     return `<div class="card impact-card" style="margin-top:14px">
 <p class="card-title">Impact</p>
 <div class="impact-grid">${grid}</div>
