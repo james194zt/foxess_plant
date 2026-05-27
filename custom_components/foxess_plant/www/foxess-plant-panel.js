@@ -1021,7 +1021,7 @@ async function fetchTriggerCandidates(hass) {
 const DEFAULT_BRAND_DOMAIN = "foxess_plant";
 const DEFAULT_MODBUS_BRAND_DOMAIN = "foxess_modbus";
 const DEFAULT_BRAND_ICON_STATIC = "/foxess_plant_panel/icon.png";
-const DEVICE_EVO_IMAGE_STATIC = "/foxess_plant_panel/evo10.png?v=raw";
+const DEVICE_EVO_IMAGE_STATIC = "/foxess_plant_panel/evo10.png?v=14";
 const DEVICE_PV_GAUGE_MAX_KW = 5;
 
 let _brandsAccessToken;
@@ -1470,25 +1470,23 @@ const STYLES = `
 .device-fox-pill.is-fault { background: rgba(229, 57, 53, 0.15); color: var(--fp-red, #e53935); }
 .device-fox-pill.is-checking { background: var(--secondary-background-color); color: var(--secondary-text-color); }
 .device-fox-pill.is-offgrid { background: rgba(255, 179, 0, 0.15); color: var(--fp-amber, #ffb300); }
-.device-hero { text-align: center; margin: 8px 0 22px; padding: 0 12px; }
-.device-hero-frame {
-  display: inline-block; max-width: min(280px, 88vw); margin: 0 auto;
-  padding: 20px 28px; border-radius: 16px;
-  background: linear-gradient(180deg, #f4f5f7 0%, #e8eaee 100%);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+.device-hero {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  margin: 8px 0 22px; padding: 0 12px; width: 100%; box-sizing: border-box;
 }
 .device-hero-img {
-  max-width: 100%; max-height: 280px; width: auto; height: auto;
-  display: block; margin: 0 auto; object-fit: contain; vertical-align: middle;
+  max-width: min(220px, 70vw); max-height: 300px; width: auto; height: auto;
+  display: block; object-fit: contain;
 }
 .device-serial-btn {
-  display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 6px 10px;
-  border: none; background: transparent; color: var(--primary-text-color); font: inherit; font-size: 13px;
-  cursor: pointer; border-radius: 8px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 6px 10px; border: none; background: transparent;
+  color: var(--primary-text-color); font: inherit; font-size: 13px;
+  cursor: pointer; border-radius: 8px; max-width: 100%;
 }
 .device-serial-btn:hover { background: var(--secondary-background-color, rgba(127,127,127,0.12)); }
 .device-serial { font-family: ui-monospace, monospace; letter-spacing: 0.02em; }
-.device-serial-muted { margin: 10px 0 0; font-size: 13px; color: var(--secondary-text-color); }
+.device-serial-muted { margin: 0; font-size: 13px; color: var(--secondary-text-color); text-align: center; }
 .device-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
 .device-card {
   background: var(--card-background-color); border-radius: var(--fp-radius); padding: 20px 16px;
@@ -2897,7 +2895,7 @@ ${this._renderStatisticsChartBody()}
         : `<p class="device-serial device-serial-muted">Serial unavailable</p>`;
     return `<header class="header device-header"><h1>${esc(plant.title)}</h1>${modelLine !== "—" ? `<p class="device-model">${esc(modelLine)}</p>` : ""}</header>
 ${statusPill}
-<div class="device-hero"><div class="device-hero-frame"><img class="device-hero-img" src="${esc(DEVICE_EVO_IMAGE_STATIC)}" alt="${esc(modelLine !== "—" ? modelLine : "Inverter")}" loading="lazy" /></div>${serialRow}</div>
+<div class="device-hero"><img class="device-hero-img" src="${esc(DEVICE_EVO_IMAGE_STATIC)}" alt="${esc(modelLine !== "—" ? modelLine : "Inverter")}" loading="lazy" />${serialRow}</div>
 <div class="device-grid">
 <div class="device-card device-card--gauge">${renderPvThreeQuarterGauge(pvKw, DEVICE_PV_GAUGE_MAX_KW, formatDevicePowerKw(flows.pvW), "PV Power")}</div>
 <div class="device-card device-card--battery">${renderDeviceBatteryCard(flows, tempDisplay)}</div>
