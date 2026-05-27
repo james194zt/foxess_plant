@@ -355,7 +355,7 @@ const STATISTICS_CHART_SERIES = [
   },
   {
     key: "battery_charge",
-    label: "Battery Charge (-)",
+    label: "Battery",
     legendGroup: "battery",
     color: "#8DB6FF",
     fillColor: "rgba(141,182,255,0.14)",
@@ -366,7 +366,7 @@ const STATISTICS_CHART_SERIES = [
   },
   {
     key: "battery_discharge",
-    label: "Battery Discharge (+)",
+    label: "Battery",
     legendGroup: "battery",
     color: "#8DB6FF",
     fillColor: "rgba(141,182,255,0.14)",
@@ -377,7 +377,7 @@ const STATISTICS_CHART_SERIES = [
   },
   {
     key: "grid_import",
-    label: "Grid Import (+)",
+    label: "Grid",
     legendGroup: "grid",
     color: "#FF6FAF",
     fillColor: "rgba(255,111,175,0.14)",
@@ -388,7 +388,7 @@ const STATISTICS_CHART_SERIES = [
   },
   {
     key: "grid_export",
-    label: "Grid Export (-)",
+    label: "Grid",
     legendGroup: "grid",
     color: "#FF6FAF",
     fillColor: "rgba(255,111,175,0.14)",
@@ -401,7 +401,7 @@ const STATISTICS_CHART_SERIES = [
   },
   {
     key: "load_power",
-    label: "Load (-)",
+    label: "Load",
     legendGroup: "load",
     color: "#8A4DFF",
     fillColor: "rgba(138,77,255,0.14)",
@@ -421,12 +421,29 @@ const FORECAST_CHART_STYLE = {
   lineWidth: 1.2,
 };
 
+const STATISTICS_LEGEND_ORDER = ["solar", "battery", "grid", "load", "forecast"];
+const STATISTICS_LEGEND_LABELS = {
+  solar: "Solar",
+  battery: "Battery",
+  grid: "Grid",
+  load: "Load",
+  forecast: "Forecast",
+};
+const STATISTICS_LEGEND_COLORS = {
+  solar: "#19D4DE",
+  battery: "#8DB6FF",
+  grid: "#FF6FAF",
+  load: "#8A4DFF",
+  forecast: "#FFD700",
+};
+
 const STATISTICS_CHART_LAYOUT = {
   width: 800,
-  height: 520,
-  pad: { l: 56, r: 18, t: 86, b: 52 },
+  height: 480,
+  pad: { l: 50, r: 8, t: 12, b: 40 },
   xTickHours: 3,
   xTickCount: 8,
+  yTickStepKw: 0.5,
 };
 
 /** Matches dashboard plotly-graph defaults: statistic mean, period 5minute. */
@@ -684,7 +701,31 @@ function computeStatisticsYDomain(series, padRatio = 0.08) {
   }
   if (yMax <= yMin) yMax = yMin + 1;
   const pad = (yMax - yMin) * padRatio;
-  return { yMin: yMin - pad, yMax: yMax + pad };
+  return snapStatisticsYDomain(yMin - pad, yMax + pad);
+}
+
+/** Snap Y axis to 0.5 kW ticks (Fox-style scale). */
+function snapStatisticsYDomain(yMin, yMax, step = STATISTICS_CHART_LAYOUT.yTickStepKw) {
+  let lo = Math.floor(yMin / step) * step;
+  let hi = Math.ceil(yMax / step) * step;
+  if (hi - lo < step * 2) {
+    lo -= step;
+    hi += step;
+  }
+  return { yMin: lo, yMax: hi };
+}
+
+function statisticsYTicks(yMin, yMax, step = STATISTICS_CHART_LAYOUT.yTickStepKw) {
+  const ticks = [];
+  for (let v = yMin; v <= yMax + step * 0.001; v += step) {
+    ticks.push(Math.round(v * 2) / 2);
+  }
+  return ticks;
+}
+
+function formatStatisticsYTick(v) {
+  const r = Math.round(v * 2) / 2;
+  return Number.isInteger(r) ? String(r) : r.toFixed(1);
 }
 
 function dailyMaxInRange(points, dayStartMs, dayEndMs) {
@@ -732,7 +773,9 @@ function renderStatisticsChartHtml(series, range) {
   const ySpan = yMax - yMin || 1;
   const yScale = (v) => pad.t + h - ((v - yMin) / ySpan) * h;
   const yZero = yScale(0);
-  const yTicks = [yMin, yMin + ySpan * 0.5, yMax];
+  const yTicks = statisticsYTicks(yMin, yMax);
+  const yUnitX = 14;
+  const yAxisX = pad.l;
   const xTicks = Array.from({ length: xTickCount }, (_, i) => tMin + i * xTickHours * 60 * 60 * 1000);
 
   const plotSeries = visible.map((s) => {
@@ -751,7 +794,7 @@ function renderStatisticsChartHtml(series, range) {
   const yLabels = yTicks
     .map((yv) => {
       const y = yScale(yv);
-      return `<text x="${pad.l - 8}" y="${(y + 4).toFixed(1)}" text-anchor="end" class="statistics-axis-y">${yv.toFixed(1)}</text>`;
+      return `<text x="${(yAxisX - 6).toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="end" class="statistics-axis-y">${esc(formatStatisticsYTick(yv))}</text>`;
     })
     .join("");
 
@@ -778,21 +821,22 @@ function renderStatisticsChartHtml(series, range) {
     )
     .join("");
 
-  const legendItems = visible
-    .filter((s) => !s.hideLegend)
+  const groupsPresent = new Set(visible.map((s) => s.legendGroup || s.id));
+  const legendItems = STATISTICS_LEGEND_ORDER.filter((g) => groupsPresent.has(g))
     .map(
-      (s) =>
-        `<button type="button" class="statistics-legend-item" data-legend-group="${esc(s.legendGroup || s.id)}" aria-pressed="true"><i style="background:${s.color}"></i><span>${esc(s.label)}</span></button>`
+      (g) =>
+        `<button type="button" class="statistics-legend-item" data-legend-group="${esc(g)}" aria-pressed="true"><i style="background:${esc(STATISTICS_LEGEND_COLORS[g] || "#888")}"></i><span>${esc(STATISTICS_LEGEND_LABELS[g] || g)}</span></button>`
     )
     .join("");
 
   return `<div class="statistics-chart-wrap" data-statistics-chart="1">
 <div class="statistics-chart-legend">${legendItems}</div>
 <div class="statistics-chart-plot" data-pad-l="${pad.l}" data-pad-t="${pad.t}" data-pad-b="${pad.b}" data-plot-w="${w}" data-plot-h="${h}" data-t-min="${tMin}" data-t-max="${tMax}" data-y-min="${yMin}" data-y-max="${yMax}" data-now-ms="${nowMs}">
-<svg class="statistics-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Statistics power chart">
-<text x="${pad.l - 8}" y="${pad.t + h / 2}" class="statistics-y-label" transform="rotate(-90 ${pad.l - 8} ${pad.t + h / 2})">kW</text>
+<svg class="statistics-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Statistics power chart">
+<text x="${yUnitX}" y="${(pad.t + h / 2).toFixed(1)}" class="statistics-y-label" transform="rotate(-90 ${yUnitX} ${(pad.t + h / 2).toFixed(1)})">kW</text>
 ${grid}
-<line x1="${pad.l}" y1="${yZero.toFixed(1)}" x2="${pad.l + w}" y2="${yZero.toFixed(1)}" class="statistics-zero-line"/>
+<line x1="${yAxisX}" y1="${pad.t}" x2="${yAxisX}" y2="${(pad.t + h).toFixed(1)}" class="statistics-y-axis"/>
+<line x1="${yAxisX}" y1="${yZero.toFixed(1)}" x2="${(pad.l + w).toFixed(1)}" y2="${yZero.toFixed(1)}" class="statistics-zero-line"/>
 ${fills}
 ${lines}
 ${yLabels}
@@ -1295,12 +1339,12 @@ const STYLES = `
 }
 .statistics-chart-plot { position: relative; width: 100%; }
 .statistics-chart-svg {
-  width: 100%; height: auto; display: block; max-height: 520px;
-  aspect-ratio: 800 / 520;
+  width: 100%; height: min(42vh, 380px); min-height: 260px; display: block;
 }
 .statistics-y-label {
-  fill: var(--secondary-text-color); font-size: 12px; text-anchor: middle;
+  fill: var(--secondary-text-color); font-size: 11px; font-weight: 600; text-anchor: middle;
 }
+.statistics-y-axis { stroke: rgba(127,127,127,0.35); stroke-width: 1; }
 .statistics-axis-x, .statistics-axis-y {
   fill: var(--secondary-text-color); font-size: 12px;
 }
@@ -1308,7 +1352,7 @@ const STYLES = `
 .statistics-zero-line { stroke: rgba(127,127,127,0.20); stroke-width: 1; }
 .statistics-hit { cursor: crosshair; }
 .statistics-crosshair {
-  position: absolute; top: 0; bottom: 52px; width: 1px; pointer-events: none;
+  position: absolute; top: 0; bottom: 40px; width: 1px; pointer-events: none;
   transform: translateX(-0.5px);
 }
 .statistics-spike {
