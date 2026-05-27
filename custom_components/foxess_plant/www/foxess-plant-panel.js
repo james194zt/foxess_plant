@@ -182,8 +182,8 @@ function plantDeviceSerial(hass, plant, plantState) {
 
 function formatDevicePowerKw(watts) {
   const kw = Math.abs(watts) / 1000;
-  if (kw < 10) return `${kw.toFixed(3)}kW`;
-  return `${kw.toFixed(2)}kW`;
+  if (kw < 10) return `${kw.toFixed(3)} kW`;
+  return `${kw.toFixed(2)} kW`;
 }
 
 function deviceBatteryToneClass(status) {
@@ -209,9 +209,9 @@ function renderPvThreeQuarterGauge(pvKw, maxKw, valueText, labelText) {
     fillLen > 0.5
       ? `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--fp-accent)" stroke-width="9" stroke-linecap="round" stroke-dasharray="${fillLen} ${circ - fillLen}" transform="rotate(${rot} ${cx} ${cy})"/>`
       : "";
-  return `<div class="device-pv-gauge" role="img" aria-label="${esc(labelText)} ${esc(valueText)}">
-<svg viewBox="0 0 100 104" aria-hidden="true">${track}${fill}</svg>
-<div class="device-pv-gauge-center"><span class="device-pv-value">${esc(valueText)}</span><span class="device-pv-label">${esc(labelText)}</span></div>
+  return `<div class="device-pv-wrap" role="img" aria-label="${esc(labelText)} ${esc(valueText)}">
+<div class="device-pv-gauge"><svg viewBox="0 0 100 104" aria-hidden="true">${track}${fill}</svg></div>
+<div class="device-pv-readout"><div class="device-pv-value">${esc(valueText)}</div><div class="device-pv-label">${esc(labelText)}</div></div>
 </div>`;
 }
 
@@ -1471,59 +1471,60 @@ const STYLES = `
 .device-fox-pill.is-checking { background: var(--secondary-background-color); color: var(--secondary-text-color); }
 .device-fox-pill.is-offgrid { background: rgba(255, 179, 0, 0.15); color: var(--fp-amber, #ffb300); }
 .device-hero {
-  display: flex; flex-direction: column; align-items: center; gap: 12px;
-  margin: 8px 0 22px; padding: 0 12px; width: 100%; box-sizing: border-box;
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  margin: 4px 0 24px; padding: 0 16px; width: 100%; box-sizing: border-box;
 }
 .device-hero-img {
-  max-width: min(220px, 70vw); max-height: 300px; width: auto; height: auto;
+  max-width: min(200px, 62vw); max-height: 260px; width: auto; height: auto;
   display: block; object-fit: contain;
 }
 .device-serial-btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  padding: 6px 10px; border: none; background: transparent;
-  color: var(--primary-text-color); font: inherit; font-size: 13px;
-  cursor: pointer; border-radius: 8px; max-width: 100%;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 8px 12px; border: none; background: transparent;
+  color: var(--secondary-text-color); font: inherit; font-size: 13px;
+  cursor: pointer; border-radius: 8px; width: 100%; max-width: 360px;
 }
-.device-serial-btn:hover { background: var(--secondary-background-color, rgba(127,127,127,0.12)); }
-.device-serial { font-family: ui-monospace, monospace; letter-spacing: 0.02em; }
+.device-serial-btn:hover { background: var(--secondary-background-color, rgba(127,127,127,0.12)); color: var(--primary-text-color); }
+.device-serial { font-family: ui-monospace, monospace; letter-spacing: 0.03em; }
 .device-serial-muted { margin: 0; font-size: 13px; color: var(--secondary-text-color); text-align: center; }
-.device-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+.device-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;
+  margin-bottom: 16px; align-items: stretch;
+}
 .device-card {
-  background: var(--card-background-color); border-radius: var(--fp-radius); padding: 20px 16px;
-  border: 1px solid var(--divider-color, transparent); min-height: 200px;
-  display: flex; flex-direction: column; box-sizing: border-box;
+  background: var(--card-background-color); border-radius: 14px; padding: 18px 16px 20px;
+  border: 1px solid var(--divider-color, rgba(127,127,127,0.28));
+  min-height: 0; display: flex; flex-direction: column; box-sizing: border-box;
 }
 .device-card--gauge { align-items: center; justify-content: center; }
-.device-card--battery { align-items: stretch; justify-content: flex-start; }
-.device-pv-gauge { width: min(100%, 168px); height: auto; aspect-ratio: 100 / 104; position: relative; }
+.device-card--battery { align-items: stretch; justify-content: center; }
+.device-pv-wrap { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.device-pv-gauge { width: 100%; max-width: 140px; aspect-ratio: 100 / 104; flex-shrink: 0; }
 .device-pv-gauge svg { width: 100%; height: 100%; display: block; }
-.device-pv-gauge-center {
-  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
-  justify-content: center; padding-top: 10px; text-align: center;
-}
-.device-pv-value { font-size: clamp(20px, 5vw, 26px); font-weight: 700; line-height: 1.15; letter-spacing: -0.02em; }
-.device-pv-label { font-size: 13px; color: var(--secondary-text-color); margin-top: 4px; font-weight: 500; }
-.device-battery-card { width: 100%; box-sizing: border-box; }
+.device-pv-readout { text-align: center; width: 100%; }
+.device-pv-value { font-size: 22px; font-weight: 700; line-height: 1.25; letter-spacing: -0.02em; margin: 0; }
+.device-pv-label { font-size: 13px; color: var(--secondary-text-color); font-weight: 500; line-height: 1.4; margin: 8px 0 0; }
+.device-battery-card { width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 0; }
 .device-battery-top {
-  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
-  width: 100%; margin-bottom: 16px;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
+  column-gap: 10px; width: 100%; padding-bottom: 18px;
 }
-.device-battery-status-row { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
-.device-battery-svg { width: 48px; height: 24px; flex-shrink: 0; }
+.device-battery-status-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.device-battery-svg { width: 44px; height: 22px; flex-shrink: 0; }
 .device-battery-shell { fill: none; stroke: var(--secondary-text-color); stroke-width: 1.5; }
 .device-battery-cap { fill: var(--secondary-text-color); }
 .device-battery-fill { fill: #4caf50; }
 .device-battery-card.is-discharging .device-battery-fill { fill: var(--fp-accent); }
 .device-battery-card.is-charging .device-battery-fill { fill: #4caf50; }
-.device-battery-status { font-size: 15px; font-weight: 600; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.device-battery-pct { font-size: 30px; font-weight: 700; line-height: 1; flex-shrink: 0; letter-spacing: -0.02em; }
+.device-battery-status { font-size: 14px; font-weight: 600; line-height: 1.35; }
+.device-battery-pct { font-size: 28px; font-weight: 700; line-height: 1.1; letter-spacing: -0.03em; text-align: right; }
 .device-battery-metrics {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 12px 20px; width: 100%;
-  padding-top: 16px; border-top: 1px solid var(--divider-color, rgba(127,127,127,0.35));
+  display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; row-gap: 0;
+  width: 100%; padding-top: 18px; border-top: 1px solid var(--divider-color, rgba(127,127,127,0.35));
 }
-.device-battery-metric { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.device-battery-metric-label { font-size: 12px; color: var(--secondary-text-color); font-weight: 500; line-height: 1.2; }
-.device-battery-metric-value { font-size: 17px; font-weight: 700; line-height: 1.2; letter-spacing: -0.01em; }
+.device-battery-metric { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding-top: 2px; }
+.device-battery-metric-label { font-size: 13px; color: var(--secondary-text-color); font-weight: 500; line-height: 1.35; margin: 0; }
+.device-battery-metric-value { font-size: 18px; font-weight: 700; line-height: 1.35; letter-spacing: -0.02em; margin: 0; }
 .entity-list { border-radius: var(--fp-radius); overflow: hidden; border: 1px solid var(--divider-color, transparent); }
 .entity-row { display: flex; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--divider-color); font-size: 14px; }
 .entity-row:last-child { border-bottom: none; }
@@ -1666,7 +1667,14 @@ const STYLES = `
 .storm-advanced { margin-top: 4px; }
 .trigger-row.google-weather { background: color-mix(in srgb, var(--fp-accent) 10%, transparent); }
 .trigger-role { display: inline-block; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 6px; border-radius: 6px; margin-left: 6px; background: var(--secondary-background-color); color: var(--fp-accent); }
-@media (max-width: 600px) { .device-grid { grid-template-columns: 1fr; } .scene-card svg { max-height: 220px; } }
+@media (max-width: 720px) {
+  .device-grid { grid-template-columns: 1fr; gap: 12px; }
+  .device-card--gauge, .device-card--battery { padding: 20px 20px 22px; }
+  .device-pv-gauge { max-width: 160px; }
+  .device-pv-value { font-size: 24px; }
+  .device-battery-pct { font-size: 32px; }
+}
+@media (max-width: 600px) { .scene-card svg { max-height: 220px; } }
 `;
 
 class FoxessPlantPanel extends HTMLElement {
