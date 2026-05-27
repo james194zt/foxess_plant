@@ -421,26 +421,20 @@ const FORECAST_CHART_STYLE = {
   lineWidth: 1.2,
 };
 
+/** Tooltip row order (one combined value per group). */
 const STATISTICS_LEGEND_ORDER = ["solar", "battery", "grid", "load", "forecast"];
-const STATISTICS_LEGEND_LABELS = {
+const STATISTICS_GROUP_LABEL = {
   solar: "Solar",
   battery: "Battery",
   grid: "Grid",
   load: "Load",
   forecast: "Forecast",
 };
-const STATISTICS_LEGEND_COLORS = {
-  solar: "#19D4DE",
-  battery: "#8DB6FF",
-  grid: "#FF6FAF",
-  load: "#8A4DFF",
-  forecast: "#FFD700",
-};
 
 const STATISTICS_CHART_LAYOUT = {
   width: 800,
   height: 480,
-  pad: { l: 50, r: 8, t: 12, b: 40 },
+  pad: { l: 54, r: 10, t: 12, b: 40 },
   xTickHours: 3,
   xTickCount: 8,
   yTickStepKw: 0.5,
@@ -728,6 +722,44 @@ function formatStatisticsYTick(v) {
   return Number.isInteger(r) ? String(r) : r.toFixed(1);
 }
 
+/** Map pointer X to chart time when SVG uses uniform scaling (meet). */
+function statisticsPointerScale(svg, padL, plotW, tMin, daySpan) {
+  const rect = svg.getBoundingClientRect();
+  const vb = svg.viewBox.baseVal;
+  const scale = Math.min(rect.width / vb.width, rect.height / vb.height);
+  const renderedW = vb.width * scale;
+  const offsetX = (rect.width - renderedW) / 2;
+  return { scale, offsetX, vb };
+}
+
+function statisticsClientToTime(svg, clientX, padL, plotW, tMin, daySpan) {
+  const rect = svg.getBoundingClientRect();
+  const { scale, offsetX } = statisticsPointerScale(svg, padL, plotW, tMin, daySpan);
+  const relX = (clientX - rect.left - offsetX) / scale - padL;
+  const frac = Math.max(0, Math.min(1, relX / plotW));
+  return tMin + frac * daySpan;
+}
+
+function statisticsTooltipRowsHtml(seriesMeta, t, hiddenGroups) {
+  const byGroup = new Map();
+  for (const s of seriesMeta) {
+    const g = s.legendGroup || s.id;
+    if (g && hiddenGroups.has(g)) continue;
+    const v = interpolateSeriesAt(s.points, t);
+    if (v == null) continue;
+    const label = STATISTICS_GROUP_LABEL[g] || s.label;
+    const prev = byGroup.get(g);
+    if (prev) prev.v += v;
+    else byGroup.set(g, { label, v });
+  }
+  return STATISTICS_LEGEND_ORDER.filter((g) => byGroup.has(g))
+    .map((g) => {
+      const { label, v } = byGroup.get(g);
+      return `<div class="statistics-tooltip-row"><span>${esc(label)}</span><strong>${formatStatisticsKw(v)}</strong></div>`;
+    })
+    .join("");
+}
+
 function dailyMaxInRange(points, dayStartMs, dayEndMs) {
   let max = 0;
   for (const p of points) {
@@ -774,8 +806,9 @@ function renderStatisticsChartHtml(series, range) {
   const yScale = (v) => pad.t + h - ((v - yMin) / ySpan) * h;
   const yZero = yScale(0);
   const yTicks = statisticsYTicks(yMin, yMax);
-  const yUnitX = 14;
+  const yUnitX = 12;
   const yAxisX = pad.l;
+  const yLabelX = yAxisX - 8;
   const xTicks = Array.from({ length: xTickCount }, (_, i) => tMin + i * xTickHours * 60 * 60 * 1000);
 
   const plotSeries = visible.map((s) => {
@@ -794,7 +827,7 @@ function renderStatisticsChartHtml(series, range) {
   const yLabels = yTicks
     .map((yv) => {
       const y = yScale(yv);
-      return `<text x="${(yAxisX - 6).toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="end" class="statistics-axis-y">${esc(formatStatisticsYTick(yv))}</text>`;
+      return `<text x="${yLabelX}" y="${(y + 4).toFixed(1)}" text-anchor="end" class="statistics-axis-y">${esc(formatStatisticsYTick(yv))}</text>`;
     })
     .join("");
 
@@ -821,18 +854,18 @@ function renderStatisticsChartHtml(series, range) {
     )
     .join("");
 
-  const groupsPresent = new Set(visible.map((s) => s.legendGroup || s.id));
-  const legendItems = STATISTICS_LEGEND_ORDER.filter((g) => groupsPresent.has(g))
+  const legendItems = visible
+    .filter((s) => !s.hideLegend)
     .map(
-      (g) =>
-        `<button type="button" class="statistics-legend-item" data-legend-group="${esc(g)}" aria-pressed="true"><i style="background:${esc(STATISTICS_LEGEND_COLORS[g] || "#888")}"></i><span>${esc(STATISTICS_LEGEND_LABELS[g] || g)}</span></button>`
+      (s) =>
+        `<button type="button" class="statistics-legend-item" data-legend-group="${esc(s.legendGroup || s.id)}" aria-pressed="true"><i style="background:${s.color}"></i><span>${esc(s.label)}</span></button>`
     )
     .join("");
 
   return `<div class="statistics-chart-wrap" data-statistics-chart="1">
 <div class="statistics-chart-legend">${legendItems}</div>
 <div class="statistics-chart-plot" data-pad-l="${pad.l}" data-pad-t="${pad.t}" data-pad-b="${pad.b}" data-plot-w="${w}" data-plot-h="${h}" data-t-min="${tMin}" data-t-max="${tMax}" data-y-min="${yMin}" data-y-max="${yMax}" data-now-ms="${nowMs}">
-<svg class="statistics-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Statistics power chart">
+<svg class="statistics-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Statistics power chart">
 <text x="${yUnitX}" y="${(pad.t + h / 2).toFixed(1)}" class="statistics-y-label" transform="rotate(-90 ${yUnitX} ${(pad.t + h / 2).toFixed(1)})">kW</text>
 ${grid}
 <line x1="${yAxisX}" y1="${pad.t}" x2="${yAxisX}" y2="${(pad.t + h).toFixed(1)}" class="statistics-y-axis"/>
@@ -899,38 +932,20 @@ function bindStatisticsChart(root, seriesMeta) {
     });
   });
 
-  const clientToTime = (clientX) => {
-    const rect = svg.getBoundingClientRect();
-    const vb = svg.viewBox.baseVal;
-    const scaleX = vb.width / rect.width;
-    const relX = (clientX - rect.left) * scaleX - padL;
-    const frac = Math.max(0, Math.min(1, relX / plotW));
-    return tMin + frac * daySpan;
-  };
-
   const showHover = (clientX) => {
-    const t = Math.min(clientToTime(clientX), nowMs);
+    const t = Math.min(statisticsClientToTime(svg, clientX, padL, plotW, tMin, daySpan), nowMs);
     const rect = svg.getBoundingClientRect();
-    const vb = svg.viewBox.baseVal;
-    const scaleX = vb.width / rect.width;
+    const { scale, offsetX, vb } = statisticsPointerScale(svg, padL, plotW, tMin, daySpan);
     const xPx = padL + ((t - tMin) / daySpan) * plotW;
-    const screenX = ((xPx / vb.width) * rect.width);
+    const screenX = offsetX + xPx * scale;
+    const offsetY = (rect.height - vb.height * scale) / 2;
     crosshair.hidden = false;
     crosshair.style.left = `${screenX}px`;
-    crosshair.style.top = `${(padT / vb.height) * rect.height}px`;
-    crosshair.style.bottom = `${(padB / vb.height) * rect.height}px`;
+    crosshair.style.top = `${offsetY + padT * scale}px`;
+    crosshair.style.bottom = `${offsetY + padB * scale}px`;
     spike.style.height = "100%";
 
-    const rows = seriesMeta
-      .map((s) => {
-        const g = s.legendGroup;
-        if (g && hiddenGroups.has(g)) return "";
-        const v = interpolateSeriesAt(s.points, t);
-        if (v == null) return "";
-        return `<div class="statistics-tooltip-row"><span>${esc(s.label)}</span><strong>${formatStatisticsKw(v)}</strong></div>`;
-      })
-      .filter(Boolean)
-      .join("");
+    const rows = statisticsTooltipRowsHtml(seriesMeta, t, hiddenGroups);
     tooltip.hidden = false;
     tooltip.innerHTML = `<div class="statistics-tooltip-time">${esc(formatStatisticsHoverTime(t))}</div>${rows}`;
     const plotRect = plot.getBoundingClientRect();
@@ -1339,14 +1354,16 @@ const STYLES = `
 }
 .statistics-chart-plot { position: relative; width: 100%; }
 .statistics-chart-svg {
-  width: 100%; height: min(42vh, 380px); min-height: 260px; display: block;
+  width: 100%; height: auto; min-height: 280px; max-height: 400px;
+  display: block; aspect-ratio: 800 / 480;
 }
 .statistics-y-label {
-  fill: var(--secondary-text-color); font-size: 11px; font-weight: 600; text-anchor: middle;
+  fill: var(--secondary-text-color); font-size: 12px; font-weight: 600; text-anchor: middle;
 }
 .statistics-y-axis { stroke: rgba(127,127,127,0.35); stroke-width: 1; }
 .statistics-axis-x, .statistics-axis-y {
   fill: var(--secondary-text-color); font-size: 12px;
+  font-variant-numeric: tabular-nums; text-rendering: geometricPrecision;
 }
 .statistics-grid { stroke: rgba(127,127,127,0.12); stroke-width: 1; }
 .statistics-zero-line { stroke: rgba(127,127,127,0.20); stroke-width: 1; }
