@@ -356,6 +356,7 @@ const STATISTICS_CHART_SERIES = [
   {
     key: "battery_charge",
     label: "Battery",
+    tooltipLabel: "Battery charge",
     legendGroup: "battery",
     color: "#8DB6FF",
     fillColor: "rgba(141,182,255,0.14)",
@@ -367,6 +368,7 @@ const STATISTICS_CHART_SERIES = [
   {
     key: "battery_discharge",
     label: "Battery",
+    tooltipLabel: "Battery discharge",
     legendGroup: "battery",
     color: "#8DB6FF",
     fillColor: "rgba(141,182,255,0.14)",
@@ -378,6 +380,7 @@ const STATISTICS_CHART_SERIES = [
   {
     key: "grid_import",
     label: "Grid",
+    tooltipLabel: "Grid import",
     legendGroup: "grid",
     color: "#FF6FAF",
     fillColor: "rgba(255,111,175,0.14)",
@@ -389,6 +392,7 @@ const STATISTICS_CHART_SERIES = [
   {
     key: "grid_export",
     label: "Grid",
+    tooltipLabel: "Grid export",
     legendGroup: "grid",
     color: "#FF6FAF",
     fillColor: "rgba(255,111,175,0.14)",
@@ -421,14 +425,21 @@ const FORECAST_CHART_STYLE = {
   lineWidth: 1.2,
 };
 
-/** Tooltip row order (one combined value per group). */
+/** Consolidated top legend (one button toggles whole group). */
 const STATISTICS_LEGEND_ORDER = ["solar", "battery", "grid", "load", "forecast"];
-const STATISTICS_GROUP_LABEL = {
+const STATISTICS_LEGEND_LABEL = {
   solar: "Solar",
   battery: "Battery",
   grid: "Grid",
   load: "Load",
   forecast: "Forecast",
+};
+const STATISTICS_LEGEND_COLORS = {
+  solar: "#19D4DE",
+  battery: "#8DB6FF",
+  grid: "#FF6FAF",
+  load: "#8A4DFF",
+  forecast: "#FFD700",
 };
 
 const STATISTICS_CHART_LAYOUT = {
@@ -740,23 +751,18 @@ function statisticsClientToTime(svg, clientX, padL, plotW, tMin, daySpan) {
   return tMin + frac * daySpan;
 }
 
+/** Hover tooltip: every series (charge, discharge, import, export, …). */
 function statisticsTooltipRowsHtml(seriesMeta, t, hiddenGroups) {
-  const byGroup = new Map();
-  for (const s of seriesMeta) {
-    const g = s.legendGroup || s.id;
-    if (g && hiddenGroups.has(g)) continue;
-    const v = interpolateSeriesAt(s.points, t);
-    if (v == null) continue;
-    const label = STATISTICS_GROUP_LABEL[g] || s.label;
-    const prev = byGroup.get(g);
-    if (prev) prev.v += v;
-    else byGroup.set(g, { label, v });
-  }
-  return STATISTICS_LEGEND_ORDER.filter((g) => byGroup.has(g))
-    .map((g) => {
-      const { label, v } = byGroup.get(g);
+  return seriesMeta
+    .map((s) => {
+      const g = s.legendGroup;
+      if (g && hiddenGroups.has(g)) return "";
+      const v = interpolateSeriesAt(s.points, t);
+      if (v == null) return "";
+      const label = s.tooltipLabel || s.label;
       return `<div class="statistics-tooltip-row"><span>${esc(label)}</span><strong>${formatStatisticsKw(v)}</strong></div>`;
     })
+    .filter(Boolean)
     .join("");
 }
 
@@ -854,11 +860,11 @@ function renderStatisticsChartHtml(series, range) {
     )
     .join("");
 
-  const legendItems = visible
-    .filter((s) => !s.hideLegend)
+  const groupsPresent = new Set(visible.map((s) => s.legendGroup || s.id));
+  const legendItems = STATISTICS_LEGEND_ORDER.filter((g) => groupsPresent.has(g))
     .map(
-      (s) =>
-        `<button type="button" class="statistics-legend-item" data-legend-group="${esc(s.legendGroup || s.id)}" aria-pressed="true"><i style="background:${s.color}"></i><span>${esc(s.label)}</span></button>`
+      (g) =>
+        `<button type="button" class="statistics-legend-item" data-legend-group="${esc(g)}" aria-pressed="true"><i style="background:${esc(STATISTICS_LEGEND_COLORS[g] || "#888")}"></i><span>${esc(STATISTICS_LEGEND_LABEL[g] || g)}</span></button>`
     )
     .join("");
 
