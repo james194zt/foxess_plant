@@ -64,6 +64,63 @@ function stateString(hass, entityId) {
   return st ? st.state : "—";
 }
 
+/** foxess_modbus inverter_state → Fox app wording (register logic unchanged). */
+const FOX_INVERTER_STATE_LABELS = {
+  "on grid": "Normal",
+  standby: "Checking",
+  "off grid": "Off Grid",
+  fault: "Fault",
+};
+
+function foxInverterStateLabelFromRaw(raw) {
+  if (raw == null || raw === "" || raw === "—") return "—";
+  if (raw === "unavailable" || raw === "unknown") return raw;
+  const mapped = FOX_INVERTER_STATE_LABELS[String(raw).trim().toLowerCase()];
+  return mapped ?? raw;
+}
+
+function foxInverterStateLabel(hass, plant, plantState) {
+  const map = { ...(plant?.entity_map || {}), ...(plantState?.entity_map || {}) };
+  const entityId = map.inverter_state;
+  const raw = entityId ? stateString(hass, entityId) : plantState?.identity?.inverter_state;
+  return foxInverterStateLabelFromRaw(raw);
+}
+
+function foxWorkModeLabel(hass, plant, plantState) {
+  const raw = plantState?.settings?.work_mode;
+  if (raw && raw !== "unavailable" && raw !== "unknown") return raw;
+  const map = { ...(plant?.entity_map || {}), ...(plantState?.entity_map || {}) };
+  const entityId = map.work_mode;
+  return entityId ? stateString(hass, entityId) : "—";
+}
+
+/** PCS model from Modbus register (pcs_model_name), else foxess_modbus device label. */
+function plantModelSubtitle(hass, plant, plantState) {
+  const fromIdentity = plantState?.identity?.pcs_model_name;
+  if (fromIdentity && fromIdentity !== "unavailable" && fromIdentity !== "unknown") {
+    return String(fromIdentity).trim();
+  }
+  const map = { ...(plant?.entity_map || {}), ...(plantState?.entity_map || {}) };
+  const entityId = map.pcs_model_name;
+  if (entityId) {
+    const raw = stateString(hass, entityId);
+    if (raw && raw !== "—" && raw !== "unavailable" && raw !== "unknown") {
+      return String(raw).trim();
+    }
+  }
+  const fallback = plant?.inverter;
+  return fallback && fallback !== "—" ? String(fallback).trim() : "—";
+}
+
+function foxStatusToneClass(label) {
+  const s = String(label || "").toLowerCase();
+  if (s === "normal") return "is-normal";
+  if (s === "fault") return "is-fault";
+  if (s === "checking") return "is-checking";
+  if (s === "off grid") return "is-offgrid";
+  return "";
+}
+
 function entityUnit(hass, entityId) {
   const u = hass?.states?.[entityId]?.attributes?.unit_of_measurement;
   return u ? ` ${u}` : "";
@@ -76,6 +133,87 @@ function formatKw(watts, decimals = 2) {
 
 function formatPercent(value) {
   return `${Math.round(value)}%`;
+}
+
+/** PCS serial for device hero (identity first, then entity). */
+function plantDeviceSerial(hass, plant, plantState) {
+  const fromIdentity = plantState?.identity?.pcs_serial_number;
+  if (fromIdentity && fromIdentity !== "unavailable" && fromIdentity !== "unknown") {
+    return String(fromIdentity).trim();
+  }
+  const map = { ...(plant?.entity_map || {}), ...(plantState?.entity_map || {}) };
+  const entityId = map.pcs_serial_number;
+  if (entityId) {
+    const raw = stateString(hass, entityId);
+    if (raw && raw !== "—" && raw !== "unavailable" && raw !== "unknown") {
+      return String(raw).trim();
+    }
+  }
+  return "—";
+}
+
+function formatDevicePvKw(watts) {
+  const kw = Math.max(0, watts) / 1000;
+  return kw < 10 ? `${kw.toFixed(3)}kW` : `${kw.toFixed(2)}kW`;
+}
+
+function formatDeviceKw(watts) {
+  const kw = Math.abs(watts) / 1000;
+  return kw < 10 ? `${kw.toFixed(3)}kW` : `${kw.toFixed(2)}kW`;
+}
+
+function deviceBatteryToneClass(status) {
+  const s = String(status || "").toLowerCase();
+  if (s.includes("charg")) return "is-charging";
+  if (s.includes("discharg")) return "is-discharging";
+  return "is-idle";
+}
+
+/** 270° arc gauge (gap at bottom), Fox app PV style. */
+function renderPvThreeQuarterGauge(pvKw, maxKw, valueText, labelText) {
+  const r = 42;
+  const cx = 50;
+  const cy = 52;
+  const circ = 2 * Math.PI * r;
+  const arcLen = circ * 0.75;
+  const gapLen = circ - arcLen;
+  const rot = 135;
+  const pct = maxKw > 0 ? Math.min(1, Math.max(0, pvKw / maxKw)) : 0;
+  const fillLen = arcLen * pct;
+  const track = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--divider-color)" stroke-width="7" stroke-linecap="round" stroke-dasharray="${arcLen} ${gapLen}" transform="rotate(${rot} ${cx} ${cy})"/>`;
+  const fill =
+    fillLen > 0.5
+      ? `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--fp-accent)" stroke-width="7" stroke-linecap="round" stroke-dasharray="${fillLen} ${circ - fillLen}" transform="rotate(${rot} ${cx} ${cy})"/>`
+      : "";
+  return `<div class="device-pv-gauge" role="img" aria-label="${esc(labelText)} ${esc(valueText)}">
+<svg viewBox="0 0 100 104" aria-hidden="true">${track}${fill}</svg>
+<div class="device-pv-gauge-center"><span class="device-pv-value">${esc(valueText)}</span><span class="device-pv-label">${esc(labelText)}</span></div>
+</div>`;
+}
+
+function renderDeviceBatteryIcon(socPct) {
+  const pct = Math.min(100, Math.max(0, socPct));
+  const fillW = Math.round((34 * pct) / 100);
+  return `<svg class="device-battery-svg" viewBox="0 0 44 22" aria-hidden="true">
+<rect class="device-battery-shell" x="1" y="4" width="36" height="14" rx="2"/>
+<rect class="device-battery-cap" x="37" y="8" width="4" height="6" rx="1"/>
+<rect class="device-battery-fill" x="3" y="6" width="${fillW}" height="10" rx="1"/>
+</svg>`;
+}
+
+function renderDeviceBatteryCard(flows, tempDisplay) {
+  const tone = deviceBatteryToneClass(flows.batteryStatus);
+  const icon = renderDeviceBatteryIcon(flows.batterySoc);
+  return `<div class="device-battery-card ${tone}">
+<div class="device-battery-head">${icon}
+<div class="device-battery-status">${esc(flows.batteryStatus)}</div>
+<div class="device-battery-pct">${esc(formatPercent(flows.batterySoc))}</div>
+</div>
+<div class="device-battery-metrics">
+<div class="device-battery-metric"><span class="device-battery-metric-label">Power</span><span class="device-battery-metric-value">${esc(formatDeviceKw(flows.batteryW))}</span></div>
+<div class="device-battery-metric"><span class="device-battery-metric-label">Temp.</span><span class="device-battery-metric-value">${esc(tempDisplay)}</span></div>
+</div>
+</div>`;
 }
 
 /** Fox app Solar Analysis palette (matches dashboard plotly cards). */
@@ -859,6 +997,8 @@ async function fetchTriggerCandidates(hass) {
 const DEFAULT_BRAND_DOMAIN = "foxess_plant";
 const DEFAULT_MODBUS_BRAND_DOMAIN = "foxess_modbus";
 const DEFAULT_BRAND_ICON_STATIC = "/foxess_plant_panel/icon.png";
+const DEVICE_EVO_IMAGE_STATIC = "/foxess_plant_panel/evo10.png";
+const DEVICE_PV_GAUGE_MAX_KW = 5;
 
 let _brandsAccessToken;
 
@@ -1021,6 +1161,29 @@ const STYLES = `
 .header { margin-bottom: 20px; }
 .header h1 { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
 .header p { margin: 6px 0 0; color: var(--secondary-text-color); font-size: 14px; }
+.overview-header { margin-bottom: 16px; }
+.overview-model { margin: 4px 0 0; font-size: 15px; font-weight: 500; color: var(--secondary-text-color); letter-spacing: 0.01em; }
+.overview-status-block { margin-top: 14px; }
+.overview-fox-status {
+  font-size: 32px; font-weight: 700; line-height: 1.1; letter-spacing: -0.03em;
+  color: var(--primary-text-color);
+}
+.overview-fox-status.is-normal { color: #4caf50; }
+.overview-fox-status.is-fault { color: var(--fp-red, #e53935); }
+.overview-fox-status.is-checking { color: var(--secondary-text-color); }
+.overview-fox-status.is-offgrid { color: var(--fp-amber, #ffb300); }
+.overview-work-mode {
+  margin-top: 6px; font-size: 20px; font-weight: 600; letter-spacing: -0.02em;
+  color: var(--primary-text-color);
+}
+.overview-meta-row {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px;
+}
+.overview-control-hint { font-size: 13px; color: var(--secondary-text-color); }
+.mode-banner-row {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px;
+}
+.mode-banner-hint { font-size: 13px; color: var(--secondary-text-color); }
 .back-btn { background: none; border: none; color: var(--fp-accent); cursor: pointer; font-size: 14px; padding: 0 0 14px; font-family: inherit; }
 .card {
   background: var(--card-background-color); border-radius: var(--fp-radius);
@@ -1270,13 +1433,53 @@ const STYLES = `
 .house-roof { fill: var(--fp-accent); opacity: 0.85; }
 .soc-ring-bg { fill: none; stroke: var(--divider-color); stroke-width: 6; }
 .soc-ring { fill: none; stroke: #0f9d58; stroke-width: 6; stroke-linecap: round; transform: rotate(-90deg); transform-origin: 250px 248px; }
-.device-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.device-card { background: var(--card-background-color); border-radius: var(--fp-radius); padding: 18px; border: 1px solid var(--divider-color, transparent); min-height: 150px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-.gauge { width: 108px; height: 108px; position: relative; }
-.gauge svg { width: 100%; height: 100%; }
-.gauge-value { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 700; font-size: 20px; }
-.gauge-label { font-size: 11px; color: var(--secondary-text-color); font-weight: 400; }
-.battery-pct { font-size: 40px; font-weight: 700; line-height: 1; }
+.device-header { margin-bottom: 8px; }
+.device-header h1 { margin-bottom: 4px; }
+.device-model { margin: 0; font-size: 14px; color: var(--secondary-text-color); }
+.device-fox-pill {
+  display: inline-block; font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 999px;
+  margin-bottom: 12px; background: rgba(76, 175, 80, 0.15); color: #4caf50;
+}
+.device-fox-pill.is-fault { background: rgba(229, 57, 53, 0.15); color: var(--fp-red, #e53935); }
+.device-fox-pill.is-checking { background: var(--secondary-background-color); color: var(--secondary-text-color); }
+.device-fox-pill.is-offgrid { background: rgba(255, 179, 0, 0.15); color: var(--fp-amber, #ffb300); }
+.device-hero { text-align: center; margin: 4px 0 18px; }
+.device-hero-img { max-width: min(200px, 58vw); height: auto; display: block; margin: 0 auto; object-fit: contain; }
+.device-serial-btn {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 6px 10px;
+  border: none; background: transparent; color: var(--primary-text-color); font: inherit; font-size: 13px;
+  cursor: pointer; border-radius: 8px;
+}
+.device-serial-btn:hover { background: var(--secondary-background-color, rgba(127,127,127,0.12)); }
+.device-serial { font-family: ui-monospace, monospace; letter-spacing: 0.02em; }
+.device-serial-muted { margin: 10px 0 0; font-size: 13px; color: var(--secondary-text-color); }
+.device-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+.device-card {
+  background: var(--card-background-color); border-radius: var(--fp-radius); padding: 16px 12px;
+  border: 1px solid var(--divider-color, transparent); min-height: 168px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+.device-pv-gauge { width: 120px; height: 124px; position: relative; }
+.device-pv-gauge svg { width: 100%; height: 100%; display: block; }
+.device-pv-gauge-center {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; padding-top: 8px; text-align: center;
+}
+.device-pv-value { font-size: 17px; font-weight: 700; line-height: 1.2; }
+.device-pv-label { font-size: 11px; color: var(--secondary-text-color); margin-top: 2px; }
+.device-battery-card { width: 100%; padding: 4px 6px; }
+.device-battery-head { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.device-battery-svg { width: 44px; height: 22px; flex-shrink: 0; }
+.device-battery-shell { fill: none; stroke: var(--secondary-text-color); stroke-width: 1.5; }
+.device-battery-cap { fill: var(--secondary-text-color); }
+.device-battery-fill { fill: #4caf50; }
+.device-battery-card.is-discharging .device-battery-fill { fill: var(--fp-accent); }
+.device-battery-card.is-charging .device-battery-fill { fill: #4caf50; }
+.device-battery-status { font-size: 13px; font-weight: 600; flex: 1; min-width: 72px; }
+.device-battery-pct { font-size: 26px; font-weight: 700; line-height: 1; margin-left: auto; }
+.device-battery-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
+.device-battery-metric-label { display: block; font-size: 11px; color: var(--secondary-text-color); margin-bottom: 4px; }
+.device-battery-metric-value { font-size: 14px; font-weight: 600; }
 .entity-list { border-radius: var(--fp-radius); overflow: hidden; border: 1px solid var(--divider-color, transparent); }
 .entity-row { display: flex; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--divider-color); font-size: 14px; }
 .entity-row:last-child { border-bottom: none; }
@@ -2392,18 +2595,46 @@ ${thumbsHtml}
       .join("")}</nav>`;
   }
 
+  _modeBannerExtra() {
+    const st = this._plantState;
+    if (!st) return "";
+    if (st.drift) {
+      return `<div class="banner warn"><strong>Schedule drift</strong>Inverter charge windows differ from what Fox Plant expects. <div class="btn-row"><button type="button" class="btn btn-primary" data-action="apply-baseline" ${this._busy ? "disabled" : ""}>Re-apply schedule</button></div></div>`;
+    }
+    if (!st.control_active) {
+      return `<div class="banner info"><strong>Manual control</strong>Fox Plant is not managing charge periods. Modbus or the Fox app may change settings freely.</div>`;
+    }
+    return "";
+  }
+
   _modeBanner() {
     const st = this._plantState;
     if (!st) return "";
     const mode = st.mode ?? "baseline";
-    const pills = `<span class="mode-pill ${modeClass(mode)}">${esc(mode)}</span>`;
-    let extra = "";
-    if (st.drift) {
-      extra = `<div class="banner warn"><strong>Schedule drift</strong>Inverter charge windows differ from what Fox Plant expects. <div class="btn-row"><button type="button" class="btn btn-primary" data-action="apply-baseline" ${this._busy ? "disabled" : ""}>Re-apply schedule</button></div></div>`;
-    } else if (!st.control_active) {
-      extra = `<div class="banner info"><strong>Manual control</strong>Fox Plant is not managing charge periods. Modbus or the Fox app may change settings freely.</div>`;
-    }
-    return `<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap">${pills}<span style="font-size:13px;color:var(--secondary-text-color)">${st.control_active ? "Plant control active" : "Plant control off"}</span></div>${extra}`;
+    return `<div class="mode-banner-row"><span class="mode-pill ${modeClass(mode)}">${esc(mode)}</span><span class="mode-banner-hint">${st.control_active ? "Plant control active" : "Plant control off"}</span></div>${this._modeBannerExtra()}`;
+  }
+
+  _renderOverviewStatusBlock(plant) {
+    const st = this._plantState;
+    if (!st) return "";
+    const systemStatus = foxInverterStateLabel(this._hass, plant, this._plantState);
+    const workMode = foxWorkModeLabel(this._hass, plant, this._plantState);
+    const plantMode = st.mode ?? "baseline";
+    const statusHtml =
+      systemStatus !== "—"
+        ? `<div class="overview-fox-status ${foxStatusToneClass(systemStatus)}">${esc(systemStatus)}</div>`
+        : "";
+    const workHtml =
+      workMode !== "—" ? `<div class="overview-work-mode">${esc(workMode)}</div>` : "";
+    return `<div class="overview-status-block">
+${statusHtml}
+${workHtml}
+<div class="overview-meta-row">
+<span class="mode-pill ${modeClass(plantMode)}">${esc(plantMode)}</span>
+<span class="overview-control-hint">${st.control_active ? "Plant control active" : "Plant control off"}</span>
+</div>
+${this._modeBannerExtra()}
+</div>`;
   }
 
   _renderEnergyScene(plant) {
@@ -2516,8 +2747,8 @@ ${basis}
 
   _renderOverview(plant) {
     const a = this._plantState?.analytics ?? {};
-    return `<header class="header"><h1>${esc(plant.title)}</h1><p>${esc(plant.inverter)}</p></header>
-${this._modeBanner()}
+    const modelLine = plantModelSubtitle(this._hass, plant, this._plantState);
+    return `<header class="header overview-header"><h1>${esc(plant.title)}</h1>${modelLine !== "—" ? `<p class="overview-model">${esc(modelLine)}</p>` : ""}${this._renderOverviewStatusBlock(plant)}</header>
 ${this._renderEnergyScene(plant)}
 <div class="stats-row" style="margin-top:14px">
 ${this._stat("Self-consumption", a.self_consumption_percent_today, a.self_consumption_percent_today != null ? "%" : "")}
@@ -2531,7 +2762,7 @@ ${this._renderStatisticsChartBody()}
 </div>`;
   }
 
-  _identityRows() {
+  _identityRows(plant) {
     const id = this._plantState?.identity ?? {};
     const rows = [
       ["pcs_model_name", "PCS model"],
@@ -2552,8 +2783,11 @@ ${this._renderStatisticsChartBody()}
     ];
     return rows
       .map(([key, label]) => {
-        const value = id[key];
+        let value = id[key];
         if (value == null || value === "" || value === "unavailable" || value === "unknown") return null;
+        if (key === "inverter_state") {
+          value = foxInverterStateLabel(this._hass, plant, this._plantState);
+        }
         return { label, value };
       })
       .filter(Boolean);
@@ -2573,7 +2807,7 @@ ${this._renderStatisticsChartBody()}
 
   _renderDevice(plant) {
     if (this._deviceSub === "system") {
-      return `<button type="button" class="back-btn" data-action="device-back">← Device</button><header class="header"><h1>System info</h1><p>From Modbus (matches Fox app where confirmed)</p></header>${this._identityValueList(this._identityRows())}`;
+      return `<button type="button" class="back-btn" data-action="device-back">← Device</button><header class="header"><h1>System info</h1><p>From Modbus (matches Fox app where confirmed)</p></header>${this._identityValueList(this._identityRows(plant))}`;
     }
     if (this._deviceSub === "parameters") {
       const rows = [
@@ -2601,17 +2835,30 @@ ${this._renderStatisticsChartBody()}
     }
     const flows = readEnergyFlows(this._hass, plant, this._plantState);
     const pvKw = flows.pvW / 1000;
-    const circ = 2 * Math.PI * 40;
-    const off = circ * (1 - Math.min(100, (pvKw / 5) * 100) / 100);
-    const temp = stateString(this._hass, plant.entity_map?.bms_temp_low);
-    return `<header class="header"><h1>Device</h1></header>${this._modeBanner()}
+    const map = resolveEntityMap(this._hass, plant, this._plantState);
+    const tempRaw = stateString(this._hass, map.bms_temp_low);
+    const tempDisplay = tempRaw !== "—" ? `${tempRaw}℃` : "—";
+    const serial = plantDeviceSerial(this._hass, plant, this._plantState);
+    const modelLine = plantModelSubtitle(this._hass, plant, this._plantState);
+    const systemStatus = foxInverterStateLabel(this._hass, plant, this._plantState);
+    const statusPill =
+      systemStatus !== "—"
+        ? `<div class="device-fox-pill ${foxStatusToneClass(systemStatus)}">${esc(systemStatus)}</div>`
+        : "";
+    const serialRow =
+      serial !== "—"
+        ? `<button type="button" class="device-serial-btn" data-action="device-sub" data-sub="system"><span class="device-serial">${esc(serial)}</span><span class="chev">›</span></button>`
+        : `<p class="device-serial device-serial-muted">Serial unavailable</p>`;
+    return `<header class="header device-header"><h1>${esc(plant.title)}</h1>${modelLine !== "—" ? `<p class="device-model">${esc(modelLine)}</p>` : ""}</header>
+${statusPill}
+<div class="device-hero"><img class="device-hero-img" src="${esc(DEVICE_EVO_IMAGE_STATIC)}" alt="${esc(modelLine !== "—" ? modelLine : "Inverter")}" loading="lazy" />${serialRow}</div>
 <div class="device-grid">
-<div class="device-card"><div class="gauge"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="40" fill="none" stroke="var(--divider-color)" stroke-width="8"/><circle cx="50" cy="50" r="40" fill="none" stroke="var(--fp-accent)" stroke-width="8" stroke-dasharray="${circ}" stroke-dashoffset="${off}" transform="rotate(-90 50 50)" stroke-linecap="round"/></svg><div class="gauge-value"><span>${pvKw.toFixed(2)}</span><span class="gauge-label">kW PV</span></div></div></div>
-<div class="device-card"><div class="battery-pct">${esc(formatPercent(flows.batterySoc))}</div><div style="font-size:13px;color:var(--secondary-text-color);margin-top:8px">${esc(flows.batteryStatus)} · ${esc(formatKw(Math.abs(flows.batteryW), 2))}</div><div style="font-size:12px;margin-top:6px;color:var(--secondary-text-color)">Min temp ${esc(temp !== "—" ? temp + "°C" : "—")}</div></div>
+<div class="device-card">${renderPvThreeQuarterGauge(pvKw, DEVICE_PV_GAUGE_MAX_KW, formatDevicePvKw(flows.pvW), "PV Power")}</div>
+<div class="device-card">${renderDeviceBatteryCard(flows, tempDisplay)}</div>
 </div>
-<button type="button" class="list-btn" data-action="device-sub" data-sub="system"><span>System info<span class="sub">PCS model/serial, firmware, BMS</span></span><span class="chev">›</span></button>
 <button type="button" class="list-btn" data-action="device-sub" data-sub="parameters"><span>Detailed parameters<span class="sub">Live Modbus values</span></span><span class="chev">›</span></button>
-<button type="button" class="list-btn" data-action="device-sub" data-sub="battery"><span>Battery<span class="sub">SOC, power, temperature</span></span><span class="chev">›</span></button>`;
+<button type="button" class="list-btn" data-action="nav" data-view="overview"><span>Analysis graph<span class="sub">Today’s statistics chart</span></span><span class="chev">›</span></button>
+<button type="button" class="list-btn" data-action="device-sub" data-sub="system"><span>System info<span class="sub">Firmware, BMS, grid status</span></span><span class="chev">›</span></button>`;
   }
 
   _entityList(rows) {
