@@ -19,6 +19,7 @@ from .soc_limits import apply_soc_limits, clamp_soc_values
 from .const import (
     ANALYTICS_ENTITY_SUFFIXES,
     AUTOMATION_MODES,
+    CONF_PANEL_DISPLAY,
     CONF_STORM_PREP,
     IDENTITY_ENTITY_SUFFIXES,
     EVENT_BASELINE_RESTORED,
@@ -39,7 +40,7 @@ from .const import (
     MODE_TARIFF,
     TRIGGER_ON_STATES,
 )
-from .models import ChargePeriodConfig, OverrideState, PlantConfig
+from .models import ChargePeriodConfig, OverrideState, PanelDisplayConfig, PlantConfig
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -432,6 +433,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "tariff_modes": sorted(self.plant.tariff_modes.keys()),
             "storm_prep": self._storm_prep_state(),
             "outage_prep": self.plant.outage_prep.to_dict(),
+            "panel_display": self.plant.panel_display.to_dict(),
             "settings": {
                 "max_soc": self._entity_float("max_soc"),
                 "min_soc": self._entity_float("min_soc"),
@@ -689,6 +691,21 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.hass.config_entries.async_update_entry(self.config_entry, data=data)
         self.update_plant_config(PlantConfig.from_entry_data(data))
         await self._async_refresh_storm_weather()
+        await self.async_request_refresh()
+
+    async def async_save_panel_display(self, *, forecast_entity_id: str | None) -> None:
+        """Persist Fox Plant chart options from the panel."""
+        entity_id = forecast_entity_id.strip() if forecast_entity_id else None
+        if entity_id:
+            st = self.hass.states.get(entity_id)
+            if st is None:
+                raise HomeAssistantError(f"Entity {entity_id} is not available")
+            if not entity_id.startswith("sensor."):
+                raise HomeAssistantError(f"{entity_id} must be a sensor entity")
+        data = dict(self.config_entry.data)
+        data[CONF_PANEL_DISPLAY] = PanelDisplayConfig(forecast_entity_id=entity_id).to_dict()
+        self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+        self.update_plant_config(PlantConfig.from_entry_data(data))
         await self.async_request_refresh()
 
     async def async_set_tariff_mode(self, mode_name: str) -> None:

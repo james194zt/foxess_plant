@@ -322,3 +322,39 @@ def list_trigger_candidates(hass: HomeAssistant) -> dict[str, Any]:
         "default_provider": STORM_ALERT_PROVIDER_GOOGLE,
         "recommended_triggers": google["recommended_trigger_ids"],
     }
+
+
+_POWER_UNITS = frozenset({"w", "kw", "kwh"})
+
+
+def _is_forecast_power_sensor(hass: HomeAssistant, state: State) -> bool:
+    if not state.entity_id.startswith("sensor."):
+        return False
+    unit = str(state.attributes.get("unit_of_measurement") or "").lower().replace(" ", "")
+    object_id = state.entity_id.split(".", 1)[1].lower()
+    if unit in _POWER_UNITS or unit in ("watt", "kilowatt"):
+        return True
+    hints = ("forecast", "solcast", "pv_power", "power_now", "power_forecast")
+    return any(h in object_id for h in hints)
+
+
+def list_forecast_entity_candidates(hass: HomeAssistant) -> list[dict[str, Any]]:
+    """Sensors suitable as the statistics-chart PV forecast overlay."""
+    rows: list[dict[str, Any]] = []
+    for state in hass.states.async_all("sensor"):
+        if not _is_forecast_power_sensor(hass, state):
+            continue
+        name = state.attributes.get("friendly_name") or state.entity_id
+        unit = state.attributes.get("unit_of_measurement")
+        suggested = "solcast" in state.entity_id.lower() or "forecast" in state.entity_id.lower()
+        rows.append(
+            {
+                "entity_id": state.entity_id,
+                "name": str(name),
+                "state": state.state,
+                "unit": str(unit) if unit else "",
+                "suggested": suggested,
+            }
+        )
+    rows.sort(key=lambda r: (not r["suggested"], r["name"].lower()))
+    return rows

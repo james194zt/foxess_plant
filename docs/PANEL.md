@@ -20,7 +20,25 @@ Top tabs (like **Energy → Summary / Electricity / Gas**):
 | **Overview** | Live energy-flow diagram + today’s analytics |
 | **Device** | PV gauge, battery card, detailed parameters |
 | **Energy** | Daily kWh stats, Fox-style breakdown donuts, **Day / Month / Year** history charts |
-| **Settings** | Sub-tabs: Quick, Schedule, Work mode, StormSafe, Control |
+| **Settings** | Sub-tabs: Quick, Schedule, Work mode, StormSafe, Charts, Control |
+
+## Statistics chart & forecast overlay
+
+The **Statistics** line chart (Overview and Energy → **Day**) matches your main dashboard: Solar, battery charge/discharge, grid import/export, and load — with filled areas under the curves.
+
+Configure the gold **Forecast** line under **Settings → Charts**. Pick any sensor that reports forecast power (e.g. `sensor.solcast_pv_forecast_power_now`). The panel converts **W → kW** when needed.
+
+## Energy charts (Day / Month / Year)
+
+On the **Energy** tab, use **Day**, **Month**, or **Year** above the chart:
+
+| Period | Chart |
+|--------|--------|
+| **Day** | Same **Statistics** chart as Overview (includes forecast if configured) |
+| **Month** | Daily kWh bars for the current month (PV, load, grid import) |
+| **Year** | Monthly kWh totals for the current year |
+
+Requires the Home Assistant **recorder** with history kept for your FoxESS Modbus power and daily energy sensors.
 
 ## Live energy scene
 

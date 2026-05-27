@@ -218,6 +218,21 @@ class ForecastPrepConfig:
 
 
 @dataclass
+class PanelDisplayConfig:
+    """Fox Plant panel display options (charts, etc.)."""
+
+    forecast_entity_id: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> PanelDisplayConfig:
+        raw = data.get("forecast_entity_id")
+        return cls(forecast_entity_id=str(raw) if raw else None)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"forecast_entity_id": self.forecast_entity_id}
+
+
+@dataclass
 class PlantConfig:
     device_id: str
     inverter_target: str
@@ -229,6 +244,7 @@ class PlantConfig:
     storm_prep: PrepPolicyConfig = field(default_factory=PrepPolicyConfig)
     outage_prep: PrepPolicyConfig = field(default_factory=PrepPolicyConfig)
     forecast_prep: ForecastPrepConfig = field(default_factory=ForecastPrepConfig)
+    panel_display: PanelDisplayConfig = field(default_factory=PanelDisplayConfig)
     tariff_modes: dict[str, list[ChargePeriodConfig]] = field(default_factory=dict)
 
     @classmethod
@@ -237,6 +253,7 @@ class PlantConfig:
             DEFAULT_BASELINE_PERIODS,
             DEFAULT_FORECAST_PREP,
             DEFAULT_OUTAGE_PREP,
+            DEFAULT_PANEL_DISPLAY,
             DEFAULT_STORM_PREP,
         )
 
@@ -260,6 +277,7 @@ class PlantConfig:
             forecast_prep=ForecastPrepConfig.from_dict(
                 data.get("forecast_prep", {}), DEFAULT_FORECAST_PREP["charge_periods"]
             ),
+            panel_display=PanelDisplayConfig.from_dict(data.get("panel_display", DEFAULT_PANEL_DISPLAY)),
             tariff_modes=tariff_modes,
         )
 
@@ -275,6 +293,7 @@ class PlantConfig:
             "storm_prep": self.storm_prep.to_dict(),
             "outage_prep": self.outage_prep.to_dict(),
             "forecast_prep": self.forecast_prep.to_dict(),
+            "panel_display": self.panel_display.to_dict(),
             "tariff_modes": {
                 name: [p.to_dict() for p in periods] for name, periods in self.tariff_modes.items()
             },

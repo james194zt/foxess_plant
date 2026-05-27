@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.0
+ * @version 0.8.1
  */
 
 const NAV = [
@@ -17,6 +17,7 @@ const SETTINGS_NAV = [
   { id: "schedules", label: "Schedule" },
   { id: "workmode", label: "Work mode" },
   { id: "storm", label: "StormSafe" },
+  { id: "charts", label: "Charts" },
   { id: "control", label: "Control" },
 ];
 
@@ -178,13 +179,33 @@ ${donut}
 </div>`;
 }
 
-const ENERGY_CHART_DAY_SERIES = [
-  { key: "pv_power", label: "Solar", color: "#19D4DE", toKw: true },
-  { key: "load_power", label: "Load", color: "#8A4DFF", toKw: true, negate: true },
-  { key: "grid_import", label: "Grid import", color: "#FF6FAF", toKw: true, abs: true },
-  { key: "grid_export", label: "Grid export", color: "#FF6FAF", toKw: true, abs: true, negate: true, dash: true },
-  { key: "battery_power", label: "Battery", color: "#8DB6FF", toKw: true },
+/** Matches dashboard Statistics plotly-graph series. */
+const STATISTICS_CHART_SERIES = [
+  { key: "pv_power", label: "Solar", color: "#19D4DE", toKw: true, fill: true },
+  { key: "battery_charge", label: "Battery charge", color: "#8DB6FF", toKw: true, negate: true, fill: true },
+  {
+    key: "battery_discharge",
+    label: "Battery discharge",
+    color: "#8DB6FF",
+    toKw: true,
+    fill: true,
+    hideLegend: true,
+  },
+  { key: "grid_import", label: "Grid import", color: "#FF6FAF", toKw: true, abs: true, fill: true },
+  {
+    key: "grid_export",
+    label: "Grid export",
+    color: "#FF6FAF",
+    toKw: true,
+    abs: true,
+    negate: true,
+    dash: true,
+    hideLegend: true,
+  },
+  { key: "load_power", label: "Load", color: "#8A4DFF", toKw: true, negate: true, fill: true },
 ];
+
+const FORECAST_CHART_STYLE = { label: "Forecast", color: "#FFD700", fill: true };
 
 const ENERGY_CHART_BAR = {
   pv: { suffix: "solar_energy_today", label: "PV", color: FOX_ENERGY.pv },
@@ -239,6 +260,22 @@ function transformPowerPoint(v, spec) {
   return x;
 }
 
+function entityValueToKw(hass, entityId, value) {
+  const unit = String(hass?.states?.[entityId]?.attributes?.unit_of_measurement || "")
+    .toLowerCase()
+    .replace(/\s/g, "");
+  if (unit === "kw") return value;
+  return value / 1000;
+}
+
+function transformHistoryPoint(hass, entityId, v, spec) {
+  let x = v;
+  if (spec.toKw) x = entityValueToKw(hass, entityId, x);
+  if (spec.abs) x = Math.abs(x);
+  if (spec.negate) x = -x;
+  return Math.max(0, x);
+}
+
 function dailyMaxInRange(points, dayStartMs, dayEndMs) {
   let max = 0;
   for (const p of points) {
@@ -269,34 +306,54 @@ function formatChartTimeLabel(ms) {
   return new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
-function renderLineChartSvg(series, { height = 200, yLabel = "kW" } = {}) {
-  const all = series.flatMap((s) => s.points);
+function renderLineChartSvg(series, { height = 220, yLabel = "kW", title = "Statistics" } = {}) {
+  const visible = series.filter((s) => s.points?.length);
+  const all = visible.flatMap((s) => s.points);
   if (!all.length) return `<p class="placeholder chart-empty">No power history for today yet.</p>`;
   const width = 400;
-  const pad = { l: 44, r: 14, t: 14, b: 32 };
+  const pad = { l: 44, r: 14, t: 28, b: 32 };
   const w = width - pad.l - pad.r;
   const h = height - pad.t - pad.b;
   const tMin = all[0].t;
   const tMax = all[all.length - 1].t;
   const tSpan = Math.max(tMax - tMin, 60000);
   let yMax = 0.25;
-  for (const p of all) yMax = Math.max(yMax, Math.abs(p.v));
+  for (const p of all) yMax = Math.max(yMax, Math.max(0, p.v));
   yMax *= 1.12;
   const yTicks = [0, yMax * 0.5, yMax];
   const xTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => tMin + tSpan * f);
-  const paths = series
+
+  const xy = (p) => ({
+    x: pad.l + ((p.t - tMin) / tSpan) * w,
+    y: pad.t + h - (Math.max(0, p.v) / yMax) * h,
+  });
+
+  const fills = visible
+    .filter((s) => s.fill)
     .map((s) => {
       if (!s.points.length) return "";
+      const pts = s.points.map((p) => xy(p));
+      const d =
+        `M${pts[0].x.toFixed(1)},${(pad.t + h).toFixed(1)} ` +
+        pts.map((p) => `L${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ") +
+        ` L${pts[pts.length - 1].x.toFixed(1)},${(pad.t + h).toFixed(1)} Z`;
+      const fillColor = s.color === "#19D4DE" ? "rgba(25,212,222,0.16)" : s.color === "#8A4DFF" ? "rgba(138,77,255,0.14)" : s.color === "#FF6FAF" ? "rgba(255,111,175,0.14)" : s.color === "#8DB6FF" ? "rgba(141,182,255,0.14)" : s.color === "#FFD700" ? "rgba(255,215,0,0.14)" : "rgba(127,127,127,0.12)";
+      return `<path d="${d}" fill="${fillColor}" stroke="none"/>`;
+    })
+    .join("");
+
+  const paths = visible
+    .map((s) => {
       const d = s.points
         .map((p, i) => {
-          const x = pad.l + ((p.t - tMin) / tSpan) * w;
-          const y = pad.t + h - (Math.max(0, p.v) / yMax) * h;
+          const { x, y } = xy(p);
           return `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`;
         })
         .join(" ");
-      return `<path class="energy-line" d="${d}" fill="none" stroke="${s.color}" stroke-width="1.6" stroke-dasharray="${s.dash ? "4 3" : "none"}" opacity="${s.dash ? 0.85 : 1}"/>`;
+      return `<path class="energy-line" d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.dash ? "1.2" : "1.4"}" stroke-dasharray="${s.dash ? "5 3" : "none"}" opacity="${s.dash ? 0.9 : 1}"/>`;
     })
     .join("");
+
   const grid = yTicks
     .map((yv) => {
       const y = pad.t + h - (yv / yMax) * h;
@@ -315,13 +372,14 @@ function renderLineChartSvg(series, { height = 200, yLabel = "kW" } = {}) {
       return `<text x="${x.toFixed(1)}" y="${height - 8}" text-anchor="middle" class="chart-axis">${esc(formatChartTimeLabel(xt))}</text>`;
     })
     .join("");
-  const legend = series
+  const legend = visible
+    .filter((s) => !s.hideLegend)
     .map(
       (s) =>
         `<span class="chart-legend-item"><i style="background:${s.color}"></i>${esc(s.label)}</span>`
     )
     .join("");
-  return `<div class="chart-wrap"><svg class="energy-line-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">${grid}${paths}${yLabels}${xLabels}</svg><div class="chart-legend">${legend}</div><div class="chart-y-title">${esc(yLabel)}</div></div>`;
+  return `<div class="chart-wrap statistics-chart-wrap"><div class="chart-heading">${esc(title)}</div><svg class="energy-line-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true"><text x="${pad.l}" y="16" class="chart-axis chart-title-inline">${esc(title)}</text>${grid}${fills}${paths}${yLabels}${xLabels}</svg><div class="chart-legend">${legend}</div><div class="chart-y-title">${esc(yLabel)}</div></div>`;
 }
 
 function renderBarChartSvg(groups, labels, { height = 200 } = {}) {
@@ -655,6 +713,15 @@ const STYLES = `
 .energy-chart-card .card-title { margin-bottom: 10px; }
 .chart-wrap { position: relative; width: 100%; }
 .energy-line-chart, .energy-bar-chart { width: 100%; height: 220px; display: block; }
+.statistics-chart-wrap .energy-line-chart { height: 260px; }
+.chart-heading { font-size: 15px; font-weight: 600; margin-bottom: 8px; color: var(--primary-text-color); }
+.chart-title-inline { font-size: 11px; font-weight: 600; fill: var(--secondary-text-color); }
+.charts-entity-select {
+  width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 10px;
+  border: 1px solid var(--divider-color); background: var(--card-background-color);
+  color: inherit; font-family: inherit; font-size: 14px; margin-bottom: 10px;
+}
+.charts-entity-hint { font-size: 12px; color: var(--secondary-text-color); line-height: 1.45; margin: 0 0 12px; }
 .chart-grid { stroke: rgba(127,127,127,0.15); stroke-width: 1; }
 .chart-axis { fill: var(--secondary-text-color); font-size: 9px; font-family: inherit; }
 .chart-y-title {
@@ -929,6 +996,11 @@ class FoxessPlantPanel extends HTMLElement {
     this._energyChart = null;
     this._energyChartLoading = false;
     this._energyChartPlantId = undefined;
+    this._statisticsChart = null;
+    this._statisticsChartLoading = false;
+    this._statisticsChartPlantId = undefined;
+    this._chartsDraft = null;
+    this._forecastCandidates = null;
     this._headerHasSubTabs = undefined;
     this._renderRaf = 0;
     this._onSocMove = this._onSocMove.bind(this);
@@ -1231,6 +1303,62 @@ class FoxessPlantPanel extends HTMLElement {
     void this._loadTriggerCandidates();
   }
 
+  _initChartsDraft() {
+    const pd = this._plantState?.panel_display ?? {};
+    this._chartsDraft = {
+      forecast_entity_id: pd.forecast_entity_id ?? null,
+    };
+  }
+
+  _enterChartsSettings() {
+    this._initChartsDraft();
+    void this._loadForecastCandidates();
+  }
+
+  async _loadForecastCandidates() {
+    if (!this._hass) return;
+    try {
+      const res = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/forecast_entity_candidates",
+      });
+      this._forecastCandidates = res?.entities ?? [];
+      if (this._settingsView === "charts" && this._chartsDraft && !this._chartsDraft.forecast_entity_id) {
+        const suggested = this._forecastCandidates.find((e) => e.suggested);
+        if (suggested) this._chartsDraft.forecast_entity_id = suggested.entity_id;
+      }
+      if (this._settingsView === "charts") this._scheduleRender();
+    } catch {
+      this._forecastCandidates = [];
+    }
+  }
+
+  async _saveChartsSettings() {
+    const plant = this._getPlant();
+    if (!plant || !this._chartsDraft) return;
+    this._busy = true;
+    this._render();
+    try {
+      const state = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/update_panel_display",
+        plant_id: plant.entry_id,
+        forecast_entity_id: this._chartsDraft.forecast_entity_id || null,
+      });
+      if (state) this._plantState = state;
+      this._statisticsChart = null;
+      this._statisticsChartPlantId = undefined;
+      this._energyChart = null;
+      this._energyChartPlantId = undefined;
+      await this._loadStatisticsChart();
+      if (this._view === "energy" && this._energyPeriod === "day") await this._loadEnergyCharts();
+      this._showToast("Chart settings saved");
+    } catch (err) {
+      this._showToast(err?.message || "Save failed", "err");
+    } finally {
+      this._busy = false;
+      this._render();
+    }
+  }
+
   async _loadTriggerCandidates() {
     if (!this._hass) return;
     try {
@@ -1296,6 +1424,7 @@ class FoxessPlantPanel extends HTMLElement {
       this._settingsView = "main";
       this._deviceSub = "main";
       if (this._view === "energy") this._loadEnergyCharts();
+      if (this._view === "overview") this._loadStatisticsChart();
       this._render();
       return;
     }
@@ -1324,6 +1453,7 @@ class FoxessPlantPanel extends HTMLElement {
       if (btn.dataset.sub === "quick") this._initSocDraft();
       if (btn.dataset.sub === "workmode") this._initWorkModeDraft();
       if (btn.dataset.sub === "storm") this._enterStormSettings();
+      if (btn.dataset.sub === "charts") this._enterChartsSettings();
       this._render();
       return;
     }
@@ -1334,7 +1464,12 @@ class FoxessPlantPanel extends HTMLElement {
       if (btn.dataset.sub === "quick") this._initSocDraft();
       if (btn.dataset.sub === "workmode") this._initWorkModeDraft();
       if (btn.dataset.sub === "storm") this._enterStormSettings();
+      if (btn.dataset.sub === "charts") this._enterChartsSettings();
       this._render();
+      return;
+    }
+    if (action === "save-charts-settings") {
+      await this._saveChartsSettings();
       return;
     }
     if (action === "pick-work-mode") {
@@ -1471,6 +1606,12 @@ class FoxessPlantPanel extends HTMLElement {
 
   _handleInput(e) {
     const el = e.target;
+    if (el?.dataset?.action === "pick-forecast-entity") {
+      if (!this._chartsDraft) return;
+      this._chartsDraft.forecast_entity_id = el.value || null;
+      this._scheduleRender();
+      return;
+    }
     if (el?.dataset?.action === "pick-google-weather-entry") {
       if (!this._stormDraft) return;
       this._applyGoogleWeatherEntry(el.value || null);
@@ -1484,6 +1625,8 @@ class FoxessPlantPanel extends HTMLElement {
       this._plantState = undefined;
       this._energyChart = null;
       this._energyChartPlantId = undefined;
+      this._statisticsChart = null;
+      this._statisticsChartPlantId = undefined;
       this._settingsView = "main";
       this._deviceSub = "main";
       this._view = "overview";
@@ -1862,6 +2005,10 @@ ${this._renderEnergyScene(plant)}
 ${this._stat("Self-consumption", a.self_consumption_percent_today, a.self_consumption_percent_today != null ? "%" : "")}
 ${this._stat("Self-sufficiency", a.self_sufficiency_percent_today, a.self_sufficiency_percent_today != null ? "%" : "")}
 ${this._stat("PV today", a.pv_production_kwh_today, a.pv_production_kwh_today != null ? " kWh" : "")}
+</div>
+<div class="card statistics-card" style="margin-top:14px">
+<p class="card-title">Statistics</p>
+${this._renderStatisticsChartBody()}
 </div>`;
   }
 
@@ -1972,18 +2119,17 @@ ${this._stat("PV today", a.pv_production_kwh_today, a.pv_production_kwh_today !=
   async _loadEnergyCharts() {
     const plant = this._getPlant();
     if (!plant || !this._hass) return;
+    if (this._energyPeriod === "day") {
+      return this._loadStatisticsChart();
+    }
     const plantId = plant.entry_id;
     this._energyChartLoading = true;
     this._energyChart = null;
     this._energyChartPlantId = plantId;
     this._scheduleRender();
     try {
-      if (this._energyPeriod === "day") {
-        this._energyChart = { kind: "line", svg: await this._fetchDayPowerChartSvg(plant) };
-      } else {
-        const bar = await this._fetchPeriodEnergyBarChart(plant, this._energyPeriod);
-        this._energyChart = { kind: "bar", svg: bar.svg, title: bar.title };
-      }
+      const bar = await this._fetchPeriodEnergyBarChart(plant, this._energyPeriod);
+      this._energyChart = { kind: "bar", svg: bar.svg, title: bar.title };
     } catch (err) {
       this._energyChart = {
         error:
@@ -1996,32 +2142,79 @@ ${this._stat("PV today", a.pv_production_kwh_today, a.pv_production_kwh_today !=
     }
   }
 
-  async _fetchDayPowerChartSvg(plant) {
+  async _loadStatisticsChart() {
+    const plant = this._getPlant();
+    if (!plant || !this._hass) return;
+    const plantId = plant.entry_id;
+    this._statisticsChartLoading = true;
+    this._statisticsChart = null;
+    this._statisticsChartPlantId = plantId;
+    this._scheduleRender();
+    try {
+      const svg = await this._fetchStatisticsChartSvg(plant);
+      this._statisticsChart = { svg };
+    } catch (err) {
+      this._statisticsChart = {
+        error:
+          err?.message ||
+          "Could not load history. Enable the Home Assistant recorder and keep history for power sensors.",
+      };
+    } finally {
+      this._statisticsChartLoading = false;
+      if (this._getPlant()?.entry_id === plantId) this._scheduleRender();
+    }
+  }
+
+  async _fetchStatisticsChartSvg(plant) {
     const map = plant.entity_map || {};
-    const specs = ENERGY_CHART_DAY_SERIES.map((s) => ({ ...s, entity_id: map[s.key] })).filter(
+    const specs = STATISTICS_CHART_SERIES.map((s) => ({ ...s, entity_id: map[s.key] })).filter(
       (s) => s.entity_id
     );
     if (!specs.length) {
       return `<p class="placeholder chart-empty">Map power entities in FoxESS Modbus, then reload FoxESS Plant.</p>`;
     }
+    const forecastId = this._plantState?.panel_display?.forecast_entity_id || null;
+    const entityIds = specs.map((s) => s.entity_id);
+    if (forecastId) entityIds.push(forecastId);
     const now = new Date();
     const start = startOfLocalDay(now);
-    const hist = await fetchHistoryDuring(
-      this._hass,
-      specs.map((s) => s.entity_id),
-      start,
-      now
-    );
+    const hist = await fetchHistoryDuring(this._hass, entityIds, start, now);
     const series = specs.map((spec, idx) => ({
       label: spec.label,
       color: spec.color,
       dash: spec.dash,
+      fill: spec.fill,
+      hideLegend: spec.hideLegend,
       points: historyToPoints(hist[idx]).map((p) => ({
         t: p.t,
-        v: transformPowerPoint(p.v, spec),
+        v: transformHistoryPoint(this._hass, spec.entity_id, p.v, spec),
       })),
     }));
-    return renderLineChartSvg(series);
+    if (forecastId) {
+      const fIdx = entityIds.indexOf(forecastId);
+      const fPoints = historyToPoints(hist[fIdx]).map((p) => ({
+        t: p.t,
+        v: transformHistoryPoint(this._hass, forecastId, p.v, { toKw: true }),
+      }));
+      if (fPoints.length) {
+        series.push({
+          ...FORECAST_CHART_STYLE,
+          points: fPoints,
+        });
+      }
+    }
+    return renderLineChartSvg(series, { height: 260, title: "Statistics" });
+  }
+
+  _renderStatisticsChartBody() {
+    if (this._statisticsChartLoading) {
+      return `<p class="chart-loading">Loading statistics…</p>`;
+    }
+    if (this._statisticsChart?.error) {
+      return `<p class="placeholder chart-empty">${esc(this._statisticsChart.error)}</p>`;
+    }
+    if (this._statisticsChart?.svg) return this._statisticsChart.svg;
+    return `<p class="placeholder chart-empty">Open Energy or wait for history to load.</p>`;
   }
 
   async _fetchPeriodEnergyBarChart(plant, period) {
@@ -2152,15 +2345,21 @@ ${this._stat("PV today", a.pv_production_kwh_today, a.pv_production_kwh_today !=
           `<button type="button" data-action="energy-period" data-period="${p.id}" class="${p.id === this._energyPeriod ? "active" : ""}">${p.label}</button>`
       )
       .join("");
-    let body = `<p class="chart-loading">Loading chart…</p>`;
-    if (!this._energyChartLoading && this._energyChart?.error) {
+    let body;
+    if (this._energyPeriod === "day") {
+      body = this._renderStatisticsChartBody();
+    } else if (this._energyChartLoading) {
+      body = `<p class="chart-loading">Loading chart…</p>`;
+    } else if (this._energyChart?.error) {
       body = `<p class="placeholder chart-empty">${esc(this._energyChart.error)}</p>`;
-    } else if (!this._energyChartLoading && this._energyChart?.svg) {
+    } else if (this._energyChart?.svg) {
       body = this._energyChart.svg;
+    } else {
+      body = `<p class="chart-loading">Loading chart…</p>`;
     }
     const chartTitle =
       this._energyPeriod === "day"
-        ? "Power today"
+        ? "Statistics"
         : this._energyChart?.title || (this._energyPeriod === "month" ? "This month" : "This year");
     return `<div class="card energy-chart-card">
 <p class="card-title">${esc(chartTitle)}</p>
@@ -2531,7 +2730,16 @@ ${this._modeBanner()}
 <button type="button" class="list-btn" data-action="settings-sub" data-sub="schedules"><span>Charge schedule<span class="sub">Two charge windows (baseline)</span></span><span class="chev">›</span></button>
 <button type="button" class="list-btn" data-action="settings-sub" data-sub="workmode"><span>Work mode<span class="sub">${esc(s.work_mode ?? "—")}</span></span><span class="chev">›</span></button>
 <button type="button" class="list-btn" data-action="settings-sub" data-sub="storm"><span>StormSafe<span class="sub">${stormSub}</span></span><span class="chev">›</span></button>
+<button type="button" class="list-btn" data-action="settings-sub" data-sub="charts"><span>Charts<span class="sub">${esc(this._forecastEntityLabel())}</span></span><span class="chev">›</span></button>
 <button type="button" class="list-btn" data-action="settings-sub" data-sub="control"><span>Plant control<span class="sub">${this._plantState?.control_active ? "Fox Plant manages periods" : "Released to manual"}</span></span><span class="chev">›</span></button>`;
+  }
+
+  _forecastEntityLabel() {
+    const id = this._plantState?.panel_display?.forecast_entity_id;
+    if (!id) return "No forecast overlay";
+    const st = this._hass?.states?.[id];
+    const name = st?.attributes?.friendly_name || id.split(".")[1] || id;
+    return name;
   }
 
   _renderSettingsQuick() {
@@ -2626,6 +2834,32 @@ ${this._renderPeriodCard(1, draft.charge_periods[1], "storm-period", "Storm peri
 </div>`;
   }
 
+  _renderSettingsCharts() {
+    if (!this._chartsDraft) this._initChartsDraft();
+    const selected = this._chartsDraft.forecast_entity_id || "";
+    const candidates = this._forecastCandidates ?? [];
+    const options = [
+      `<option value="">— None —</option>`,
+      ...candidates.map((e) => {
+        const unit = e.unit ? ` (${e.unit})` : "";
+        const mark = e.suggested ? " ★" : "";
+        return `<option value="${esc(e.entity_id)}" ${e.entity_id === selected ? "selected" : ""}>${esc(e.name)}${esc(unit)}${mark}</option>`;
+      }),
+    ];
+    const current = selected
+      ? stateString(this._hass, selected) + entityUnit(this._hass, selected)
+      : "—";
+    return `<header class="header"><h1>Charts</h1><p>Statistics graph and Energy → Day overlay</p></header>
+<div class="card">
+<p class="card-title">PV forecast line</p>
+<p class="charts-entity-hint">Choose a power forecast sensor (e.g. Solcast). Values in <strong>W</strong> are converted to kW automatically; sensors already in <strong>kW</strong> are used as-is.</p>
+<label class="charts-entity-hint" for="fp-forecast-entity">Forecast entity</label>
+<select id="fp-forecast-entity" class="charts-entity-select" data-action="pick-forecast-entity" aria-label="Forecast entity">${options.join("")}</select>
+<p class="charts-entity-hint">Current reading: <strong>${esc(current)}</strong></p>
+<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-charts-settings" ${this._busy ? "disabled" : ""}>Save</button></div>
+</div>`;
+  }
+
   _renderSettingsControl() {
     const active = this._plantState?.control_active;
     return `<header class="header"><h1>Plant control</h1></header>
@@ -2649,6 +2883,8 @@ ${active
         return this._renderSettingsWorkMode();
       case "storm":
         return this._renderSettingsStorm();
+      case "charts":
+        return this._renderSettingsCharts();
       case "control":
         return this._renderSettingsControl();
       default:
@@ -2716,12 +2952,29 @@ ${active
     }
     if (this._view === "energy") {
       const plant = this._getPlant();
-      if (
-        plant &&
+      if (!plant) return;
+      if (this._energyPeriod === "day") {
+        if (
+          !this._statisticsChartLoading &&
+          (this._statisticsChartPlantId !== plant.entry_id || !this._statisticsChart)
+        ) {
+          this._loadStatisticsChart();
+        }
+      } else if (
         !this._energyChartLoading &&
         (this._energyChartPlantId !== plant.entry_id || !this._energyChart)
       ) {
         this._loadEnergyCharts();
+      }
+    }
+    if (this._view === "overview") {
+      const plant = this._getPlant();
+      if (
+        plant &&
+        !this._statisticsChartLoading &&
+        (this._statisticsChartPlantId !== plant.entry_id || !this._statisticsChart)
+      ) {
+        this._loadStatisticsChart();
       }
     }
   }

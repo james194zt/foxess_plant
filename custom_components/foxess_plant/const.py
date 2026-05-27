@@ -12,6 +12,7 @@ CONF_OVERRIDE = "override"
 CONF_STORM_PREP = "storm_prep"
 CONF_OUTAGE_PREP = "outage_prep"
 CONF_FORECAST_PREP = "forecast_prep"
+CONF_PANEL_DISPLAY = "panel_display"
 CONF_TARIFF_MODES = "tariff_modes"
 
 CHARGE_PERIOD_KEYS = (
@@ -74,6 +75,8 @@ PANEL_ENTITY_SUFFIXES: dict[str, tuple[str, ...]] = {
     "grid_export": ("feed_in", "grid_ct"),
     "battery_soc": ("battery_soc_1", "battery_soc"),
     "battery_power": ("invbatpower_1", "invbatpower", "battery_power"),
+    "battery_charge": ("battery_charge_1", "battery_charge"),
+    "battery_discharge": ("battery_discharge_1", "battery_discharge"),
     "battery_status": ("battery_status",),
     "bms_temp_low": ("bms_cell_temp_low_1", "bms_cell_temp_low"),
 }
@@ -222,6 +225,10 @@ DEFAULT_FORECAST_PREP = {
         },
     ],
     "target_max_soc": None,
+}
+
+DEFAULT_PANEL_DISPLAY = {
+    "forecast_entity_id": None,
 }
 
 TRIGGER_ON_STATES = frozenset({"on", "true", "1", "active", "warning", "severe"})

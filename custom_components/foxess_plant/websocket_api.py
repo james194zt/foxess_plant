@@ -10,13 +10,15 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN, STORM_ALERT_PROVIDER_GOOGLE
-from .panel_config import list_trigger_candidates
+from .panel_config import list_forecast_entity_candidates, list_trigger_candidates
 
 WS_TYPE_PLANT_STATE = "foxess_plant/plant_state"
 WS_TYPE_PLANT_LIST = "foxess_plant/plant_list"
 WS_TYPE_TRIGGER_CANDIDATES = "foxess_plant/trigger_candidates"
 WS_TYPE_UPDATE_STORM_PREP = "foxess_plant/update_storm_prep"
 WS_TYPE_SET_SOC_LIMITS = "foxess_plant/set_soc_limits"
+WS_TYPE_FORECAST_ENTITY_CANDIDATES = "foxess_plant/forecast_entity_candidates"
+WS_TYPE_UPDATE_PANEL_DISPLAY = "foxess_plant/update_panel_display"
 
 PERIOD_SCHEMA = vol.Schema(
     {
@@ -172,9 +174,46 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
         )
         connection.send_result(msg["id"], coordinator.get_plant_state())
 
+    @websocket_api.websocket_command({vol.Required("type"): WS_TYPE_FORECAST_ENTITY_CANDIDATES})
+    @websocket_api.async_response
+    async def ws_forecast_entity_candidates(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        connection.send_result(
+            msg["id"],
+            {"entities": list_forecast_entity_candidates(hass)},
+        )
+
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): WS_TYPE_UPDATE_PANEL_DISPLAY,
+            vol.Optional("plant_id"): str,
+            vol.Optional("forecast_entity_id"): vol.Any(str, None),
+        }
+    )
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def ws_update_panel_display(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        raw = msg.get("forecast_entity_id")
+        forecast_entity_id = None if raw in (None, "") else str(raw)
+        await coordinator.async_save_panel_display(forecast_entity_id=forecast_entity_id)
+        connection.send_result(msg["id"], coordinator.get_plant_state())
+
     websocket_api.async_register_command(hass, ws_plant_list)
     websocket_api.async_register_command(hass, ws_plant_state)
     websocket_api.async_register_command(hass, ws_trigger_candidates)
     websocket_api.async_register_command(hass, ws_update_storm_prep)
     websocket_api.async_register_command(hass, ws_set_soc_limits)
+    websocket_api.async_register_command(hass, ws_forecast_entity_candidates)
+    websocket_api.async_register_command(hass, ws_update_panel_display)
     hass.data["_foxess_plant_ws_registered"] = True
