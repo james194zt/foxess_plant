@@ -19,7 +19,7 @@ Top tabs (like **Energy → Summary / Electricity / Gas**):
 |-----|---------|
 | **Overview** | Live energy-flow diagram + today’s analytics |
 | **Device** | PV gauge, battery card, detailed parameters |
-| **Energy** | Daily kWh / self-consumption stats |
+| **Energy** | Daily kWh stats, Fox-style breakdown donuts, **Day / Month / Year** history charts |
 | **Settings** | Sub-tabs: Quick, Schedule, Work mode, StormSafe, Control |
 
 ## Live energy scene

@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.5.2
+ * @version 0.8.0
  */
 
 const NAV = [
@@ -176,6 +176,191 @@ ${donut}
 </div>
 </div>
 </div>`;
+}
+
+const ENERGY_CHART_DAY_SERIES = [
+  { key: "pv_power", label: "Solar", color: "#19D4DE", toKw: true },
+  { key: "load_power", label: "Load", color: "#8A4DFF", toKw: true, negate: true },
+  { key: "grid_import", label: "Grid import", color: "#FF6FAF", toKw: true, abs: true },
+  { key: "grid_export", label: "Grid export", color: "#FF6FAF", toKw: true, abs: true, negate: true, dash: true },
+  { key: "battery_power", label: "Battery", color: "#8DB6FF", toKw: true },
+];
+
+const ENERGY_CHART_BAR = {
+  pv: { suffix: "solar_energy_today", label: "PV", color: FOX_ENERGY.pv },
+  load: { suffix: "load_energy_today", label: "Load", color: FOX_ENERGY.load, computed: true },
+  grid: { suffix: "grid_consumption_energy_today", label: "From grid", color: "#FF6FAF" },
+};
+
+function startOfLocalDay(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function endOfLocalDay(d) {
+  const x = new Date(d);
+  x.setHours(23, 59, 59, 999);
+  return x;
+}
+
+async function fetchHistoryDuring(hass, entityIds, start, end) {
+  const ids = entityIds.filter(Boolean);
+  if (!ids.length) return [];
+  return hass.connection.sendMessagePromise({
+    type: "history/history_during_period",
+    start_time: start.toISOString(),
+    end_time: end.toISOString(),
+    entity_ids: ids,
+    minimal_response: true,
+    significant_changes_only: false,
+    no_attributes: true,
+  });
+}
+
+function historyToPoints(rows) {
+  if (!rows?.length) return [];
+  return rows
+    .map((row) => {
+      const t = new Date(row.lu || row.last_changed);
+      const v = parseFloat(row.s);
+      if (!Number.isFinite(v)) return null;
+      return { t: t.getTime(), v };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.t - b.t);
+}
+
+function transformPowerPoint(v, spec) {
+  let x = v;
+  if (spec.abs) x = Math.abs(x);
+  if (spec.negate) x = -x;
+  if (spec.toKw) x /= 1000;
+  return x;
+}
+
+function dailyMaxInRange(points, dayStartMs, dayEndMs) {
+  let max = 0;
+  for (const p of points) {
+    if (p.t >= dayStartMs && p.t <= dayEndMs) max = Math.max(max, p.v);
+  }
+  return max;
+}
+
+function buildDailyLabels(startDay, count) {
+  const labels = [];
+  for (let i = 0; i < count; i++) {
+    const d = new Date(startDay);
+    d.setDate(d.getDate() + i);
+    labels.push(d);
+  }
+  return labels;
+}
+
+function formatChartDayLabel(d) {
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+function formatChartMonthLabel(d) {
+  return d.toLocaleDateString(undefined, { month: "short" });
+}
+
+function formatChartTimeLabel(ms) {
+  return new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
+
+function renderLineChartSvg(series, { height = 200, yLabel = "kW" } = {}) {
+  const all = series.flatMap((s) => s.points);
+  if (!all.length) return `<p class="placeholder chart-empty">No power history for today yet.</p>`;
+  const width = 400;
+  const pad = { l: 44, r: 14, t: 14, b: 32 };
+  const w = width - pad.l - pad.r;
+  const h = height - pad.t - pad.b;
+  const tMin = all[0].t;
+  const tMax = all[all.length - 1].t;
+  const tSpan = Math.max(tMax - tMin, 60000);
+  let yMax = 0.25;
+  for (const p of all) yMax = Math.max(yMax, Math.abs(p.v));
+  yMax *= 1.12;
+  const yTicks = [0, yMax * 0.5, yMax];
+  const xTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => tMin + tSpan * f);
+  const paths = series
+    .map((s) => {
+      if (!s.points.length) return "";
+      const d = s.points
+        .map((p, i) => {
+          const x = pad.l + ((p.t - tMin) / tSpan) * w;
+          const y = pad.t + h - (Math.max(0, p.v) / yMax) * h;
+          return `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`;
+        })
+        .join(" ");
+      return `<path class="energy-line" d="${d}" fill="none" stroke="${s.color}" stroke-width="1.6" stroke-dasharray="${s.dash ? "4 3" : "none"}" opacity="${s.dash ? 0.85 : 1}"/>`;
+    })
+    .join("");
+  const grid = yTicks
+    .map((yv) => {
+      const y = pad.t + h - (yv / yMax) * h;
+      return `<line x1="${pad.l}" y1="${y.toFixed(1)}" x2="${pad.l + w}" y2="${y.toFixed(1)}" class="chart-grid"/>`;
+    })
+    .join("");
+  const yLabels = yTicks
+    .map((yv) => {
+      const y = pad.t + h - (yv / yMax) * h;
+      return `<text x="${pad.l - 6}" y="${(y + 4).toFixed(1)}" text-anchor="end" class="chart-axis">${yv.toFixed(1)}</text>`;
+    })
+    .join("");
+  const xLabels = xTicks
+    .map((xt) => {
+      const x = pad.l + ((xt - tMin) / tSpan) * w;
+      return `<text x="${x.toFixed(1)}" y="${height - 8}" text-anchor="middle" class="chart-axis">${esc(formatChartTimeLabel(xt))}</text>`;
+    })
+    .join("");
+  const legend = series
+    .map(
+      (s) =>
+        `<span class="chart-legend-item"><i style="background:${s.color}"></i>${esc(s.label)}</span>`
+    )
+    .join("");
+  return `<div class="chart-wrap"><svg class="energy-line-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">${grid}${paths}${yLabels}${xLabels}</svg><div class="chart-legend">${legend}</div><div class="chart-y-title">${esc(yLabel)}</div></div>`;
+}
+
+function renderBarChartSvg(groups, labels, { height = 200 } = {}) {
+  const n = labels.length;
+  if (!n) return `<p class="placeholder chart-empty">No energy history in this period.</p>`;
+  const width = 400;
+  const pad = { l: 40, r: 12, t: 16, b: 36 };
+  const w = width - pad.l - pad.r;
+  const h = height - pad.t - pad.b;
+  let yMax = 0.5;
+  for (const g of groups) {
+    for (const v of g.values) yMax = Math.max(yMax, v);
+  }
+  yMax *= 1.15;
+  const groupW = w / n;
+  const barW = Math.min(14, (groupW / Math.max(groups.length, 1)) * 0.7);
+  const rects = [];
+  labels.forEach((_, i) => {
+    const gx = pad.l + i * groupW + groupW / 2;
+    groups.forEach((g, gi) => {
+      const v = g.values[i] || 0;
+      const bh = (v / yMax) * h;
+      const x = gx - (groups.length * barW) / 2 + gi * barW;
+      const y = pad.t + h - bh;
+      rects.push(
+        `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="${g.color}" opacity="0.92"/>`
+      );
+    });
+    if (n <= 16 || i % Math.ceil(n / 8) === 0 || i === n - 1) {
+      const lx = gx;
+      const ly = height - 10;
+      const lbl = labels[i] instanceof Date ? formatChartDayLabel(labels[i]) : String(labels[i]);
+      rects.push(`<text x="${lx.toFixed(1)}" y="${ly}" text-anchor="middle" class="chart-axis">${esc(lbl)}</text>`);
+    }
+  });
+  const legend = groups
+    .map((g) => `<span class="chart-legend-item"><i style="background:${g.color}"></i>${esc(g.label)}</span>`)
+    .join("");
+  return `<div class="chart-wrap"><svg class="energy-bar-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">${rects.join("")}</svg><div class="chart-legend">${legend}</div></div>`;
 }
 
 function formatW(w) {
@@ -456,6 +641,33 @@ const STYLES = `
 }
 .fox-energy-chart-pct { font-size: 24px; font-weight: 700; line-height: 1; letter-spacing: -0.03em; }
 .fox-energy-chart-label { font-size: 10px; color: var(--secondary-text-color); margin-top: 4px; line-height: 1.2; max-width: 80px; }
+.energy-period-tabs { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.energy-period-tabs button {
+  flex: 1; min-width: 72px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--divider-color);
+  background: var(--card-background-color); color: var(--secondary-text-color); font-family: inherit;
+  font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.energy-period-tabs button.active {
+  border-color: var(--fp-accent); color: var(--fp-accent);
+  background: color-mix(in srgb, var(--fp-accent) 12%, var(--card-background-color));
+}
+.energy-chart-card { margin-top: 14px; }
+.energy-chart-card .card-title { margin-bottom: 10px; }
+.chart-wrap { position: relative; width: 100%; }
+.energy-line-chart, .energy-bar-chart { width: 100%; height: 220px; display: block; }
+.chart-grid { stroke: rgba(127,127,127,0.15); stroke-width: 1; }
+.chart-axis { fill: var(--secondary-text-color); font-size: 9px; font-family: inherit; }
+.chart-y-title {
+  position: absolute; left: 0; top: 50%; transform: translateY(-50%) rotate(-90deg);
+  font-size: 10px; color: var(--secondary-text-color); letter-spacing: 0.04em;
+}
+.chart-legend {
+  display: flex; flex-wrap: wrap; gap: 10px 14px; margin-top: 10px; font-size: 12px; color: var(--secondary-text-color);
+}
+.chart-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.chart-legend-item i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.chart-empty { margin: 24px 0; text-align: center; }
+.chart-loading { margin: 24px 0; text-align: center; color: var(--secondary-text-color); font-size: 13px; }
 @media (max-width: 560px) {
   .fox-energy-panel { grid-template-columns: 1fr; }
   .fox-energy-row {
@@ -713,6 +925,10 @@ class FoxessPlantPanel extends HTMLElement {
     this._brandIconFallback = DEFAULT_BRAND_ICON_STATIC;
     this._brandIconStatic = DEFAULT_BRAND_ICON_STATIC;
     this._socDrag = null;
+    this._energyPeriod = "day";
+    this._energyChart = null;
+    this._energyChartLoading = false;
+    this._energyChartPlantId = undefined;
     this._headerHasSubTabs = undefined;
     this._renderRaf = 0;
     this._onSocMove = this._onSocMove.bind(this);
@@ -1079,6 +1295,15 @@ class FoxessPlantPanel extends HTMLElement {
       this._view = btn.dataset.view;
       this._settingsView = "main";
       this._deviceSub = "main";
+      if (this._view === "energy") this._loadEnergyCharts();
+      this._render();
+      return;
+    }
+    if (action === "energy-period") {
+      const period = btn.dataset.period;
+      if (!period || period === this._energyPeriod) return;
+      this._energyPeriod = period;
+      this._loadEnergyCharts();
       this._render();
       return;
     }
@@ -1257,6 +1482,8 @@ class FoxessPlantPanel extends HTMLElement {
       if (!id || id === this._selectedPlantId) return;
       this._selectedPlantId = id;
       this._plantState = undefined;
+      this._energyChart = null;
+      this._energyChartPlantId = undefined;
       this._settingsView = "main";
       this._deviceSub = "main";
       this._view = "overview";
@@ -1731,6 +1958,217 @@ ${this._stat("PV today", a.pv_production_kwh_today, a.pv_production_kwh_today !=
       .join("")}</div>`;
   }
 
+  _energyHistoryEntities(plant) {
+    const map = plant.entity_map || {};
+    return {
+      pv: map.solar_energy_today,
+      load: map.load_energy_today,
+      discharge: map.battery_discharge_today,
+      charge: map.battery_charge_today,
+      grid: map.grid_consumption_energy_today,
+    };
+  }
+
+  async _loadEnergyCharts() {
+    const plant = this._getPlant();
+    if (!plant || !this._hass) return;
+    const plantId = plant.entry_id;
+    this._energyChartLoading = true;
+    this._energyChart = null;
+    this._energyChartPlantId = plantId;
+    this._scheduleRender();
+    try {
+      if (this._energyPeriod === "day") {
+        this._energyChart = { kind: "line", svg: await this._fetchDayPowerChartSvg(plant) };
+      } else {
+        const bar = await this._fetchPeriodEnergyBarChart(plant, this._energyPeriod);
+        this._energyChart = { kind: "bar", svg: bar.svg, title: bar.title };
+      }
+    } catch (err) {
+      this._energyChart = {
+        error:
+          err?.message ||
+          "Could not load history. Enable the Home Assistant recorder and keep history for power sensors.",
+      };
+    } finally {
+      this._energyChartLoading = false;
+      if (this._getPlant()?.entry_id === plantId && this._view === "energy") this._scheduleRender();
+    }
+  }
+
+  async _fetchDayPowerChartSvg(plant) {
+    const map = plant.entity_map || {};
+    const specs = ENERGY_CHART_DAY_SERIES.map((s) => ({ ...s, entity_id: map[s.key] })).filter(
+      (s) => s.entity_id
+    );
+    if (!specs.length) {
+      return `<p class="placeholder chart-empty">Map power entities in FoxESS Modbus, then reload FoxESS Plant.</p>`;
+    }
+    const now = new Date();
+    const start = startOfLocalDay(now);
+    const hist = await fetchHistoryDuring(
+      this._hass,
+      specs.map((s) => s.entity_id),
+      start,
+      now
+    );
+    const series = specs.map((spec, idx) => ({
+      label: spec.label,
+      color: spec.color,
+      dash: spec.dash,
+      points: historyToPoints(hist[idx]).map((p) => ({
+        t: p.t,
+        v: transformPowerPoint(p.v, spec),
+      })),
+    }));
+    return renderLineChartSvg(series);
+  }
+
+  async _fetchPeriodEnergyBarChart(plant, period) {
+    const ent = this._energyHistoryEntities(plant);
+    const ids = [ent.pv, ent.load, ent.discharge, ent.charge, ent.grid].filter(Boolean);
+    if (!ids.length) {
+      return {
+        title: period === "month" ? "This month" : "This year",
+        svg: `<p class="placeholder chart-empty">Daily energy sensors not found. Reload FoxESS Plant.</p>`,
+      };
+    }
+    const now = new Date();
+    let rangeStart;
+    let labels;
+    let title;
+    if (period === "month") {
+      rangeStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      const dayCount = now.getDate();
+      labels = buildDailyLabels(rangeStart, dayCount);
+      title = now.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    } else {
+      rangeStart = new Date(now.getFullYear(), 0, 1);
+      labels = [];
+      for (let m = 0; m <= now.getMonth(); m++) labels.push(new Date(now.getFullYear(), m, 1));
+      title = String(now.getFullYear());
+    }
+    const hist = await fetchHistoryDuring(this._hass, ids, rangeStart, now);
+    const idx = {
+      pv: ids.indexOf(ent.pv),
+      load: ids.indexOf(ent.load),
+      discharge: ids.indexOf(ent.discharge),
+      charge: ids.indexOf(ent.charge),
+      grid: ids.indexOf(ent.grid),
+    };
+    const points = {
+      pv: historyToPoints(hist[idx.pv]),
+      load: historyToPoints(hist[idx.load]),
+      discharge: historyToPoints(hist[idx.discharge]),
+      charge: historyToPoints(hist[idx.charge]),
+      grid: historyToPoints(hist[idx.grid]),
+    };
+
+    const bucketDaily = (pSeries, lSeries, dSeries, cSeries, gSeries) => {
+      const vals = [];
+      for (const day of labels) {
+        const ds = startOfLocalDay(day).getTime();
+        const de = endOfLocalDay(day).getTime();
+        const load =
+          dailyMaxInRange(lSeries, ds, de) -
+          dailyMaxInRange(dSeries, ds, de) +
+          dailyMaxInRange(cSeries, ds, de) +
+          dailyMaxInRange(gSeries, ds, de);
+        vals.push(Math.max(0, Math.round(load * 100) / 100));
+      }
+      return vals;
+    };
+
+    if (period === "month") {
+      const groups = [
+        {
+          label: ENERGY_CHART_BAR.pv.label,
+          color: ENERGY_CHART_BAR.pv.color,
+          values: labels.map((day) => {
+            const ds = startOfLocalDay(day).getTime();
+            const de = endOfLocalDay(day).getTime();
+            return Math.round(dailyMaxInRange(points.pv, ds, de) * 100) / 100;
+          }),
+        },
+        {
+          label: ENERGY_CHART_BAR.load.label,
+          color: ENERGY_CHART_BAR.load.color,
+          values: bucketDaily(points.pv, points.load, points.discharge, points.charge, points.grid),
+        },
+        {
+          label: ENERGY_CHART_BAR.grid.label,
+          color: ENERGY_CHART_BAR.grid.color,
+          values: labels.map((day) => {
+            const ds = startOfLocalDay(day).getTime();
+            const de = endOfLocalDay(day).getTime();
+            return Math.round(dailyMaxInRange(points.grid, ds, de) * 100) / 100;
+          }),
+        },
+      ];
+      return { title, svg: renderBarChartSvg(groups, labels) };
+    }
+
+    const monthLabels = labels;
+    const monthGroups = [
+      { label: ENERGY_CHART_BAR.pv.label, color: ENERGY_CHART_BAR.pv.color, values: [] },
+      { label: ENERGY_CHART_BAR.load.label, color: ENERGY_CHART_BAR.load.color, values: [] },
+      { label: ENERGY_CHART_BAR.grid.label, color: ENERGY_CHART_BAR.grid.color, values: [] },
+    ];
+    for (const monthStart of monthLabels) {
+      const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
+      const end = monthStart.getMonth() === now.getMonth() ? now : endOfLocalDay(monthEnd);
+      const days = buildDailyLabels(monthStart, end.getDate());
+      let pvSum = 0;
+      let loadSum = 0;
+      let gridSum = 0;
+      for (const day of days) {
+        const ds = startOfLocalDay(day).getTime();
+        const de = endOfLocalDay(day).getTime();
+        pvSum += dailyMaxInRange(points.pv, ds, de);
+        gridSum += dailyMaxInRange(points.grid, ds, de);
+        const load =
+          dailyMaxInRange(points.load, ds, de) -
+          dailyMaxInRange(points.discharge, ds, de) +
+          dailyMaxInRange(points.charge, ds, de) +
+          dailyMaxInRange(points.grid, ds, de);
+        loadSum += Math.max(0, load);
+      }
+      monthGroups[0].values.push(Math.round(pvSum * 100) / 100);
+      monthGroups[1].values.push(Math.round(loadSum * 100) / 100);
+      monthGroups[2].values.push(Math.round(gridSum * 100) / 100);
+    }
+    return { title, svg: renderBarChartSvg(monthGroups, monthLabels.map(formatChartMonthLabel)) };
+  }
+
+  _renderEnergyCharts() {
+    const periods = [
+      { id: "day", label: "Day" },
+      { id: "month", label: "Month" },
+      { id: "year", label: "Year" },
+    ];
+    const tabs = periods
+      .map(
+        (p) =>
+          `<button type="button" data-action="energy-period" data-period="${p.id}" class="${p.id === this._energyPeriod ? "active" : ""}">${p.label}</button>`
+      )
+      .join("");
+    let body = `<p class="chart-loading">Loading chart…</p>`;
+    if (!this._energyChartLoading && this._energyChart?.error) {
+      body = `<p class="placeholder chart-empty">${esc(this._energyChart.error)}</p>`;
+    } else if (!this._energyChartLoading && this._energyChart?.svg) {
+      body = this._energyChart.svg;
+    }
+    const chartTitle =
+      this._energyPeriod === "day"
+        ? "Power today"
+        : this._energyChart?.title || (this._energyPeriod === "month" ? "This month" : "This year");
+    return `<div class="card energy-chart-card">
+<p class="card-title">${esc(chartTitle)}</p>
+<div class="energy-period-tabs">${tabs}</div>
+${body}
+</div>`;
+  }
+
   _renderEnergyTodayBreakdown(a) {
     const pvTotal = Number(a.pv_production_kwh_today ?? 0) || 0;
     const pvToLoadBattery = Number(a.pv_to_load_battery_kwh_today ?? 0) || 0;
@@ -1800,7 +2238,7 @@ ${this._stat("Battery discharge", a.battery_discharge_kwh_today, " kWh")}
     : `<p class="placeholder">Analytics appear after the coordinator refreshes.</p>`
 }
 ${has ? this._renderEnergyTodayBreakdown(a) : ""}
-<p class="placeholder" style="margin-top:14px;font-size:13px">Day / month / year charts — phase 5f (next).</p>`;
+${this._renderEnergyCharts()}`;
   }
 
   _renderPeriodCard(idx, period, fieldPrefix = "period", titlePrefix = "Period") {
@@ -2275,6 +2713,16 @@ ${active
     }
     if (this._view === "settings" && this._settingsView === "storm" && this._stormDraft) {
       this._syncStormTriggerPicker();
+    }
+    if (this._view === "energy") {
+      const plant = this._getPlant();
+      if (
+        plant &&
+        !this._energyChartLoading &&
+        (this._energyChartPlantId !== plant.entry_id || !this._energyChart)
+      ) {
+        this._loadEnergyCharts();
+      }
     }
   }
 }
