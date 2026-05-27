@@ -42,10 +42,16 @@ ANALYTICS_ENTITY_SUFFIXES = {
     "battery_charge_today": "battery_charge_today",
 }
 
+IMPACT_ENTITY_SUFFIXES = {
+    "solar_energy_total": "solar_energy_total",
+    **{f"pv{i}_energy_total": f"pv{i}_energy_total" for i in range(1, 7)},
+}
+
 DISCOVERY_SUFFIXES = {
     **{k: k for k in CHARGE_PERIOD_KEYS},
     **CONTROL_ENTITY_SUFFIXES,
     **ANALYTICS_ENTITY_SUFFIXES,
+    **IMPACT_ENTITY_SUFFIXES,
 }
 
 # Panel live-data keys → candidate entity_id / unique_id suffixes (first match wins).

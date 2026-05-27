@@ -1121,7 +1121,55 @@ const STYLES = `
 .chart-legend-item i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
 .chart-empty { margin: 24px 0; text-align: center; }
 .chart-loading { margin: 24px 0; text-align: center; color: var(--secondary-text-color); font-size: 13px; }
+.impact-card .card-title { margin-bottom: 12px; }
+.impact-grid {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px;
+}
+.impact-metric {
+  text-align: center; padding: 14px 8px 10px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--fp-accent, #19d4de) 6%, var(--card-background-color));
+  border: 1px solid var(--divider-color, rgba(127,127,127,0.2));
+}
+.impact-icon {
+  width: 36px; height: 36px; margin: 0 auto 10px; border-radius: 50%;
+  background: color-mix(in srgb, var(--impact-accent) 18%, transparent);
+  position: relative;
+}
+.impact-icon::after {
+  content: ""; position: absolute; inset: 0; margin: auto; width: 18px; height: 18px;
+  background: var(--impact-accent); mask-size: contain; mask-repeat: no-repeat; mask-position: center;
+  -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center;
+}
+.impact-icon-co2::after {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z'/%3E%3C/svg%3E");
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z'/%3E%3C/svg%3E");
+}
+.impact-icon-tree::after {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M12 2L7 9h3v2H6L2 18h20L18 11h-4V9h3l-5-7zm0 20a2 2 0 100-4 2 2 0 000 4z'/%3E%3C/svg%3E");
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M12 2L7 9h3v2H6L2 18h20L18 11h-4V9h3l-5-7zm0 20a2 2 0 100-4 2 2 0 000 4z'/%3E%3C/svg%3E");
+}
+.impact-icon-oil::after {
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M12 3L4 19h16L12 3zm0 4.5L16.5 17h-9L12 7.5z'/%3E%3C/svg%3E");
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M12 3L4 19h16L12 3zm0 4.5L16.5 17h-9L12 7.5z'/%3E%3C/svg%3E");
+}
+.impact-value {
+  font-size: 22px; font-weight: 700; line-height: 1.15; letter-spacing: -0.02em;
+  color: var(--primary-text-color);
+}
+.impact-unit {
+  font-size: 13px; font-weight: 500; color: var(--secondary-text-color); margin-left: 3px;
+}
+.impact-label {
+  margin-top: 6px; font-size: 11px; line-height: 1.3; color: var(--secondary-text-color);
+}
+.impact-basis {
+  margin: 12px 0 0; font-size: 11px; color: var(--secondary-text-color); text-align: center;
+}
+.impact-placeholder { font-size: 13px; line-height: 1.45; margin: 0; }
+.impact-placeholder code { font-size: 12px; }
 @media (max-width: 560px) {
+  .impact-grid { grid-template-columns: 1fr; }
   .fox-energy-panel { grid-template-columns: 1fr; }
   .fox-energy-row {
     grid-template-columns: minmax(0, 1fr) min(40vw, 132px);
@@ -2382,6 +2430,61 @@ ${pathsHtml}
     return `<div class="stat"><label>${esc(label)}</label><strong>${has ? esc(String(value)) + esc(suffix) : "—"}</strong></div>`;
   }
 
+  _renderImpactPanel() {
+    const imp = this._plantState?.impact ?? {};
+    if (imp.co2_kg == null && imp.trees_planted == null && imp.oil_litres == null) {
+      return `<div class="card impact-card" style="margin-top:14px">
+<p class="card-title">Impact</p>
+<p class="placeholder impact-placeholder">Lifetime solar total not available yet. Reload FoxESS Plant after foxess_modbus exposes <code>solar_energy_total</code>.</p>
+</div>`;
+    }
+    const items = [
+      {
+        label: "CO₂ reduction",
+        value: imp.co2_kg,
+        unit: "kg",
+        icon: "co2",
+        color: "#4caf50",
+      },
+      {
+        label: "Trees planted",
+        value: imp.trees_planted,
+        unit: "",
+        icon: "tree",
+        color: "#66bb6a",
+      },
+      {
+        label: "Oil saved",
+        value: imp.oil_litres,
+        unit: "L",
+        icon: "oil",
+        color: "#ffa726",
+      },
+    ];
+    const grid = items
+      .map((item) => {
+        const has = item.value != null;
+        const display = has
+          ? `${Number(item.value).toFixed(1)}${item.unit ? `<span class="impact-unit">${esc(item.unit)}</span>` : ""}`
+          : "—";
+        return `<div class="impact-metric">
+<div class="impact-icon impact-icon-${item.icon}" style="--impact-accent:${item.color}" aria-hidden="true"></div>
+<div class="impact-value">${display}</div>
+<div class="impact-label">${esc(item.label)}</div>
+</div>`;
+      })
+      .join("");
+    const basis =
+      imp.solar_kwh_total != null
+        ? `<p class="impact-basis">Based on ${Number(imp.solar_kwh_total).toFixed(1)} kWh lifetime solar generation</p>`
+        : "";
+    return `<div class="card impact-card" style="margin-top:14px">
+<p class="card-title">Impact</p>
+<div class="impact-grid">${grid}</div>
+${basis}
+</div>`;
+  }
+
   _renderOverview(plant) {
     const a = this._plantState?.analytics ?? {};
     return `<header class="header"><h1>${esc(plant.title)}</h1><p>${esc(plant.inverter)}</p></header>
@@ -2392,6 +2495,7 @@ ${this._stat("Self-consumption", a.self_consumption_percent_today, a.self_consum
 ${this._stat("Self-sufficiency", a.self_sufficiency_percent_today, a.self_sufficiency_percent_today != null ? "%" : "")}
 ${this._stat("PV today", a.pv_production_kwh_today, a.pv_production_kwh_today != null ? " kWh" : "")}
 </div>
+${this._renderImpactPanel()}
 <div class="card statistics-card" style="margin-top:14px">
 <p class="card-title">Statistics</p>
 ${this._renderStatisticsChartBody()}

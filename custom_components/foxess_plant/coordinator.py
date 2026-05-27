@@ -13,11 +13,13 @@ from homeassistant.helpers.event import async_track_state_change_event, async_tr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .analytics import compute_analytics
+from .impact import compute_impact
 from .charge_period import apply_charge_periods
 from .discovery import missing_charge_period_entities
 from .soc_limits import apply_soc_limits, clamp_soc_values
 from .const import (
     ANALYTICS_ENTITY_SUFFIXES,
+    IMPACT_ENTITY_SUFFIXES,
     AUTOMATION_MODES,
     CONF_PANEL_DISPLAY,
     CONF_STORM_PREP,
@@ -411,6 +413,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         actual = self._read_actual_periods()
         drift = self._compute_drift(desired, actual)
         analytics = self._read_analytics()
+        impact = self._read_impact()
         return {
             "plant_id": self.config_entry.entry_id,
             "title": self.config_entry.title,
@@ -427,6 +430,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "drift": drift,
             "entity_map": self.plant.entity_map,
             "analytics": analytics,
+            "impact": impact,
             "active_storm_triggers": sorted(self._active_storm_triggers),
             "active_outage_triggers": sorted(self._active_outage_triggers),
             "forecast_armed": self._forecast_armed,
@@ -449,6 +453,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not any(states.values()):
             return {}
         return compute_analytics(states)
+
+    def _read_impact(self) -> dict[str, Any]:
+        states = {key: self._entity_state(key) for key in IMPACT_ENTITY_SUFFIXES}
+        if not any(v not in (None, "unknown", "unavailable", "") for v in states.values()):
+            return {}
+        return compute_impact(states)
 
     def _read_identity(self) -> dict[str, str | None]:
         """PCS/BMS identity and firmware from discovered foxess_modbus entities."""
