@@ -1274,23 +1274,22 @@ const STYLES = `
 .header p { margin: 6px 0 0; color: var(--secondary-text-color); font-size: 14px; }
 .overview-header { margin-bottom: 16px; }
 .overview-model { margin: 4px 0 0; font-size: 15px; font-weight: 500; color: var(--secondary-text-color); letter-spacing: 0.01em; }
-.overview-status-block { margin-top: 14px; }
+.overview-status-block { margin-top: 12px; }
+.overview-status-row {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; line-height: 1.35;
+}
 .overview-fox-status {
-  font-size: 32px; font-weight: 700; line-height: 1.1; letter-spacing: -0.03em;
-  color: var(--primary-text-color);
+  font-size: 17px; font-weight: 700; letter-spacing: -0.01em; color: var(--primary-text-color);
 }
 .overview-fox-status.is-normal { color: #4caf50; }
 .overview-fox-status.is-fault { color: var(--fp-red, #e53935); }
 .overview-fox-status.is-checking { color: var(--secondary-text-color); }
 .overview-fox-status.is-offgrid { color: var(--fp-amber, #ffb300); }
 .overview-work-mode {
-  margin-top: 6px; font-size: 20px; font-weight: 600; letter-spacing: -0.02em;
-  color: var(--primary-text-color);
+  margin: 0; font-size: 15px; font-weight: 600; color: var(--primary-text-color);
 }
-.overview-meta-row {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px;
-}
-.overview-control-hint { font-size: 13px; color: var(--secondary-text-color); }
+.overview-status-row .mode-pill { flex-shrink: 0; }
+.overview-control-hint { font-size: 13px; color: var(--secondary-text-color); white-space: nowrap; }
 .mode-banner-row {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px;
 }
@@ -2783,16 +2782,15 @@ ${thumbsHtml}
     const systemStatus = foxInverterStateLabel(this._hass, plant, this._plantState);
     const workMode = foxWorkModeLabel(this._hass, plant, this._plantState);
     const plantMode = st.mode ?? "baseline";
-    const statusHtml =
+    const statusPart =
       systemStatus !== "—"
-        ? `<div class="overview-fox-status ${foxStatusToneClass(systemStatus)}">${esc(systemStatus)}</div>`
+        ? `<span class="overview-fox-status ${foxStatusToneClass(systemStatus)}">${esc(systemStatus)}</span>`
         : "";
-    const workHtml =
-      workMode !== "—" ? `<div class="overview-work-mode">${esc(workMode)}</div>` : "";
+    const workPart = workMode !== "—" ? `<span class="overview-work-mode">${esc(workMode)}</span>` : "";
     return `<div class="overview-status-block">
-${statusHtml}
-${workHtml}
-<div class="overview-meta-row">
+<div class="overview-status-row">
+${statusPart}
+${workPart}
 <span class="mode-pill ${modeClass(plantMode)}">${esc(plantMode)}</span>
 <span class="overview-control-hint">${st.control_active ? "Plant control active" : "Plant control off"}</span>
 </div>
@@ -3119,6 +3117,7 @@ ${renderListButton({ action: "device-sub", sub: "system" }, "System info", "Firm
       return {
         id: spec.key,
         label: spec.label,
+        tooltipLabel: spec.tooltipLabel,
         legendGroup: spec.legendGroup,
         color: spec.color,
         fill: spec.fill,
