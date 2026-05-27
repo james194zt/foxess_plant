@@ -179,33 +179,93 @@ ${donut}
 </div>`;
 }
 
-/** Matches dashboard Statistics plotly-graph series. */
+/** Matches dashboard Statistics plotly-graph series (dashboard.yaml). */
 const STATISTICS_CHART_SERIES = [
-  { key: "pv_power", label: "Solar", color: "#19D4DE", toKw: true, fill: true },
-  { key: "battery_charge", label: "Battery charge", color: "#8DB6FF", toKw: true, negate: true, fill: true },
+  {
+    key: "pv_power",
+    label: "Solar",
+    legendGroup: "solar",
+    color: "#19D4DE",
+    fillColor: "rgba(25,212,222,0.16)",
+    toKw: true,
+    fill: true,
+    lineWidth: 1.4,
+  },
+  {
+    key: "battery_charge",
+    label: "Battery Charge (-)",
+    legendGroup: "battery",
+    color: "#8DB6FF",
+    fillColor: "rgba(141,182,255,0.14)",
+    toKw: true,
+    negate: true,
+    fill: true,
+    lineWidth: 1.2,
+  },
   {
     key: "battery_discharge",
-    label: "Battery discharge",
+    label: "Battery Discharge (+)",
+    legendGroup: "battery",
     color: "#8DB6FF",
+    fillColor: "rgba(141,182,255,0.14)",
     toKw: true,
     fill: true,
     hideLegend: true,
+    lineWidth: 1.2,
   },
-  { key: "grid_import", label: "Grid import", color: "#FF6FAF", toKw: true, abs: true, fill: true },
+  {
+    key: "grid_import",
+    label: "Grid Import (+)",
+    legendGroup: "grid",
+    color: "#FF6FAF",
+    fillColor: "rgba(255,111,175,0.14)",
+    toKw: true,
+    abs: true,
+    fill: true,
+    lineWidth: 1.2,
+  },
   {
     key: "grid_export",
-    label: "Grid export",
+    label: "Grid Export (-)",
+    legendGroup: "grid",
     color: "#FF6FAF",
+    fillColor: "rgba(255,111,175,0.14)",
     toKw: true,
     abs: true,
     negate: true,
-    dash: true,
+    fill: true,
     hideLegend: true,
+    lineWidth: 1.2,
   },
-  { key: "load_power", label: "Load", color: "#8A4DFF", toKw: true, negate: true, fill: true },
+  {
+    key: "load_power",
+    label: "Load (-)",
+    legendGroup: "load",
+    color: "#8A4DFF",
+    fillColor: "rgba(138,77,255,0.14)",
+    toKw: true,
+    negate: true,
+    fill: true,
+    lineWidth: 1.2,
+  },
 ];
 
-const FORECAST_CHART_STYLE = { label: "Forecast", color: "#FFD700", fill: true };
+const FORECAST_CHART_STYLE = {
+  label: "Forecast",
+  legendGroup: "forecast",
+  color: "#FFD700",
+  fillColor: "rgba(255,215,0,0.14)",
+  fill: true,
+  lineWidth: 1.2,
+};
+
+const STATISTICS_CHART_LAYOUT = {
+  width: 800,
+  height: 520,
+  pad: { l: 56, r: 18, t: 86, b: 52 },
+  xTickHours: 3,
+  xTickCount: 8,
+};
 
 const ENERGY_CHART_BAR = {
   pv: { suffix: "solar_energy_today", label: "PV", color: FOX_ENERGY.pv },
@@ -356,7 +416,86 @@ function transformHistoryPoint(hass, entityId, v, spec) {
   if (spec.toKw) x = entityValueToKw(hass, entityId, x);
   if (spec.abs) x = Math.abs(x);
   if (spec.negate) x = -x;
-  return Math.max(0, x);
+  return x;
+}
+
+function getStatisticsDayRange(now = new Date()) {
+  const start = startOfLocalDay(now);
+  const tMin = start.getTime();
+  return { tMin, tMax: tMin + 24 * 60 * 60 * 1000, nowMs: now.getTime() };
+}
+
+function interpolateSeriesAt(points, t) {
+  if (!points.length) return null;
+  if (t <= points[0].t) return points[0].v;
+  if (t >= points[points.length - 1].t) return points[points.length - 1].v;
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    if (t >= a.t && t <= b.t) {
+      const f = b.t === a.t ? 0 : (t - a.t) / (b.t - a.t);
+      return a.v + (b.v - a.v) * f;
+    }
+  }
+  return null;
+}
+
+function formatStatisticsHoverTime(ms) {
+  const d = new Date(ms);
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const h = String(d.getHours()).padStart(2, "0");
+  const m = String(d.getMinutes()).padStart(2, "0");
+  return `${y}-${mo}-${day} ${h}:${m}`;
+}
+
+function formatStatisticsKw(v) {
+  return Number.isFinite(v) ? `${v.toFixed(3)} kW` : "—";
+}
+
+function smoothLinePath(pts) {
+  if (!pts.length) return "";
+  if (pts.length === 1) return `M${pts[0].x.toFixed(2)},${pts[0].y.toFixed(2)}`;
+  if (pts.length === 2) {
+    return `M${pts[0].x.toFixed(2)},${pts[0].y.toFixed(2)} L${pts[1].x.toFixed(2)},${pts[1].y.toFixed(2)}`;
+  }
+  let d = `M${pts[0].x.toFixed(2)},${pts[0].y.toFixed(2)}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(i - 1, 0)];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[Math.min(i + 2, pts.length - 1)];
+    const cp1x = p1.x + (p2.x - p0.x) / 6;
+    const cp1y = p1.y + (p2.y - p0.y) / 6;
+    const cp2x = p2.x - (p3.x - p1.x) / 6;
+    const cp2y = p2.y - (p3.y - p1.y) / 6;
+    d += ` C${cp1x.toFixed(2)},${cp1y.toFixed(2)} ${cp2x.toFixed(2)},${cp2y.toFixed(2)} ${p2.x.toFixed(2)},${p2.y.toFixed(2)}`;
+  }
+  return d;
+}
+
+function fillToZeroPath(pts, yZero) {
+  if (!pts.length) return "";
+  const line = smoothLinePath(pts);
+  const last = pts[pts.length - 1];
+  const first = pts[0];
+  return `${line} L${last.x.toFixed(2)},${yZero.toFixed(2)} L${first.x.toFixed(2)},${yZero.toFixed(2)} Z`;
+}
+
+function computeStatisticsYDomain(series, padRatio = 0.08) {
+  let yMin = 0;
+  let yMax = 0.25;
+  for (const s of series) {
+    for (const p of s.points || []) {
+      if (!Number.isFinite(p.v)) continue;
+      yMin = Math.min(yMin, p.v);
+      yMax = Math.max(yMax, p.v);
+    }
+  }
+  if (yMax <= yMin) yMax = yMin + 1;
+  const pad = (yMax - yMin) * padRatio;
+  return { yMin: yMin - pad, yMax: yMax + pad };
 }
 
 function dailyMaxInRange(points, dayStartMs, dayEndMs) {
@@ -389,80 +528,199 @@ function formatChartTimeLabel(ms) {
   return new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
-function renderLineChartSvg(series, { height = 220, yLabel = "kW", title = "Statistics" } = {}) {
+function renderStatisticsChartHtml(series, range) {
   const visible = series.filter((s) => s.points?.length);
-  const all = visible.flatMap((s) => s.points);
-  if (!all.length) return `<p class="placeholder chart-empty">No power history for today yet.</p>`;
-  const width = 400;
-  const pad = { l: 44, r: 14, t: 28, b: 32 };
+  if (!visible.length) {
+    return `<p class="placeholder chart-empty">No power history for today yet.</p>`;
+  }
+  const { width, height, pad, xTickHours, xTickCount } = STATISTICS_CHART_LAYOUT;
   const w = width - pad.l - pad.r;
   const h = height - pad.t - pad.b;
-  const tMin = all[0].t;
-  const tMax = all[all.length - 1].t;
-  const tSpan = Math.max(tMax - tMin, 60000);
-  let yMax = 0.25;
-  for (const p of all) yMax = Math.max(yMax, Math.max(0, p.v));
-  yMax *= 1.12;
-  const yTicks = [0, yMax * 0.5, yMax];
-  const xTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => tMin + tSpan * f);
+  const { tMin, tMax, nowMs } = range;
+  const daySpan = tMax - tMin;
+  const xScale = (t) => pad.l + ((t - tMin) / daySpan) * w;
+  const { yMin, yMax } = computeStatisticsYDomain(visible);
+  const ySpan = yMax - yMin || 1;
+  const yScale = (v) => pad.t + h - ((v - yMin) / ySpan) * h;
+  const yZero = yScale(0);
+  const yTicks = [yMin, yMin + ySpan * 0.5, yMax];
+  const xTicks = Array.from({ length: xTickCount }, (_, i) => tMin + i * xTickHours * 60 * 60 * 1000);
 
-  const xy = (p) => ({
-    x: pad.l + ((p.t - tMin) / tSpan) * w,
-    y: pad.t + h - (Math.max(0, p.v) / yMax) * h,
+  const plotSeries = visible.map((s) => {
+    const pts = s.points.filter((p) => p.t >= tMin && p.t <= nowMs);
+    const pixelPts = pts.map((p) => ({ x: xScale(p.t), y: yScale(p.v), t: p.t, v: p.v }));
+    return { ...s, pixelPts };
   });
-
-  const fills = visible
-    .filter((s) => s.fill)
-    .map((s) => {
-      if (!s.points.length) return "";
-      const pts = s.points.map((p) => xy(p));
-      const d =
-        `M${pts[0].x.toFixed(1)},${(pad.t + h).toFixed(1)} ` +
-        pts.map((p) => `L${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ") +
-        ` L${pts[pts.length - 1].x.toFixed(1)},${(pad.t + h).toFixed(1)} Z`;
-      const fillColor = s.color === "#19D4DE" ? "rgba(25,212,222,0.16)" : s.color === "#8A4DFF" ? "rgba(138,77,255,0.14)" : s.color === "#FF6FAF" ? "rgba(255,111,175,0.14)" : s.color === "#8DB6FF" ? "rgba(141,182,255,0.14)" : s.color === "#FFD700" ? "rgba(255,215,0,0.14)" : "rgba(127,127,127,0.12)";
-      return `<path d="${d}" fill="${fillColor}" stroke="none"/>`;
-    })
-    .join("");
-
-  const paths = visible
-    .map((s) => {
-      const d = s.points
-        .map((p, i) => {
-          const { x, y } = xy(p);
-          return `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`;
-        })
-        .join(" ");
-      return `<path class="energy-line" d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.dash ? "1.2" : "1.4"}" stroke-dasharray="${s.dash ? "5 3" : "none"}" opacity="${s.dash ? 0.9 : 1}"/>`;
-    })
-    .join("");
 
   const grid = yTicks
     .map((yv) => {
-      const y = pad.t + h - (yv / yMax) * h;
-      return `<line x1="${pad.l}" y1="${y.toFixed(1)}" x2="${pad.l + w}" y2="${y.toFixed(1)}" class="chart-grid"/>`;
+      const y = yScale(yv);
+      return `<line x1="${pad.l}" y1="${y.toFixed(1)}" x2="${pad.l + w}" y2="${y.toFixed(1)}" class="statistics-grid"/>`;
     })
     .join("");
+
   const yLabels = yTicks
     .map((yv) => {
-      const y = pad.t + h - (yv / yMax) * h;
-      return `<text x="${pad.l - 6}" y="${(y + 4).toFixed(1)}" text-anchor="end" class="chart-axis">${yv.toFixed(1)}</text>`;
+      const y = yScale(yv);
+      return `<text x="${pad.l - 8}" y="${(y + 4).toFixed(1)}" text-anchor="end" class="statistics-axis-y">${yv.toFixed(1)}</text>`;
     })
     .join("");
+
   const xLabels = xTicks
     .map((xt) => {
-      const x = pad.l + ((xt - tMin) / tSpan) * w;
-      return `<text x="${x.toFixed(1)}" y="${height - 8}" text-anchor="middle" class="chart-axis">${esc(formatChartTimeLabel(xt))}</text>`;
+      const x = xScale(xt);
+      return `<text x="${x.toFixed(1)}" y="${height - pad.b + 20}" text-anchor="middle" class="statistics-axis-x">${esc(formatChartTimeLabel(xt))}</text>`;
     })
     .join("");
-  const legend = visible
+
+  const fills = plotSeries
+    .filter((s) => s.fill && s.pixelPts.length)
+    .map(
+      (s) =>
+        `<path class="statistics-fill" data-series-id="${esc(s.id)}" data-legend-group="${esc(s.legendGroup || "")}" d="${fillToZeroPath(s.pixelPts, yZero)}" fill="${s.fillColor}" stroke="none"/>`
+    )
+    .join("");
+
+  const lines = plotSeries
+    .filter((s) => s.pixelPts.length)
+    .map(
+      (s) =>
+        `<path class="statistics-line" data-series-id="${esc(s.id)}" data-legend-group="${esc(s.legendGroup || "")}" d="${smoothLinePath(s.pixelPts)}" fill="none" stroke="${s.color}" stroke-width="${s.lineWidth || 1.2}" stroke-linecap="round" stroke-linejoin="round"/>`
+    )
+    .join("");
+
+  const legendItems = visible
     .filter((s) => !s.hideLegend)
     .map(
       (s) =>
-        `<span class="chart-legend-item"><i style="background:${s.color}"></i>${esc(s.label)}</span>`
+        `<button type="button" class="statistics-legend-item" data-legend-group="${esc(s.legendGroup || s.id)}" aria-pressed="true"><i style="background:${s.color}"></i><span>${esc(s.label)}</span></button>`
     )
     .join("");
-  return `<div class="chart-wrap statistics-chart-wrap"><div class="chart-heading">${esc(title)}</div><svg class="energy-line-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true"><text x="${pad.l}" y="16" class="chart-axis chart-title-inline">${esc(title)}</text>${grid}${fills}${paths}${yLabels}${xLabels}</svg><div class="chart-legend">${legend}</div><div class="chart-y-title">${esc(yLabel)}</div></div>`;
+
+  return `<div class="statistics-chart-wrap" data-statistics-chart="1">
+<div class="statistics-chart-legend">${legendItems}</div>
+<div class="statistics-chart-plot" data-pad-l="${pad.l}" data-pad-t="${pad.t}" data-pad-b="${pad.b}" data-plot-w="${w}" data-plot-h="${h}" data-t-min="${tMin}" data-t-max="${tMax}" data-y-min="${yMin}" data-y-max="${yMax}" data-now-ms="${nowMs}">
+<svg class="statistics-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Statistics power chart">
+<text x="${pad.l - 8}" y="${pad.t + h / 2}" class="statistics-y-label" transform="rotate(-90 ${pad.l - 8} ${pad.t + h / 2})">kW</text>
+${grid}
+<line x1="${pad.l}" y1="${yZero.toFixed(1)}" x2="${pad.l + w}" y2="${yZero.toFixed(1)}" class="statistics-zero-line"/>
+${fills}
+${lines}
+${yLabels}
+${xLabels}
+<rect class="statistics-hit" x="${pad.l}" y="${pad.t}" width="${w}" height="${h}" fill="transparent"/>
+</svg>
+<div class="statistics-crosshair" hidden><div class="statistics-spike"></div></div>
+<div class="statistics-tooltip" hidden role="tooltip"></div>
+</div>
+</div>`;
+}
+
+function bindStatisticsChart(root, seriesMeta) {
+  const wrap = root?.querySelector?.("[data-statistics-chart]");
+  if (!wrap || wrap.dataset.bound || !seriesMeta?.length) return;
+  const plot = wrap.querySelector(".statistics-chart-plot");
+  if (!plot) return;
+  wrap.dataset.bound = "1";
+
+  const padL = Number(plot.dataset.padL);
+  const padT = Number(plot.dataset.padT);
+  const padB = Number(plot.dataset.padB);
+  const plotW = Number(plot.dataset.plotW);
+  const plotH = Number(plot.dataset.plotH);
+  const tMin = Number(plot.dataset.tMin);
+  const tMax = Number(plot.dataset.tMax);
+  const yMin = Number(plot.dataset.yMin);
+  const yMax = Number(plot.dataset.yMax);
+  const nowMs = Number(plot.dataset.nowMs);
+  const daySpan = tMax - tMin;
+  const ySpan = yMax - yMin || 1;
+  const svg = plot.querySelector(".statistics-chart-svg");
+  const hit = plot.querySelector(".statistics-hit");
+  const crosshair = plot.querySelector(".statistics-crosshair");
+  const spike = plot.querySelector(".statistics-spike");
+  const tooltip = plot.querySelector(".statistics-tooltip");
+  const hiddenGroups = new Set();
+
+  const applyLegendVisibility = () => {
+    wrap.querySelectorAll("[data-legend-group]").forEach((el) => {
+      if (!(el instanceof SVGElement) && !el.classList.contains("statistics-legend-item")) return;
+      const g = el.getAttribute("data-legend-group");
+      if (!g) return;
+      if (el.classList.contains("statistics-legend-item")) {
+        el.setAttribute("aria-pressed", hiddenGroups.has(g) ? "false" : "true");
+        el.classList.toggle("off", hiddenGroups.has(g));
+        return;
+      }
+      el.style.display = hiddenGroups.has(g) ? "none" : "";
+    });
+  };
+
+  wrap.querySelectorAll(".statistics-legend-item").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const g = btn.getAttribute("data-legend-group");
+      if (!g) return;
+      if (hiddenGroups.has(g)) hiddenGroups.delete(g);
+      else hiddenGroups.add(g);
+      applyLegendVisibility();
+    });
+  });
+
+  const clientToTime = (clientX) => {
+    const rect = svg.getBoundingClientRect();
+    const vb = svg.viewBox.baseVal;
+    const scaleX = vb.width / rect.width;
+    const relX = (clientX - rect.left) * scaleX - padL;
+    const frac = Math.max(0, Math.min(1, relX / plotW));
+    return tMin + frac * daySpan;
+  };
+
+  const showHover = (clientX) => {
+    const t = Math.min(clientToTime(clientX), nowMs);
+    const rect = svg.getBoundingClientRect();
+    const vb = svg.viewBox.baseVal;
+    const scaleX = vb.width / rect.width;
+    const xPx = padL + ((t - tMin) / daySpan) * plotW;
+    const screenX = ((xPx / vb.width) * rect.width);
+    crosshair.hidden = false;
+    crosshair.style.left = `${screenX}px`;
+    crosshair.style.top = `${(padT / vb.height) * rect.height}px`;
+    crosshair.style.bottom = `${(padB / vb.height) * rect.height}px`;
+    spike.style.height = "100%";
+
+    const rows = seriesMeta
+      .map((s) => {
+        const g = s.legendGroup;
+        if (g && hiddenGroups.has(g)) return "";
+        const v = interpolateSeriesAt(s.points, t);
+        if (v == null) return "";
+        return `<div class="statistics-tooltip-row"><span>${esc(s.label)}</span><strong>${formatStatisticsKw(v)}</strong></div>`;
+      })
+      .filter(Boolean)
+      .join("");
+    tooltip.hidden = false;
+    tooltip.innerHTML = `<div class="statistics-tooltip-time">${esc(formatStatisticsHoverTime(t))}</div>${rows}`;
+    const plotRect = plot.getBoundingClientRect();
+    let left = screenX + 12;
+    if (left + 200 > plotRect.width) left = screenX - 212;
+    tooltip.style.left = `${Math.max(8, left)}px`;
+    tooltip.style.top = "12px";
+  };
+
+  const hideHover = () => {
+    crosshair.hidden = true;
+    tooltip.hidden = true;
+  };
+
+  hit?.addEventListener("mousemove", (ev) => showHover(ev.clientX));
+  hit?.addEventListener("mouseleave", hideHover);
+  plot.addEventListener("touchmove", (ev) => {
+    if (ev.touches[0]) {
+      ev.preventDefault();
+      showHover(ev.touches[0].clientX);
+    }
+  }, { passive: false });
+  plot.addEventListener("touchend", hideHover);
 }
 
 function renderBarChartSvg(groups, labels, { height = 200 } = {}) {
@@ -795,10 +1053,59 @@ const STYLES = `
 .energy-chart-card { margin-top: 14px; }
 .energy-chart-card .card-title { margin-bottom: 10px; }
 .chart-wrap { position: relative; width: 100%; }
-.energy-line-chart, .energy-bar-chart { width: 100%; height: 220px; display: block; }
-.statistics-chart-wrap .energy-line-chart { height: 260px; }
-.chart-heading { font-size: 15px; font-weight: 600; margin-bottom: 8px; color: var(--primary-text-color); }
-.chart-title-inline { font-size: 11px; font-weight: 600; fill: var(--secondary-text-color); }
+.energy-bar-chart { width: 100%; height: 220px; display: block; }
+.statistics-chart-wrap {
+  position: relative; width: 100%; font-family: "Segoe UI", Arial, sans-serif;
+}
+.statistics-chart-legend {
+  display: flex; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 10px;
+}
+.statistics-legend-item {
+  display: inline-flex; align-items: center; gap: 6px; padding: 0; border: none;
+  background: transparent; color: var(--primary-text-color); font: inherit;
+  font-size: 11px; cursor: pointer; opacity: 1;
+}
+.statistics-legend-item.off { opacity: 0.35; }
+.statistics-legend-item i {
+  width: 10px; height: 10px; border-radius: 2px; display: inline-block; flex-shrink: 0;
+}
+.statistics-chart-plot { position: relative; width: 100%; }
+.statistics-chart-svg {
+  width: 100%; height: auto; display: block; max-height: 520px;
+  aspect-ratio: 800 / 520;
+}
+.statistics-y-label {
+  fill: var(--secondary-text-color); font-size: 12px; text-anchor: middle;
+}
+.statistics-axis-x, .statistics-axis-y {
+  fill: var(--secondary-text-color); font-size: 12px;
+}
+.statistics-grid { stroke: rgba(127,127,127,0.12); stroke-width: 1; }
+.statistics-zero-line { stroke: rgba(127,127,127,0.20); stroke-width: 1; }
+.statistics-hit { cursor: crosshair; }
+.statistics-crosshair {
+  position: absolute; top: 0; bottom: 52px; width: 1px; pointer-events: none;
+  transform: translateX(-0.5px);
+}
+.statistics-spike {
+  width: 1px; height: 100%; background: rgba(127,127,127,0.35);
+}
+.statistics-tooltip {
+  position: absolute; z-index: 4; min-width: 180px; max-width: 260px;
+  padding: 10px 12px; border-radius: 8px; pointer-events: none;
+  background: var(--card-background-color, #1c1c1c);
+  border: 1px solid rgba(127,127,127,0.35);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.28);
+  font-size: 13px; color: var(--primary-text-color);
+}
+.statistics-tooltip-time {
+  font-size: 12px; color: var(--secondary-text-color); margin-bottom: 8px;
+}
+.statistics-tooltip-row {
+  display: flex; justify-content: space-between; gap: 12px; margin-bottom: 4px;
+}
+.statistics-tooltip-row:last-child { margin-bottom: 0; }
+.statistics-tooltip-row strong { font-weight: 600; white-space: nowrap; }
 .charts-entity-select {
   width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 10px;
   border: 1px solid var(--divider-color); background: var(--card-background-color);
@@ -807,10 +1114,6 @@ const STYLES = `
 .charts-entity-hint { font-size: 12px; color: var(--secondary-text-color); line-height: 1.45; margin: 0 0 12px; }
 .chart-grid { stroke: rgba(127,127,127,0.15); stroke-width: 1; }
 .chart-axis { fill: var(--secondary-text-color); font-size: 9px; font-family: inherit; }
-.chart-y-title {
-  position: absolute; left: 0; top: 50%; transform: translateY(-50%) rotate(-90deg);
-  font-size: 10px; color: var(--secondary-text-color); letter-spacing: 0.04em;
-}
 .chart-legend {
   display: flex; flex-wrap: wrap; gap: 10px 14px; margin-top: 10px; font-size: 12px; color: var(--secondary-text-color);
 }
@@ -2236,8 +2539,8 @@ ${this._renderStatisticsChartBody()}
     this._scheduleRender();
     try {
       if (!this._plantState) await this._refreshPlantState();
-      const svg = await this._fetchStatisticsChartSvg(plant);
-      this._statisticsChart = { svg };
+      const chart = await this._fetchStatisticsChartData(plant);
+      this._statisticsChart = chart;
     } catch (err) {
       this._statisticsChart = {
         error:
@@ -2250,26 +2553,30 @@ ${this._renderStatisticsChartBody()}
     }
   }
 
-  async _fetchStatisticsChartSvg(plant) {
+  async _fetchStatisticsChartData(plant) {
     const map = resolveEntityMap(this._hass, plant, this._plantState);
     const specs = STATISTICS_CHART_SERIES.map((s) => ({ ...s, entity_id: map[s.key] })).filter(
       (s) => s.entity_id
     );
     if (!specs.length) {
-      return `<p class="placeholder chart-empty">Map power entities in FoxESS Modbus, then reload FoxESS Plant.</p>`;
+      return { empty: "Map power entities in FoxESS Modbus, then reload FoxESS Plant." };
     }
     const forecastId = this._plantState?.panel_display?.forecast_entity_id || null;
     const entityIds = specs.map((s) => s.entity_id);
     if (forecastId) entityIds.push(forecastId);
     const now = new Date();
     const start = startOfLocalDay(now);
+    const range = getStatisticsDayRange(now);
     const hist = await fetchHistoryDuring(this._hass, entityIds, start, now);
     const series = specs.map((spec) => ({
+      id: spec.key,
       label: spec.label,
+      legendGroup: spec.legendGroup,
       color: spec.color,
-      dash: spec.dash,
       fill: spec.fill,
+      fillColor: spec.fillColor,
       hideLegend: spec.hideLegend,
+      lineWidth: spec.lineWidth,
       points: historyToPoints(historyRowsForEntity(hist, spec.entity_id)).map((p) => ({
         t: p.t,
         v: transformHistoryPoint(this._hass, spec.entity_id, p.v, spec),
@@ -2282,6 +2589,7 @@ ${this._renderStatisticsChartBody()}
       }));
       if (fPoints.length) {
         series.push({
+          id: "forecast",
           ...FORECAST_CHART_STYLE,
           points: fPoints,
         });
@@ -2289,9 +2597,11 @@ ${this._renderStatisticsChartBody()}
     }
     if (!series.some((s) => s.points.length)) {
       const listed = specs.map((s) => s.entity_id).join(", ");
-      return `<p class="placeholder chart-empty">No recorder history for: ${esc(listed)}. Confirm the Recorder includes these entities (same as your Lovelace statistics card).</p>`;
+      return {
+        empty: `No recorder history for: ${listed}. Confirm the Recorder includes these entities (same as your Lovelace statistics card).`,
+      };
     }
-    return renderLineChartSvg(series, { height: 260, title: "Statistics" });
+    return { series, range };
   }
 
   _renderStatisticsChartBody() {
@@ -2301,8 +2611,18 @@ ${this._renderStatisticsChartBody()}
     if (this._statisticsChart?.error) {
       return `<p class="placeholder chart-empty">${esc(this._statisticsChart.error)}</p>`;
     }
-    if (this._statisticsChart?.svg) return this._statisticsChart.svg;
+    if (this._statisticsChart?.empty) {
+      return `<p class="placeholder chart-empty">${esc(this._statisticsChart.empty)}</p>`;
+    }
+    if (this._statisticsChart?.series) {
+      return renderStatisticsChartHtml(this._statisticsChart.series, this._statisticsChart.range);
+    }
     return `<p class="placeholder chart-empty">Open Energy or wait for history to load.</p>`;
+  }
+
+  _bindStatisticsChart() {
+    if (!this._statisticsChart?.series) return;
+    bindStatisticsChart(this._root, this._statisticsChart.series);
   }
 
   async _fetchPeriodEnergyBarChart(plant, period) {
@@ -3030,6 +3350,12 @@ ${active
     }
     if (this._view === "settings" && this._settingsView === "storm" && this._stormDraft) {
       this._syncStormTriggerPicker();
+    }
+    if (
+      (this._view === "overview" || (this._view === "energy" && this._energyPeriod === "day")) &&
+      this._statisticsChart?.series
+    ) {
+      this._bindStatisticsChart();
     }
     if (this._view === "energy") {
       const plant = this._getPlant();
