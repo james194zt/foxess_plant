@@ -298,7 +298,7 @@ function renderEnergyDonut(segments, gapDeg = 3) {
   const stroke = "var(--card-background-color, #17191d)";
 
   if (total <= 0) {
-    return `<svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${(rOuter + rInner) / 2}" fill="none" stroke="${FOX_ENERGY.muted}" stroke-width="${rOuter - rInner}" opacity="0.35"/></svg>`;
+    return `<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><circle cx="${cx}" cy="${cy}" r="${(rOuter + rInner) / 2}" fill="none" stroke="${FOX_ENERGY.muted}" stroke-width="${rOuter - rInner}" opacity="0.35"/></svg>`;
   }
 
   let angle = -90;
@@ -312,7 +312,7 @@ function renderEnergyDonut(segments, gapDeg = 3) {
     const d = describeDonutSlice(cx, cy, rOuter, rInner, start, end);
     return `<path d="${d}" fill="${seg.color}" stroke="${stroke}" stroke-width="2"/>`;
   });
-  return `<svg viewBox="0 0 100 100" aria-hidden="true">${paths.join("")}</svg>`;
+  return `<svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-hidden="true">${paths.join("")}</svg>`;
 }
 
 function renderEnergyBreakdownRow({ heading, totalKwh, metrics, segments, centerPct, centerLabel, accent }) {
@@ -1226,8 +1226,8 @@ const STYLES = `
 }
 .fox-energy-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) min(46%, 118px);
-  gap: 6px 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 18px;
   align-items: center;
   padding: 4px 14px 6px 0;
   min-width: 0;
@@ -1246,14 +1246,24 @@ const STYLES = `
 .fox-energy-metric-label { font-size: 12px; color: var(--secondary-text-color); margin-bottom: 2px; line-height: 1.25; }
 .fox-energy-metric-value { font-size: 20px; font-weight: 700; line-height: 1.15; letter-spacing: -0.02em; }
 .fox-energy-metric-unit { font-size: 13px; font-weight: 500; color: var(--secondary-text-color); margin-left: 2px; }
-.fox-energy-chart { position: relative; width: 100%; aspect-ratio: 1; max-width: 118px; margin-left: auto; }
-.fox-energy-chart svg { width: 100%; height: 100%; display: block; }
-.fox-energy-chart-center {
-  position: absolute; inset: 0; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; text-align: center; pointer-events: none; padding: 6px;
+.fox-energy-chart {
+  position: relative; flex-shrink: 0; width: 116px; height: 116px;
+  margin-left: auto; align-self: center;
 }
-.fox-energy-chart-pct { font-size: 24px; font-weight: 700; line-height: 1; letter-spacing: -0.03em; }
-.fox-energy-chart-label { font-size: 10px; color: var(--secondary-text-color); margin-top: 4px; line-height: 1.2; max-width: 80px; }
+.fox-energy-chart svg {
+  width: 116px; height: 116px; max-width: 100%; max-height: 100%;
+  display: block; aspect-ratio: 1;
+}
+.fox-energy-chart-center {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 72px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; pointer-events: none; gap: 5px;
+}
+.fox-energy-chart-pct { font-size: 22px; font-weight: 700; line-height: 1.1; letter-spacing: -0.03em; }
+.fox-energy-chart-label {
+  font-size: 10px; font-weight: 500; color: var(--secondary-text-color);
+  line-height: 1.3; margin: 0; max-width: 72px;
+}
 .energy-period-tabs { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 .energy-period-tabs button {
   flex: 1; min-width: 72px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--divider-color);
@@ -1386,9 +1396,14 @@ const STYLES = `
   .impact-grid { grid-template-columns: 1fr; }
   .fox-energy-panel { grid-template-columns: 1fr; }
   .fox-energy-row {
-    grid-template-columns: minmax(0, 1fr) min(40vw, 132px);
+    grid-template-columns: minmax(0, 1fr) auto;
     padding: 14px 0 6px;
   }
+  .fox-energy-chart { width: 128px; height: 128px; }
+  .fox-energy-chart svg { width: 128px; height: 128px; }
+  .fox-energy-chart-center { width: 78px; }
+  .fox-energy-chart-pct { font-size: 24px; }
+  .fox-energy-chart-label { font-size: 11px; max-width: 78px; }
   .fox-energy-row + .fox-energy-row {
     border-left: none;
     border-top: 1px solid var(--divider-color, rgba(127,127,127,0.25));
