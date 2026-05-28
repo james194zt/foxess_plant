@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.37
+ * @version 0.8.38
  */
 
 const NAV = [
@@ -1322,6 +1322,8 @@ const STYLES = `
   max-width: 1100px; width: 100%;
   margin: 0 auto;
   box-sizing: border-box;
+  container-type: inline-size;
+  container-name: fp-main;
 }
 .shell.narrow .main { padding: 16px; }
 .shell.narrow .tab { padding: 12px 14px 10px; font-size: 13px; }
@@ -1360,7 +1362,11 @@ const STYLES = `
 .card-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--secondary-text-color); margin: 0 0 14px; }
 .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 12px; }
 .overview-hero-row { display: flex; flex-direction: column; gap: 14px; margin-bottom: 14px; }
-.overview-hero-stats { margin-top: 0; }
+.overview-hero-scene { width: 100%; max-width: 440px; margin: 0 auto; }
+.overview-hero-scene .scene-card--fox-flow { margin-bottom: 0; }
+.overview-hero-stats {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;
+}
 .breakdown-card { margin-top: 14px; padding-bottom: 8px; }
 .statistics-card { padding-bottom: 16px; }
 .statistics-card .card-title { margin-bottom: 12px; }
@@ -1599,15 +1605,16 @@ const STYLES = `
 .scene-card--fox-flow {
   padding: 0; border: none; border-radius: 0; background: #000;
   width: 100%; margin: 0 0 14px; overflow: hidden;
-  display: flex; justify-content: center;
 }
 .fox-flow-scene {
-  width: 100%; max-width: min(440px, 96vw); margin: 0 auto; background: #000;
+  display: block; width: 100%; max-width: 440px; margin: 0 auto; background: #000;
 }
 .fox-flow-stage {
-  position: relative; width: 100%; margin: 0 auto;
-  aspect-ratio: 1024 / 1017;
+  position: relative; width: 100%; max-width: 440px; margin: 0 auto;
   background: #000;
+}
+.fox-flow-stage::before {
+  content: ""; display: block; width: 100%; padding-top: 99.31640625%;
 }
 .fox-flow-layer {
   position: absolute; pointer-events: none; user-select: none;
@@ -1897,29 +1904,25 @@ const STYLES = `
 .storm-advanced { margin-top: 4px; }
 .trigger-row.google-weather { background: color-mix(in srgb, var(--fp-accent) 10%, transparent); }
 .trigger-role { display: inline-block; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 6px; border-radius: 6px; margin-left: 6px; background: var(--secondary-background-color); color: var(--fp-accent); }
-@media (min-width: 768px) {
+@container fp-main (min-width: 720px) {
   .overview-hero-row {
-    display: grid;
-    grid-template-columns: minmax(0, 440px) minmax(0, 1fr);
+    flex-direction: row;
+    align-items: flex-start;
     gap: 14px;
-    align-items: start;
   }
-  .overview-hero-row .scene-card--fox-flow {
-    margin-bottom: 0;
-    width: 100%;
+  .overview-hero-scene {
+    flex: 0 0 440px;
+    width: 440px;
     max-width: 440px;
-    justify-content: flex-start;
-  }
-  .overview-hero-row .fox-flow-scene {
     margin: 0;
-    width: 100%;
-    max-width: 440px;
   }
   .overview-hero-stats {
+    flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     gap: 12px;
-    min-width: 0;
+    grid-template-columns: unset;
   }
 }
 @media (max-width: 720px) {
@@ -3080,8 +3083,10 @@ ${basis}
     const modelLine = plantModelSubtitle(this._hass, plant, this._plantState);
     return `<header class="header overview-header"><h1>${esc(plant.title)}</h1>${modelLine !== "—" ? `<p class="overview-model">${esc(modelLine)}</p>` : ""}${this._renderOverviewStatusBlock(plant)}</header>
 <div class="overview-hero-row">
+<div class="overview-hero-scene">
 ${this._renderEnergyScene(plant)}
-<div class="stats-row overview-hero-stats">
+</div>
+<div class="overview-hero-stats">
 ${this._stat("Self-consumption", a.self_consumption_percent_today, a.self_consumption_percent_today != null ? "%" : "")}
 ${this._stat("Self-sufficiency", a.self_sufficiency_percent_today, a.self_sufficiency_percent_today != null ? "%" : "")}
 ${this._stat("PV today", a.pv_production_kwh_today, a.pv_production_kwh_today != null ? " kWh" : "")}
