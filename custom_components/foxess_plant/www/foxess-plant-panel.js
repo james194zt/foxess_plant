@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.24
+ * @version 0.8.25
  */
 
 const NAV = [
@@ -1767,10 +1767,16 @@ const STYLES = `
 .storm-hero:not(.armed) .storm-hero-half--left { background: rgba(0, 0, 0, 0.18); }
 .storm-hero.armed .storm-hero-half--right { background: rgba(0, 0, 0, 0.42); }
 .storm-hero.armed .storm-hero-half--left { background: rgba(76, 175, 80, 0.08); }
-.storm-hero .hero-caption {
-  background: var(--card-background-color);
-  border-top: 1px solid var(--divider-color);
+.storm-hero-title {
+  position: absolute; left: 0; right: 0; top: 0; z-index: 2;
+  margin: 0; padding: 18px 20px 0;
+  text-align: center; box-sizing: border-box;
+  font-size: clamp(20px, 5.5vw, 26px); font-weight: 700; line-height: 1.2;
+  letter-spacing: -0.02em; color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85), 0 0 24px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
 }
+.shell.narrow .storm-hero-title { padding-top: 14px; font-size: 20px; }
 .storm-settings-header { margin-top: 0; margin-bottom: 16px; }
 .trigger-chip { display: inline-block; padding: 4px 10px; border-radius: 8px; font-size: 12px; background: var(--secondary-background-color); margin: 4px 4px 0 0; }
 .trigger-chips-wrap { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; min-height: 28px; }
@@ -2866,13 +2872,13 @@ ${pathsHtml}
   }
 
   _renderStormHero(armed) {
-    return `<div class="hero storm-hero ${armed ? "armed" : ""}" role="img" aria-label="StormSafe: battery-backed home during a storm">
+    return `<div class="hero storm-hero ${armed ? "armed" : ""}">
 <div class="storm-hero-media">
-<img class="storm-hero-img" src="${esc(STORM_HERO_IMAGE_STATIC)}" alt="" loading="lazy" decoding="async" />
+<img class="storm-hero-img" src="${esc(STORM_HERO_IMAGE_STATIC)}" alt="StormSafe charging: home with battery backup during a storm" loading="lazy" decoding="async" />
 <span class="storm-hero-half storm-hero-half--left" aria-hidden="true"></span>
 <span class="storm-hero-half storm-hero-half--right" aria-hidden="true"></span>
+<h2 class="storm-hero-title">StormSafe Charging</h2>
 </div>
-<div class="hero-caption">Pre-charges the battery before severe weather using your storm prep schedule.</div>
 </div>`;
   }
 
