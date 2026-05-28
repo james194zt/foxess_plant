@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.25
+ * @version 0.8.26
  */
 
 const NAV = [
@@ -21,12 +21,24 @@ const SETTINGS_NAV = [
   { id: "control", label: "Control" },
 ];
 
-const FLOW_PATHS = {
-  "solar-home": "M 118 88 C 160 88, 175 115, 200 130",
-  "grid-home": "M 382 88 C 340 88, 320 115, 295 130",
-  "home-grid": "M 295 130 C 320 115, 340 88, 382 88",
-  "battery-home": "M 250 228 C 250 195, 250 175, 250 155",
-  "home-battery": "M 250 155 C 250 175, 250 195, 250 228",
+/** Fox app energy-flow paths (viewBox 0 0 1024 1017, matches flow_home assets). */
+const FOX_FLOW_PATHS = {
+  "solar-home": "M 520 290 C 560 360, 590 430, 640 500",
+  "grid-home": "M 920 140 C 840 300, 760 420, 680 500",
+  "home-grid": "M 680 500 C 760 420, 840 300, 920 140",
+  "battery-home": "M 200 700 C 340 620, 500 540, 640 500",
+  "home-battery": "M 640 500 C 500 540, 340 620, 200 700",
+};
+
+const FLOW_SCENE_PV_THRESHOLD_W = 40;
+const FLOW_SCENE_ASSET_VER = 1;
+
+const FOX_FLOW_LABEL_POINTS = {
+  "solar-home": { x: 520, y: 268 },
+  "grid-home": { x: 900, y: 118 },
+  "home-grid": { x: 900, y: 118 },
+  "battery-home": { x: 200, y: 678 },
+  "home-battery": { x: 200, y: 678 },
 };
 
 const DEFAULT_PERIODS = [
@@ -1082,7 +1094,16 @@ function readEnergyFlows(hass, plant, plantState) {
   };
 }
 
-function computeFlowLines(flows, threshold = 40) {
+function flowSceneTheme(pvW, threshold = FLOW_SCENE_PV_THRESHOLD_W) {
+  return pvW > threshold ? "day_light" : "night_dark";
+}
+
+function flowSceneLayerUrl(layer, theme) {
+  const name = layer === "aio" ? "flow_aio_812" : `flow_${layer}`;
+  return `/foxess_plant_panel/${name}_${theme}.png?v=${FLOW_SCENE_ASSET_VER}`;
+}
+
+function computeFlowLines(flows, threshold = FLOW_SCENE_PV_THRESHOLD_W) {
   const lines = [];
   if (flows.pvW > threshold) lines.push({ id: "solar-home", label: formatW(flows.pvW) });
   if (flows.gridImportW > threshold) lines.push({ id: "grid-home", label: formatW(flows.gridImportW) });
@@ -1557,20 +1578,74 @@ const STYLES = `
 .toast.err { background: var(--fp-red); color: #fff; }
 .scene-card { background: var(--card-background-color); border-radius: var(--fp-radius); padding: 16px 12px 12px; border: 1px solid var(--divider-color, transparent); margin-bottom: 14px; }
 .scene-title { font-size: 12px; font-weight: 700; color: var(--secondary-text-color); margin: 0 0 8px 4px; text-transform: uppercase; letter-spacing: 0.04em; }
-.scene-card svg { width: 100%; height: auto; display: block; max-height: 280px; }
-.node-label { font-size: 11px; fill: var(--secondary-text-color); font-family: inherit; }
-.node-value { font-size: 13px; font-weight: 600; fill: var(--primary-text-color); font-family: inherit; }
-.flow-path { fill: none; stroke-width: 3; stroke-linecap: round; opacity: 0.2; }
-.flow-path.active { opacity: 1; stroke-dasharray: 8 10; animation: flow 1.2s linear infinite; }
+.scene-card--fox-flow {
+  padding: 0; border: none; border-radius: 0; background: #000;
+  width: calc(100% + 48px); margin: 0 -24px 14px; overflow: hidden;
+}
+.shell.narrow .scene-card--fox-flow { width: calc(100% + 32px); margin-left: -16px; margin-right: -16px; }
+.fox-flow-scene { background: #000; }
+.fox-flow-stage {
+  position: relative; width: 100%; margin: 0 auto;
+  aspect-ratio: 1024 / 1017; max-height: min(72vw, 420px);
+  background: #000;
+}
+.fox-flow-layer {
+  position: absolute; pointer-events: none; user-select: none;
+  object-fit: contain;
+}
+.fox-flow-layer-home {
+  inset: 0; width: 100%; height: 100%;
+  object-position: center bottom;
+}
+.fox-flow-layer-pv {
+  left: 33%; top: 14%; width: 40%; height: auto;
+  object-position: center center;
+}
+.fox-flow-layer-aio {
+  left: 2.5%; bottom: 8%; width: 17%; height: auto;
+  object-position: left bottom;
+}
+.fox-flow-svg {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  z-index: 3; pointer-events: none;
+}
+.fox-flow-badge {
+  position: absolute; z-index: 4;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  min-width: 64px; padding: 6px 10px; border-radius: 10px;
+  background: color-mix(in srgb, #000 55%, transparent);
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+}
+.fox-flow-badge-label {
+  font-size: 11px; font-weight: 600; color: rgba(255, 255, 255, 0.72);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.fox-flow-badge-value {
+  font-size: 14px; font-weight: 700; color: #fff; line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+.fox-flow-badge-soc { font-size: 16px; }
+.fox-flow-badge-solar { left: 38%; top: 6%; transform: translateX(-50%); }
+.fox-flow-badge-grid { right: 4%; top: 5%; align-items: flex-end; }
+.fox-flow-badge-home { left: 50%; bottom: 28%; transform: translateX(-50%); }
+.fox-flow-badge-battery { left: 3%; bottom: 22%; align-items: flex-start; }
+.fox-flow-badge-icon-grid {
+  width: 18px; height: 22px; margin-bottom: 2px;
+  background: linear-gradient(180deg, #64b5f6 0%, #4285f4 100%);
+  clip-path: polygon(35% 0, 65% 0, 65% 35%, 100% 35%, 100% 100%, 0 100%, 0 35%, 35% 35%);
+  opacity: 0.9;
+}
+.flow-path { fill: none; stroke-width: 5; stroke-linecap: round; opacity: 0.15; }
+.flow-path.active { opacity: 1; stroke-dasharray: 14 16; animation: flow 1.2s linear infinite; }
 .flow-path.reverse { animation-direction: reverse; }
 .flow-solar.active { stroke: #f4b400; } .flow-grid.active { stroke: #4285f4; }
 .flow-export.active { stroke: #9c27b0; } .flow-battery.active { stroke: #0f9d58; }
-.flow-label { font-size: 10px; fill: var(--primary-text-color); font-family: inherit; }
-@keyframes flow { to { stroke-dashoffset: -36; } }
-.house-body { fill: var(--divider-color); stroke: var(--fp-accent); stroke-width: 2; }
-.house-roof { fill: var(--fp-accent); opacity: 0.85; }
-.soc-ring-bg { fill: none; stroke: var(--divider-color); stroke-width: 6; }
-.soc-ring { fill: none; stroke: #0f9d58; stroke-width: 6; stroke-linecap: round; transform: rotate(-90deg); transform-origin: 250px 248px; }
+.flow-label {
+  font-size: 13px; font-weight: 700; fill: #fff; font-family: inherit;
+  paint-order: stroke; stroke: rgba(0, 0, 0, 0.65); stroke-width: 4px;
+}
+@keyframes flow { to { stroke-dashoffset: -60; } }
 .device-header { margin-bottom: 8px; }
 .device-header h1 { margin-bottom: 4px; }
 .device-model { margin: 0; font-size: 14px; color: var(--secondary-text-color); }
@@ -1819,7 +1894,11 @@ const STYLES = `
   .device-pv-value { font-size: 24px; }
   .device-battery-pct { font-size: 32px; }
 }
-@media (max-width: 600px) { .scene-card svg { max-height: 220px; } }
+@media (max-width: 600px) {
+  .fox-flow-stage { max-height: min(78vw, 320px); }
+  .fox-flow-badge-value { font-size: 13px; }
+  .fox-flow-layer-pv { left: 30%; top: 12%; width: 44%; }
+}
 `;
 
 class FoxessPlantPanel extends HTMLElement {
@@ -2837,14 +2916,14 @@ ${this._modeBannerExtra()}
     const flows = readEnergyFlows(this._hass, plant, this._plantState);
     const lines = computeFlowLines(flows);
     const activeIds = new Set(lines.map((l) => l.id));
+    const theme = flowSceneTheme(flows.pvW);
+    const isNight = theme === "night_dark";
     const soc = Math.min(100, Math.max(0, flows.batterySoc));
-    const circumference = 2 * Math.PI * 28;
-    const socOffset = circumference * (1 - soc / 100);
     const gridVal =
       flows.gridExportW > flows.gridImportW
         ? formatKw(flows.gridExportW, 2)
         : formatKw(flows.gridImportW, 2);
-    const pathsHtml = Object.entries(FLOW_PATHS)
+    const pathsHtml = Object.entries(FOX_FLOW_PATHS)
       .map(([id, d]) => {
         const line = lines.find((l) => l.id === id);
         const cls = id.includes("solar")
@@ -2854,21 +2933,46 @@ ${this._modeBannerExtra()}
             : id === "home-grid"
               ? "flow-export"
               : "flow-battery";
-        const labelY = id.includes("battery") ? 200 : 108;
-        const label = line?.label
-          ? `<text class="flow-label" x="250" y="${labelY}" text-anchor="middle">${esc(line.label)}</text>`
-          : "";
-        return `<path class="flow-path ${cls} ${activeIds.has(id) ? "active" : ""} ${line?.reverse ? "reverse" : ""}" d="${d}"></path>${label}`;
+        return `<path class="flow-path ${cls} ${activeIds.has(id) ? "active" : ""} ${line?.reverse ? "reverse" : ""}" d="${d}"></path>`;
       })
       .join("");
-    return `<div class="scene-card"><div class="scene-title">Live energy flow</div>
-<svg viewBox="0 0 500 290" role="img" aria-label="Energy flow">
+    const flowLabels = lines
+      .map((line) => {
+        const pt = FOX_FLOW_LABEL_POINTS[line.id];
+        if (!pt || !line.label) return "";
+        return `<text class="flow-label" x="${pt.x}" y="${pt.y}" text-anchor="middle">${esc(line.label)}</text>`;
+      })
+      .join("");
+    return `<div class="scene-card scene-card--fox-flow">
+<div class="fox-flow-scene ${isNight ? "fox-flow-scene--night" : "fox-flow-scene--day"}" role="img" aria-label="Live energy flow">
+<div class="fox-flow-stage">
+<img class="fox-flow-layer fox-flow-layer-home" src="${esc(flowSceneLayerUrl("home", theme))}" alt="" loading="lazy" decoding="async" />
+<img class="fox-flow-layer fox-flow-layer-pv" src="${esc(flowSceneLayerUrl("pv", theme))}" alt="" loading="lazy" decoding="async" />
+<img class="fox-flow-layer fox-flow-layer-aio" src="${esc(flowSceneLayerUrl("aio", theme))}" alt="" loading="lazy" decoding="async" />
+<svg class="fox-flow-svg" viewBox="0 0 1024 1017" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
 ${pathsHtml}
-<g transform="translate(70,48)"><rect x="0" y="18" width="48" height="32" rx="4" fill="#f4b400" opacity="0.25" stroke="#f4b400"/><text class="node-label" x="24" y="12" text-anchor="middle">Solar</text><text class="node-value" x="24" y="68" text-anchor="middle">${esc(formatKw(flows.pvW, 2))}</text></g>
-<g transform="translate(382,48)"><path d="M0 50 L0 20 L12 20 L12 8 L24 8 L24 20 L36 20 L36 50 Z" fill="#4285f4" opacity="0.3" stroke="#4285f4"/><text class="node-label" x="18" y="0" text-anchor="middle">Grid</text><text class="node-value" x="18" y="68" text-anchor="middle">${esc(gridVal)}</text></g>
-<g transform="translate(200,108)"><polygon class="house-roof" points="50,0 100,35 0,35"/><rect class="house-body" x="8" y="35" width="84" height="55" rx="4"/><text class="node-label" x="50" y="-8" text-anchor="middle">Home</text><text class="node-value" x="50" y="108" text-anchor="middle">${esc(formatKw(flows.loadW, 2))}</text></g>
-<g transform="translate(222,220)"><circle class="soc-ring-bg" cx="28" cy="28" r="28"/><circle class="soc-ring" cx="28" cy="28" r="28" stroke-dasharray="${circumference}" stroke-dashoffset="${socOffset}"/><text class="node-value" x="28" y="34" text-anchor="middle" font-size="11">${esc(formatPercent(soc))}</text><text class="node-label" x="28" y="-4" text-anchor="middle">Battery</text><text class="node-value" x="28" y="72" text-anchor="middle" font-size="11">${esc(flows.batteryStatus)}</text></g>
-</svg></div>`;
+${flowLabels}
+</svg>
+<div class="fox-flow-badge fox-flow-badge-solar">
+<span class="fox-flow-badge-label">Solar</span>
+<span class="fox-flow-badge-value">${esc(formatKw(flows.pvW, 2))}</span>
+</div>
+<div class="fox-flow-badge fox-flow-badge-grid">
+<span class="fox-flow-badge-icon fox-flow-badge-icon-grid" aria-hidden="true"></span>
+<span class="fox-flow-badge-label">Grid</span>
+<span class="fox-flow-badge-value">${esc(gridVal)}</span>
+</div>
+<div class="fox-flow-badge fox-flow-badge-home">
+<span class="fox-flow-badge-label">Home</span>
+<span class="fox-flow-badge-value">${esc(formatKw(flows.loadW, 2))}</span>
+</div>
+<div class="fox-flow-badge fox-flow-badge-battery">
+<span class="fox-flow-badge-value fox-flow-badge-soc">${esc(formatPercent(soc))}</span>
+<span class="fox-flow-badge-label">${esc(flows.batteryStatus)}</span>
+</div>
+</div>
+</div>
+</div>`;
   }
 
   _renderStormHero(armed) {
