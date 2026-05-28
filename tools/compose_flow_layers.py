@@ -12,10 +12,21 @@ WWW = ROOT / "custom_components" / "foxess_plant" / "www"
 CANVAS = (1024, 1017)
 
 # Fractions of 1024×1017 — tune here, then re-run: python tools/compose_flow_layers.py
-# Tuned to Fox app reference (1024×1017 flow_home): PV covers roof slope; AIO on garage/house corner wall.
+# Tuned to Fox app reference (1024×1017 flow_home).
+# PV: drop onto roof (not float). AIO: larger, feet on ground at garage/house corner.
 BOXES = {
-    "pv": {"left": 0.388, "top": 0.245, "width": 0.425, "height": 0.228},
-    "aio": {"left": 0.335, "top": 0.555, "width": 0.108, "height": 0.185},
+    "pv": {"left": 0.388, "top": 0.308, "width": 0.425, "height": 0.228},
+    "aio": {"left": 0.312, "top": 0.648, "width": 0.136, "height": 0.222},
+}
+
+# Derived anchors for foxess-plant-panel.js FOX_FLOW_PATHS (keep in sync).
+ANCHORS = {
+    "solar_top": (615, 310),
+    "solar_base": (615, 540),
+    "aio": (422, 738),
+    "hub": (512, 752),
+    "home": (678, 582),
+    "grid": (228, 792),
 }
 
 
@@ -45,6 +56,7 @@ def main() -> None:
     for theme in ("day_light", "night_dark"):
         place_sprite(theme, "pv")
         place_sprite(theme, "aio")
+    print("anchors", ANCHORS)
 
 
 if __name__ == "__main__":

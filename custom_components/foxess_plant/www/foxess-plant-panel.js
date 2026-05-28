@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.29
+ * @version 0.8.30
  */
 
 const NAV = [
@@ -21,21 +21,21 @@ const SETTINGS_NAV = [
   { id: "control", label: "Control" },
 ];
 
-/** Fox hub-and-spoke flow (viewBox 0 0 1024 1017). */
-const FOX_FLOW_HUB = { x: 512, y: 710 };
+/** Fox hub-and-spoke flow (viewBox 0 0 1024 1017). Anchors sync with tools/compose_flow_layers.py */
+const FOX_FLOW_HUB = { x: 512, y: 752 };
 
 const FOX_FLOW_PATHS = {
-  "solar-drop": "M 614 98 L 614 362",
-  "solar-hub": "M 614 362 L 512 710",
-  "grid-hub": "M 210 748 L 512 710",
-  "hub-grid": "M 512 710 L 210 748",
-  "aio-hub": "M 398 648 L 512 710",
-  "hub-aio": "M 512 710 L 398 648",
-  "hub-home": "M 512 710 L 702 598",
+  "solar-drop": "M 615 92 L 615 310",
+  "solar-hub": "M 615 540 L 512 752",
+  "grid-hub": "M 228 792 L 512 752",
+  "hub-grid": "M 512 752 L 228 792",
+  "aio-hub": "M 422 738 L 512 752",
+  "hub-aio": "M 512 752 L 422 738",
+  "hub-home": "M 512 752 L 678 582",
 };
 
 const FLOW_SCENE_PV_THRESHOLD_W = 40;
-const FLOW_SCENE_ASSET_VER = 4;
+const FLOW_SCENE_ASSET_VER = 5;
 
 const DEFAULT_PERIODS = [
   { enable_force_charge: false, enable_charge_from_grid: false, start: "00:00", end: "00:00" },
