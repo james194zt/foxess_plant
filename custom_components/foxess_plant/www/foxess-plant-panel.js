@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.2
+ * @version 0.8.23
  */
 
 const NAV = [
@@ -234,8 +234,8 @@ function renderDeviceBatteryCard(flows, tempDisplay) {
 <div class="device-battery-pct">${esc(formatPercent(flows.batterySoc))}</div>
 </div>
 <div class="device-battery-metrics">
-<div class="device-battery-metric"><span class="device-battery-metric-label">Power</span><span class="device-battery-metric-value">${esc(formatDevicePowerKw(flows.batteryW))}</span></div>
-<div class="device-battery-metric"><span class="device-battery-metric-label">Temp.</span><span class="device-battery-metric-value">${esc(tempDisplay)}</span></div>
+<div class="device-battery-metric device-battery-metric--power"><span class="device-battery-metric-label">Power</span><span class="device-battery-metric-value">${esc(formatDevicePowerKw(flows.batteryW))}</span></div>
+<div class="device-battery-metric device-battery-metric--temp"><span class="device-battery-metric-label">Temp.</span><span class="device-battery-metric-value">${esc(tempDisplay)}</span></div>
 </div>
 </div>`;
 }
@@ -1606,9 +1606,9 @@ const STYLES = `
   border: 1px solid var(--divider-color, rgba(127,127,127,0.28));
   min-height: 0; display: flex; flex-direction: column; box-sizing: border-box;
 }
-.device-card--gauge { align-items: center; justify-content: center; }
-.device-card--battery { align-items: stretch; justify-content: center; }
-.device-pv-wrap { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.device-card--gauge { align-items: center; justify-content: flex-start; }
+.device-card--battery { align-items: stretch; justify-content: flex-start; }
+.device-pv-wrap { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .device-pv-gauge { width: 100%; max-width: 140px; aspect-ratio: 100 / 104; flex-shrink: 0; }
 .device-pv-gauge svg { width: 100%; height: 100%; display: block; }
 .device-pv-readout { text-align: center; width: 100%; }
@@ -1617,7 +1617,7 @@ const STYLES = `
 .device-battery-card { width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 0; }
 .device-battery-top {
   display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
-  column-gap: 10px; width: 100%; padding-bottom: 18px;
+  column-gap: 12px; width: 100%; padding-bottom: 14px;
 }
 .device-battery-status-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .device-battery-svg { width: 44px; height: 22px; flex-shrink: 0; }
@@ -1629,12 +1629,14 @@ const STYLES = `
 .device-battery-status { font-size: 14px; font-weight: 600; line-height: 1.35; }
 .device-battery-pct { font-size: 28px; font-weight: 700; line-height: 1.1; letter-spacing: -0.03em; text-align: right; }
 .device-battery-metrics {
-  display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; row-gap: 0;
-  width: 100%; padding-top: 18px; border-top: 1px solid var(--divider-color, rgba(127,127,127,0.35));
+  display: flex; flex-direction: row; justify-content: space-between; align-items: flex-start;
+  width: 100%; padding-top: 14px; border-top: 1px solid var(--divider-color, rgba(127,127,127,0.35));
 }
-.device-battery-metric { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding-top: 2px; }
-.device-battery-metric-label { font-size: 13px; color: var(--secondary-text-color); font-weight: 500; line-height: 1.35; margin: 0; }
-.device-battery-metric-value { font-size: 18px; font-weight: 700; line-height: 1.35; letter-spacing: -0.02em; margin: 0; }
+.device-battery-metric { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 0 1 auto; }
+.device-battery-metric--power { align-items: flex-start; text-align: left; }
+.device-battery-metric--temp { align-items: flex-end; text-align: right; margin-left: auto; }
+.device-battery-metric-label { font-size: 13px; color: var(--secondary-text-color); font-weight: 500; line-height: 1.3; margin: 0; }
+.device-battery-metric-value { font-size: 17px; font-weight: 700; line-height: 1.25; letter-spacing: -0.02em; margin: 0; white-space: nowrap; }
 .entity-list { border-radius: var(--fp-radius); overflow: hidden; border: 1px solid var(--divider-color, transparent); }
 .entity-row { display: flex; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--divider-color); font-size: 14px; }
 .entity-row:last-child { border-bottom: none; }
