@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.28
+ * @version 0.8.29
  */
 
 const NAV = [
@@ -21,25 +21,21 @@ const SETTINGS_NAV = [
   { id: "control", label: "Control" },
 ];
 
-/** Fox app energy-flow paths (viewBox 0 0 1024 1017, matches flow_home assets). */
+/** Fox hub-and-spoke flow (viewBox 0 0 1024 1017). */
+const FOX_FLOW_HUB = { x: 512, y: 710 };
+
 const FOX_FLOW_PATHS = {
-  "solar-home": "M 610 360 C 620 430, 630 510, 640 580",
-  "grid-home": "M 908 148 C 820 310, 720 450, 668 580",
-  "home-grid": "M 668 580 C 720 450, 820 310, 908 148",
-  "battery-home": "M 108 700 C 280 640, 460 600, 640 580",
-  "home-battery": "M 640 580 C 460 600, 280 640, 108 700",
+  "solar-drop": "M 614 98 L 614 362",
+  "solar-hub": "M 614 362 L 512 710",
+  "grid-hub": "M 210 748 L 512 710",
+  "hub-grid": "M 512 710 L 210 748",
+  "aio-hub": "M 398 648 L 512 710",
+  "hub-aio": "M 512 710 L 398 648",
+  "hub-home": "M 512 710 L 702 598",
 };
 
 const FLOW_SCENE_PV_THRESHOLD_W = 40;
-const FLOW_SCENE_ASSET_VER = 3;
-
-const FOX_FLOW_LABEL_POINTS = {
-  "solar-home": { x: 610, y: 332 },
-  "grid-home": { x: 888, y: 124 },
-  "home-grid": { x: 888, y: 124 },
-  "battery-home": { x: 108, y: 678 },
-  "home-battery": { x: 108, y: 678 },
-};
+const FLOW_SCENE_ASSET_VER = 4;
 
 const DEFAULT_PERIODS = [
   { enable_force_charge: false, enable_charge_from_grid: false, start: "00:00", end: "00:00" },
@@ -1050,6 +1046,13 @@ function renderBarChartSvg(groups, labels, { height = 200 } = {}) {
   return `<div class="chart-wrap"><svg class="energy-bar-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">${rects.join("")}</svg><div class="chart-legend">${legend}</div></div>`;
 }
 
+function formatFoxPower(w) {
+  const abs = Math.abs(w);
+  if (abs < 1000) return `${Math.round(abs)} W`;
+  const kw = abs / 1000;
+  return kw < 10 ? `${kw.toFixed(2)} kW` : `${kw.toFixed(1)} kW`;
+}
+
 function formatW(w) {
   const kw = Math.abs(w) / 1000;
   return kw < 10 ? `${kw.toFixed(2)} kW` : `${kw.toFixed(1)} kW`;
@@ -1107,11 +1110,26 @@ function flowSceneLayerUrl(layer, theme) {
 
 function computeFlowLines(flows, threshold = FLOW_SCENE_PV_THRESHOLD_W) {
   const lines = [];
-  if (flows.pvW > threshold) lines.push({ id: "solar-home", label: formatW(flows.pvW) });
-  if (flows.gridImportW > threshold) lines.push({ id: "grid-home", label: formatW(flows.gridImportW) });
-  if (flows.gridExportW > threshold) lines.push({ id: "home-grid", reverse: true, label: formatW(flows.gridExportW) });
-  if (flows.batteryW > threshold) lines.push({ id: "battery-home", label: formatW(flows.batteryW) });
-  else if (flows.batteryW < -threshold) lines.push({ id: "home-battery", label: formatW(Math.abs(flows.batteryW)) });
+  const hasPv = flows.pvW > threshold;
+  const hasGridIn = flows.gridImportW > threshold;
+  const hasGridOut = flows.gridExportW > threshold;
+  const discharging = flows.batteryW > threshold;
+  const charging = flows.batteryW < -threshold;
+  const hasLoad = flows.loadW > threshold;
+
+  if (hasPv) {
+    lines.push({ id: "solar-drop" });
+    lines.push({ id: "solar-hub" });
+  }
+  if (hasGridIn) lines.push({ id: "grid-hub" });
+  if (hasGridOut) lines.push({ id: "hub-grid", reverse: true });
+  if (discharging) {
+    lines.push({ id: "aio-hub" });
+    if (hasLoad) lines.push({ id: "hub-home" });
+  }
+  if (charging) lines.push({ id: "hub-aio", reverse: true });
+  if (hasPv && hasLoad && !discharging && !charging) lines.push({ id: "hub-home" });
+  if (hasGridIn && hasLoad && !hasPv && !discharging) lines.push({ id: "hub-home" });
   return lines;
 }
 
@@ -1586,7 +1604,7 @@ const STYLES = `
   display: flex; justify-content: center;
 }
 .fox-flow-scene {
-  width: 100%; max-width: min(400px, 94vw); margin: 0 auto; background: #000;
+  width: 100%; max-width: min(440px, 96vw); margin: 0 auto; background: #000;
 }
 .fox-flow-stage {
   position: relative; width: 100%; margin: 0 auto;
@@ -1608,41 +1626,33 @@ const STYLES = `
 }
 .fox-flow-badge {
   position: absolute; z-index: 4;
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-  min-width: 64px; padding: 6px 10px; border-radius: 10px;
-  background: color-mix(in srgb, #000 55%, transparent);
-  backdrop-filter: blur(4px);
-  pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  padding: 0; background: transparent; backdrop-filter: none;
+  pointer-events: none; text-align: center;
 }
 .fox-flow-badge-label {
-  font-size: 11px; font-weight: 600; color: rgba(255, 255, 255, 0.72);
-  text-transform: uppercase; letter-spacing: 0.04em;
+  font-size: 10px; font-weight: 600; color: rgba(255, 255, 255, 0.62);
+  text-transform: uppercase; letter-spacing: 0.06em; line-height: 1.2;
 }
 .fox-flow-badge-value {
-  font-size: 14px; font-weight: 700; color: #fff; line-height: 1.2;
-  letter-spacing: -0.02em;
+  font-size: 12px; font-weight: 600; color: #fff; line-height: 1.25;
+  letter-spacing: -0.01em;
 }
-.fox-flow-badge-soc { font-size: 16px; }
-.fox-flow-badge-solar { left: 58%; top: 20%; transform: translateX(-50%); }
-.fox-flow-badge-grid { right: 6%; top: 7%; align-items: flex-end; }
-.fox-flow-badge-home { left: 62%; bottom: 28%; transform: translateX(-50%); }
-.fox-flow-badge-battery { left: 7%; bottom: 30%; align-items: flex-start; }
-.fox-flow-badge-icon-grid {
-  width: 18px; height: 22px; margin-bottom: 2px;
-  background: linear-gradient(180deg, #64b5f6 0%, #4285f4 100%);
-  clip-path: polygon(35% 0, 65% 0, 65% 35%, 100% 35%, 100% 100%, 0 100%, 0 35%, 35% 35%);
-  opacity: 0.9;
-}
-.flow-path { fill: none; stroke-width: 5; stroke-linecap: round; opacity: 0.15; }
-.flow-path.active { opacity: 1; stroke-dasharray: 14 16; animation: flow 1.2s linear infinite; }
+.fox-flow-badge-solar { left: 50%; top: 1%; transform: translateX(-50%); }
+.fox-flow-badge-grid { left: 4%; bottom: 6%; align-items: flex-start; }
+.fox-flow-badge-battery { left: 50%; bottom: 6%; transform: translateX(-50%); }
+.fox-flow-badge-home { right: 4%; bottom: 6%; align-items: flex-end; }
+.flow-path { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke: rgba(255, 255, 255, 0.22); opacity: 1; }
+.flow-path.active { stroke-width: 3; stroke-dasharray: 10 12; animation: flow 1.1s linear infinite; opacity: 1; }
 .flow-path.reverse { animation-direction: reverse; }
-.flow-solar.active { stroke: #f4b400; } .flow-grid.active { stroke: #4285f4; }
-.flow-export.active { stroke: #9c27b0; } .flow-battery.active { stroke: #0f9d58; }
-.flow-label {
-  font-size: 13px; font-weight: 700; fill: #fff; font-family: inherit;
-  paint-order: stroke; stroke: rgba(0, 0, 0, 0.65); stroke-width: 4px;
-}
-@keyframes flow { to { stroke-dashoffset: -60; } }
+.flow-solar.active { stroke: #f4b400; }
+.flow-grid.active { stroke: #4285f4; }
+.flow-export.active { stroke: #9c27b0; }
+.flow-battery.active { stroke: #0f9d58; }
+.flow-home-line.active { stroke: #0f9d58; }
+.flow-hub-dot { fill: rgba(255, 255, 255, 0.25); }
+.flow-hub-dot.active { fill: #0f9d58; filter: drop-shadow(0 0 6px rgba(15, 157, 88, 0.85)); }
+@keyframes flow { to { stroke-dashoffset: -44; } }
 .device-header { margin-bottom: 8px; }
 .device-header h1 { margin-bottom: 4px; }
 .device-model { margin: 0; font-size: 14px; color: var(--secondary-text-color); }
@@ -2914,30 +2924,27 @@ ${this._modeBannerExtra()}
     const theme = flowSceneTheme(flows.pvW);
     const isNight = theme === "night_dark";
     const soc = Math.min(100, Math.max(0, flows.batterySoc));
-    const gridVal =
-      flows.gridExportW > flows.gridImportW
-        ? formatKw(flows.gridExportW, 2)
-        : formatKw(flows.gridImportW, 2);
+    const gridExporting = flows.gridExportW > flows.gridImportW && flows.gridExportW > FLOW_SCENE_PV_THRESHOLD_W;
+    const gridLabel = gridExporting ? "To Grid" : "On Grid";
+    const gridPower = gridExporting ? flows.gridExportW : flows.gridImportW;
+    const batteryStatus = String(flows.batteryStatus || "Idle").toUpperCase();
+    const batteryPower = Math.abs(flows.batteryW);
     const pathsHtml = Object.entries(FOX_FLOW_PATHS)
       .map(([id, d]) => {
         const line = lines.find((l) => l.id === id);
-        const cls = id.includes("solar")
+        const cls = id.startsWith("solar")
           ? "flow-solar"
-          : id.includes("grid") && id !== "home-grid"
-            ? "flow-grid"
-            : id === "home-grid"
+          : id.includes("grid")
+            ? gridExporting && id === "hub-grid"
               ? "flow-export"
-              : "flow-battery";
+              : "flow-grid"
+            : id.includes("aio") || id.includes("hub-aio")
+              ? "flow-battery"
+              : "flow-home-line";
         return `<path class="flow-path ${cls} ${activeIds.has(id) ? "active" : ""} ${line?.reverse ? "reverse" : ""}" d="${d}"></path>`;
       })
       .join("");
-    const flowLabels = lines
-      .map((line) => {
-        const pt = FOX_FLOW_LABEL_POINTS[line.id];
-        if (!pt || !line.label) return "";
-        return `<text class="flow-label" x="${pt.x}" y="${pt.y}" text-anchor="middle">${esc(line.label)}</text>`;
-      })
-      .join("");
+    const hubActive = lines.some((l) => l.id.includes("hub"));
     return `<div class="scene-card scene-card--fox-flow">
 <div class="fox-flow-scene ${isNight ? "fox-flow-scene--night" : "fox-flow-scene--day"}" role="img" aria-label="Live energy flow">
 <div class="fox-flow-stage">
@@ -2946,24 +2953,23 @@ ${this._modeBannerExtra()}
 <img class="fox-flow-layer fox-flow-layer-aio" src="${esc(flowSceneLayerUrl("aio", theme))}" alt="" loading="lazy" decoding="async" />
 <svg class="fox-flow-svg" viewBox="0 0 1024 1017" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
 ${pathsHtml}
-${flowLabels}
+<circle class="flow-hub-dot ${hubActive ? "active" : ""}" cx="${FOX_FLOW_HUB.x}" cy="${FOX_FLOW_HUB.y}" r="5"/>
 </svg>
 <div class="fox-flow-badge fox-flow-badge-solar">
 <span class="fox-flow-badge-label">Solar</span>
-<span class="fox-flow-badge-value">${esc(formatKw(flows.pvW, 2))}</span>
+<span class="fox-flow-badge-value">${esc(formatFoxPower(flows.pvW))}</span>
 </div>
 <div class="fox-flow-badge fox-flow-badge-grid">
-<span class="fox-flow-badge-icon fox-flow-badge-icon-grid" aria-hidden="true"></span>
-<span class="fox-flow-badge-label">Grid</span>
-<span class="fox-flow-badge-value">${esc(gridVal)}</span>
+<span class="fox-flow-badge-label">${esc(gridLabel)}</span>
+<span class="fox-flow-badge-value">${esc(formatFoxPower(gridPower))}</span>
+</div>
+<div class="fox-flow-badge fox-flow-badge-battery">
+<span class="fox-flow-badge-label">${esc(batteryStatus)}</span>
+<span class="fox-flow-badge-value">${esc(formatFoxPower(batteryPower))} | ${esc(formatPercent(soc))}</span>
 </div>
 <div class="fox-flow-badge fox-flow-badge-home">
 <span class="fox-flow-badge-label">Home</span>
-<span class="fox-flow-badge-value">${esc(formatKw(flows.loadW, 2))}</span>
-</div>
-<div class="fox-flow-badge fox-flow-badge-battery">
-<span class="fox-flow-badge-value fox-flow-badge-soc">${esc(formatPercent(soc))}</span>
-<span class="fox-flow-badge-label">${esc(flows.batteryStatus)}</span>
+<span class="fox-flow-badge-value">${esc(formatFoxPower(flows.loadW))}</span>
 </div>
 </div>
 </div>

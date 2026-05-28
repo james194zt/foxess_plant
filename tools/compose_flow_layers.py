@@ -12,10 +12,10 @@ WWW = ROOT / "custom_components" / "foxess_plant" / "www"
 CANVAS = (1024, 1017)
 
 # Fractions of 1024×1017 — tune here, then re-run: python tools/compose_flow_layers.py
-# Tuned against flow_home_day_light.png (1024×1017): roof + left pad for AIO.
+# Tuned to Fox app reference (1024×1017 flow_home): PV covers roof slope; AIO on garage/house corner wall.
 BOXES = {
-    "pv": {"left": 0.40, "top": 0.252, "width": 0.395, "height": 0.218},
-    "aio": {"left": 0.02, "top": 0.548, "width": 0.138, "height": 0.258},
+    "pv": {"left": 0.388, "top": 0.245, "width": 0.425, "height": 0.228},
+    "aio": {"left": 0.335, "top": 0.555, "width": 0.108, "height": 0.185},
 }
 
 
