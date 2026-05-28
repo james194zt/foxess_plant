@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.32
+ * @version 0.8.33
  */
 
 const NAV = [
@@ -35,7 +35,7 @@ const FOX_FLOW_PATHS = {
 };
 
 const FLOW_SCENE_PV_THRESHOLD_W = 40;
-const FLOW_SCENE_ASSET_VER = 7;
+const FLOW_SCENE_ASSET_VER = 8;
 
 const DEFAULT_PERIODS = [
   { enable_force_charge: false, enable_charge_from_grid: false, start: "00:00", end: "00:00" },
@@ -1102,6 +1102,9 @@ function flowSceneTheme(pvW, threshold = FLOW_SCENE_PV_THRESHOLD_W) {
 }
 
 function flowSceneLayerUrl(layer, theme) {
+  if (layer === "bg") {
+    return `/foxess_plant_panel/flow_home_bg_${theme}.png?v=${FLOW_SCENE_ASSET_VER}`;
+  }
   if (layer === "home") {
     return `/foxess_plant_panel/flow_home_${theme}.png?v=${FLOW_SCENE_ASSET_VER}`;
   }
@@ -1610,15 +1613,24 @@ const STYLES = `
   position: relative; width: 100%; margin: 0 auto;
   aspect-ratio: 1024 / 1017;
   background: #000;
+  isolation: isolate;
 }
 .fox-flow-layer {
   position: absolute; pointer-events: none; user-select: none;
+}
+.fox-flow-layer-bg {
+  inset: 0; width: 100%; height: 100%; z-index: 0;
+  object-fit: cover; object-position: center top;
 }
 .fox-flow-layer-home,
 .fox-flow-layer-pv,
 .fox-flow-layer-aio {
   inset: 0; width: 100%; height: 100%;
   object-fit: contain; object-position: center bottom;
+  z-index: 1;
+}
+.fox-flow-layer-home {
+  mix-blend-mode: screen;
 }
 .fox-flow-svg {
   position: absolute; inset: 0; width: 100%; height: 100%;
@@ -2948,6 +2960,7 @@ ${this._modeBannerExtra()}
     return `<div class="scene-card scene-card--fox-flow">
 <div class="fox-flow-scene ${isNight ? "fox-flow-scene--night" : "fox-flow-scene--day"}" role="img" aria-label="Live energy flow">
 <div class="fox-flow-stage">
+<img class="fox-flow-layer fox-flow-layer-bg" src="${esc(flowSceneLayerUrl("bg", theme))}" alt="" loading="lazy" decoding="async" />
 <img class="fox-flow-layer fox-flow-layer-home" src="${esc(flowSceneLayerUrl("home", theme))}" alt="" loading="lazy" decoding="async" />
 <img class="fox-flow-layer fox-flow-layer-pv" src="${esc(flowSceneLayerUrl("pv", theme))}" alt="" loading="lazy" decoding="async" />
 <img class="fox-flow-layer fox-flow-layer-aio" src="${esc(flowSceneLayerUrl("aio", theme))}" alt="" loading="lazy" decoding="async" />
