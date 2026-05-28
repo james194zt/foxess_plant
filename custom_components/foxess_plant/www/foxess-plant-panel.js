@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.33
+ * @version 0.8.36
  */
 
 const NAV = [
@@ -35,7 +35,7 @@ const FOX_FLOW_PATHS = {
 };
 
 const FLOW_SCENE_PV_THRESHOLD_W = 40;
-const FLOW_SCENE_ASSET_VER = 8;
+const FLOW_SCENE_ASSET_VER = 9;
 
 const DEFAULT_PERIODS = [
   { enable_force_charge: false, enable_charge_from_grid: false, start: "00:00", end: "00:00" },
@@ -1103,7 +1103,7 @@ function flowSceneTheme(pvW, threshold = FLOW_SCENE_PV_THRESHOLD_W) {
 
 function flowSceneLayerUrl(layer, theme) {
   if (layer === "bg") {
-    return `/foxess_plant_panel/flow_home_bg_${theme}.png?v=${FLOW_SCENE_ASSET_VER}`;
+    return `/foxess_plant_panel/flow_home_bg_scene_${theme}.png?v=${FLOW_SCENE_ASSET_VER}`;
   }
   if (layer === "home") {
     return `/foxess_plant_panel/flow_home_${theme}.png?v=${FLOW_SCENE_ASSET_VER}`;
@@ -1154,6 +1154,17 @@ const DEFAULT_MODBUS_BRAND_DOMAIN = "foxess_modbus";
 const DEFAULT_BRAND_ICON_STATIC = "/foxess_plant_panel/icon.png";
 const DEVICE_EVO_IMAGE_STATIC = "/foxess_plant_panel/evo10.png?v=14";
 const STORM_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_storm_safe_charging.png?v=1";
+const IMPACT_ICON_ASSET_VER = 1;
+const IMPACT_ICON_PATHS = {
+  co2: "/foxess_plant_panel/impact_environment_co2.png",
+  tree: "/foxess_plant_panel/impact_environment_planted.png",
+  oil: "/foxess_plant_panel/impact_environment_oil.png",
+};
+
+function impactIconUrl(icon) {
+  const path = IMPACT_ICON_PATHS[icon];
+  return path ? `${path}?v=${IMPACT_ICON_ASSET_VER}` : "";
+}
 const DEVICE_PV_GAUGE_MAX_KW = 5;
 
 let _brandsAccessToken;
@@ -1348,6 +1359,8 @@ const STYLES = `
 }
 .card-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--secondary-text-color); margin: 0 0 14px; }
 .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 12px; }
+.overview-hero-row { display: flex; flex-direction: column; gap: 14px; margin-bottom: 14px; }
+.overview-hero-stats { margin-top: 0; }
 .breakdown-card { margin-top: 14px; padding-bottom: 8px; }
 .statistics-card { padding-bottom: 16px; }
 .statistics-card .card-title { margin-bottom: 12px; }
@@ -1496,26 +1509,8 @@ const STYLES = `
   border: 1px solid var(--divider-color, rgba(127,127,127,0.2));
 }
 .impact-icon {
-  width: 36px; height: 36px; margin: 0 auto 10px; border-radius: 50%;
-  background: color-mix(in srgb, var(--impact-accent) 18%, transparent);
-  position: relative;
-}
-.impact-icon::after {
-  content: ""; position: absolute; inset: 0; margin: auto; width: 18px; height: 18px;
-  background: var(--impact-accent); mask-size: contain; mask-repeat: no-repeat; mask-position: center;
-  -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center;
-}
-.impact-icon-co2::after {
-  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z'/%3E%3C/svg%3E");
-  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z'/%3E%3C/svg%3E");
-}
-.impact-icon-tree::after {
-  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M12 2L7 9h3v2H6L2 18h20L18 11h-4V9h3l-5-7zm0 20a2 2 0 100-4 2 2 0 000 4z'/%3E%3C/svg%3E");
-  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M12 2L7 9h3v2H6L2 18h20L18 11h-4V9h3l-5-7zm0 20a2 2 0 100-4 2 2 0 000 4z'/%3E%3C/svg%3E");
-}
-.impact-icon-oil::after {
-  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M12 3L4 19h16L12 3zm0 4.5L16.5 17h-9L12 7.5z'/%3E%3C/svg%3E");
-  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M12 3L4 19h16L12 3zm0 4.5L16.5 17h-9L12 7.5z'/%3E%3C/svg%3E");
+  display: block; height: 36px; width: auto; max-width: 56px;
+  margin: 0 auto 10px; object-fit: contain;
 }
 .impact-value {
   font-size: 22px; font-weight: 700; line-height: 1.15; letter-spacing: -0.02em;
@@ -1613,14 +1608,13 @@ const STYLES = `
   position: relative; width: 100%; margin: 0 auto;
   aspect-ratio: 1024 / 1017;
   background: #000;
-  isolation: isolate;
 }
 .fox-flow-layer {
   position: absolute; pointer-events: none; user-select: none;
 }
 .fox-flow-layer-bg {
   inset: 0; width: 100%; height: 100%; z-index: 0;
-  object-fit: cover; object-position: center top;
+  object-fit: contain; object-position: center bottom;
 }
 .fox-flow-layer-home,
 .fox-flow-layer-pv,
@@ -1628,9 +1622,6 @@ const STYLES = `
   inset: 0; width: 100%; height: 100%;
   object-fit: contain; object-position: center bottom;
   z-index: 1;
-}
-.fox-flow-layer-home {
-  mix-blend-mode: screen;
 }
 .fox-flow-svg {
   position: absolute; inset: 0; width: 100%; height: 100%;
@@ -1906,6 +1897,38 @@ const STYLES = `
 .storm-advanced { margin-top: 4px; }
 .trigger-row.google-weather { background: color-mix(in srgb, var(--fp-accent) 10%, transparent); }
 .trigger-role { display: inline-block; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 6px; border-radius: 6px; margin-left: 6px; background: var(--secondary-background-color); color: var(--fp-accent); }
+@media (min-width: 768px) {
+  .overview-hero-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    align-items: stretch;
+  }
+  .overview-hero-row .scene-card--fox-flow {
+    margin-bottom: 0;
+    width: fit-content;
+    max-width: 100%;
+    justify-content: flex-start;
+  }
+  .overview-hero-row .fox-flow-scene {
+    margin: 0;
+    max-width: min(440px, 100%);
+  }
+  .overview-hero-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    height: 100%;
+    grid-template-columns: unset;
+  }
+  .overview-hero-stats .stat {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+}
 @media (max-width: 720px) {
   .device-grid { grid-template-columns: 1fr; gap: 12px; }
   .device-card--gauge, .device-card--battery { padding: 20px 20px 22px; }
@@ -3019,21 +3042,18 @@ ${pathsHtml}
         value: imp.co2_kg,
         unit: "kg",
         icon: "co2",
-        color: "#4caf50",
       },
       {
         label: "Trees planted",
         value: imp.trees_planted,
         unit: "",
         icon: "tree",
-        color: "#66bb6a",
       },
       {
         label: "Oil saved",
         value: imp.oil_litres,
         unit: "L",
         icon: "oil",
-        color: "#ffa726",
       },
     ];
     const grid = items
@@ -3043,7 +3063,7 @@ ${pathsHtml}
           ? `${Number(item.value).toFixed(1)}${item.unit ? `<span class="impact-unit">${esc(item.unit)}</span>` : ""}`
           : "—";
         return `<div class="impact-metric">
-<div class="impact-icon impact-icon-${item.icon}" style="--impact-accent:${item.color}" aria-hidden="true"></div>
+<img class="impact-icon" src="${esc(impactIconUrl(item.icon))}" alt="" loading="lazy" decoding="async" />
 <div class="impact-value">${display}</div>
 <div class="impact-label">${esc(item.label)}</div>
 </div>`;
@@ -3066,11 +3086,13 @@ ${basis}
     const a = this._plantState?.analytics ?? {};
     const modelLine = plantModelSubtitle(this._hass, plant, this._plantState);
     return `<header class="header overview-header"><h1>${esc(plant.title)}</h1>${modelLine !== "—" ? `<p class="overview-model">${esc(modelLine)}</p>` : ""}${this._renderOverviewStatusBlock(plant)}</header>
+<div class="overview-hero-row">
 ${this._renderEnergyScene(plant)}
-<div class="stats-row" style="margin-top:14px">
+<div class="stats-row overview-hero-stats">
 ${this._stat("Self-consumption", a.self_consumption_percent_today, a.self_consumption_percent_today != null ? "%" : "")}
 ${this._stat("Self-sufficiency", a.self_sufficiency_percent_today, a.self_sufficiency_percent_today != null ? "%" : "")}
 ${this._stat("PV today", a.pv_production_kwh_today, a.pv_production_kwh_today != null ? " kWh" : "")}
+</div>
 </div>
 ${this._renderImpactPanel()}
 <div class="card statistics-card" style="margin-top:14px">
