@@ -13,8 +13,8 @@ CANVAS = (1024, 1017)
 
 # Fractions of 1024×1017 — tune here, then re-run: python tools/compose_flow_layers.py
 BOXES = {
-    "pv": {"left": 0.388, "top": 0.342, "width": 0.425, "height": 0.228},
-    "aio": {"left": 0.312, "top": 0.610, "width": 0.136, "height": 0.222},
+    "pv": {"left": 0.388, "top": 0.342, "width": 0.448, "height": 0.242},
+    "aio": {"left": 0.312, "top": 0.622, "width": 0.136, "height": 0.222},
 }
 
 

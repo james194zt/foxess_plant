@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.31
+ * @version 0.8.32
  */
 
 const NAV = [
@@ -25,17 +25,17 @@ const SETTINGS_NAV = [
 const FOX_FLOW_HUB = { x: 512, y: 752 };
 
 const FOX_FLOW_PATHS = {
-  "solar-drop": "M 614 92 L 614 347",
-  "solar-aio": "M 388 347 L 388 647",
+  "solar-drop": "M 626 92 L 626 347",
+  "solar-aio": "M 388 347 L 388 659",
   "grid-hub": "M 228 788 L 512 752",
   "hub-grid": "M 512 752 L 228 788",
-  "aio-hub": "M 388 647 L 512 752",
-  "hub-aio": "M 512 752 L 388 647",
+  "aio-hub": "M 388 659 L 512 752",
+  "hub-aio": "M 512 752 L 388 659",
   "hub-home": "M 512 752 L 678 578",
 };
 
 const FLOW_SCENE_PV_THRESHOLD_W = 40;
-const FLOW_SCENE_ASSET_VER = 6;
+const FLOW_SCENE_ASSET_VER = 7;
 
 const DEFAULT_PERIODS = [
   { enable_force_charge: false, enable_charge_from_grid: false, start: "00:00", end: "00:00" },
