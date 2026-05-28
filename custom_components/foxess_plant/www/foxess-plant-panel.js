@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.23
+ * @version 0.8.24
  */
 
 const NAV = [
@@ -1109,6 +1109,7 @@ const DEFAULT_BRAND_DOMAIN = "foxess_plant";
 const DEFAULT_MODBUS_BRAND_DOMAIN = "foxess_modbus";
 const DEFAULT_BRAND_ICON_STATIC = "/foxess_plant_panel/icon.png";
 const DEVICE_EVO_IMAGE_STATIC = "/foxess_plant_panel/evo10.png?v=14";
+const STORM_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_storm_safe_charging.png?v=1";
 const DEVICE_PV_GAUGE_MAX_KW = 5;
 
 let _brandsAccessToken;
@@ -1740,11 +1741,37 @@ const STYLES = `
 .mode-option.selected { border-color: var(--fp-accent); background: color-mix(in srgb, var(--fp-accent) 10%, var(--card-background-color)); }
 .mode-option .name { font-weight: 600; font-size: 15px; }
 .mode-option .hint { font-size: 12px; color: var(--secondary-text-color); margin-top: 4px; }
-.hero { border-radius: var(--fp-radius); overflow: hidden; background: linear-gradient(180deg, #1a2332 0%, var(--card-background-color) 100%); margin-bottom: 14px; border: 1px solid var(--divider-color); }
-.hero svg { width: 100%; height: auto; display: block; }
+.hero { border-radius: var(--fp-radius); overflow: hidden; background: var(--card-background-color); margin-bottom: 14px; border: 1px solid var(--divider-color); }
 .hero-caption { padding: 12px 16px; font-size: 13px; color: var(--secondary-text-color); line-height: 1.45; border-top: 1px solid var(--divider-color); }
-.prepared { opacity: 1; } .unprepared { opacity: 0.35; }
-.hero.armed .unprepared { opacity: 0.2; } .hero:not(.armed) .prepared { opacity: 0.45; }
+.storm-hero {
+  border: none; border-radius: 0; background: #0d1520;
+  width: calc(100% + 48px); max-width: none;
+  margin: -20px -24px 20px;
+}
+.shell.narrow .storm-hero { width: calc(100% + 32px); margin: -16px -16px 16px; }
+.storm-hero-media {
+  position: relative; width: 100%; overflow: hidden;
+  aspect-ratio: 750 / 420; max-height: min(52vw, 280px); min-height: 140px;
+  background: #0d1520;
+}
+.storm-hero-img {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; object-position: center center; display: block;
+}
+.storm-hero-half {
+  position: absolute; top: 0; bottom: 0; width: 50%;
+  pointer-events: none; transition: background 0.35s ease;
+}
+.storm-hero-half--left { left: 0; }
+.storm-hero-half--right { right: 0; }
+.storm-hero:not(.armed) .storm-hero-half--left { background: rgba(0, 0, 0, 0.18); }
+.storm-hero.armed .storm-hero-half--right { background: rgba(0, 0, 0, 0.42); }
+.storm-hero.armed .storm-hero-half--left { background: rgba(76, 175, 80, 0.08); }
+.storm-hero .hero-caption {
+  background: var(--card-background-color);
+  border-top: 1px solid var(--divider-color);
+}
+.storm-settings-header { margin-top: 0; margin-bottom: 16px; }
 .trigger-chip { display: inline-block; padding: 4px 10px; border-radius: 8px; font-size: 12px; background: var(--secondary-background-color); margin: 4px 4px 0 0; }
 .trigger-chips-wrap { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; min-height: 28px; }
 .trigger-chip-selected { display: inline-flex; align-items: center; gap: 4px; padding-right: 8px; background: color-mix(in srgb, var(--fp-accent) 18%, var(--secondary-background-color)); }
@@ -2839,11 +2866,14 @@ ${pathsHtml}
   }
 
   _renderStormHero(armed) {
-    return `<div class="hero ${armed ? "armed" : ""}"><svg viewBox="0 0 400 140" aria-hidden="true">
-<g class="unprepared" transform="translate(210,20)"><rect x="30" y="40" width="70" height="50" rx="4" fill="#333"/><polygon points="65,20 110,45 20,45" fill="#444"/><rect x="95" y="70" width="28" height="40" rx="4" fill="#333" stroke="#c62828" stroke-width="2"/></g>
-<g class="prepared" transform="translate(20,20)"><rect x="30" y="40" width="70" height="50" rx="4" fill="#455a64"/><polygon points="65,20 110,45 20,45" fill="#546e7a"/><rect x="5" y="70" width="28" height="40" rx="4" fill="#2e7d32" stroke="#66bb6a" stroke-width="2"/></g>
-<g transform="translate(155,8)"><ellipse cx="45" cy="28" rx="50" ry="22" fill="#37474f"/><path d="M55 48 L48 62 L54 62 L46 78 L58 58 L52 58 Z" fill="#ffeb3b"/></g>
-</svg><div class="hero-caption">Pre-charges the battery before severe weather using your storm prep schedule.</div></div>`;
+    return `<div class="hero storm-hero ${armed ? "armed" : ""}" role="img" aria-label="StormSafe: battery-backed home during a storm">
+<div class="storm-hero-media">
+<img class="storm-hero-img" src="${esc(STORM_HERO_IMAGE_STATIC)}" alt="" loading="lazy" decoding="async" />
+<span class="storm-hero-half storm-hero-half--left" aria-hidden="true"></span>
+<span class="storm-hero-half storm-hero-half--right" aria-hidden="true"></span>
+</div>
+<div class="hero-caption">Pre-charges the battery before severe weather using your storm prep schedule.</div>
+</div>`;
   }
 
   _stat(label, value, suffix = "") {
@@ -3743,8 +3773,8 @@ ${this._renderPeriodCard(1, this._chargeDraft[1])}
     const armed = triggersArmed || overrideArmed;
     const activeTriggers = this._plantState?.active_storm_triggers ?? [];
     const maxSocVal = draft.target_max_soc == null ? "" : String(draft.target_max_soc);
-    return `<header class="header"><h1>StormSafe</h1><p>Pre-charge before severe weather — configured here, no blueprints required</p></header>
-${this._renderStormHero(armed)}
+    return `${this._renderStormHero(armed)}
+<header class="header storm-settings-header"><h1>StormSafe</h1><p>Pre-charge before severe weather — configured here, no blueprints required</p></header>
 <div class="card">
 <p class="card-title">Status</p>
 <p style="margin:0 0 10px;font-size:14px">${armed ? "Storm prep is <strong>active</strong> — storm charge schedule applied." : "No storm triggers active right now."}</p>
