@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.27
+ * @version 0.8.28
  */
 
 const NAV = [
@@ -23,22 +23,22 @@ const SETTINGS_NAV = [
 
 /** Fox app energy-flow paths (viewBox 0 0 1024 1017, matches flow_home assets). */
 const FOX_FLOW_PATHS = {
-  "solar-home": "M 548 378 C 568 430, 590 500, 612 548",
-  "grid-home": "M 908 148 C 820 310, 720 450, 648 548",
-  "home-grid": "M 648 548 C 720 450, 820 310, 908 148",
-  "battery-home": "M 168 768 C 300 680, 460 600, 612 548",
-  "home-battery": "M 612 548 C 460 600, 300 680, 168 768",
+  "solar-home": "M 610 360 C 620 430, 630 510, 640 580",
+  "grid-home": "M 908 148 C 820 310, 720 450, 668 580",
+  "home-grid": "M 668 580 C 720 450, 820 310, 908 148",
+  "battery-home": "M 108 700 C 280 640, 460 600, 640 580",
+  "home-battery": "M 640 580 C 460 600, 280 640, 108 700",
 };
 
 const FLOW_SCENE_PV_THRESHOLD_W = 40;
-const FLOW_SCENE_ASSET_VER = 2;
+const FLOW_SCENE_ASSET_VER = 3;
 
 const FOX_FLOW_LABEL_POINTS = {
-  "solar-home": { x: 548, y: 352 },
+  "solar-home": { x: 610, y: 332 },
   "grid-home": { x: 888, y: 124 },
   "home-grid": { x: 888, y: 124 },
-  "battery-home": { x: 168, y: 748 },
-  "home-battery": { x: 168, y: 748 },
+  "battery-home": { x: 108, y: 678 },
+  "home-battery": { x: 108, y: 678 },
 };
 
 const DEFAULT_PERIODS = [
@@ -1582,10 +1582,12 @@ const STYLES = `
 .scene-title { font-size: 12px; font-weight: 700; color: var(--secondary-text-color); margin: 0 0 8px 4px; text-transform: uppercase; letter-spacing: 0.04em; }
 .scene-card--fox-flow {
   padding: 0; border: none; border-radius: 0; background: #000;
-  width: calc(100% + 48px); margin: 0 -24px 14px; overflow: hidden;
+  width: 100%; margin: 0 0 14px; overflow: hidden;
+  display: flex; justify-content: center;
 }
-.shell.narrow .scene-card--fox-flow { width: calc(100% + 32px); margin-left: -16px; margin-right: -16px; }
-.fox-flow-scene { background: #000; }
+.fox-flow-scene {
+  width: 100%; max-width: min(400px, 94vw); margin: 0 auto; background: #000;
+}
 .fox-flow-stage {
   position: relative; width: 100%; margin: 0 auto;
   aspect-ratio: 1024 / 1017;
@@ -1621,10 +1623,10 @@ const STYLES = `
   letter-spacing: -0.02em;
 }
 .fox-flow-badge-soc { font-size: 16px; }
-.fox-flow-badge-solar { left: 54%; top: 22%; transform: translateX(-50%); }
-.fox-flow-badge-grid { right: 5%; top: 8%; align-items: flex-end; }
-.fox-flow-badge-home { left: 58%; bottom: 30%; transform: translateX(-50%); }
-.fox-flow-badge-battery { left: 10%; bottom: 34%; align-items: flex-start; }
+.fox-flow-badge-solar { left: 58%; top: 20%; transform: translateX(-50%); }
+.fox-flow-badge-grid { right: 6%; top: 7%; align-items: flex-end; }
+.fox-flow-badge-home { left: 62%; bottom: 28%; transform: translateX(-50%); }
+.fox-flow-badge-battery { left: 7%; bottom: 30%; align-items: flex-start; }
 .fox-flow-badge-icon-grid {
   width: 18px; height: 22px; margin-bottom: 2px;
   background: linear-gradient(180deg, #64b5f6 0%, #4285f4 100%);
