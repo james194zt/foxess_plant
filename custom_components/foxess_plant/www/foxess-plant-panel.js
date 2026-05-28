@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.26
+ * @version 0.8.27
  */
 
 const NAV = [
@@ -23,22 +23,22 @@ const SETTINGS_NAV = [
 
 /** Fox app energy-flow paths (viewBox 0 0 1024 1017, matches flow_home assets). */
 const FOX_FLOW_PATHS = {
-  "solar-home": "M 520 290 C 560 360, 590 430, 640 500",
-  "grid-home": "M 920 140 C 840 300, 760 420, 680 500",
-  "home-grid": "M 680 500 C 760 420, 840 300, 920 140",
-  "battery-home": "M 200 700 C 340 620, 500 540, 640 500",
-  "home-battery": "M 640 500 C 500 540, 340 620, 200 700",
+  "solar-home": "M 548 378 C 568 430, 590 500, 612 548",
+  "grid-home": "M 908 148 C 820 310, 720 450, 648 548",
+  "home-grid": "M 648 548 C 720 450, 820 310, 908 148",
+  "battery-home": "M 168 768 C 300 680, 460 600, 612 548",
+  "home-battery": "M 612 548 C 460 600, 300 680, 168 768",
 };
 
 const FLOW_SCENE_PV_THRESHOLD_W = 40;
-const FLOW_SCENE_ASSET_VER = 1;
+const FLOW_SCENE_ASSET_VER = 2;
 
 const FOX_FLOW_LABEL_POINTS = {
-  "solar-home": { x: 520, y: 268 },
-  "grid-home": { x: 900, y: 118 },
-  "home-grid": { x: 900, y: 118 },
-  "battery-home": { x: 200, y: 678 },
-  "home-battery": { x: 200, y: 678 },
+  "solar-home": { x: 548, y: 352 },
+  "grid-home": { x: 888, y: 124 },
+  "home-grid": { x: 888, y: 124 },
+  "battery-home": { x: 168, y: 748 },
+  "home-battery": { x: 168, y: 748 },
 };
 
 const DEFAULT_PERIODS = [
@@ -1099,8 +1099,10 @@ function flowSceneTheme(pvW, threshold = FLOW_SCENE_PV_THRESHOLD_W) {
 }
 
 function flowSceneLayerUrl(layer, theme) {
-  const name = layer === "aio" ? "flow_aio_812" : `flow_${layer}`;
-  return `/foxess_plant_panel/${name}_${theme}.png?v=${FLOW_SCENE_ASSET_VER}`;
+  if (layer === "home") {
+    return `/foxess_plant_panel/flow_home_${theme}.png?v=${FLOW_SCENE_ASSET_VER}`;
+  }
+  return `/foxess_plant_panel/flow_${layer}_scene_${theme}.png?v=${FLOW_SCENE_ASSET_VER}`;
 }
 
 function computeFlowLines(flows, threshold = FLOW_SCENE_PV_THRESHOLD_W) {
@@ -1586,24 +1588,17 @@ const STYLES = `
 .fox-flow-scene { background: #000; }
 .fox-flow-stage {
   position: relative; width: 100%; margin: 0 auto;
-  aspect-ratio: 1024 / 1017; max-height: min(72vw, 420px);
+  aspect-ratio: 1024 / 1017;
   background: #000;
 }
 .fox-flow-layer {
   position: absolute; pointer-events: none; user-select: none;
-  object-fit: contain;
 }
-.fox-flow-layer-home {
-  inset: 0; width: 100%; height: 100%;
-  object-position: center bottom;
-}
-.fox-flow-layer-pv {
-  left: 33%; top: 14%; width: 40%; height: auto;
-  object-position: center center;
-}
+.fox-flow-layer-home,
+.fox-flow-layer-pv,
 .fox-flow-layer-aio {
-  left: 2.5%; bottom: 8%; width: 17%; height: auto;
-  object-position: left bottom;
+  inset: 0; width: 100%; height: 100%;
+  object-fit: contain; object-position: center bottom;
 }
 .fox-flow-svg {
   position: absolute; inset: 0; width: 100%; height: 100%;
@@ -1626,10 +1621,10 @@ const STYLES = `
   letter-spacing: -0.02em;
 }
 .fox-flow-badge-soc { font-size: 16px; }
-.fox-flow-badge-solar { left: 38%; top: 6%; transform: translateX(-50%); }
-.fox-flow-badge-grid { right: 4%; top: 5%; align-items: flex-end; }
-.fox-flow-badge-home { left: 50%; bottom: 28%; transform: translateX(-50%); }
-.fox-flow-badge-battery { left: 3%; bottom: 22%; align-items: flex-start; }
+.fox-flow-badge-solar { left: 54%; top: 22%; transform: translateX(-50%); }
+.fox-flow-badge-grid { right: 5%; top: 8%; align-items: flex-end; }
+.fox-flow-badge-home { left: 58%; bottom: 30%; transform: translateX(-50%); }
+.fox-flow-badge-battery { left: 10%; bottom: 34%; align-items: flex-start; }
 .fox-flow-badge-icon-grid {
   width: 18px; height: 22px; margin-bottom: 2px;
   background: linear-gradient(180deg, #64b5f6 0%, #4285f4 100%);
@@ -1895,9 +1890,7 @@ const STYLES = `
   .device-battery-pct { font-size: 32px; }
 }
 @media (max-width: 600px) {
-  .fox-flow-stage { max-height: min(78vw, 320px); }
   .fox-flow-badge-value { font-size: 13px; }
-  .fox-flow-layer-pv { left: 30%; top: 12%; width: 44%; }
 }
 `;
 
