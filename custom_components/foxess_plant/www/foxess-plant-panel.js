@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.54
+ * @version 0.8.55
  */
 
 const NAV = [
@@ -1653,7 +1653,8 @@ const STYLES = `
 .fox-flow-badge-battery { left: 50%; bottom: 6%; transform: translateX(-50%); }
 .fox-flow-badge-home { right: 4%; bottom: 6%; align-items: flex-end; }
 .flow-path { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; stroke: rgba(255, 255, 255, 0.18); opacity: 1; }
-.flow-path.active { stroke-width: 3; stroke-dasharray: 10 12; animation: flow 1.1s linear infinite; opacity: 1; }
+.flow-path-base { pointer-events: none; }
+.flow-path.active { stroke-width: 3; stroke-dasharray: 10 12; animation: flow 1.1s linear infinite; opacity: 1; stroke-linecap: butt; }
 .flow-path.reverse { animation-direction: reverse; }
 .flow-solar.active { stroke: #f4b400; }
 .flow-grid.active { stroke: #4285f4; }
@@ -2974,7 +2975,14 @@ ${this._modeBannerExtra()}
             : id.includes("aio") || id.includes("hub-aio")
               ? "flow-battery"
               : "flow-home-line";
-        return `<path class="flow-path ${cls} ${activeIds.has(id) ? "active" : ""} ${line?.reverse ? "reverse" : ""}" d="${d}"></path>`;
+        const isActive = activeIds.has(id);
+        const reverse = line?.reverse ? " reverse" : "";
+        if (FOX_FLOW_HUB_SPOKES.has(id)) {
+          const base = `<path class="flow-path flow-path-base ${cls}" d="${d}"></path>`;
+          if (!isActive) return base;
+          return `${base}<path class="flow-path ${cls} active${reverse}" d="${d}"></path>`;
+        }
+        return `<path class="flow-path ${cls} ${isActive ? "active" : ""}${reverse}" d="${d}"></path>`;
       })
       .join("");
     const hubActive = lines.some((l) => l.id.includes("hub"));
