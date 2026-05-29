@@ -18,7 +18,7 @@ BOXES = {
 }
 
 # Scene anchors (viewBox 0 0 1024 1017) — tune to match the house render
-HUB = (504, 726)  # vertical corner: side wall (AIO) ⊗ front facade (window)
+HUB = (518, 726)  # vertical corner: side wall (AIO) ⊗ front facade (window)
 WINDOW = (558, 532)  # centre of large front window
 GRID = (228, 788)  # grid badge / ground connection (left)
 
