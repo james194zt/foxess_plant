@@ -22,9 +22,9 @@ BOXES = {
 # coordinates unless the user explicitly asks. Sync FOX_FLOW_HUB / FOX_FLOW_PATHS in panel JS.
 HUB = (536, 726)
 WINDOW = (558, 532)  # centre of large front window
-WINDOW_LEFT = (586, 532)  # left edge of glass (home feed terminates here)
-GRID = (228, 788)  # grid badge / ground connection (left)
-GROUND_Y = 788  # pavement level for grid run (aligned with grid badge)
+WINDOW_LEFT = (568, 488)  # left sill of glass (home feed terminates here)
+GRID = (228, 788)  # grid badge anchor (left)
+GROUND_Y = 848  # visible pavement below house base
 
 
 def box_pixels(box: dict) -> tuple[int, int, int, int]:
@@ -42,7 +42,7 @@ def derive_anchors() -> dict[str, tuple[int, int]]:
     solar_x = pv_l + pv_w // 2
     aio_x = aio_l + aio_w // 2
     aio_edge = aio_l + aio_w  # right edge of AIO on side wall
-    aio_connect_y = aio_t + int(aio_h * 0.38)  # mid-wall tap on AIO right face
+    aio_connect = (aio_edge, hy := HUB[1])  # tap AIO right face at hub row
     return {
         "solar_label": (solar_x, 92),
         "solar_top": (solar_x, pv_t),
@@ -51,7 +51,7 @@ def derive_anchors() -> dict[str, tuple[int, int]]:
         "aio_mid": (aio_x, aio_t + aio_h // 2),
         "aio_x": aio_x,
         "aio_edge": aio_edge,
-        "aio_connect": (aio_edge, aio_connect_y),
+        "aio_connect": aio_connect,
         "window": WINDOW,
         "window_left": WINDOW_LEFT,
         "hub": HUB,
@@ -71,12 +71,8 @@ def flow_paths(anchors: dict[str, tuple[int, int]]) -> dict[str, str]:
     hx, hy = anchors["hub"]
     gx, gy = anchors["grid"]
     ground_y = GROUND_Y
-    if acy == hy:
-        aio_hub = f"M {acx} {acy} L {hx} {hy}"
-        hub_aio = f"M {hx} {hy} L {acx} {acy}"
-    else:
-        aio_hub = f"M {acx} {acy} L {hx} {acy} L {hx} {hy}"
-        hub_aio = f"M {hx} {hy} L {hx} {acy} L {acx} {acy}"
+    aio_hub = f"M {acx} {acy} L {hx} {hy}"
+    hub_aio = f"M {hx} {hy} L {acx} {acy}"
     return {
         "solar-drop": f"M {sx} {sy} L {stx} {sty}",
         "solar-aio": f"M {ax} {sty} L {ax} {aty}",

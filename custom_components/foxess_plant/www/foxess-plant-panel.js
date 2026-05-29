@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.48
+ * @version 0.8.49
  */
 
 const NAV = [
@@ -28,12 +28,13 @@ const FOX_FLOW_HUB = { x: 536, y: 726 };
 const FOX_FLOW_PATHS = {
   "solar-drop": "M 626 92 L 626 347",
   "solar-aio": "M 388 347 L 388 659",
-  "grid-hub": "M 228 788 L 536 788 L 536 726",
-  "hub-grid": "M 536 726 L 536 788 L 228 788",
-  "aio-hub": "M 458 717 L 536 717 L 536 726",
-  "hub-aio": "M 536 726 L 536 717 L 458 717",
-  "hub-home": "M 536 726 L 586 726 L 586 532",
+  "grid-hub": "M 228 848 L 536 848 L 536 726",
+  "hub-grid": "M 536 726 L 536 848 L 228 848",
+  "aio-hub": "M 458 726 L 536 726",
+  "hub-aio": "M 536 726 L 458 726",
+  "hub-home": "M 536 726 L 568 726 L 568 488",
 };
+const FOX_FLOW_HUB_SPOKES = new Set(["aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_SCENE_PV_THRESHOLD_W = 40;
 const FLOW_SCENE_ASSET_VER = 9;
@@ -1127,13 +1128,11 @@ function computeFlowLines(flows, threshold = FLOW_SCENE_PV_THRESHOLD_W) {
   }
   if (hasGridIn) lines.push({ id: "grid-hub" });
   if (hasGridOut) lines.push({ id: "hub-grid", reverse: true });
-  if (discharging) {
-    lines.push({ id: "aio-hub" });
-    if (hasLoad) lines.push({ id: "hub-home" });
-  }
+  if (discharging) lines.push({ id: "aio-hub" });
   if (charging) lines.push({ id: "hub-aio", reverse: true });
-  if (hasPv && hasLoad && !discharging && !charging) lines.push({ id: "hub-home" });
-  if (hasGridIn && hasLoad && !hasPv && !discharging) lines.push({ id: "hub-home" });
+  if (hasLoad && (hasGridOut || hasGridIn || discharging || charging || hasPv)) {
+    lines.push({ id: "hub-home" });
+  }
   return lines;
 }
 
@@ -1653,7 +1652,7 @@ const STYLES = `
 .fox-flow-badge-grid { left: 4%; bottom: 6%; align-items: flex-start; }
 .fox-flow-badge-battery { left: 50%; bottom: 6%; transform: translateX(-50%); }
 .fox-flow-badge-home { right: 4%; bottom: 6%; align-items: flex-end; }
-.flow-path { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke: rgba(255, 255, 255, 0.22); opacity: 1; }
+.flow-path { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; stroke: rgba(255, 255, 255, 0.18); opacity: 1; }
 .flow-path.active { stroke-width: 3; stroke-dasharray: 10 12; animation: flow 1.1s linear infinite; opacity: 1; }
 .flow-path.reverse { animation-direction: reverse; }
 .flow-solar.active { stroke: #f4b400; }
@@ -2964,6 +2963,8 @@ ${this._modeBannerExtra()}
     const pathsHtml = Object.entries(FOX_FLOW_PATHS)
       .map(([id, d]) => {
         const line = lines.find((l) => l.id === id);
+        if (id.startsWith("solar") && !line) return "";
+        if (!line && !FOX_FLOW_HUB_SPOKES.has(id)) return "";
         const cls = id.startsWith("solar")
           ? "flow-solar"
           : id.includes("grid")
