@@ -69,8 +69,7 @@ def derive_anchors() -> dict[str, tuple[int, int]]:
 
 def flow_paths(anchors: dict[str, tuple[int, int]]) -> dict[str, str]:
     """Fox-style orthogonal paths from locked hub (hub coords must not change)."""
-    sx, sy = anchors["solar_label"]
-    stx, sty = anchors["solar_top"]
+    _, sty = anchors["solar_top"]
     ax = anchors["aio_x"]
     acx, acy = anchors["aio_connect"]
     aty = anchors["aio_top"][1]
@@ -83,7 +82,6 @@ def flow_paths(anchors: dict[str, tuple[int, int]]) -> dict[str, str]:
     aio_hub = f"M {acx} {acy} L {hx} {hy}"
     hub_aio = f"M {hx} {hy} L {acx} {acy}"
     return {
-        "solar-drop": f"M {sx} {sy} L {stx} {sty}",
         "solar-aio": f"M {ax} {aio_roof_y} L {ax} {aty}",
         "grid-hub": f"M {gx} {ground_y} L {hx} {ground_y} L {hx} {hy}",
         "hub-grid": f"M {hx} {hy} L {hx} {ground_y} L {gx} {ground_y}",
