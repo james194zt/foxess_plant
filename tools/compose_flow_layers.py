@@ -18,7 +18,7 @@ BOXES = {
 }
 
 # Scene anchors (viewBox 0 0 1024 1017) — tune to match the house render
-HUB = (438, 728)  # front-left corner (left wall ⊗ front facade)
+HUB = (504, 726)  # vertical corner: side wall (AIO) ⊗ front facade (window)
 WINDOW = (558, 532)  # centre of large front window
 GRID = (228, 788)  # grid badge / ground connection (left)
 
@@ -37,6 +37,7 @@ def derive_anchors() -> dict[str, tuple[int, int]]:
     aio_l, aio_t, aio_w, aio_h = box_pixels(BOXES["aio"])
     solar_x = pv_l + pv_w // 2
     aio_x = aio_l + aio_w // 2
+    aio_edge = aio_l + aio_w  # right edge of AIO on side wall
     return {
         "solar_label": (solar_x, 92),
         "solar_top": (solar_x, pv_t),
@@ -44,6 +45,7 @@ def derive_anchors() -> dict[str, tuple[int, int]]:
         "aio_top": (aio_x, aio_t + int(aio_h * 0.12)),
         "aio_mid": (aio_x, aio_t + aio_h // 2),
         "aio_x": aio_x,
+        "aio_edge": aio_edge,
         "window": WINDOW,
         "hub": HUB,
         "home": (678, 578),
@@ -56,6 +58,7 @@ def flow_paths(anchors: dict[str, tuple[int, int]]) -> dict[str, str]:
     sx, sy = anchors["solar_label"]
     stx, sty = anchors["solar_top"]
     ax = anchors["aio_x"]
+    aedge = anchors["aio_edge"]
     aty = anchors["aio_top"][1]
     wx, wy = anchors["window"]
     hx, hy = anchors["hub"]
@@ -63,13 +66,11 @@ def flow_paths(anchors: dict[str, tuple[int, int]]) -> dict[str, str]:
     return {
         "solar-drop": f"M {sx} {sy} L {stx} {sty}",
         "solar-aio": f"M {ax} {sty} L {ax} {aty}",
-        # Grid: along ground to below hub, then up to corner hub
         "grid-hub": f"M {gx} {gy} L {hx} {gy} L {hx} {hy}",
         "hub-grid": f"M {hx} {hy} L {hx} {gy} L {gx} {gy}",
-        # AIO: horizontal along house base to corner hub
-        "aio-hub": f"M {ax} {hy} L {hx} {hy}",
-        "hub-aio": f"M {hx} {hy} L {ax} {hy}",
-        # Home: window → corner (across then down)
+        # AIO: from unit outer edge along base to corner (not from centre near AIO)
+        "aio-hub": f"M {aedge} {hy} L {hx} {hy}",
+        "hub-aio": f"M {hx} {hy} L {aedge} {hy}",
         "hub-home": f"M {wx} {wy} L {hx} {wy} L {hx} {hy}",
     }
 
