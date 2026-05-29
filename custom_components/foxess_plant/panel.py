@@ -26,6 +26,8 @@ PANEL_COMPONENT = "foxess-plant-panel"
 PANEL_JS_FILE = "foxess-plant-panel.js"
 WWW_DIR = Path(__file__).parent / "www"
 _STATIC_DATA_KEY = "_foxess_plant_static_registered"
+# Bump when flow SVG paths change (forces new module_url even if browser caches by path)
+PANEL_FLOW_PATHS_VER = "home-diag2"
 
 
 def _panel_js_version() -> str:
@@ -43,7 +45,7 @@ def _panel_js_fingerprint() -> str:
 def _panel_js_module_url() -> str:
     return (
         f"{PANEL_STATIC_URL}/{PANEL_JS_FILE}"
-        f"?v={_panel_js_version()}&h={_panel_js_fingerprint()}"
+        f"?v={_panel_js_version()}&h={_panel_js_fingerprint()}&fp={PANEL_FLOW_PATHS_VER}"
     )
 
 
@@ -86,6 +88,7 @@ def build_panel_config(hass: HomeAssistant) -> dict[str, Any]:
         "brand_icon_static": PANEL_BRAND_ICON_STATIC,
         "panel_js_build": _panel_js_build(),
         "panel_js_module_url": _panel_js_module_url(),
+        "flow_paths_ver": PANEL_FLOW_PATHS_VER,
     }
 
 

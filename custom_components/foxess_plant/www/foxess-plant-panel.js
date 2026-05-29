@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.63
+ * @version 0.8.64
  */
 
 const NAV = [
@@ -31,11 +31,12 @@ const FOX_FLOW_PATHS = {
   "hub-grid": "M 536 726 L 536 848 L 228 848",
   "aio-hub": "M 458 726 L 536 726",
   "hub-aio": "M 536 726 L 458 726",
-  "hub-home": "M 536 726 L 638 714",
+  "hub-home": "M 536 726 L 636 698",
 };
 const FOX_FLOW_HUB_SPOKES = new Set(["aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
-const PANEL_BUILD_FALLBACK = "0.8.63";
+const FLOW_PATHS_VER = "home-diag2";
+const PANEL_BUILD_FALLBACK = "0.8.64";
 const FLOW_SCENE_PV_THRESHOLD_W = 40;
 const FLOW_SCENE_ASSET_VER = 9;
 
@@ -2996,7 +2997,7 @@ ${this._modeBannerExtra()}
 <img class="fox-flow-layer fox-flow-layer-home" src="${esc(flowSceneLayerUrl("home", theme))}" alt="" loading="lazy" decoding="async" />
 <img class="fox-flow-layer fox-flow-layer-pv" src="${esc(flowSceneLayerUrl("pv", theme))}" alt="" loading="lazy" decoding="async" />
 <img class="fox-flow-layer fox-flow-layer-aio" src="${esc(flowSceneLayerUrl("aio", theme))}" alt="" loading="lazy" decoding="async" />
-<svg class="fox-flow-svg" viewBox="0 0 1024 1017" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+<svg class="fox-flow-svg" viewBox="0 0 1024 1017" preserveAspectRatio="xMidYMid meet" aria-hidden="true" data-flow-paths-ver="${esc(this._panel?.config?.flow_paths_ver || FLOW_PATHS_VER)}" data-hub-home="${esc(FOX_FLOW_PATHS["hub-home"])}">
 ${pathsHtml}
 <circle class="flow-hub-dot ${hubActive ? "active" : ""}" cx="${FOX_FLOW_HUB.x}" cy="${FOX_FLOW_HUB.y}" r="5"/>
 </svg>

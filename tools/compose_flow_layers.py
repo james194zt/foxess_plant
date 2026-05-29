@@ -22,7 +22,7 @@ BOXES = {
 # coordinates unless the user explicitly asks. Sync FOX_FLOW_HUB / FOX_FLOW_PATHS in panel JS.
 HUB = (536, 726)
 WINDOW = (558, 532)  # centre of large front window
-WINDOW_EDGE = (638, 714)  # frame corner — full diagonal from hub for 3D front wall
+WINDOW_EDGE = (636, 698)  # frame corner — full diagonal from hub (~16deg for 3D wall)
 GRID = (228, 788)  # grid badge anchor (left)
 GROUND_Y = 848  # visible pavement below house base
 # Roof line on flow_home art (1024×1017) — solar paths stop here, not above the ridge
