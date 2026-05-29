@@ -21,7 +21,7 @@ BOXES = {
 # LOCKED (v0.8.47): HUB was hand-tuned on the side/front wall corner — do NOT change
 # coordinates unless the user explicitly asks. Sync FOX_FLOW_HUB / FOX_FLOW_PATHS in panel JS.
 HUB = (536, 726)
-AIO_CONNECT = (382, 726)  # centre of visible AIO face at hub row (358–405 on flow_aio_scene)
+AIO_CONNECT = (405, 732)  # side-face edge (before white front at x≈359); slight 3D slope
 WINDOW = (558, 532)  # centre of large front window
 WINDOW_EDGE = (636, 698)  # frame corner — full diagonal from hub (~16deg for 3D wall)
 GRID = (228, 788)  # grid badge anchor (left)

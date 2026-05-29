@@ -27,7 +27,7 @@ PANEL_JS_FILE = "foxess-plant-panel.js"
 WWW_DIR = Path(__file__).parent / "www"
 _STATIC_DATA_KEY = "_foxess_plant_static_registered"
 # Bump when flow SVG paths change (forces new module_url even if browser caches by path)
-PANEL_FLOW_PATHS_VER = "aio382"
+PANEL_FLOW_PATHS_VER = "aio405diag"
 
 
 def _panel_js_version() -> str:
