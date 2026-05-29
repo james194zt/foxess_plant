@@ -22,7 +22,9 @@ BOXES = {
 # coordinates unless the user explicitly asks. Sync FOX_FLOW_HUB / FOX_FLOW_PATHS in panel JS.
 HUB = (536, 726)
 WINDOW = (558, 532)  # centre of large front window
+WINDOW_LEFT = (586, 532)  # left edge of glass (home feed terminates here)
 GRID = (228, 788)  # grid badge / ground connection (left)
+GROUND_Y = 788  # pavement level for grid run (aligned with grid badge)
 
 
 def box_pixels(box: dict) -> tuple[int, int, int, int]:
@@ -40,6 +42,7 @@ def derive_anchors() -> dict[str, tuple[int, int]]:
     solar_x = pv_l + pv_w // 2
     aio_x = aio_l + aio_w // 2
     aio_edge = aio_l + aio_w  # right edge of AIO on side wall
+    aio_connect_y = aio_t + int(aio_h * 0.38)  # mid-wall tap on AIO right face
     return {
         "solar_label": (solar_x, 92),
         "solar_top": (solar_x, pv_t),
@@ -48,7 +51,9 @@ def derive_anchors() -> dict[str, tuple[int, int]]:
         "aio_mid": (aio_x, aio_t + aio_h // 2),
         "aio_x": aio_x,
         "aio_edge": aio_edge,
+        "aio_connect": (aio_edge, aio_connect_y),
         "window": WINDOW,
+        "window_left": WINDOW_LEFT,
         "hub": HUB,
         "home": (678, 578),
         "grid": GRID,
@@ -56,24 +61,30 @@ def derive_anchors() -> dict[str, tuple[int, int]]:
 
 
 def flow_paths(anchors: dict[str, tuple[int, int]]) -> dict[str, str]:
-    """Orthogonal paths: window→hub, AIO→hub along base, hub↓→ground→grid."""
+    """Fox-style orthogonal paths from locked hub (hub coords must not change)."""
     sx, sy = anchors["solar_label"]
     stx, sty = anchors["solar_top"]
     ax = anchors["aio_x"]
-    aedge = anchors["aio_edge"]
+    acx, acy = anchors["aio_connect"]
     aty = anchors["aio_top"][1]
-    wx, wy = anchors["window"]
+    wlx, wly = anchors["window_left"]
     hx, hy = anchors["hub"]
     gx, gy = anchors["grid"]
+    ground_y = GROUND_Y
+    if acy == hy:
+        aio_hub = f"M {acx} {acy} L {hx} {hy}"
+        hub_aio = f"M {hx} {hy} L {acx} {acy}"
+    else:
+        aio_hub = f"M {acx} {acy} L {hx} {acy} L {hx} {hy}"
+        hub_aio = f"M {hx} {hy} L {hx} {acy} L {acx} {acy}"
     return {
         "solar-drop": f"M {sx} {sy} L {stx} {sty}",
         "solar-aio": f"M {ax} {sty} L {ax} {aty}",
-        "grid-hub": f"M {gx} {gy} L {hx} {gy} L {hx} {hy}",
-        "hub-grid": f"M {hx} {hy} L {hx} {gy} L {gx} {gy}",
-        # AIO: from unit outer edge along base to corner (not from centre near AIO)
-        "aio-hub": f"M {aedge} {hy} L {hx} {hy}",
-        "hub-aio": f"M {hx} {hy} L {aedge} {hy}",
-        "hub-home": f"M {wx} {wy} L {hx} {wy} L {hx} {hy}",
+        "grid-hub": f"M {gx} {ground_y} L {hx} {ground_y} L {hx} {hy}",
+        "hub-grid": f"M {hx} {hy} L {hx} {ground_y} L {gx} {ground_y}",
+        "aio-hub": aio_hub,
+        "hub-aio": hub_aio,
+        "hub-home": f"M {hx} {hy} L {wlx} {hy} L {wlx} {wly}",
     }
 
 

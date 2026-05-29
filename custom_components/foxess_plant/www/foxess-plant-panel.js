@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.47
+ * @version 0.8.48
  */
 
 const NAV = [
@@ -30,9 +30,9 @@ const FOX_FLOW_PATHS = {
   "solar-aio": "M 388 347 L 388 659",
   "grid-hub": "M 228 788 L 536 788 L 536 726",
   "hub-grid": "M 536 726 L 536 788 L 228 788",
-  "aio-hub": "M 458 726 L 536 726",
-  "hub-aio": "M 536 726 L 458 726",
-  "hub-home": "M 558 532 L 536 532 L 536 726",
+  "aio-hub": "M 458 717 L 536 717 L 536 726",
+  "hub-aio": "M 536 726 L 536 717 L 458 717",
+  "hub-home": "M 536 726 L 586 726 L 586 532",
 };
 
 const FLOW_SCENE_PV_THRESHOLD_W = 40;
