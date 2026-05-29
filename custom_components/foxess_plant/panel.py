@@ -27,7 +27,7 @@ PANEL_JS_FILE = "foxess-plant-panel.js"
 WWW_DIR = Path(__file__).parent / "www"
 _STATIC_DATA_KEY = "_foxess_plant_static_registered"
 # Bump when flow SVG paths change (forces new module_url even if browser caches by path)
-PANEL_FLOW_PATHS_VER = "aio405"
+PANEL_FLOW_PATHS_VER = "aio382"
 
 
 def _panel_js_version() -> str:
@@ -42,11 +42,29 @@ def _panel_js_fingerprint() -> str:
     return hashlib.sha256(data).hexdigest()[:12]
 
 
+def _panel_js_cache_name() -> str:
+    """Versioned filename so browsers cannot reuse a stale ES module cache."""
+    ver = _panel_js_version().replace(".", "_")
+    return f"foxess-plant-panel.v{ver}.{_panel_js_fingerprint()}.js"
+
+
+def _sync_versioned_panel_js() -> None:
+    """Copy canonical panel JS to a unique filename whenever content changes."""
+    src = WWW_DIR / PANEL_JS_FILE
+    dest = WWW_DIR / _panel_js_cache_name()
+    data = src.read_bytes()
+    if not dest.is_file() or dest.read_bytes() != data:
+        dest.write_bytes(data)
+    for old in WWW_DIR.glob("foxess-plant-panel.v*.js"):
+        if old.name != dest.name:
+            try:
+                old.unlink()
+            except OSError:
+                pass
+
+
 def _panel_js_module_url() -> str:
-    return (
-        f"{PANEL_STATIC_URL}/{PANEL_JS_FILE}"
-        f"?v={_panel_js_version()}&h={_panel_js_fingerprint()}&fp={PANEL_FLOW_PATHS_VER}"
-    )
+    return f"{PANEL_STATIC_URL}/{_panel_js_cache_name()}"
 
 
 def _panel_js_build() -> str:
@@ -135,6 +153,8 @@ async def async_register_panel(hass: HomeAssistant) -> None:
 
     if not await _async_ensure_static_paths(hass):
         return
+
+    _sync_versioned_panel_js()
 
     config = _build_frontend_panel_config(hass)
     existed = _panel_exists(hass)
