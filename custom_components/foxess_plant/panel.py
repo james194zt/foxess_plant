@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -22,16 +23,32 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 PANEL_COMPONENT = "foxess-plant-panel"
+PANEL_JS_FILE = "foxess-plant-panel.js"
 WWW_DIR = Path(__file__).parent / "www"
 _STATIC_DATA_KEY = "_foxess_plant_static_registered"
-# Bump when panel JS changes so module_url changes even if manifest version lags in cache
-PANEL_JS_CACHE_BUST = "flow7"
 
 
 def _panel_js_version() -> str:
     """Read manifest at call time so integration reload picks up HACS updates."""
     with (Path(__file__).parent / "manifest.json").open(encoding="utf-8") as mf:
         return json.load(mf).get("version", "0")
+
+
+def _panel_js_fingerprint() -> str:
+    """Short hash of panel JS so module_url changes whenever the file changes."""
+    data = (WWW_DIR / PANEL_JS_FILE).read_bytes()
+    return hashlib.sha256(data).hexdigest()[:12]
+
+
+def _panel_js_module_url() -> str:
+    return (
+        f"{PANEL_STATIC_URL}/{PANEL_JS_FILE}"
+        f"?v={_panel_js_version()}&h={_panel_js_fingerprint()}"
+    )
+
+
+def _panel_js_build() -> str:
+    return f"{_panel_js_version()}-{_panel_js_fingerprint()}"
 
 
 def _panel_exists(hass: HomeAssistant) -> bool:
@@ -67,6 +84,8 @@ def build_panel_config(hass: HomeAssistant) -> dict[str, Any]:
         "brand_domain": DOMAIN,
         "modbus_brand_domain": MODBUS_DOMAIN,
         "brand_icon_static": PANEL_BRAND_ICON_STATIC,
+        "panel_js_build": _panel_js_build(),
+        "panel_js_module_url": _panel_js_module_url(),
     }
 
 
@@ -78,10 +97,7 @@ def _build_frontend_panel_config(hass: HomeAssistant) -> dict[str, Any]:
             "name": PANEL_COMPONENT,
             "embed_iframe": False,
             "trust_external": False,
-            "module_url": (
-                f"{PANEL_STATIC_URL}/foxess-plant-panel.js"
-                f"?v={_panel_js_version()}&b={PANEL_JS_CACHE_BUST}"
-            ),
+            "module_url": _panel_js_module_url(),
         },
     }
 
@@ -91,7 +107,7 @@ async def _async_ensure_static_paths(hass: HomeAssistant) -> bool:
     if hass.data.get(_STATIC_DATA_KEY):
         return True
 
-    if not WWW_DIR.is_dir() or not (WWW_DIR / "foxess-plant-panel.js").is_file():
+    if not WWW_DIR.is_dir() or not (WWW_DIR / PANEL_JS_FILE).is_file():
         _LOGGER.warning("Fox Plant panel assets missing at %s", WWW_DIR)
         return False
 
@@ -118,7 +134,10 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         return
 
     config = _build_frontend_panel_config(hass)
-    update = _panel_exists(hass)
+    existed = _panel_exists(hass)
+    if existed:
+        # Force HA to pick up a new module_url after HACS updates (update=True is not enough).
+        frontend.async_remove_panel(hass, PANEL_URL_PATH)
 
     frontend.async_register_built_in_panel(
         hass,
@@ -128,15 +147,15 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         frontend_url_path=PANEL_URL_PATH,
         config=config,
         require_admin=False,
-        update=update,
+        update=False,
         config_panel_domain=DOMAIN,
     )
     _LOGGER.info(
-        "Fox Plant panel %s at /%s (js v=%s b=%s)",
-        "updated" if update else "registered",
+        "Fox Plant panel %s at /%s (js build=%s url=%s)",
+        "re-registered" if existed else "registered",
         PANEL_URL_PATH,
-        _panel_js_version(),
-        PANEL_JS_CACHE_BUST,
+        _panel_js_build(),
+        _panel_js_module_url(),
     )
 
 
