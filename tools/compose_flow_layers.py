@@ -22,8 +22,8 @@ BOXES = {
 # coordinates unless the user explicitly asks. Sync FOX_FLOW_HUB / FOX_FLOW_PATHS in panel JS.
 HUB = (536, 726)
 WINDOW = (558, 532)  # centre of large front window
-WINDOW_WALL = (635, 726)  # along wall base (hub row) before frame
-WINDOW_EDGE = (638, 724)  # frame corner; house art glow begins at x=641
+WINDOW_WALL = (622, 726)  # along wall base (hub row) before 3D diagonal
+WINDOW_EDGE = (638, 714)  # frame corner — rise follows front-wall perspective
 GRID = (228, 788)  # grid badge anchor (left)
 GROUND_Y = 848  # visible pavement below house base
 
