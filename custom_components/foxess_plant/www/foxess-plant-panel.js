@@ -22,6 +22,7 @@ const SETTINGS_NAV = [
 ];
 
 /** Fox hub-and-spoke flow (viewBox 0 0 1024 1017). Anchors sync with tools/compose_flow_layers.py */
+/** LOCKED (v0.8.47): do NOT move FOX_FLOW_HUB or hub x/y in FOX_FLOW_PATHS unless the user asks. */
 const FOX_FLOW_HUB = { x: 536, y: 726 };
 
 const FOX_FLOW_PATHS = {

@@ -17,8 +17,10 @@ BOXES = {
     "aio": {"left": 0.312, "top": 0.622, "width": 0.136, "height": 0.222},
 }
 
-# Scene anchors (viewBox 0 0 1024 1017) — tune to match the house render
-HUB = (536, 726)  # vertical corner: side wall (AIO) ⊗ front facade (window)
+# Scene anchors (viewBox 0 0 1024 1017)
+# LOCKED (v0.8.47): HUB was hand-tuned on the side/front wall corner — do NOT change
+# coordinates unless the user explicitly asks. Sync FOX_FLOW_HUB / FOX_FLOW_PATHS in panel JS.
+HUB = (536, 726)
 WINDOW = (558, 532)  # centre of large front window
 GRID = (228, 788)  # grid badge / ground connection (left)
 
