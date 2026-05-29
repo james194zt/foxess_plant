@@ -21,6 +21,7 @@ BOXES = {
 # LOCKED (v0.8.47): HUB was hand-tuned on the side/front wall corner — do NOT change
 # coordinates unless the user explicitly asks. Sync FOX_FLOW_HUB / FOX_FLOW_PATHS in panel JS.
 HUB = (536, 726)
+AIO_CONNECT = (405, 726)  # visible AIO right face at hub row (sprite box x=458 overshoots art)
 WINDOW = (558, 532)  # centre of large front window
 WINDOW_EDGE = (636, 698)  # frame corner — full diagonal from hub (~16deg for 3D wall)
 GRID = (228, 788)  # grid badge anchor (left)
@@ -44,8 +45,8 @@ def derive_anchors() -> dict[str, tuple[int, int]]:
     aio_l, aio_t, aio_w, aio_h = box_pixels(BOXES["aio"])
     solar_x = pv_l + pv_w // 2
     aio_x = aio_l + aio_w // 2
-    aio_edge = aio_l + aio_w  # right edge of AIO on side wall
-    aio_connect = (aio_edge, hy := HUB[1])  # tap AIO right face at hub row
+    aio_edge = aio_l + aio_w  # right edge of AIO placement box
+    aio_connect = AIO_CONNECT  # tap visible AIO face (pixel-tuned on flow_aio_scene)
     solar_roof_y = SOLAR_ROOF_Y.get(solar_x, pv_t)
     aio_roof_y = SOLAR_ROOF_Y.get(aio_x, pv_t)
     return {
