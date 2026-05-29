@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.70
+ * @version 0.8.71
  */
 
 const NAV = [
@@ -35,8 +35,8 @@ const FOX_FLOW_PATHS = {
 };
 const FOX_FLOW_HUB_SPOKES = new Set(["aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
-const FLOW_PATHS_VER = "aio405par";
-const PANEL_BUILD_FALLBACK = "0.8.70";
+const FLOW_PATHS_VER = "flow-thick2";
+const PANEL_BUILD_FALLBACK = "0.8.71";
 const FLOW_SCENE_PV_THRESHOLD_W = 40;
 const FLOW_SCENE_ASSET_VER = 9;
 
@@ -1652,18 +1652,18 @@ const STYLES = `
 .fox-flow-badge-grid { left: 4%; bottom: 6%; align-items: flex-start; }
 .fox-flow-badge-battery { left: 50%; bottom: 6%; transform: translateX(-50%); }
 .fox-flow-badge-home { right: 4%; bottom: 6%; align-items: flex-end; }
-.flow-path { fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; stroke: rgba(255, 255, 255, 0.18); opacity: 1; }
+.flow-path { fill: none; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; stroke: rgba(255, 255, 255, 0.32); opacity: 1; }
 .flow-path-base { pointer-events: none; }
-.flow-path.active { stroke-width: 3; stroke-dasharray: 10 12; animation: flow 1.1s linear infinite; opacity: 1; stroke-linecap: butt; }
+.flow-path.active { stroke-width: 6; stroke-dasharray: 20 24; animation: flow 1.1s linear infinite; opacity: 1; stroke-linecap: butt; }
 .flow-path.reverse { animation-direction: reverse; }
 .flow-solar.active { stroke: #f4b400; }
 .flow-grid.active { stroke: #4285f4; }
 .flow-export.active { stroke: #9c27b0; }
 .flow-battery.active { stroke: #0f9d58; }
-.flow-home-line.active { stroke: #0f9d58; stroke-width: 2.5; }
-.flow-hub-dot { fill: rgba(255, 255, 255, 0.25); }
-.flow-hub-dot.active { fill: #0f9d58; filter: drop-shadow(0 0 6px rgba(15, 157, 88, 0.85)); }
-@keyframes flow { to { stroke-dashoffset: -44; } }
+.flow-home-line.active { stroke: #0f9d58; }
+.flow-hub-dot { fill: rgba(255, 255, 255, 0.35); }
+.flow-hub-dot.active { fill: #0f9d58; filter: drop-shadow(0 0 10px rgba(15, 157, 88, 0.9)); }
+@keyframes flow { to { stroke-dashoffset: -88; } }
 .device-header { margin-bottom: 8px; }
 .device-header h1 { margin-bottom: 4px; }
 .device-model { margin: 0; font-size: 14px; color: var(--secondary-text-color); }
@@ -2999,7 +2999,7 @@ ${this._modeBannerExtra()}
 <img class="fox-flow-layer fox-flow-layer-aio" src="${esc(flowSceneLayerUrl("aio", theme))}" alt="" loading="lazy" decoding="async" />
 <svg class="fox-flow-svg" viewBox="0 0 1024 1017" preserveAspectRatio="xMidYMid meet" aria-hidden="true" data-flow-paths-ver="${esc(this._panel?.config?.flow_paths_ver || FLOW_PATHS_VER)}" data-hub-home="${esc(FOX_FLOW_PATHS["hub-home"])}" data-aio-hub="${esc(FOX_FLOW_PATHS["aio-hub"])}">
 ${pathsHtml}
-<circle class="flow-hub-dot ${hubActive ? "active" : ""}" cx="${FOX_FLOW_HUB.x}" cy="${FOX_FLOW_HUB.y}" r="5"/>
+<circle class="flow-hub-dot ${hubActive ? "active" : ""}" cx="${FOX_FLOW_HUB.x}" cy="${FOX_FLOW_HUB.y}" r="8"/>
 </svg>
 <div class="fox-flow-badge fox-flow-badge-solar">
 <span class="fox-flow-badge-label">Solar</span>
