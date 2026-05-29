@@ -17,8 +17,10 @@ BOXES = {
     "aio": {"left": 0.312, "top": 0.622, "width": 0.136, "height": 0.222},
 }
 
-# Front-right house corner (hub) — where front wall meets the window side
-HUB = (678, 706)
+# Scene anchors (viewBox 0 0 1024 1017) — tune to match the house render
+HUB = (622, 732)  # bottom-right corner (front wall ⊗ window side)
+WINDOW = (558, 532)  # centre of large front window
+GRID = (228, 788)  # grid badge / ground connection (left)
 
 
 def box_pixels(box: dict) -> tuple[int, int, int, int]:
@@ -41,28 +43,34 @@ def derive_anchors() -> dict[str, tuple[int, int]]:
         "solar_base": (solar_x, pv_t + pv_h),
         "aio_top": (aio_x, aio_t + int(aio_h * 0.12)),
         "aio_mid": (aio_x, aio_t + aio_h // 2),
+        "aio_x": aio_x,
+        "window": WINDOW,
         "hub": HUB,
         "home": (678, 578),
-        "grid": (228, 788),
+        "grid": GRID,
     }
 
 
 def flow_paths(anchors: dict[str, tuple[int, int]]) -> dict[str, str]:
-    """Orthogonal hub-and-spoke paths (viewBox 0 0 1024 1017)."""
+    """Orthogonal paths: window→hub, AIO→hub along base, hub↓→ground→grid."""
     sx, sy = anchors["solar_label"]
     stx, sty = anchors["solar_top"]
-    ax, aty = anchors["aio_top"]
+    ax = anchors["aio_x"]
+    aty = anchors["aio_top"][1]
+    wx, wy = anchors["window"]
     hx, hy = anchors["hub"]
     gx, gy = anchors["grid"]
-    hmx, hmy = anchors["home"]
     return {
         "solar-drop": f"M {sx} {sy} L {stx} {sty}",
         "solar-aio": f"M {ax} {sty} L {ax} {aty}",
+        # Grid: along ground to below hub, then up to corner hub
         "grid-hub": f"M {gx} {gy} L {hx} {gy} L {hx} {hy}",
         "hub-grid": f"M {hx} {hy} L {hx} {gy} L {gx} {gy}",
-        "aio-hub": f"M {ax} {aty} L {ax} {hy} L {hx} {hy}",
-        "hub-aio": f"M {hx} {hy} L {ax} {hy} L {ax} {aty}",
-        "hub-home": f"M {hx} {hy} L {hmx} {hy} L {hmx} {hmy}",
+        # AIO: horizontal along house base to corner hub
+        "aio-hub": f"M {ax} {hy} L {hx} {hy}",
+        "hub-aio": f"M {hx} {hy} L {ax} {hy}",
+        # Home: window → corner (across then down)
+        "hub-home": f"M {wx} {wy} L {hx} {wy} L {hx} {hy}",
     }
 
 
