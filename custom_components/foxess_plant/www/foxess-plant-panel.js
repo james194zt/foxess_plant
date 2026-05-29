@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.55
+ * @version 0.8.56
  */
 
 const NAV = [
@@ -36,6 +36,7 @@ const FOX_FLOW_PATHS = {
 };
 const FOX_FLOW_HUB_SPOKES = new Set(["aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
+const PANEL_BUILD = "0.8.56-flow7";
 const FLOW_SCENE_PV_THRESHOLD_W = 40;
 const FLOW_SCENE_ASSET_VER = 9;
 
@@ -2987,7 +2988,7 @@ ${this._modeBannerExtra()}
       .join("");
     const hubActive = lines.some((l) => l.id.includes("hub"));
     return `<div class="scene-card scene-card--fox-flow">
-<div class="fox-flow-scene ${isNight ? "fox-flow-scene--night" : "fox-flow-scene--day"}" role="img" aria-label="Live energy flow">
+<div class="fox-flow-scene ${isNight ? "fox-flow-scene--night" : "fox-flow-scene--day"}" role="img" aria-label="Live energy flow" data-panel-build="${esc(PANEL_BUILD)}">
 <div class="fox-flow-stage">
 <img class="fox-flow-layer fox-flow-layer-bg" src="${esc(flowSceneLayerUrl("bg", theme))}" alt="" loading="lazy" decoding="async" />
 <img class="fox-flow-layer fox-flow-layer-home" src="${esc(flowSceneLayerUrl("home", theme))}" alt="" loading="lazy" decoding="async" />

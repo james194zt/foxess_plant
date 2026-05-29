@@ -24,6 +24,8 @@ _LOGGER = logging.getLogger(__name__)
 PANEL_COMPONENT = "foxess-plant-panel"
 WWW_DIR = Path(__file__).parent / "www"
 _STATIC_DATA_KEY = "_foxess_plant_static_registered"
+# Bump when panel JS changes so module_url changes even if manifest version lags in cache
+PANEL_JS_CACHE_BUST = "flow7"
 
 
 def _panel_js_version() -> str:
@@ -76,7 +78,10 @@ def _build_frontend_panel_config(hass: HomeAssistant) -> dict[str, Any]:
             "name": PANEL_COMPONENT,
             "embed_iframe": False,
             "trust_external": False,
-            "module_url": f"{PANEL_STATIC_URL}/foxess-plant-panel.js?v={_panel_js_version()}",
+            "module_url": (
+                f"{PANEL_STATIC_URL}/foxess-plant-panel.js"
+                f"?v={_panel_js_version()}&b={PANEL_JS_CACHE_BUST}"
+            ),
         },
     }
 
@@ -127,9 +132,11 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         config_panel_domain=DOMAIN,
     )
     _LOGGER.info(
-        "Fox Plant panel %s at /%s",
+        "Fox Plant panel %s at /%s (js v=%s b=%s)",
         "updated" if update else "registered",
         PANEL_URL_PATH,
+        _panel_js_version(),
+        PANEL_JS_CACHE_BUST,
     )
 
 
