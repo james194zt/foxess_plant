@@ -17,8 +17,8 @@ BOXES = {
     "aio": {"left": 0.312, "top": 0.622, "width": 0.136, "height": 0.222},
 }
 
-# Front-left house corner (hub) in scene coords — tweak x/y if the dot needs nudging on the render
-HUB = (446, 706)
+# Front-right house corner (hub) — where front wall meets the window side
+HUB = (678, 706)
 
 
 def box_pixels(box: dict) -> tuple[int, int, int, int]:
