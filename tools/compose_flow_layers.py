@@ -26,6 +26,9 @@ WINDOW_WALL = (622, 726)  # along wall base (hub row) before 3D diagonal
 WINDOW_EDGE = (638, 714)  # frame corner — rise follows front-wall perspective
 GRID = (228, 788)  # grid badge anchor (left)
 GROUND_Y = 848  # visible pavement below house base
+# Roof line on flow_home art (1024×1017) — solar paths stop here, not above the ridge
+SOLAR_LABEL_Y = 92
+SOLAR_ROOF_Y = {626: 354, 388: 392}  # just under ridge at each solar spoke x
 
 
 def box_pixels(box: dict) -> tuple[int, int, int, int]:
@@ -44,9 +47,11 @@ def derive_anchors() -> dict[str, tuple[int, int]]:
     aio_x = aio_l + aio_w // 2
     aio_edge = aio_l + aio_w  # right edge of AIO on side wall
     aio_connect = (aio_edge, hy := HUB[1])  # tap AIO right face at hub row
+    solar_roof_y = SOLAR_ROOF_Y.get(solar_x, pv_t)
+    aio_roof_y = SOLAR_ROOF_Y.get(aio_x, pv_t)
     return {
-        "solar_label": (solar_x, 92),
-        "solar_top": (solar_x, pv_t),
+        "solar_label": (solar_x, SOLAR_LABEL_Y),
+        "solar_top": (solar_x, solar_roof_y),
         "solar_base": (solar_x, pv_t + pv_h),
         "aio_top": (aio_x, aio_t + int(aio_h * 0.12)),
         "aio_mid": (aio_x, aio_t + aio_h // 2),
@@ -69,6 +74,7 @@ def flow_paths(anchors: dict[str, tuple[int, int]]) -> dict[str, str]:
     ax = anchors["aio_x"]
     acx, acy = anchors["aio_connect"]
     aty = anchors["aio_top"][1]
+    aio_roof_y = SOLAR_ROOF_Y.get(ax, sty)
     wwx, wwy = anchors["window_wall"]
     wex, wey = anchors["window_edge"]
     hx, hy = anchors["hub"]
@@ -78,7 +84,7 @@ def flow_paths(anchors: dict[str, tuple[int, int]]) -> dict[str, str]:
     hub_aio = f"M {hx} {hy} L {acx} {acy}"
     return {
         "solar-drop": f"M {sx} {sy} L {stx} {sty}",
-        "solar-aio": f"M {ax} {sty} L {ax} {aty}",
+        "solar-aio": f"M {ax} {aio_roof_y} L {ax} {aty}",
         "grid-hub": f"M {gx} {ground_y} L {hx} {ground_y} L {hx} {hy}",
         "hub-grid": f"M {hx} {hy} L {hx} {ground_y} L {gx} {ground_y}",
         "aio-hub": aio_hub,
