@@ -22,7 +22,7 @@ BOXES = {
 # coordinates unless the user explicitly asks. Sync FOX_FLOW_HUB / FOX_FLOW_PATHS in panel JS.
 HUB = (536, 726)
 WINDOW = (558, 532)  # centre of large front window
-WINDOW_EDGE_X = 602  # left edge of window at hub row — horizontal feed only, no vertical
+WINDOW_EDGE = (672, 702)  # left edge of window — diagonal rise for 3D front wall
 GRID = (228, 788)  # grid badge anchor (left)
 GROUND_Y = 848  # visible pavement below house base
 
@@ -53,7 +53,7 @@ def derive_anchors() -> dict[str, tuple[int, int]]:
         "aio_edge": aio_edge,
         "aio_connect": aio_connect,
         "window": WINDOW,
-        "window_edge_x": WINDOW_EDGE_X,
+        "window_edge": WINDOW_EDGE,
         "hub": HUB,
         "home": (678, 578),
         "grid": GRID,
@@ -67,7 +67,7 @@ def flow_paths(anchors: dict[str, tuple[int, int]]) -> dict[str, str]:
     ax = anchors["aio_x"]
     acx, acy = anchors["aio_connect"]
     aty = anchors["aio_top"][1]
-    wex = anchors["window_edge_x"]
+    wex, wey = anchors["window_edge"]
     hx, hy = anchors["hub"]
     gx, gy = anchors["grid"]
     ground_y = GROUND_Y
@@ -80,8 +80,7 @@ def flow_paths(anchors: dict[str, tuple[int, int]]) -> dict[str, str]:
         "hub-grid": f"M {hx} {hy} L {hx} {ground_y} L {gx} {ground_y}",
         "aio-hub": aio_hub,
         "hub-aio": hub_aio,
-        # Home: horizontal along front wall to window edge (never vertical toward roof)
-        "hub-home": f"M {hx} {hy} L {wex} {hy}",
+        "hub-home": f"M {hx} {hy} L {wex} {wey}",
     }
 
 

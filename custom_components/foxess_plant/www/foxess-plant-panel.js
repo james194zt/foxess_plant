@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.51
+ * @version 0.8.52
  */
 
 const NAV = [
@@ -32,7 +32,7 @@ const FOX_FLOW_PATHS = {
   "hub-grid": "M 536 726 L 536 848 L 228 848",
   "aio-hub": "M 458 726 L 536 726",
   "hub-aio": "M 536 726 L 458 726",
-  "hub-home": "M 536 726 L 602 726",
+  "hub-home": "M 536 726 L 672 702",
 };
 const FOX_FLOW_HUB_SPOKES = new Set(["aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
