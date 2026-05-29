@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.71
+ * @version 0.8.72
  */
 
 const NAV = [
@@ -35,10 +35,23 @@ const FOX_FLOW_PATHS = {
 };
 const FOX_FLOW_HUB_SPOKES = new Set(["aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
-const FLOW_PATHS_VER = "flow-thick2";
-const PANEL_BUILD_FALLBACK = "0.8.71";
+const FLOW_PATHS_VER = "flow-thick3";
+const PANEL_BUILD_FALLBACK = "0.8.72";
+const PANEL_ELEMENT = `foxess-plant-panel-${PANEL_BUILD_FALLBACK.replace(/\./g, "_")}`;
+const FLOW_STROKE = { base: 5, active: 6, hubR: 8 };
+const FLOW_DASH = "20 24";
 const FLOW_SCENE_PV_THRESHOLD_W = 40;
 const FLOW_SCENE_ASSET_VER = 9;
+
+function flowPathMarkup({ d, cls, isBase = false, isActive = false, reverse = false }) {
+  const sw = isActive && !isBase ? FLOW_STROKE.active : FLOW_STROKE.base;
+  const dash = isActive && !isBase ? ` stroke-dasharray="${FLOW_DASH}"` : "";
+  const cap = isActive && !isBase ? ' stroke-linecap="butt"' : ' stroke-linecap="round"';
+  const activeCls = isActive && !isBase ? " active" : "";
+  const rev = reverse ? " reverse" : "";
+  const baseCls = isBase ? " flow-path-base" : "";
+  return `<path class="flow-path${baseCls} ${cls}${activeCls}${rev}" d="${d}" stroke-width="${sw}"${dash}${cap}></path>`;
+}
 
 const DEFAULT_PERIODS = [
   { enable_force_charge: false, enable_charge_from_grid: false, start: "00:00", end: "00:00" },
@@ -2980,13 +2993,12 @@ ${this._modeBannerExtra()}
               ? "flow-battery"
               : "flow-home-line";
         const isActive = activeIds.has(id);
-        const reverse = line?.reverse ? " reverse" : "";
         if (FOX_FLOW_HUB_SPOKES.has(id)) {
-          const base = `<path class="flow-path flow-path-base ${cls}" d="${d}"></path>`;
+          const base = flowPathMarkup({ d, cls, isBase: true });
           if (!isActive) return base;
-          return `${base}<path class="flow-path ${cls} active${reverse}" d="${d}"></path>`;
+          return `${base}${flowPathMarkup({ d, cls, isActive: true, reverse: !!line?.reverse })}`;
         }
-        return `<path class="flow-path ${cls} ${isActive ? "active" : ""}${reverse}" d="${d}"></path>`;
+        return flowPathMarkup({ d, cls, isActive });
       })
       .join("");
     const hubActive = lines.some((l) => l.id.includes("hub"));
@@ -2997,9 +3009,9 @@ ${this._modeBannerExtra()}
 <img class="fox-flow-layer fox-flow-layer-home" src="${esc(flowSceneLayerUrl("home", theme))}" alt="" loading="lazy" decoding="async" />
 <img class="fox-flow-layer fox-flow-layer-pv" src="${esc(flowSceneLayerUrl("pv", theme))}" alt="" loading="lazy" decoding="async" />
 <img class="fox-flow-layer fox-flow-layer-aio" src="${esc(flowSceneLayerUrl("aio", theme))}" alt="" loading="lazy" decoding="async" />
-<svg class="fox-flow-svg" viewBox="0 0 1024 1017" preserveAspectRatio="xMidYMid meet" aria-hidden="true" data-flow-paths-ver="${esc(this._panel?.config?.flow_paths_ver || FLOW_PATHS_VER)}" data-hub-home="${esc(FOX_FLOW_PATHS["hub-home"])}" data-aio-hub="${esc(FOX_FLOW_PATHS["aio-hub"])}">
+<svg class="fox-flow-svg" viewBox="0 0 1024 1017" preserveAspectRatio="xMidYMid meet" aria-hidden="true" data-flow-paths-ver="${esc(this._panel?.config?.flow_paths_ver || FLOW_PATHS_VER)}" data-flow-stroke-base="${FLOW_STROKE.base}" data-flow-stroke-active="${FLOW_STROKE.active}" data-hub-r="${FLOW_STROKE.hubR}" data-hub-home="${esc(FOX_FLOW_PATHS["hub-home"])}" data-aio-hub="${esc(FOX_FLOW_PATHS["aio-hub"])}">
 ${pathsHtml}
-<circle class="flow-hub-dot ${hubActive ? "active" : ""}" cx="${FOX_FLOW_HUB.x}" cy="${FOX_FLOW_HUB.y}" r="8"/>
+<circle class="flow-hub-dot ${hubActive ? "active" : ""}" cx="${FOX_FLOW_HUB.x}" cy="${FOX_FLOW_HUB.y}" r="${FLOW_STROKE.hubR}"/>
 </svg>
 <div class="fox-flow-badge fox-flow-badge-solar">
 <span class="fox-flow-badge-label">Solar</span>
@@ -4123,4 +4135,4 @@ ${active
   }
 }
 
-customElements.define("foxess-plant-panel", FoxessPlantPanel);
+customElements.define(PANEL_ELEMENT, FoxessPlantPanel);

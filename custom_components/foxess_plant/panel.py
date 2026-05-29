@@ -26,8 +26,12 @@ PANEL_COMPONENT = "foxess-plant-panel"
 PANEL_JS_FILE = "foxess-plant-panel.js"
 WWW_DIR = Path(__file__).parent / "www"
 _STATIC_DATA_KEY = "_foxess_plant_static_registered"
-# Bump when flow SVG paths change (forces new module_url even if browser caches by path)
-PANEL_FLOW_PATHS_VER = "flow-thick2"
+PANEL_FLOW_PATHS_VER = "flow-thick3"
+
+
+def _panel_component_name() -> str:
+    """Versioned custom element tag so HA loads new panel code instead of a cached class."""
+    return f"{PANEL_COMPONENT}-{_panel_js_version().replace('.', '_')}"
 
 
 def _panel_js_version() -> str:
@@ -107,6 +111,7 @@ def build_panel_config(hass: HomeAssistant) -> dict[str, Any]:
         "panel_js_build": _panel_js_build(),
         "panel_js_module_url": _panel_js_module_url(),
         "flow_paths_ver": PANEL_FLOW_PATHS_VER,
+        "panel_element": _panel_component_name(),
     }
 
 
@@ -115,7 +120,7 @@ def _build_frontend_panel_config(hass: HomeAssistant) -> dict[str, Any]:
     return {
         **build_panel_config(hass),
         "_panel_custom": {
-            "name": PANEL_COMPONENT,
+            "name": _panel_component_name(),
             "embed_iframe": False,
             "trust_external": False,
             "module_url": _panel_js_module_url(),
@@ -174,9 +179,10 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         config_panel_domain=DOMAIN,
     )
     _LOGGER.info(
-        "Fox Plant panel %s at /%s (js build=%s url=%s)",
+        "Fox Plant panel %s at /%s (element=%s js build=%s url=%s)",
         "re-registered" if existed else "registered",
         PANEL_URL_PATH,
+        _panel_component_name(),
         _panel_js_build(),
         _panel_js_module_url(),
     )
