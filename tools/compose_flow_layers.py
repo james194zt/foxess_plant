@@ -17,6 +17,9 @@ BOXES = {
     "aio": {"left": 0.312, "top": 0.622, "width": 0.136, "height": 0.222},
 }
 
+# Front-left house corner (hub) in scene coords — tweak x/y if the dot needs nudging on the render
+HUB = (446, 706)
+
 
 def box_pixels(box: dict) -> tuple[int, int, int, int]:
     w, h = CANVAS
@@ -38,9 +41,28 @@ def derive_anchors() -> dict[str, tuple[int, int]]:
         "solar_base": (solar_x, pv_t + pv_h),
         "aio_top": (aio_x, aio_t + int(aio_h * 0.12)),
         "aio_mid": (aio_x, aio_t + aio_h // 2),
-        "hub": (512, 752),
+        "hub": HUB,
         "home": (678, 578),
         "grid": (228, 788),
+    }
+
+
+def flow_paths(anchors: dict[str, tuple[int, int]]) -> dict[str, str]:
+    """Orthogonal hub-and-spoke paths (viewBox 0 0 1024 1017)."""
+    sx, sy = anchors["solar_label"]
+    stx, sty = anchors["solar_top"]
+    ax, aty = anchors["aio_top"]
+    hx, hy = anchors["hub"]
+    gx, gy = anchors["grid"]
+    hmx, hmy = anchors["home"]
+    return {
+        "solar-drop": f"M {sx} {sy} L {stx} {sty}",
+        "solar-aio": f"M {ax} {sty} L {ax} {aty}",
+        "grid-hub": f"M {gx} {gy} L {hx} {gy} L {hx} {hy}",
+        "hub-grid": f"M {hx} {hy} L {hx} {gy} L {gx} {gy}",
+        "aio-hub": f"M {ax} {aty} L {ax} {hy} L {hx} {hy}",
+        "hub-aio": f"M {hx} {hy} L {ax} {hy} L {ax} {aty}",
+        "hub-home": f"M {hx} {hy} L {hmx} {hy} L {hmx} {hmy}",
     }
 
 
@@ -62,12 +84,10 @@ def main() -> None:
         place_sprite(theme, "pv")
         place_sprite(theme, "aio")
     a = derive_anchors()
+    paths = flow_paths(a)
     print("anchors", a)
-    print(
-        "paths:",
-        f'solar-drop M {a["solar_label"][0]} {a["solar_label"][1]} L {a["solar_top"][0]} {a["solar_top"][1]}',
-        f'solar-aio M {a["aio_top"][0]} {a["solar_top"][1]} L {a["aio_mid"][0]} {a["aio_mid"][1]}',
-    )
+    print("FOX_FLOW_HUB", f"{{ x: {a['hub'][0]}, y: {a['hub'][1]} }};")
+    print("FOX_FLOW_PATHS", paths)
 
 
 if __name__ == "__main__":
