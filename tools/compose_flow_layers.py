@@ -22,7 +22,7 @@ BOXES = {
 # coordinates unless the user explicitly asks. Sync FOX_FLOW_HUB / FOX_FLOW_PATHS in panel JS.
 HUB = (536, 726)
 WINDOW = (558, 532)  # centre of large front window
-WINDOW_EDGE = (672, 702)  # left edge of window — diagonal rise for 3D front wall
+WINDOW_EDGE = (702, 688)  # left edge of window — diagonal rise for 3D front wall
 GRID = (228, 788)  # grid badge anchor (left)
 GROUND_Y = 848  # visible pavement below house base
 

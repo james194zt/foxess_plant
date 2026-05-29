@@ -25,8 +25,11 @@ PANEL_COMPONENT = "foxess-plant-panel"
 WWW_DIR = Path(__file__).parent / "www"
 _STATIC_DATA_KEY = "_foxess_plant_static_registered"
 
-with (Path(__file__).parent / "manifest.json").open(encoding="utf-8") as _mf:
-    PANEL_JS_VERSION: str = json.load(_mf).get("version", "0")
+
+def _panel_js_version() -> str:
+    """Read manifest at call time so integration reload picks up HACS updates."""
+    with (Path(__file__).parent / "manifest.json").open(encoding="utf-8") as mf:
+        return json.load(mf).get("version", "0")
 
 
 def _panel_exists(hass: HomeAssistant) -> bool:
@@ -73,7 +76,7 @@ def _build_frontend_panel_config(hass: HomeAssistant) -> dict[str, Any]:
             "name": PANEL_COMPONENT,
             "embed_iframe": False,
             "trust_external": False,
-            "module_url": f"{PANEL_STATIC_URL}/foxess-plant-panel.js?v={PANEL_JS_VERSION}",
+            "module_url": f"{PANEL_STATIC_URL}/foxess-plant-panel.js?v={_panel_js_version()}",
         },
     }
 
