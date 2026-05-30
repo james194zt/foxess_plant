@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.72
+ * @version 0.8.74
  */
 
 const NAV = [
@@ -26,22 +26,29 @@ const SETTINGS_NAV = [
 const FOX_FLOW_HUB = { x: 536, y: 726 };
 
 const FOX_FLOW_PATHS = {
-  "solar-aio": "M 388 392 L 388 659",
+  "solar-aio": "M 388 406 L 388 659",
   "grid-hub": "M 228 848 L 536 848 L 536 726",
   "hub-grid": "M 536 726 L 536 848 L 228 848",
   "aio-hub": "M 405 689 L 536 726",
   "hub-aio": "M 536 726 L 405 689",
   "hub-home": "M 536 726 L 636 698",
 };
-const FOX_FLOW_HUB_SPOKES = new Set(["aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
+const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
-const FLOW_PATHS_VER = "flow-thick3";
-const PANEL_BUILD_FALLBACK = "0.8.72";
+const FLOW_PATHS_VER = "flow-solar-base";
+const PANEL_BUILD_FALLBACK = "0.8.74";
 const PANEL_ELEMENT = `foxess-plant-panel-${PANEL_BUILD_FALLBACK.replace(/\./g, "_")}`;
 const FLOW_STROKE = { base: 5, active: 6, hubR: 8 };
 const FLOW_DASH = "20 24";
 const FLOW_SCENE_PV_THRESHOLD_W = 40;
-const FLOW_SCENE_ASSET_VER = 9;
+const FLOW_SCENE_ASSET_VER = 10;
+
+const FLOW_SCENE_BG_THEMES = new Set([
+  "day_light",
+  "day_dark",
+  "night_light",
+  "night_dark",
+]);
 
 function flowPathMarkup({ d, cls, isBase = false, isActive = false, reverse = false }) {
   const sw = isActive && !isBase ? FLOW_STROKE.active : FLOW_STROKE.base;
@@ -1113,11 +1120,45 @@ function readEnergyFlows(hass, plant, plantState) {
   };
 }
 
-function flowSceneTheme(pvW, threshold = FLOW_SCENE_PV_THRESHOLD_W) {
-  return pvW > threshold ? "day_light" : "night_dark";
+function resolveFlowSceneBgThemeFromSun(hass) {
+  const sun = hass?.states?.["sun.sun"];
+  if (!sun?.attributes) return null;
+  const now = new Date();
+  const msDay = 86_400_000;
+
+  const effective = (key) => {
+    const raw = sun.attributes[`next_${key}`];
+    if (!raw) return null;
+    let event = new Date(raw);
+    if (Number.isNaN(event.getTime())) return null;
+    while (event > now) event = new Date(event.getTime() - msDay);
+    return event;
+  };
+
+  const dawn = effective("dawn");
+  const rising = effective("rising");
+  const setting = effective("setting");
+  const dusk = effective("dusk");
+  if (!dawn || !rising || !setting || !dusk) return null;
+
+  if (now >= dawn && now < rising) return "day_dark";
+  if (now >= rising && now < setting) return "day_light";
+  if (now >= setting && now < dusk) return "night_light";
+  return "night_dark";
 }
 
-function flowSceneLayerUrl(layer, theme) {
+function resolveFlowSceneBgTheme(hass, plantState) {
+  const fromState = plantState?.flow_scene_theme;
+  if (fromState && FLOW_SCENE_BG_THEMES.has(fromState)) return fromState;
+  return resolveFlowSceneBgThemeFromSun(hass) || "day_light";
+}
+
+function flowSceneOverlayTheme(bgTheme) {
+  return bgTheme.startsWith("day_") ? "day_light" : "night_dark";
+}
+
+function flowSceneLayerUrl(layer, bgTheme, overlayTheme = flowSceneOverlayTheme(bgTheme)) {
+  const theme = layer === "bg" ? bgTheme : overlayTheme;
   if (layer === "bg") {
     return `/foxess_plant_panel/flow_home_bg_scene_${theme}.png?v=${FLOW_SCENE_ASSET_VER}`;
   }
@@ -2970,8 +3011,9 @@ ${this._modeBannerExtra()}
     const flows = readEnergyFlows(this._hass, plant, this._plantState);
     const lines = computeFlowLines(flows);
     const activeIds = new Set(lines.map((l) => l.id));
-    const theme = flowSceneTheme(flows.pvW);
-    const isNight = theme === "night_dark";
+    const bgTheme = resolveFlowSceneBgTheme(this._hass, this._plantState);
+    const overlayTheme = flowSceneOverlayTheme(bgTheme);
+    const isNight = !bgTheme.startsWith("day_");
     const soc = Math.min(100, Math.max(0, flows.batterySoc));
     const gridExporting = flows.gridExportW > flows.gridImportW && flows.gridExportW > FLOW_SCENE_PV_THRESHOLD_W;
     const gridLabel = gridExporting ? "To Grid" : "On Grid";
@@ -2981,7 +3023,6 @@ ${this._modeBannerExtra()}
     const pathsHtml = Object.entries(FOX_FLOW_PATHS)
       .map(([id, d]) => {
         const line = lines.find((l) => l.id === id);
-        if (id.startsWith("solar") && !line) return "";
         if (!line && !FOX_FLOW_HUB_SPOKES.has(id)) return "";
         const cls = id.startsWith("solar")
           ? "flow-solar"
@@ -3005,10 +3046,10 @@ ${this._modeBannerExtra()}
     return `<div class="scene-card scene-card--fox-flow">
 <div class="fox-flow-scene ${isNight ? "fox-flow-scene--night" : "fox-flow-scene--day"}" role="img" aria-label="Live energy flow" data-panel-build="${esc(this._panelBuild())}">
 <div class="fox-flow-stage">
-<img class="fox-flow-layer fox-flow-layer-bg" src="${esc(flowSceneLayerUrl("bg", theme))}" alt="" loading="lazy" decoding="async" />
-<img class="fox-flow-layer fox-flow-layer-home" src="${esc(flowSceneLayerUrl("home", theme))}" alt="" loading="lazy" decoding="async" />
-<img class="fox-flow-layer fox-flow-layer-pv" src="${esc(flowSceneLayerUrl("pv", theme))}" alt="" loading="lazy" decoding="async" />
-<img class="fox-flow-layer fox-flow-layer-aio" src="${esc(flowSceneLayerUrl("aio", theme))}" alt="" loading="lazy" decoding="async" />
+<img class="fox-flow-layer fox-flow-layer-bg" src="${esc(flowSceneLayerUrl("bg", bgTheme, overlayTheme))}" alt="" loading="lazy" decoding="async" />
+<img class="fox-flow-layer fox-flow-layer-home" src="${esc(flowSceneLayerUrl("home", bgTheme, overlayTheme))}" alt="" loading="lazy" decoding="async" />
+<img class="fox-flow-layer fox-flow-layer-pv" src="${esc(flowSceneLayerUrl("pv", bgTheme, overlayTheme))}" alt="" loading="lazy" decoding="async" />
+<img class="fox-flow-layer fox-flow-layer-aio" src="${esc(flowSceneLayerUrl("aio", bgTheme, overlayTheme))}" alt="" loading="lazy" decoding="async" />
 <svg class="fox-flow-svg" viewBox="0 0 1024 1017" preserveAspectRatio="xMidYMid meet" aria-hidden="true" data-flow-paths-ver="${esc(this._panel?.config?.flow_paths_ver || FLOW_PATHS_VER)}" data-flow-stroke-base="${FLOW_STROKE.base}" data-flow-stroke-active="${FLOW_STROKE.active}" data-hub-r="${FLOW_STROKE.hubR}" data-hub-home="${esc(FOX_FLOW_PATHS["hub-home"])}" data-aio-hub="${esc(FOX_FLOW_PATHS["aio-hub"])}">
 ${pathsHtml}
 <circle class="flow-hub-dot ${hubActive ? "active" : ""}" cx="${FOX_FLOW_HUB.x}" cy="${FOX_FLOW_HUB.y}" r="${FLOW_STROKE.hubR}"/>

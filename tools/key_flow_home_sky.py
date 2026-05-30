@@ -11,6 +11,8 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 WWW = ROOT / "custom_components" / "foxess_plant" / "www"
 CANVAS = (1024, 1017)
+FLOW_BG_THEMES = ("day_light", "day_dark", "night_light", "night_dark")
+FLOW_HOME_THEMES = ("day_light", "night_dark")
 
 
 def key_edge_black(im: Image.Image) -> Image.Image:
@@ -62,11 +64,12 @@ def bake_bg(theme: str) -> None:
 
 
 def main() -> None:
-    for theme in ("day_light", "night_dark"):
+    for theme in FLOW_HOME_THEMES:
         home = WWW / f"flow_home_{theme}.png"
         keyed = key_edge_black(Image.open(home))
         keyed.save(home, optimize=True)
         print(f"keyed {home.name} ({home.stat().st_size} bytes)")
+    for theme in FLOW_BG_THEMES:
         bake_bg(theme)
 
 

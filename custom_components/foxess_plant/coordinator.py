@@ -16,6 +16,7 @@ from .analytics import compute_analytics
 from .impact import compute_impact
 from .charge_period import apply_charge_periods
 from .discovery import missing_charge_period_entities
+from .flow_scene import resolve_flow_scene_theme
 from .soc_limits import apply_soc_limits, clamp_soc_values
 from .const import (
     ANALYTICS_ENTITY_SUFFIXES,
@@ -417,6 +418,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return {
             "plant_id": self.config_entry.entry_id,
             "title": self.config_entry.title,
+            "flow_scene_theme": resolve_flow_scene_theme(self.hass),
             "inverter": self.plant.inverter_target,
             "inverter_device_id": self.plant.device_id,
             "charge_periods_ready": not missing_charge_period_entities(self.plant.entity_map),
