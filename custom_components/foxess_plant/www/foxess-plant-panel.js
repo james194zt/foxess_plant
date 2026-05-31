@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.75
+ * @version 0.8.76
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-solar-base";
-const PANEL_BUILD_FALLBACK = "0.8.75";
+const PANEL_BUILD_FALLBACK = "0.8.76";
 const PANEL_ELEMENT = `foxess-plant-panel-${PANEL_BUILD_FALLBACK.replace(/\./g, "_")}`;
 const FLOW_STROKE = { base: 5, active: 6, hubR: 8 };
 const FLOW_DASH = "20 24";
@@ -544,6 +544,58 @@ function resolveEntityMap(hass, plant, plantState) {
   return map;
 }
 
+async function fetchStatisticsDuring(hass, entityIds, start, end) {
+  const statistic_ids = entityIds.filter(Boolean);
+  if (!statistic_ids.length) return null;
+  try {
+    const viaPlant = await hass.connection.sendMessagePromise({
+      type: "foxess_plant/fetch_statistics",
+      start_time: start.toISOString(),
+      end_time: end.toISOString(),
+      entity_ids: statistic_ids,
+      period: "5minute",
+      statistic: "mean",
+    });
+    if (viaPlant && typeof viaPlant === "object" && !Array.isArray(viaPlant)) {
+      return viaPlant;
+    }
+  } catch {
+    /* older integration without fetch_statistics */
+  }
+  try {
+    const res = await hass.connection.sendMessagePromise({
+      type: "recorder/statistics_during_period",
+      start_time: start.toISOString(),
+      end_time: end.toISOString(),
+      statistic_ids,
+      period: "5minute",
+      types: ["mean"],
+    });
+    return res && typeof res === "object" ? res : null;
+  } catch {
+    return null;
+  }
+}
+
+function recorderStatsToPoints(rows, range) {
+  return (rows || [])
+    .map((row) => {
+      const rawStart = row.start ?? row.start_time;
+      let t;
+      if (typeof rawStart === "number") {
+        t = rawStart > 1e12 ? rawStart : rawStart * 1000;
+      } else {
+        t = new Date(rawStart).getTime();
+      }
+      if (!Number.isFinite(t) || t < range.tMin || t > range.nowMs) return null;
+      const v = row.mean;
+      if (v == null || !Number.isFinite(Number(v))) return null;
+      return { t, v: Number(v) };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.t - b.t);
+}
+
 async function fetchHistoryDuring(hass, entityIds, start, end) {
   const ids = entityIds.filter(Boolean);
   if (!ids.length) return {};
@@ -671,10 +723,10 @@ function resamplePointsMean(points, periodMs, originMs, endMs) {
     .map(([t, { sum, count }]) => ({ t, v: sum / count }));
 }
 
-/** Split resampled series when a gap exceeds one bucket (plotly connectgaps: false). */
-function splitStatisticsSegments(points, periodMs = STATISTICS_PERIOD_MS) {
+/** Split when a gap exceeds several buckets (plotly connectgaps: false). */
+function splitStatisticsSegments(points, periodMs = STATISTICS_PERIOD_MS, maxGapPeriods = 4) {
   if (!points.length) return [];
-  const maxGap = periodMs * 1.5;
+  const maxGap = periodMs * maxGapPeriods;
   const segments = [];
   let current = [points[0]];
   for (let i = 1; i < points.length; i++) {
@@ -686,6 +738,42 @@ function splitStatisticsSegments(points, periodMs = STATISTICS_PERIOD_MS) {
   }
   if (current.length) segments.push(current);
   return segments;
+}
+
+function isEvenlySpacedPoints(points, periodMs = STATISTICS_PERIOD_MS, toleranceMs = 90_000) {
+  if (points.length < 3) return false;
+  let ok = 0;
+  for (let i = 1; i < points.length; i++) {
+    const dt = points[i].t - points[i - 1].t;
+    if (Math.abs(dt - periodMs) <= toleranceMs) ok++;
+  }
+  return ok / (points.length - 1) >= 0.85;
+}
+
+function smoothLinePath(pts) {
+  if (!pts.length) return "";
+  if (pts.length === 1) return "";
+  if (pts.length === 2) {
+    return `M${pts[0].x.toFixed(2)},${pts[0].y.toFixed(2)} L${pts[1].x.toFixed(2)},${pts[1].y.toFixed(2)}`;
+  }
+  let d = `M${pts[0].x.toFixed(2)},${pts[0].y.toFixed(2)}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(i - 1, 0)];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[Math.min(i + 2, pts.length - 1)];
+    const cp1x = p1.x + (p2.x - p0.x) / 6;
+    const cp1y = p1.y + (p2.y - p0.y) / 6;
+    const cp2x = p2.x - (p3.x - p1.x) / 6;
+    const cp2y = p2.y - (p3.y - p1.y) / 6;
+    d += ` C${cp1x.toFixed(2)},${cp1y.toFixed(2)} ${cp2x.toFixed(2)},${cp2y.toFixed(2)} ${p2.x.toFixed(2)},${p2.y.toFixed(2)}`;
+  }
+  return d;
+}
+
+function statisticsLinePath(pixelPts, timePts) {
+  if (pixelPts.length < 2) return "";
+  return isEvenlySpacedPoints(timePts || pixelPts) ? smoothLinePath(pixelPts) : polylinePath(pixelPts);
 }
 
 function polylinePath(pts) {
@@ -730,9 +818,10 @@ function formatStatisticsKw(v) {
   return Number.isFinite(v) ? `${v.toFixed(3)} kW` : "—";
 }
 
-function fillToZeroPath(pts, yZero) {
+function fillToZeroPath(pts, yZero, timePts) {
   if (!pts.length) return "";
-  const line = polylinePath(pts);
+  const line = statisticsLinePath(pts, timePts);
+  if (!line) return "";
   const last = pts[pts.length - 1];
   const first = pts[0];
   return `${line} L${last.x.toFixed(2)},${yZero.toFixed(2)} L${first.x.toFixed(2)},${yZero.toFixed(2)} Z`;
@@ -840,6 +929,76 @@ function dailyMaxInRange(points, dayStartMs, dayEndMs) {
   return max;
 }
 
+function buildStatisticsSeriesPoints(hass, entityId, spec, range, statsMap, hist) {
+  const statRows = statsMap?.[entityId];
+  let rawPoints;
+  if (statRows?.length) {
+    rawPoints = recorderStatsToPoints(statRows, range);
+  } else {
+    rawPoints = statisticsChartPoints(historyToPoints(historyRowsForEntity(hist, entityId)), range);
+  }
+  return rawPoints.map((p) => ({
+    t: p.t,
+    v: transformHistoryPoint(hass, entityId, p.v, spec),
+  }));
+}
+
+async function fetchStatisticsChartSeries(hass, plant, plantState) {
+  const map = resolveEntityMap(hass, plant, plantState);
+  const specs = STATISTICS_CHART_SERIES.map((s) => ({ ...s, entity_id: map[s.key] })).filter(
+    (s) => s.entity_id
+  );
+  if (!specs.length) {
+    return { empty: "Map power entities in FoxESS Modbus, then reload FoxESS Plant." };
+  }
+  const forecastId = plantState?.panel_display?.forecast_entity_id || null;
+  const entityIds = specs.map((s) => s.entity_id);
+  if (forecastId) entityIds.push(forecastId);
+  const now = new Date();
+  const start = startOfLocalDay(now);
+  const range = getStatisticsDayRange(now);
+  const [statsMap, hist] = await Promise.all([
+    fetchStatisticsDuring(hass, entityIds, start, now),
+    fetchHistoryDuring(hass, entityIds, start, now),
+  ]);
+  const series = specs.map((spec) => ({
+    id: spec.key,
+    label: spec.label,
+    tooltipLabel: spec.tooltipLabel,
+    legendGroup: spec.legendGroup,
+    color: spec.color,
+    fill: spec.fill,
+    fillColor: spec.fillColor,
+    hideLegend: spec.hideLegend,
+    lineWidth: spec.lineWidth,
+    points: buildStatisticsSeriesPoints(hass, spec.entity_id, spec, range, statsMap, hist),
+  }));
+  if (forecastId) {
+    const fPoints = buildStatisticsSeriesPoints(
+      hass,
+      forecastId,
+      { toKw: true },
+      range,
+      statsMap,
+      hist
+    );
+    if (fPoints.length) {
+      series.push({
+        id: "forecast",
+        ...FORECAST_CHART_STYLE,
+        points: fPoints,
+      });
+    }
+  }
+  if (!series.some((s) => s.points.length)) {
+    const listed = specs.map((s) => s.entity_id).join(", ");
+    return {
+      empty: `No statistics for: ${listed}. Confirm the Recorder stores 5-minute means for these entities (same as your Lovelace plotly-graph card).`,
+    };
+  }
+  return { series, range };
+}
+
 function buildDailyLabels(startDay, count) {
   const labels = [];
   for (let i = 0; i < count; i++) {
@@ -885,9 +1044,10 @@ function renderStatisticsChartHtml(series, range) {
 
   const plotSeries = visible.map((s) => {
     const clipped = s.points.filter((p) => p.t >= tMin && p.t <= nowMs);
-    const segments = splitStatisticsSegments(clipped).map((seg) =>
-      seg.map((p) => ({ x: xScale(p.t), y: yScale(p.v), t: p.t, v: p.v }))
-    );
+    const segments = splitStatisticsSegments(clipped).map((seg) => ({
+      timePts: seg,
+      pixelPts: seg.map((p) => ({ x: xScale(p.t), y: yScale(p.v), t: p.t, v: p.v })),
+    }));
     return { ...s, segments };
   });
 
@@ -915,10 +1075,10 @@ function renderStatisticsChartHtml(series, range) {
   const fills = plotSeries
     .flatMap((s) =>
       (s.segments || [])
-        .filter((seg) => s.fill && seg.length)
+        .filter((seg) => s.fill && seg.pixelPts.length >= 2)
         .map(
           (seg) =>
-            `<path class="statistics-fill" data-series-id="${esc(s.id)}" data-legend-group="${esc(s.legendGroup || "")}" d="${fillToZeroPath(seg, yZero)}" fill="${s.fillColor}" stroke="none"/>`
+            `<path class="statistics-fill" data-series-id="${esc(s.id)}" data-legend-group="${esc(s.legendGroup || "")}" d="${fillToZeroPath(seg.pixelPts, yZero, seg.timePts)}" fill="${s.fillColor}" stroke="none"/>`
         )
     )
     .join("");
@@ -926,10 +1086,10 @@ function renderStatisticsChartHtml(series, range) {
   const lines = plotSeries
     .flatMap((s) =>
       (s.segments || [])
-        .filter((seg) => seg.length)
+        .filter((seg) => seg.pixelPts.length >= 2)
         .map(
           (seg) =>
-            `<path class="statistics-line" data-series-id="${esc(s.id)}" data-legend-group="${esc(s.legendGroup || "")}" d="${polylinePath(seg)}" fill="none" stroke="${s.color}" stroke-width="${s.lineWidth || 1.2}" stroke-linecap="round" stroke-linejoin="round"/>`
+            `<path class="statistics-line" data-series-id="${esc(s.id)}" data-legend-group="${esc(s.legendGroup || "")}" d="${statisticsLinePath(seg.pixelPts, seg.timePts)}" fill="none" stroke="${s.color}" stroke-width="${s.lineWidth || 1.2}" stroke-linecap="round" stroke-linejoin="round"/>`
         )
     )
     .join("");
@@ -3358,59 +3518,7 @@ ${renderListButton({ action: "device-sub", sub: "system" }, "System info", "Firm
   }
 
   async _fetchStatisticsChartData(plant) {
-    const map = resolveEntityMap(this._hass, plant, this._plantState);
-    const specs = STATISTICS_CHART_SERIES.map((s) => ({ ...s, entity_id: map[s.key] })).filter(
-      (s) => s.entity_id
-    );
-    if (!specs.length) {
-      return { empty: "Map power entities in FoxESS Modbus, then reload FoxESS Plant." };
-    }
-    const forecastId = this._plantState?.panel_display?.forecast_entity_id || null;
-    const entityIds = specs.map((s) => s.entity_id);
-    if (forecastId) entityIds.push(forecastId);
-    const now = new Date();
-    const start = startOfLocalDay(now);
-    const range = getStatisticsDayRange(now);
-    const hist = await fetchHistoryDuring(this._hass, entityIds, start, now);
-    const series = specs.map((spec) => {
-      const raw = historyToPoints(historyRowsForEntity(hist, spec.entity_id)).map((p) => ({
-        t: p.t,
-        v: transformHistoryPoint(this._hass, spec.entity_id, p.v, spec),
-      }));
-      return {
-        id: spec.key,
-        label: spec.label,
-        tooltipLabel: spec.tooltipLabel,
-        legendGroup: spec.legendGroup,
-        color: spec.color,
-        fill: spec.fill,
-        fillColor: spec.fillColor,
-        hideLegend: spec.hideLegend,
-        lineWidth: spec.lineWidth,
-        points: statisticsChartPoints(raw, range),
-      };
-    });
-    if (forecastId) {
-      const fRaw = historyToPoints(historyRowsForEntity(hist, forecastId)).map((p) => ({
-        t: p.t,
-        v: transformHistoryPoint(this._hass, forecastId, p.v, { toKw: true }),
-      }));
-      const fPoints = statisticsChartPoints(fRaw, range);
-      if (fPoints.length) {
-        series.push({
-          id: "forecast",
-          ...FORECAST_CHART_STYLE,
-          points: fPoints,
-        });
-      }
-    }
-    if (!series.some((s) => s.points.length)) {
-      const listed = specs.map((s) => s.entity_id).join(", ");
-      return {
-        empty: `No recorder history for: ${listed}. Confirm the Recorder includes these entities (same as your Lovelace statistics card).`,
-      };
-    }
-    return { series, range };
+    return fetchStatisticsChartSeries(this._hass, plant, this._plantState);
   }
 
   _renderStatisticsChartBody() {

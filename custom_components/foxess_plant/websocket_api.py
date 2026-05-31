@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime as dt
+from datetime import datetime as dt, timedelta
 from typing import Any
 
 import voluptuous as vol
@@ -24,6 +24,7 @@ WS_TYPE_SET_SOC_LIMITS = "foxess_plant/set_soc_limits"
 WS_TYPE_FORECAST_ENTITY_CANDIDATES = "foxess_plant/forecast_entity_candidates"
 WS_TYPE_UPDATE_PANEL_DISPLAY = "foxess_plant/update_panel_display"
 WS_TYPE_FETCH_HISTORY = "foxess_plant/fetch_history"
+WS_TYPE_FETCH_STATISTICS = "foxess_plant/fetch_statistics"
 
 PERIOD_SCHEMA = vol.Schema(
     {
@@ -94,6 +95,58 @@ def _fetch_history_points(
         out[entity_id] = points
     for entity_id in entity_ids:
         out.setdefault(entity_id, []).sort(key=lambda p: p["t"])
+    return out
+
+
+def _fetch_statistics_points(
+    hass: HomeAssistant,
+    start_time: dt,
+    end_time: dt,
+    entity_ids: list[str],
+    *,
+    period: str,
+    statistic: str,
+) -> dict[str, list[dict[str, float]]]:
+    """5-minute (etc.) recorder statistics — same source as plotly-graph cards."""
+    from homeassistant.components.recorder.statistics import statistics_during_period
+
+    period_delta = {
+        "5minute": timedelta(minutes=5),
+        "hour": timedelta(hours=1),
+        "day": timedelta(days=1),
+    }.get(period, timedelta(minutes=5))
+    stat_type = statistic if statistic in ("mean", "min", "max", "sum", "state") else "mean"
+    stats = statistics_during_period(
+        hass,
+        start_time,
+        end_time,
+        entity_ids,
+        period_delta,
+        None,
+        [stat_type],
+    )
+    out: dict[str, list[dict[str, float]]] = {entity_id: [] for entity_id in entity_ids}
+    for entity_id in entity_ids:
+        for row in stats.get(entity_id) or []:
+            if isinstance(row, dict):
+                value = row.get(stat_type)
+                start = row.get("start")
+            else:
+                value = getattr(row, stat_type, None)
+                start = getattr(row, "start", None)
+            if value is None:
+                continue
+            if isinstance(start, (int, float)):
+                start_ts = float(start)
+            else:
+                start_ts = dt_util.as_utc(start).timestamp()
+            out[entity_id].append(
+                {
+                    "start": start_ts,
+                    "mean": float(value),
+                }
+            )
+        out[entity_id].sort(key=lambda p: p["start"])
     return out
 
 
@@ -293,6 +346,45 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
         )
         connection.send_result(msg["id"], result)
 
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): WS_TYPE_FETCH_STATISTICS,
+            vol.Required("start_time"): str,
+            vol.Optional("end_time"): str,
+            vol.Required("entity_ids"): [cv.entity_id],
+            vol.Optional("period", default="5minute"): vol.In(("5minute", "hour", "day")),
+            vol.Optional("statistic", default="mean"): vol.In(("mean", "min", "max", "sum", "state")),
+        }
+    )
+    @websocket_api.async_response
+    async def ws_fetch_statistics(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        start = dt_util.parse_datetime(msg["start_time"])
+        if start is None:
+            connection.send_error(msg["id"], "invalid_start", "Invalid start_time")
+            return
+        end_raw = msg.get("end_time")
+        end = dt_util.parse_datetime(end_raw) if end_raw else dt_util.utcnow()
+        if end is None:
+            connection.send_error(msg["id"], "invalid_end", "Invalid end_time")
+            return
+        start_utc = dt_util.as_utc(start)
+        end_utc = dt_util.as_utc(end)
+        entity_ids = list(msg["entity_ids"])
+        result = await get_instance(hass).async_add_executor_job(
+            _fetch_statistics_points,
+            hass,
+            start_utc,
+            end_utc,
+            entity_ids,
+            period=msg.get("period", "5minute"),
+            statistic=msg.get("statistic", "mean"),
+        )
+        connection.send_result(msg["id"], result)
+
     websocket_api.async_register_command(hass, ws_plant_list)
     websocket_api.async_register_command(hass, ws_plant_state)
     websocket_api.async_register_command(hass, ws_trigger_candidates)
@@ -301,4 +393,5 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_forecast_entity_candidates)
     websocket_api.async_register_command(hass, ws_update_panel_display)
     websocket_api.async_register_command(hass, ws_fetch_history)
+    websocket_api.async_register_command(hass, ws_fetch_statistics)
     hass.data["_foxess_plant_ws_registered"] = True
