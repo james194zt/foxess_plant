@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.74
+ * @version 0.8.75
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-solar-base";
-const PANEL_BUILD_FALLBACK = "0.8.74";
+const PANEL_BUILD_FALLBACK = "0.8.75";
 const PANEL_ELEMENT = `foxess-plant-panel-${PANEL_BUILD_FALLBACK.replace(/\./g, "_")}`;
 const FLOW_STROKE = { base: 5, active: 6, hubR: 8 };
 const FLOW_DASH = "20 24";
@@ -599,7 +599,7 @@ function historyRowTimeMs(row) {
 
 function historyToPoints(rows) {
   if (!rows?.length) return [];
-  return rows
+  const sorted = rows
     .map((row) => {
       if (typeof row.t === "number" && typeof row.v === "number") {
         const t = row.t > 1e12 ? row.t : row.t * 1000;
@@ -612,6 +612,13 @@ function historyToPoints(rows) {
     })
     .filter(Boolean)
     .sort((a, b) => a.t - b.t);
+  const out = [];
+  for (const p of sorted) {
+    const last = out[out.length - 1];
+    if (last && last.t === p.t) out[out.length - 1] = p;
+    else out.push(p);
+  }
+  return out;
 }
 
 function transformPowerPoint(v, spec) {
@@ -644,7 +651,7 @@ function getStatisticsDayRange(now = new Date()) {
   return { tMin, tMax: tMin + 24 * 60 * 60 * 1000, nowMs: now.getTime() };
 }
 
-/** Bucket raw recorder points into fixed intervals using mean (plotly-graph 5minute). */
+/** Bucket raw recorder points into fixed 5-minute intervals using mean (plotly-graph). */
 function resamplePointsMean(points, periodMs, originMs, endMs) {
   if (!points.length) return [];
   const buckets = new Map();
@@ -662,6 +669,32 @@ function resamplePointsMean(points, periodMs, originMs, endMs) {
   return Array.from(buckets.entries())
     .sort(([a], [b]) => a - b)
     .map(([t, { sum, count }]) => ({ t, v: sum / count }));
+}
+
+/** Split resampled series when a gap exceeds one bucket (plotly connectgaps: false). */
+function splitStatisticsSegments(points, periodMs = STATISTICS_PERIOD_MS) {
+  if (!points.length) return [];
+  const maxGap = periodMs * 1.5;
+  const segments = [];
+  let current = [points[0]];
+  for (let i = 1; i < points.length; i++) {
+    if (points[i].t - points[i - 1].t > maxGap) {
+      if (current.length) segments.push(current);
+      current = [];
+    }
+    current.push(points[i]);
+  }
+  if (current.length) segments.push(current);
+  return segments;
+}
+
+function polylinePath(pts) {
+  if (!pts.length) return "";
+  let d = `M${pts[0].x.toFixed(2)},${pts[0].y.toFixed(2)}`;
+  for (let i = 1; i < pts.length; i++) {
+    d += ` L${pts[i].x.toFixed(2)},${pts[i].y.toFixed(2)}`;
+  }
+  return d;
 }
 
 function statisticsChartPoints(points, range) {
@@ -697,30 +730,9 @@ function formatStatisticsKw(v) {
   return Number.isFinite(v) ? `${v.toFixed(3)} kW` : "—";
 }
 
-function smoothLinePath(pts) {
-  if (!pts.length) return "";
-  if (pts.length === 1) return `M${pts[0].x.toFixed(2)},${pts[0].y.toFixed(2)}`;
-  if (pts.length === 2) {
-    return `M${pts[0].x.toFixed(2)},${pts[0].y.toFixed(2)} L${pts[1].x.toFixed(2)},${pts[1].y.toFixed(2)}`;
-  }
-  let d = `M${pts[0].x.toFixed(2)},${pts[0].y.toFixed(2)}`;
-  for (let i = 0; i < pts.length - 1; i++) {
-    const p0 = pts[Math.max(i - 1, 0)];
-    const p1 = pts[i];
-    const p2 = pts[i + 1];
-    const p3 = pts[Math.min(i + 2, pts.length - 1)];
-    const cp1x = p1.x + (p2.x - p0.x) / 6;
-    const cp1y = p1.y + (p2.y - p0.y) / 6;
-    const cp2x = p2.x - (p3.x - p1.x) / 6;
-    const cp2y = p2.y - (p3.y - p1.y) / 6;
-    d += ` C${cp1x.toFixed(2)},${cp1y.toFixed(2)} ${cp2x.toFixed(2)},${cp2y.toFixed(2)} ${p2.x.toFixed(2)},${p2.y.toFixed(2)}`;
-  }
-  return d;
-}
-
 function fillToZeroPath(pts, yZero) {
   if (!pts.length) return "";
-  const line = smoothLinePath(pts);
+  const line = polylinePath(pts);
   const last = pts[pts.length - 1];
   const first = pts[0];
   return `${line} L${last.x.toFixed(2)},${yZero.toFixed(2)} L${first.x.toFixed(2)},${yZero.toFixed(2)} Z`;
@@ -872,9 +884,11 @@ function renderStatisticsChartHtml(series, range) {
   const xTicks = Array.from({ length: xTickCount }, (_, i) => tMin + i * xTickHours * 60 * 60 * 1000);
 
   const plotSeries = visible.map((s) => {
-    const pts = s.points.filter((p) => p.t >= tMin && p.t <= nowMs);
-    const pixelPts = pts.map((p) => ({ x: xScale(p.t), y: yScale(p.v), t: p.t, v: p.v }));
-    return { ...s, pixelPts };
+    const clipped = s.points.filter((p) => p.t >= tMin && p.t <= nowMs);
+    const segments = splitStatisticsSegments(clipped).map((seg) =>
+      seg.map((p) => ({ x: xScale(p.t), y: yScale(p.v), t: p.t, v: p.v }))
+    );
+    return { ...s, segments };
   });
 
   const grid = yTicks
@@ -899,18 +913,24 @@ function renderStatisticsChartHtml(series, range) {
     .join("");
 
   const fills = plotSeries
-    .filter((s) => s.fill && s.pixelPts.length)
-    .map(
-      (s) =>
-        `<path class="statistics-fill" data-series-id="${esc(s.id)}" data-legend-group="${esc(s.legendGroup || "")}" d="${fillToZeroPath(s.pixelPts, yZero)}" fill="${s.fillColor}" stroke="none"/>`
+    .flatMap((s) =>
+      (s.segments || [])
+        .filter((seg) => s.fill && seg.length)
+        .map(
+          (seg) =>
+            `<path class="statistics-fill" data-series-id="${esc(s.id)}" data-legend-group="${esc(s.legendGroup || "")}" d="${fillToZeroPath(seg, yZero)}" fill="${s.fillColor}" stroke="none"/>`
+        )
     )
     .join("");
 
   const lines = plotSeries
-    .filter((s) => s.pixelPts.length)
-    .map(
-      (s) =>
-        `<path class="statistics-line" data-series-id="${esc(s.id)}" data-legend-group="${esc(s.legendGroup || "")}" d="${smoothLinePath(s.pixelPts)}" fill="none" stroke="${s.color}" stroke-width="${s.lineWidth || 1.2}" stroke-linecap="round" stroke-linejoin="round"/>`
+    .flatMap((s) =>
+      (s.segments || [])
+        .filter((seg) => seg.length)
+        .map(
+          (seg) =>
+            `<path class="statistics-line" data-series-id="${esc(s.id)}" data-legend-group="${esc(s.legendGroup || "")}" d="${polylinePath(seg)}" fill="none" stroke="${s.color}" stroke-width="${s.lineWidth || 1.2}" stroke-linecap="round" stroke-linejoin="round"/>`
+        )
     )
     .join("");
 

@@ -92,6 +92,8 @@ def _fetch_history_points(
                 }
             )
         out[entity_id] = points
+    for entity_id in entity_ids:
+        out.setdefault(entity_id, []).sort(key=lambda p: p["t"])
     return out
 
 
