@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.80
+ * @version 0.8.81
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-solar-base";
-const PANEL_BUILD_FALLBACK = "0.8.80";
+const PANEL_BUILD_FALLBACK = "0.8.81";
 const PANEL_ELEMENT = `foxess-plant-panel-${PANEL_BUILD_FALLBACK.replace(/\./g, "_")}`;
 
 /** Register current and recent version tags so HACS updates never leave a blank panel. */
@@ -66,7 +66,7 @@ function registerFoxessPlantPanel() {
 const FLOW_STROKE = { base: 5, active: 6, hubR: 8 };
 const FLOW_DASH = "20 24";
 const FLOW_SCENE_PV_THRESHOLD_W = 40;
-const FLOW_SCENE_ASSET_VER = 10;
+const FLOW_SCENE_ASSET_VER = 11;
 
 const FLOW_SCENE_BG_THEMES = new Set([
   "day_light",
@@ -1985,15 +1985,15 @@ const STYLES = `
 .scene-card { background: var(--card-background-color); border-radius: var(--fp-radius); padding: 16px 12px 12px; border: 1px solid var(--divider-color, transparent); margin-bottom: 14px; }
 .scene-title { font-size: 12px; font-weight: 700; color: var(--secondary-text-color); margin: 0 0 8px 4px; text-transform: uppercase; letter-spacing: 0.04em; }
 .scene-card--fox-flow {
-  padding: 0; border: none; border-radius: 0; background: #000;
+  padding: 0; border: none; border-radius: 0; background: transparent;
   width: 100%; margin: 0 0 14px; overflow: hidden;
 }
 .fox-flow-scene {
-  display: block; width: 100%; max-width: 440px; margin: 0 auto; background: #000;
+  display: block; width: 100%; max-width: 440px; margin: 0 auto; background: transparent;
 }
 .fox-flow-stage {
   position: relative; width: 100%; max-width: 440px; margin: 0 auto;
-  background: #000;
+  background: transparent; isolation: isolate;
 }
 .fox-flow-stage::before {
   content: ""; display: block; width: 100%; padding-top: 99.31640625%;
@@ -2005,12 +2005,16 @@ const STYLES = `
   inset: 0; width: 100%; height: 100%; z-index: 0;
   object-fit: contain; object-position: center bottom;
 }
-.fox-flow-layer-home,
+.fox-flow-layer-home {
+  inset: 0; width: 100%; height: 100%;
+  object-fit: contain; object-position: center bottom;
+  z-index: 1;
+}
 .fox-flow-layer-pv,
 .fox-flow-layer-aio {
   inset: 0; width: 100%; height: 100%;
   object-fit: contain; object-position: center bottom;
-  z-index: 1;
+  z-index: 2;
 }
 .fox-flow-svg {
   position: absolute; inset: 0; width: 100%; height: 100%;
