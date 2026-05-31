@@ -63,21 +63,31 @@ def bake_bg(theme: str) -> None:
     print(f"wrote {out.name} ({out.stat().st_size} bytes)")
 
 
-def has_edge_connected_alpha(im: Image.Image) -> bool:
-    """True when the image already has transparency (skip destructive re-keying)."""
-    if im.mode != "RGBA":
-        return False
-    alpha = im.getchannel("A")
-    lo, hi = alpha.getextrema()
-    return lo < 250
+def needs_edge_key(im: Image.Image) -> bool:
+    """True when border pixels are opaque black (matte), not real transparency."""
+    im = im.convert("RGBA")
+    w, h = im.size
+    px = im.load()
+
+    def is_opaque_black(x: int, y: int) -> bool:
+        r, g, b, a = px[x, y]
+        return a > 200 and r == 0 and g == 0 and b == 0
+
+    for x in range(w):
+        if is_opaque_black(x, 0) or is_opaque_black(x, h - 1):
+            return True
+    for y in range(h):
+        if is_opaque_black(0, y) or is_opaque_black(w - 1, y):
+            return True
+    return False
 
 
 def main() -> None:
     for theme in FLOW_HOME_THEMES:
         home = WWW / f"flow_home_{theme}.png"
         src = Image.open(home)
-        if has_edge_connected_alpha(src):
-            print(f"skip key {home.name} (already has alpha)")
+        if not needs_edge_key(src):
+            print(f"skip key {home.name} (already transparent)")
             continue
         keyed = key_edge_black(src)
         keyed.save(home, optimize=True)
