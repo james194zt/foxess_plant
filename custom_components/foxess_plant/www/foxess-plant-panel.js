@@ -1471,7 +1471,7 @@ function computeFlowLines(flows, threshold = FLOW_SCENE_PV_THRESHOLD_W) {
     lines.push({ id: "solar-aio" });
   }
   if (hasGridIn) lines.push({ id: "grid-hub" });
-  if (hasGridOut) lines.push({ id: "hub-grid", reverse: true });
+  if (hasGridOut) lines.push({ id: "hub-grid" });
   if (discharging) lines.push({ id: "aio-hub" });
   if (charging) lines.push({ id: "hub-aio", reverse: true });
   if (hasLoad && (hasGridOut || hasGridIn || discharging || charging || hasPv)) {
