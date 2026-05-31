@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.79
+ * @version 0.8.80
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-solar-base";
-const PANEL_BUILD_FALLBACK = "0.8.79";
+const PANEL_BUILD_FALLBACK = "0.8.80";
 const PANEL_ELEMENT = `foxess-plant-panel-${PANEL_BUILD_FALLBACK.replace(/\./g, "_")}`;
 
 /** Register current and recent version tags so HACS updates never leave a blank panel. */
@@ -1435,37 +1435,50 @@ function readEnergyFlows(hass, plant, plantState) {
   };
 }
 
+function sunPrevNext(hass, key) {
+  const raw = hass?.states?.["sun.sun"]?.attributes?.[`next_${key}`];
+  if (!raw) return null;
+  const nxt = new Date(raw);
+  if (Number.isNaN(nxt.getTime())) return null;
+  return { prev: new Date(nxt.getTime() - 86_400_000), nxt };
+}
+
+function sunLastEvent(hass, key, now) {
+  const pair = sunPrevNext(hass, key);
+  if (!pair) return null;
+  return now >= pair.nxt ? pair.nxt : pair.prev;
+}
+
+function sunNextEvent(hass, key, now) {
+  const pair = sunPrevNext(hass, key);
+  if (!pair) return null;
+  return now >= pair.nxt ? new Date(pair.nxt.getTime() + 86_400_000) : pair.nxt;
+}
+
 function resolveFlowSceneBgThemeFromSun(hass) {
   const sun = hass?.states?.["sun.sun"];
   if (!sun?.attributes) return null;
   const now = new Date();
-  const msDay = 86_400_000;
 
-  const effective = (key) => {
-    const raw = sun.attributes[`next_${key}`];
-    if (!raw) return null;
-    let event = new Date(raw);
-    if (Number.isNaN(event.getTime())) return null;
-    while (event > now) event = new Date(event.getTime() - msDay);
-    return event;
-  };
+  const lastDawn = sunLastEvent(hass, "dawn", now);
+  const lastRising = sunLastEvent(hass, "rising", now);
+  const lastSetting = sunLastEvent(hass, "setting", now);
+  const lastDusk = sunLastEvent(hass, "dusk", now);
+  const nextSetting = sunNextEvent(hass, "setting", now);
+  if (!lastDawn || !lastRising || !lastSetting || !lastDusk || !nextSetting) return null;
 
-  const dawn = effective("dawn");
-  const rising = effective("rising");
-  const setting = effective("setting");
-  const dusk = effective("dusk");
-  if (!dawn || !rising || !setting || !dusk) return null;
-
-  if (now >= dawn && now < rising) return "day_dark";
-  if (now >= rising && now < setting) return "day_light";
-  if (now >= setting && now < dusk) return "night_light";
+  if (now >= lastDawn && now < lastRising) return "day_dark";
+  if (now >= lastRising && now < nextSetting) return "day_light";
+  if (now >= lastSetting && now < lastDusk) return "night_light";
   return "night_dark";
 }
 
 function resolveFlowSceneBgTheme(hass, plantState) {
-  const fromState = plantState?.flow_scene_theme;
-  if (fromState && FLOW_SCENE_BG_THEMES.has(fromState)) return fromState;
-  return resolveFlowSceneBgThemeFromSun(hass) || "day_light";
+  return resolveFlowSceneBgThemeFromSun(hass)
+    || (plantState?.flow_scene_theme && FLOW_SCENE_BG_THEMES.has(plantState.flow_scene_theme)
+      ? plantState.flow_scene_theme
+      : null)
+    || "day_light";
 }
 
 function flowSceneOverlayTheme(bgTheme) {

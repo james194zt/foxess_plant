@@ -24,8 +24,6 @@ FLOW_SCENE_THEMES = frozenset(
     }
 )
 
-_SUN_EVENT_KEYS = ("dawn", "rising", "setting", "dusk")
-
 
 def _parse_next_sun_event(attrs: dict, key: str):
     raw = attrs.get(f"next_{key}")
@@ -34,15 +32,30 @@ def _parse_next_sun_event(attrs: dict, key: str):
     return dt_util.parse_datetime(raw)
 
 
-def _effective_sun_event(attrs: dict, key: str, now):
-    """Most recent occurrence of a sun event at or before *now* (local time)."""
+def _prev_next_sun(attrs: dict, key: str) -> tuple | None:
     parsed = _parse_next_sun_event(attrs, key)
     if parsed is None:
         return None
-    event = dt_util.as_local(parsed)
-    while event > now:
-        event -= timedelta(days=1)
-    return event
+    nxt = dt_util.as_local(parsed)
+    return nxt - timedelta(days=1), nxt
+
+
+def _last_sun_event(attrs: dict, key: str, now) -> object | None:
+    """Most recent occurrence of a sun event at or before *now*."""
+    pair = _prev_next_sun(attrs, key)
+    if pair is None:
+        return None
+    prev, nxt = pair
+    return nxt if now >= nxt else prev
+
+
+def _next_sun_event(attrs: dict, key: str, now) -> object | None:
+    """Next occurrence of a sun event strictly after *now* (may be later today)."""
+    pair = _prev_next_sun(attrs, key)
+    if pair is None:
+        return None
+    _prev, nxt = pair
+    return (nxt + timedelta(days=1)) if now >= nxt else nxt
 
 
 def resolve_flow_scene_theme(hass: HomeAssistant) -> str:
@@ -53,18 +66,19 @@ def resolve_flow_scene_theme(hass: HomeAssistant) -> str:
 
     now = dt_util.now()
     attrs = sun.attributes
-    dawn = _effective_sun_event(attrs, "dawn", now)
-    rising = _effective_sun_event(attrs, "rising", now)
-    setting = _effective_sun_event(attrs, "setting", now)
-    dusk = _effective_sun_event(attrs, "dusk", now)
+    last_dawn = _last_sun_event(attrs, "dawn", now)
+    last_rising = _last_sun_event(attrs, "rising", now)
+    last_setting = _last_sun_event(attrs, "setting", now)
+    last_dusk = _last_sun_event(attrs, "dusk", now)
+    next_setting = _next_sun_event(attrs, "setting", now)
 
-    if None in (dawn, rising, setting, dusk):
+    if None in (last_dawn, last_rising, last_setting, last_dusk, next_setting):
         return FLOW_SCENE_THEME_PEAK
 
-    if dawn <= now < rising:
+    if last_dawn <= now < last_rising:
         return FLOW_SCENE_THEME_SUNRISE
-    if rising <= now < setting:
+    if last_rising <= now < next_setting:
         return FLOW_SCENE_THEME_PEAK
-    if setting <= now < dusk:
+    if last_setting <= now < last_dusk:
         return FLOW_SCENE_THEME_DUSK
     return FLOW_SCENE_THEME_NIGHT
