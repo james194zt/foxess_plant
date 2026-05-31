@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Key flow_home mattes and bake sky+house into flow_home_bg_scene (Fox-style composite)."""
+"""Key flow_home mattes and bake matched sky+house into flow_home_bg_scene."""
 
 from __future__ import annotations
 
@@ -11,12 +11,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 WWW = ROOT / "custom_components" / "foxess_plant" / "www"
 CANVAS = (1024, 1017)
-FLOW_BG_THEMES = ("day_light", "day_dark", "night_light", "night_dark")
-FLOW_HOME_THEMES = ("day_light", "night_dark")
-
-
-def overlay_theme(bg_theme: str) -> str:
-    return "day_light" if bg_theme.startswith("day_") else "night_dark"
+FLOW_THEMES = ("day_light", "day_dark", "night_light", "night_dark")
 
 
 def key_edge_black(im: Image.Image) -> Image.Image:
@@ -54,7 +49,6 @@ def key_edge_black(im: Image.Image) -> Image.Image:
 
 
 def needs_edge_key(im: Image.Image) -> bool:
-    """True when border pixels are opaque black (matte), not real transparency."""
     im = im.convert("RGBA")
     w, h = im.size
     px = im.load()
@@ -84,8 +78,8 @@ def load_home_layer(theme: str) -> Image.Image:
     return home
 
 
-def bake_bg(theme: str, home_layers: dict[str, Image.Image]) -> None:
-    """Bake sky background + house overlay into one opaque scene (matches Fox app)."""
+def bake_scene(theme: str, home_layers: dict[str, Image.Image]) -> None:
+    """Each theme pairs flow_home_bg_{theme} with flow_home_{theme}."""
     src = WWW / f"flow_home_bg_{theme}.png"
     out = WWW / f"flow_home_bg_scene_{theme}.png"
     bg = Image.open(src).convert("RGBA")
@@ -94,25 +88,24 @@ def bake_bg(theme: str, home_layers: dict[str, Image.Image]) -> None:
     bg = bg.resize((nw, nh), Image.Resampling.LANCZOS)
     canvas = Image.new("RGBA", CANVAS, (0, 0, 0, 255))
     x = (CANVAS[0] - nw) // 2
-    canvas.paste(bg, (x, 0), bg)
-    home = home_layers[overlay_theme(theme)]
-    canvas = Image.alpha_composite(canvas, home)
+    y = CANVAS[1] - nh
+    canvas.paste(bg, (x, y), bg)
+    canvas = Image.alpha_composite(canvas, home_layers[theme])
     canvas.save(out, optimize=True)
     print(f"wrote {out.name} ({out.stat().st_size} bytes)")
 
 
 def main() -> None:
-    home_layers = {theme: load_home_layer(theme) for theme in FLOW_HOME_THEMES}
-    for theme in FLOW_HOME_THEMES:
+    home_layers = {theme: load_home_layer(theme) for theme in FLOW_THEMES}
+    for theme in FLOW_THEMES:
         src_path = WWW / f"flow_home_{theme}.png"
         if needs_edge_key(Image.open(src_path)):
-            keyed = home_layers[theme]
-            keyed.save(src_path, optimize=True)
+            home_layers[theme].save(src_path, optimize=True)
             print(f"keyed {src_path.name} ({src_path.stat().st_size} bytes)")
         else:
             print(f"skip key {src_path.name} (already transparent)")
-    for theme in FLOW_BG_THEMES:
-        bake_bg(theme, home_layers)
+    for theme in FLOW_THEMES:
+        bake_scene(theme, home_layers)
 
 
 if __name__ == "__main__":

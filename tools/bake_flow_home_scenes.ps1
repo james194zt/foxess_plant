@@ -4,12 +4,7 @@ Add-Type -AssemblyName System.Drawing
 $www = (Join-Path $PSScriptRoot "..\custom_components\foxess_plant\www" | Resolve-Path).Path
 $canvasW = 1024
 $canvasH = 1017
-$bgThemes = @("day_light", "day_dark", "night_light", "night_dark")
-
-function Get-OverlayTheme([string]$bgTheme) {
-    if ($bgTheme.StartsWith("day_")) { return "day_light" }
-    return "night_dark"
-}
+$themes = @("day_light", "day_dark", "night_light", "night_dark")
 
 function Key-EdgeBlack([System.Drawing.Bitmap]$bmp) {
     $w = $bmp.Width; $h = $bmp.Height
@@ -38,6 +33,7 @@ function Key-EdgeBlack([System.Drawing.Bitmap]$bmp) {
 
 function Load-HomeLayer([string]$theme) {
     $path = Join-Path $www "flow_home_$theme.png"
+    if (-not (Test-Path $path)) { throw "Missing $path" }
     $src = [System.Drawing.Bitmap]::FromFile($path)
     $bmp = New-Object System.Drawing.Bitmap $canvasW, $canvasH, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $g = [System.Drawing.Graphics]::FromImage($bmp)
@@ -49,17 +45,18 @@ function Load-HomeLayer([string]$theme) {
 }
 
 $homeLayers = @{}
-foreach ($t in @("day_light", "night_dark")) {
+foreach ($t in $themes) {
     $homeLayers[$t] = Load-HomeLayer $t
-    $out = Join-Path $www "flow_home_$t.png"
-    $homeLayers[$t].Save($out, [System.Drawing.Imaging.ImageFormat]::Png)
+    $tmp = Join-Path $www "flow_home_$t.keyed.png"
+    $homeLayers[$t].Save($tmp, [System.Drawing.Imaging.ImageFormat]::Png)
+    Move-Item -Force $tmp (Join-Path $www "flow_home_$t.png")
     Write-Host "keyed flow_home_$t.png"
 }
 
-foreach ($theme in $bgThemes) {
+foreach ($theme in $themes) {
     $srcPath = Join-Path $www "flow_home_bg_$theme.png"
     $outPath = Join-Path $www "flow_home_bg_scene_$theme.png"
-    $overlay = Get-OverlayTheme $theme
+    if (-not (Test-Path $srcPath)) { throw "Missing $srcPath" }
 
     $src = [System.Drawing.Image]::FromFile($srcPath)
     try {
@@ -67,6 +64,7 @@ foreach ($theme in $bgThemes) {
         $nw = [int][Math]::Round($src.Width * $scale)
         $nh = [int][Math]::Round($src.Height * $scale)
         $x = [int][Math]::Floor(($canvasW - $nw) / 2)
+        $y = $canvasH - $nh
 
         $canvas = New-Object System.Drawing.Bitmap $canvasW, $canvasH, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
         try {
@@ -75,11 +73,11 @@ foreach ($theme in $bgThemes) {
                 $g.Clear([System.Drawing.Color]::Black)
                 $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
                 $g.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceOver
-                $g.DrawImage($src, $x, 0, $nw, $nh)
-                $g.DrawImage($homeLayers[$overlay], 0, 0, $canvasW, $canvasH)
+                $g.DrawImage($src, $x, $y, $nw, $nh)
+                $g.DrawImage($homeLayers[$theme], 0, 0, $canvasW, $canvasH)
             } finally { $g.Dispose() }
             $canvas.Save($outPath, [System.Drawing.Imaging.ImageFormat]::Png)
-            Write-Host "wrote flow_home_bg_scene_$theme.png"
+            Write-Host "wrote flow_home_bg_scene_$theme.png (paired with flow_home_$theme.png)"
         } finally { $canvas.Dispose() }
     } finally { $src.Dispose() }
 }
