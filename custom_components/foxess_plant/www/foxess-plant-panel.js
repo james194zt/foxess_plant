@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.77
+ * @version 0.8.79
  */
 
 const NAV = [
@@ -36,8 +36,33 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-solar-base";
-const PANEL_BUILD_FALLBACK = "0.8.77";
+const PANEL_BUILD_FALLBACK = "0.8.79";
 const PANEL_ELEMENT = `foxess-plant-panel-${PANEL_BUILD_FALLBACK.replace(/\./g, "_")}`;
+
+/** Register current and recent version tags so HACS updates never leave a blank panel. */
+function panelElementTags() {
+  const tags = new Set([PANEL_ELEMENT, "foxess-plant-panel"]);
+  const m = PANEL_BUILD_FALLBACK.match(/^(\d+)\.(\d+)\.(\d+)$/);
+  if (m) {
+    const major = Number(m[1]);
+    const minor = Number(m[2]);
+    const patch = Number(m[3]);
+    for (let p = Math.max(0, patch - 5); p <= patch; p++) {
+      tags.add(`foxess-plant-panel-${major}_${minor}_${p}`);
+    }
+  }
+  return [...tags];
+}
+
+function registerFoxessPlantPanel() {
+  for (const tag of panelElementTags()) {
+    try {
+      if (!customElements.get(tag)) customElements.define(tag, FoxessPlantPanel);
+    } catch (err) {
+      console.warn(`FoxESS Plant: could not register <${tag}>`, err);
+    }
+  }
+}
 const FLOW_STROKE = { base: 5, active: 6, hubR: 8 };
 const FLOW_DASH = "20 24";
 const FLOW_SCENE_PV_THRESHOLD_W = 40;
@@ -948,7 +973,7 @@ function findSolcastTodayEntity(hass, forecastEntityId) {
   const preferred = "sensor.solcast_pv_forecast_forecast_today";
   if (hass.states[preferred]) return preferred;
   const matches = Object.keys(hass.states).filter((eid) => {
-    const oid = eid.split(".", 1)[1]?.toLowerCase() || "";
+    const oid = eid.split(".")[1]?.toLowerCase() || "";
     return oid.includes("solcast") && oid.includes("forecast") && oid.includes("today");
   });
   return matches.sort()[0] || null;
@@ -4336,6 +4361,15 @@ ${active
   }
 
   _render() {
+    try {
+      this._renderPanel();
+    } catch (err) {
+      console.error("FoxESS Plant panel render failed", err);
+      this._root.innerHTML = `<div class="main"><p class="placeholder">Fox Plant panel error: ${esc(err?.message || String(err))}</p></div>`;
+    }
+  }
+
+  _renderPanel() {
     if (!this._hass) {
       this._headerHasSubTabs = undefined;
       this._root.innerHTML = `<div class="main"><p class="placeholder">Loading Fox Plant…</p></div>`;
@@ -4414,4 +4448,4 @@ ${active
   }
 }
 
-customElements.define(PANEL_ELEMENT, FoxessPlantPanel);
+registerFoxessPlantPanel();
