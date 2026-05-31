@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.82
+ * @version 0.8.83
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-solar-base";
-const PANEL_BUILD_FALLBACK = "0.8.82";
+const PANEL_BUILD_FALLBACK = "0.8.83";
 const PANEL_ELEMENT = `foxess-plant-panel-${PANEL_BUILD_FALLBACK.replace(/\./g, "_")}`;
 
 /** Register current and recent version tags so HACS updates never leave a blank panel. */
@@ -66,7 +66,7 @@ function registerFoxessPlantPanel() {
 const FLOW_STROKE = { base: 5, active: 6, hubR: 8 };
 const FLOW_DASH = "20 24";
 const FLOW_SCENE_PV_THRESHOLD_W = 40;
-const FLOW_SCENE_ASSET_VER = 12;
+const FLOW_SCENE_ASSET_VER = 13;
 
 const FLOW_SCENE_BG_THEMES = new Set([
   "day_light",
@@ -1490,9 +1490,6 @@ function flowSceneLayerUrl(layer, bgTheme, overlayTheme = flowSceneOverlayTheme(
   if (layer === "bg") {
     return `/foxess_plant_panel/flow_home_bg_scene_${theme}.png?v=${FLOW_SCENE_ASSET_VER}`;
   }
-  if (layer === "home") {
-    return `/foxess_plant_panel/flow_home_${theme}.png?v=${FLOW_SCENE_ASSET_VER}`;
-  }
   return `/foxess_plant_panel/flow_${layer}_scene_${theme}.png?v=${FLOW_SCENE_ASSET_VER}`;
 }
 
@@ -2005,16 +2002,11 @@ const STYLES = `
   inset: 0; width: 100%; height: 100%; z-index: 0;
   object-fit: contain; object-position: center bottom;
 }
-.fox-flow-layer-home {
-  inset: 0; width: 100%; height: 100%;
-  object-fit: contain; object-position: center bottom;
-  z-index: 1;
-}
 .fox-flow-layer-pv,
 .fox-flow-layer-aio {
   inset: 0; width: 100%; height: 100%;
   object-fit: contain; object-position: center bottom;
-  z-index: 2;
+  z-index: 1;
 }
 .fox-flow-svg {
   position: absolute; inset: 0; width: 100%; height: 100%;
@@ -3379,7 +3371,6 @@ ${this._modeBannerExtra()}
 <div class="fox-flow-scene ${isNight ? "fox-flow-scene--night" : "fox-flow-scene--day"}" role="img" aria-label="Live energy flow" data-panel-build="${esc(this._panelBuild())}">
 <div class="fox-flow-stage">
 <img class="fox-flow-layer fox-flow-layer-bg" src="${esc(flowSceneLayerUrl("bg", bgTheme, overlayTheme))}" alt="" loading="eager" decoding="async" fetchpriority="high" />
-<img class="fox-flow-layer fox-flow-layer-home" src="${esc(flowSceneLayerUrl("home", bgTheme, overlayTheme))}" alt="" loading="lazy" decoding="async" />
 <img class="fox-flow-layer fox-flow-layer-pv" src="${esc(flowSceneLayerUrl("pv", bgTheme, overlayTheme))}" alt="" loading="lazy" decoding="async" />
 <img class="fox-flow-layer fox-flow-layer-aio" src="${esc(flowSceneLayerUrl("aio", bgTheme, overlayTheme))}" alt="" loading="lazy" decoding="async" />
 <svg class="fox-flow-svg" viewBox="0 0 1024 1017" preserveAspectRatio="xMidYMid meet" aria-hidden="true" data-flow-paths-ver="${esc(this._panel?.config?.flow_paths_ver || FLOW_PATHS_VER)}" data-flow-stroke-base="${FLOW_STROKE.base}" data-flow-stroke-active="${FLOW_STROKE.active}" data-hub-r="${FLOW_STROKE.hubR}" data-hub-home="${esc(FOX_FLOW_PATHS["hub-home"])}" data-aio-hub="${esc(FOX_FLOW_PATHS["aio-hub"])}">

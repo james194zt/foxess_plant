@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Make flow_home sky/letterbox pure-black pixels transparent; bake bg to scene canvas."""
+"""Key flow_home mattes and bake sky+house into flow_home_bg_scene (Fox-style composite)."""
 
 from __future__ import annotations
 
@@ -15,6 +15,10 @@ FLOW_BG_THEMES = ("day_light", "day_dark", "night_light", "night_dark")
 FLOW_HOME_THEMES = ("day_light", "night_dark")
 
 
+def overlay_theme(bg_theme: str) -> str:
+    return "day_light" if bg_theme.startswith("day_") else "night_dark"
+
+
 def key_edge_black(im: Image.Image) -> Image.Image:
     im = im.convert("RGBA")
     w, h = im.size
@@ -23,8 +27,8 @@ def key_edge_black(im: Image.Image) -> Image.Image:
     q: deque[tuple[int, int]] = deque()
 
     def is_black(x: int, y: int) -> bool:
-        r, g, b, _a = px[x, y]
-        return r == 0 and g == 0 and b == 0
+        r, g, b, a = px[x, y]
+        return a > 200 and r == 0 and g == 0 and b == 0
 
     for x in range(w):
         for y in (0, h - 1):
@@ -49,20 +53,6 @@ def key_edge_black(im: Image.Image) -> Image.Image:
     return im
 
 
-def bake_bg(theme: str) -> None:
-    src = WWW / f"flow_home_bg_{theme}.png"
-    out = WWW / f"flow_home_bg_scene_{theme}.png"
-    bg = Image.open(src).convert("RGBA")
-    scale = max(CANVAS[0] / bg.width, CANVAS[1] / bg.height)
-    nw, nh = int(bg.width * scale), int(bg.height * scale)
-    bg = bg.resize((nw, nh), Image.Resampling.LANCZOS)
-    canvas = Image.new("RGBA", CANVAS, (0, 0, 0, 255))
-    x = (CANVAS[0] - nw) // 2
-    canvas.paste(bg, (x, 0), bg)
-    canvas.save(out, optimize=True)
-    print(f"wrote {out.name} ({out.stat().st_size} bytes)")
-
-
 def needs_edge_key(im: Image.Image) -> bool:
     """True when border pixels are opaque black (matte), not real transparency."""
     im = im.convert("RGBA")
@@ -82,18 +72,47 @@ def needs_edge_key(im: Image.Image) -> bool:
     return False
 
 
+def load_home_layer(theme: str) -> Image.Image:
+    path = WWW / f"flow_home_{theme}.png"
+    home = Image.open(path)
+    if needs_edge_key(home):
+        home = key_edge_black(home)
+    else:
+        home = home.convert("RGBA")
+    if home.size != CANVAS:
+        home = home.resize(CANVAS, Image.Resampling.LANCZOS)
+    return home
+
+
+def bake_bg(theme: str, home_layers: dict[str, Image.Image]) -> None:
+    """Bake sky background + house overlay into one opaque scene (matches Fox app)."""
+    src = WWW / f"flow_home_bg_{theme}.png"
+    out = WWW / f"flow_home_bg_scene_{theme}.png"
+    bg = Image.open(src).convert("RGBA")
+    scale = max(CANVAS[0] / bg.width, CANVAS[1] / bg.height)
+    nw, nh = int(bg.width * scale), int(bg.height * scale)
+    bg = bg.resize((nw, nh), Image.Resampling.LANCZOS)
+    canvas = Image.new("RGBA", CANVAS, (0, 0, 0, 255))
+    x = (CANVAS[0] - nw) // 2
+    canvas.paste(bg, (x, 0), bg)
+    home = home_layers[overlay_theme(theme)]
+    canvas = Image.alpha_composite(canvas, home)
+    canvas.save(out, optimize=True)
+    print(f"wrote {out.name} ({out.stat().st_size} bytes)")
+
+
 def main() -> None:
+    home_layers = {theme: load_home_layer(theme) for theme in FLOW_HOME_THEMES}
     for theme in FLOW_HOME_THEMES:
-        home = WWW / f"flow_home_{theme}.png"
-        src = Image.open(home)
-        if not needs_edge_key(src):
-            print(f"skip key {home.name} (already transparent)")
-            continue
-        keyed = key_edge_black(src)
-        keyed.save(home, optimize=True)
-        print(f"keyed {home.name} ({home.stat().st_size} bytes)")
+        src_path = WWW / f"flow_home_{theme}.png"
+        if needs_edge_key(Image.open(src_path)):
+            keyed = home_layers[theme]
+            keyed.save(src_path, optimize=True)
+            print(f"keyed {src_path.name} ({src_path.stat().st_size} bytes)")
+        else:
+            print(f"skip key {src_path.name} (already transparent)")
     for theme in FLOW_BG_THEMES:
-        bake_bg(theme)
+        bake_bg(theme, home_layers)
 
 
 if __name__ == "__main__":
