@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.76
+ * @version 0.8.77
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-solar-base";
-const PANEL_BUILD_FALLBACK = "0.8.76";
+const PANEL_BUILD_FALLBACK = "0.8.77";
 const PANEL_ELEMENT = `foxess-plant-panel-${PANEL_BUILD_FALLBACK.replace(/\./g, "_")}`;
 const FLOW_STROKE = { base: 5, active: 6, hubR: 8 };
 const FLOW_DASH = "20 24";
@@ -943,6 +943,117 @@ function buildStatisticsSeriesPoints(hass, entityId, spec, range, statsMap, hist
   }));
 }
 
+function findSolcastTodayEntity(hass, forecastEntityId) {
+  if (!hass?.states || !String(forecastEntityId || "").toLowerCase().includes("solcast")) return null;
+  const preferred = "sensor.solcast_pv_forecast_forecast_today";
+  if (hass.states[preferred]) return preferred;
+  const matches = Object.keys(hass.states).filter((eid) => {
+    const oid = eid.split(".", 1)[1]?.toLowerCase() || "";
+    return oid.includes("solcast") && oid.includes("forecast") && oid.includes("today");
+  });
+  return matches.sort()[0] || null;
+}
+
+function solcastDetailedForecastAttribute(attrs) {
+  if (!attrs) return null;
+  if (Array.isArray(attrs.detailedForecast) && attrs.detailedForecast.length) {
+    return attrs.detailedForecast;
+  }
+  const siteKeys = Object.keys(attrs).filter((k) => k.startsWith("detailedForecast_"));
+  if (!siteKeys.length) return null;
+  if (siteKeys.length === 1 && Array.isArray(attrs[siteKeys[0]])) return attrs[siteKeys[0]];
+  const byStart = new Map();
+  for (const key of siteKeys) {
+    const rows = attrs[key];
+    if (!Array.isArray(rows)) continue;
+    for (const row of rows) {
+      const ps = row.period_start;
+      const v = Number(row.pv_estimate);
+      if (!ps || !Number.isFinite(v)) continue;
+      byStart.set(ps, (byStart.get(ps) || 0) + v);
+    }
+  }
+  if (!byStart.size) return null;
+  return Array.from(byStart.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([period_start, pv_estimate]) => ({ period_start, pv_estimate }));
+}
+
+function interpolatePointsToPeriod(points, periodMs, originMs, endMs) {
+  if (!points.length) return [];
+  const sorted = [...points].sort((a, b) => a.t - b.t);
+  const out = [];
+  for (let t = originMs; t <= endMs; t += periodMs) {
+    const v = interpolateSeriesAt(sorted, t);
+    if (v != null) out.push({ t, v });
+  }
+  return out;
+}
+
+/** Carry last reading into empty 5-minute buckets (sparse forecast sensors). */
+function forwardFillResamplePoints(points, periodMs, originMs, endMs) {
+  if (!points.length) return [];
+  const sorted = [...points].sort((a, b) => a.t - b.t);
+  const out = [];
+  let lastV = sorted[0].v;
+  for (let t = originMs; t <= endMs; t += periodMs) {
+    const bucketEnd = t + periodMs;
+    let sum = 0;
+    let count = 0;
+    for (const p of sorted) {
+      if (p.t >= t && p.t < bucketEnd) {
+        sum += p.v;
+        count++;
+      }
+    }
+    if (count > 0) lastV = sum / count;
+    else {
+      const mid = t + periodMs / 2;
+      for (let i = sorted.length - 1; i >= 0; i--) {
+        if (sorted[i].t <= mid) {
+          lastV = sorted[i].v;
+          break;
+        }
+      }
+    }
+    out.push({ t, v: lastV });
+  }
+  return out;
+}
+
+function buildForecastSeriesPoints(hass, forecastEntityId, range, hist) {
+  const todayId = findSolcastTodayEntity(hass, forecastEntityId);
+  if (todayId) {
+    const detailed = solcastDetailedForecastAttribute(hass.states[todayId]?.attributes);
+    if (detailed?.length) {
+      const raw = detailed
+        .map((row) => {
+          const t = new Date(row.period_start).getTime();
+          let v = Number(row.pv_estimate);
+          if (!Number.isFinite(t) || !Number.isFinite(v)) return null;
+          if (v > 50) v /= 1000;
+          return { t, v };
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.t - b.t);
+      if (raw.length >= 2) {
+        return interpolatePointsToPeriod(
+          raw.filter((p) => p.t >= range.tMin && p.t <= range.nowMs),
+          STATISTICS_PERIOD_MS,
+          range.tMin,
+          range.nowMs
+        );
+      }
+    }
+  }
+  const raw = historyToPoints(historyRowsForEntity(hist, forecastEntityId)).map((p) => ({
+    t: p.t,
+    v: entityValueToKw(hass, forecastEntityId, p.v),
+  }));
+  if (!raw.length) return [];
+  return forwardFillResamplePoints(raw, STATISTICS_PERIOD_MS, range.tMin, range.nowMs);
+}
+
 async function fetchStatisticsChartSeries(hass, plant, plantState) {
   const map = resolveEntityMap(hass, plant, plantState);
   const specs = STATISTICS_CHART_SERIES.map((s) => ({ ...s, entity_id: map[s.key] })).filter(
@@ -953,13 +1064,17 @@ async function fetchStatisticsChartSeries(hass, plant, plantState) {
   }
   const forecastId = plantState?.panel_display?.forecast_entity_id || null;
   const entityIds = specs.map((s) => s.entity_id);
-  if (forecastId) entityIds.push(forecastId);
   const now = new Date();
   const start = startOfLocalDay(now);
   const range = getStatisticsDayRange(now);
   const [statsMap, hist] = await Promise.all([
     fetchStatisticsDuring(hass, entityIds, start, now),
-    fetchHistoryDuring(hass, entityIds, start, now),
+    fetchHistoryDuring(
+      hass,
+      forecastId ? [...entityIds, forecastId] : entityIds,
+      start,
+      now
+    ),
   ]);
   const series = specs.map((spec) => ({
     id: spec.key,
@@ -974,18 +1089,12 @@ async function fetchStatisticsChartSeries(hass, plant, plantState) {
     points: buildStatisticsSeriesPoints(hass, spec.entity_id, spec, range, statsMap, hist),
   }));
   if (forecastId) {
-    const fPoints = buildStatisticsSeriesPoints(
-      hass,
-      forecastId,
-      { toKw: true },
-      range,
-      statsMap,
-      hist
-    );
+    const fPoints = buildForecastSeriesPoints(hass, forecastId, range, hist);
     if (fPoints.length) {
       series.push({
         id: "forecast",
         ...FORECAST_CHART_STYLE,
+        connectGaps: true,
         points: fPoints,
       });
     }
@@ -1044,7 +1153,8 @@ function renderStatisticsChartHtml(series, range) {
 
   const plotSeries = visible.map((s) => {
     const clipped = s.points.filter((p) => p.t >= tMin && p.t <= nowMs);
-    const segments = splitStatisticsSegments(clipped).map((seg) => ({
+    const segmentPoints = s.connectGaps ? [clipped] : splitStatisticsSegments(clipped);
+    const segments = segmentPoints.map((seg) => ({
       timePts: seg,
       pixelPts: seg.map((p) => ({ x: xScale(p.t), y: yScale(p.v), t: p.t, v: p.v })),
     }));

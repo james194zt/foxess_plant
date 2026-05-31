@@ -26,7 +26,7 @@ Top tabs (like **Energy → Summary / Electricity / Gas**):
 
 The **Statistics** line chart (Overview and Energy → **Day**) matches your main dashboard: Solar, battery charge/discharge, grid import/export, and load — with filled areas under the curves.
 
-Configure the gold **Forecast** line under **Settings → Charts**. Pick any sensor that reports forecast power (e.g. `sensor.solcast_pv_forecast_power_now`). The panel converts **W → kW** when needed.
+Configure the gold **Forecast** line under **Settings → Charts**. Pick any sensor that reports forecast power (e.g. `sensor.solcast_pv_forecast_power_now`). For Solcast, the panel reads the half-hourly `detailedForecast` from today's forecast sensor when available; otherwise it forward-fills sparse history. Values in **W** are converted to kW automatically.
 
 ## Energy charts (Day / Month / Year)
 
