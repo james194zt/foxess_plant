@@ -19,9 +19,10 @@ BOXES = {
     "pv": {"left": 0.388, "top": 0.342, "width": 0.448, "height": 0.242},
     "aio": {"left": 0.312, "top": 0.622, "width": 0.136, "height": 0.222},
 }
-PV_SCALE_INSET = 0.52  # fraction of box-fit scale (native sprite is oversized)
-PV_PASTE_DX = -10  # px left of centred box
-PV_PASTE_DY = 20  # px below centred box
+# ~88% of box-fit: keeps 2×6 legible, fixes native overhang (0.52 was far too small).
+PV_SCALE_INSET = 0.88
+PV_PASTE_DX = -22  # pull left — sprite overhangs right gable at native scale
+PV_PASTE_DY = 10
 
 
 def is_webp(path: Path) -> bool:
