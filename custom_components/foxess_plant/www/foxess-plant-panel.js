@@ -4033,11 +4033,11 @@ ${this._stat("Self-consumption", a.self_consumption_percent_today, a.self_consum
 ${this._stat("Self-sufficiency", a.self_sufficiency_percent_today, a.self_sufficiency_percent_today != null ? "%" : "")}
 ${this._stat("PV today", a.pv_production_kwh_today, a.pv_production_kwh_today != null ? " kWh" : "")}
 </div>
-${this._renderImpactPanel()}
 <div class="card statistics-card" style="margin-top:14px">
 <p class="card-title">Statistics</p>
 ${this._renderStatisticsChartBody()}
-</div>`;
+</div>
+${this._renderImpactPanel()}`;
   }
 
   _identityRows(plant) {
