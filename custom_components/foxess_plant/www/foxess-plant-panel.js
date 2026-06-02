@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.120
+ * @version 0.8.121
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-pipe-v3";
-const PANEL_VERSION = "0.8.120";
+const PANEL_VERSION = "0.8.121";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 
 /** Manifest version from cached module filename (foxess-plant-panel.v0_8_109.{hash}.js). */
@@ -1393,11 +1393,6 @@ function dailyConsumptionKwh(points, dayStartMs, dayEndMs) {
   return Math.round(Math.max(0, load) * 100) / 100;
 }
 
-function formatOverviewDayLabel(day) {
-  if (!(day instanceof Date) || Number.isNaN(day.getTime())) return "—";
-  return day.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
-}
-
 function renderOverviewDailySparklineSvg(values, labels, accentColor) {
   const n = Math.min(values.length, labels.length);
   if (!n) return "";
@@ -2179,10 +2174,10 @@ const STYLES = `
 }
 .overview-daily-tooltip[hidden] { display: none !important; }
 .overview-daily-today-mark {
-  font-size: 8px; font-weight: 600; fill: var(--secondary-text-color);
+  font-weight: 600; fill: var(--secondary-text-color);
 }
-.overview-daily-today-line { stroke: rgba(127,127,127,0.35); stroke-width: 1; }
-.overview-daily-day { font-size: 9px; fill: var(--secondary-text-color); }
+.overview-daily-today-line { stroke: rgba(127,127,127,0.35); stroke-width: 0.75; }
+.overview-daily-day { fill: var(--secondary-text-color); opacity: 0.85; }
 .overview-daily-loading {
   font-size: 13px; color: var(--secondary-text-color); padding: 24px 14px; text-align: center;
 }
