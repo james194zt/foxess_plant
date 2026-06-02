@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.127
+ * @version 0.8.128
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-pipe-v3";
-const PANEL_VERSION = "0.8.127";
+const PANEL_VERSION = "0.8.128";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -112,29 +112,25 @@ function flowActiveStroke(cls) {
   return FLOW_ACTIVE_STROKE.battery;
 }
 
-/** role: track = idle pipe, underlay = pale bed under active dash, flow = animated segment */
+/** role: track = idle pipe, bed = full-width grey under active hub dashes, flow = animated segment */
 function flowPathMarkup({ d, cls, role = "track", isNight = false, reverse = false }) {
   const isFlow = role === "flow";
-  const isUnderlay = role === "underlay";
+  const isBed = role === "bed";
   const isHubFlow = isFlow && (cls === "flow-battery" || cls === "flow-home-line");
   const sw = isFlow
     ? isHubFlow
       ? FLOW_STROKE.hubActive
       : FLOW_STROKE.active
-    : isUnderlay
-      ? FLOW_STROKE.underlay
+    : isBed
+      ? FLOW_STROKE.hubActive
       : FLOW_STROKE.base;
-  const stroke = isFlow
-    ? flowActiveStroke(cls)
-    : isUnderlay
-      ? flowPipeUnderlay(isNight)
-      : flowPipeStroke(isNight);
+  const stroke = isFlow ? flowActiveStroke(cls) : flowPipeStroke(isNight);
   const dash = isFlow ? ` stroke-dasharray="${isHubFlow ? FLOW_HUB_DASH : FLOW_DASH}"` : "";
-  const cap = isFlow ? ' stroke-linecap="butt"' : ' stroke-linecap="round"';
+  const cap = isFlow || isBed ? ' stroke-linecap="butt"' : ' stroke-linecap="round"';
   const activeCls = isFlow ? " active" : "";
-  const underlayCls = isUnderlay ? " flow-path-underlay" : "";
+  const bedCls = isBed ? " flow-path-bed" : "";
   const rev = reverse ? " reverse" : "";
-  return `<path class="flow-path${underlayCls} ${cls}${activeCls}${rev}" d="${d}" stroke="${stroke}" stroke-width="${sw}"${dash}${cap}></path>`;
+  return `<path class="flow-path${bedCls} ${cls}${activeCls}${rev}" d="${d}" stroke="${stroke}" stroke-width="${sw}"${dash}${cap}></path>`;
 }
 
 const DEFAULT_PERIODS = [
