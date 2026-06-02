@@ -15,9 +15,14 @@ CANVAS = (1024, 1017)
 
 # Fractions of 1024×1017 — tune here, then re-run: python tools/compose_flow_layers.py
 BOXES = {
-    "pv": {"left": 0.388, "top": 0.342, "width": 0.448, "height": 0.242},
     "aio": {"left": 0.312, "top": 0.622, "width": 0.136, "height": 0.222},
 }
+# PV uses perspective quad in tools/bake_flow_home_scenes.ps1 (not axis-aligned box).
+PV_ROOF_QUAD = (
+    (422, 410),
+    (706, 368),
+    (438, 558),
+)
 
 # Scene anchors (viewBox 0 0 1024 1017)
 # LOCKED (v0.8.47): HUB was hand-tuned on the side/front wall corner — do NOT change
@@ -45,19 +50,28 @@ def box_pixels(box: dict) -> tuple[int, int, int, int]:
     return left, top, width, height
 
 
+def _pv_quad_metrics() -> tuple[int, int, int, int]:
+    (tlx, tly), (trx, try_), (blx, bly) = PV_ROOF_QUAD
+    brx = blx + trx - tlx
+    bry = bly + try_ - tly
+    solar_x = (tlx + trx + blx + brx) // 4
+    pv_top = min(tly, try_)
+    pv_bottom = max(bly, bry)
+    return solar_x, pv_top, pv_bottom, try_
+
+
 def derive_anchors() -> dict[str, tuple[int, int]]:
-    pv_l, pv_t, pv_w, pv_h = box_pixels(BOXES["pv"])
+    solar_x, pv_top, pv_bottom, _pv_try = _pv_quad_metrics()
     aio_l, aio_t, aio_w, aio_h = box_pixels(BOXES["aio"])
-    solar_x = pv_l + pv_w // 2
     aio_x = aio_l + aio_w // 2
     aio_edge = aio_l + aio_w  # right edge of AIO placement box
     aio_connect = AIO_CONNECT  # tap visible AIO face (pixel-tuned on flow_aio_scene)
-    solar_roof_y = SOLAR_ROOF_Y.get(solar_x, pv_t)
-    aio_roof_y = SOLAR_ROOF_Y.get(aio_x, pv_t)
+    solar_roof_y = SOLAR_ROOF_Y.get(solar_x, pv_top)
+    aio_roof_y = SOLAR_ROOF_Y.get(aio_x, pv_top)
     return {
         "solar_label": (solar_x, SOLAR_LABEL_Y),
         "solar_top": (solar_x, solar_roof_y),
-        "solar_base": (solar_x, pv_t + pv_h),
+        "solar_base": (solar_x, pv_bottom),
         "aio_top": (aio_x, aio_t + int(aio_h * 0.12)),
         "aio_mid": (aio_x, aio_t + aio_h // 2),
         "aio_x": aio_x,
@@ -95,8 +109,11 @@ def flow_paths(anchors: dict[str, tuple[int, int]]) -> dict[str, str]:
 
 
 def place_sprite(theme: str, layer: str) -> None:
-    src_name = f"flow_{layer}" if layer == "pv" else "flow_aio_812"
-    src = WWW / f"{src_name}_{theme}.png"
+    """Bake AIO only; run bake_flow_home_scenes.ps1 for PV perspective placement."""
+    if layer != "aio":
+        print(f"skip {layer}: use bake_flow_home_scenes.ps1")
+        return
+    src = WWW / f"flow_aio_812_{theme}.png"
     out = WWW / f"flow_{layer}_scene_{theme}.png"
     sprite = remove_black_matte(Image.open(src).convert("RGBA"))
     left, top, bw, bh = box_pixels(BOXES[layer])
@@ -109,7 +126,6 @@ def place_sprite(theme: str, layer: str) -> None:
 
 def main() -> None:
     for theme in ("day_light", "night_dark"):
-        place_sprite(theme, "pv")
         place_sprite(theme, "aio")
     a = derive_anchors()
     paths = flow_paths(a)
