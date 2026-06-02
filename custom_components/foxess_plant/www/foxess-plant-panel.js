@@ -3884,7 +3884,7 @@ ${this._modeBannerExtra()}
         const isActive = activeIds.has(id);
         if (FOX_FLOW_HUB_SPOKES.has(id)) {
           if (!isActive) return flowPathMarkup({ d, cls, role: "track", isNight });
-          return `${flowPathMarkup({ d, cls, role: "underlay", isNight })}${flowPathMarkup({
+          return `${flowPathMarkup({ d, cls, role: "track", isNight })}${flowPathMarkup({
             d,
             cls,
             role: "flow",
