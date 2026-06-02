@@ -4138,7 +4138,6 @@ ${statusPill}
 <div class="device-card device-card--battery">${renderDeviceBatteryCard(flows, tempDisplay)}</div>
 </div>
 ${renderListButton({ action: "device-sub", sub: "parameters" }, "Detailed parameters", "Live Modbus values")}
-${renderListButton({ action: "nav", view: "overview" }, "Analysis graph", "Today's statistics chart")}
 ${renderListButton({ action: "device-sub", sub: "system" }, "System info", "Firmware, BMS, grid status")}`;
   }
 
