@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.129
+ * @version 0.8.131
  */
 
 const NAV = [
@@ -35,8 +35,8 @@ const FOX_FLOW_PATHS = {
 };
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
-const FLOW_PATHS_VER = "flow-pipe-v3";
-const PANEL_VERSION = "0.8.129";
+const FLOW_PATHS_VER = "flow-comet-v1";
+const PANEL_VERSION = "0.8.131";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -84,8 +84,7 @@ const FLOW_ACTIVE_STROKE = {
   home: "#33FF77",
   hub: "#4C925B",
 };
-const FLOW_DASH = "14 10";
-const FLOW_HUB_DASH = "16 8";
+const FLOW_COMET = { pathLen: 100, head: 11, tail: 28, trailLead: 14, dur: 1.75, durSolar: 1.55 };
 const FLOW_SCENE_PV_THRESHOLD_W = 40;
 const FLOW_SCENE_ASSET_VER = 34;
 
@@ -119,7 +118,21 @@ function flowHubSpokeCls(id, gridExporting) {
   return "flow-battery";
 }
 
-/** role: track = idle pipe, bed = full-width grey under active hub dashes, flow = animated segment */
+/** Fox-style comet pulse: bright head + fading tail, one shot per path length. */
+function flowCometPaths({ d, cls = "", sw, stroke, reverse = false }) {
+  const L = FLOW_COMET.pathLen;
+  const head = FLOW_COMET.head;
+  const tail = FLOW_COMET.tail;
+  const rev = reverse ? " reverse" : "";
+  const clsAttr = cls ? ` ${cls}` : "";
+  const tailSw = (sw * 1.45).toFixed(2);
+  return (
+    `<path class="flow-comet flow-comet-tail${clsAttr}${rev}" d="${d}" pathLength="${L}" stroke="${stroke}" stroke-width="${tailSw}" stroke-dasharray="${tail} ${L - tail}" stroke-linecap="round"></path>` +
+    `<path class="flow-comet flow-comet-head${clsAttr}${rev}" d="${d}" pathLength="${L}" stroke="${stroke}" stroke-width="${sw}" stroke-dasharray="${head} ${L - head}" stroke-linecap="round"></path>`
+  );
+}
+
+/** role: track = idle pipe, bed = full-width grey under active flow, flow = comet pulse */
 function flowPathMarkup({ d, cls = "", role = "track", isNight = false, reverse = false }) {
   const isFlow = role === "flow";
   const isBed = role === "bed";
@@ -132,13 +145,13 @@ function flowPathMarkup({ d, cls = "", role = "track", isNight = false, reverse 
       ? FLOW_STROKE.hubActive
       : FLOW_STROKE.base;
   const stroke = isFlow ? flowActiveStroke(cls) : flowPipeStroke(isNight);
-  const dash = isFlow ? ` stroke-dasharray="${isHubFlow ? FLOW_HUB_DASH : FLOW_DASH}"` : "";
-  const cap = isFlow || isBed ? ' stroke-linecap="butt"' : ' stroke-linecap="round"';
-  const activeCls = isFlow ? " active" : "";
+  if (isFlow) {
+    return flowCometPaths({ d, cls, sw, stroke, reverse });
+  }
+  const cap = isBed ? ' stroke-linecap="butt"' : ' stroke-linecap="round"';
   const bedCls = isBed ? " flow-path-bed" : "";
   const paintCls = isBed ? "" : cls;
-  const rev = reverse ? " reverse" : "";
-  return `<path class="flow-path${bedCls}${paintCls ? ` ${paintCls}` : ""}${activeCls}${rev}" d="${d}" stroke="${stroke}" stroke-width="${sw}"${dash}${cap}></path>`;
+  return `<path class="flow-path${bedCls}${paintCls ? ` ${paintCls}` : ""}" d="${d}" stroke="${stroke}" stroke-width="${sw}"${cap}></path>`;
 }
 
 const DEFAULT_PERIODS = [
@@ -2483,23 +2496,36 @@ const STYLES = `
 .fox-flow-badge-home { right: 4%; bottom: 6%; align-items: flex-end; }
 .flow-path { fill: none; stroke-linecap: round; stroke-linejoin: round; opacity: 1; }
 .flow-path-bed { opacity: 1; }
-.flow-path.active {
-  animation: flow 1.1s linear infinite; opacity: 1;
-  stroke-linecap: butt; paint-order: stroke;
-  filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.75));
-}
-.flow-path.reverse { animation-direction: reverse; }
-.flow-solar.active { filter: drop-shadow(0 0 6px rgba(245, 188, 0, 0.85)); }
-.flow-grid.active { filter: drop-shadow(0 0 6px rgba(74, 154, 255, 0.85)); }
-.flow-export.active { filter: drop-shadow(0 0 6px rgba(181, 101, 255, 0.85)); }
-.flow-battery.active {
-  filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.85)) drop-shadow(0 0 10px rgba(51, 255, 119, 0.95));
-}
-.flow-home-line.active {
-  filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.85)) drop-shadow(0 0 10px rgba(51, 255, 119, 0.95));
-}
+.flow-comet { fill: none; stroke-linejoin: round; pointer-events: none; }
+.flow-comet-tail { opacity: 0.38; }
+.flow-comet-head { opacity: 1; }
+.flow-comet-head.flow-solar { filter: drop-shadow(0 0 6px rgba(245, 188, 0, 0.85)); }
+.flow-comet-head.flow-grid { filter: drop-shadow(0 0 6px rgba(74, 154, 255, 0.85)); }
+.flow-comet-head.flow-export { filter: drop-shadow(0 0 6px rgba(181, 101, 255, 0.85)); }
+.flow-comet-head.flow-battery { filter: drop-shadow(0 0 8px rgba(51, 255, 119, 0.85)); }
+.flow-comet-head { animation: flow-comet-head-fwd 1.75s linear infinite; }
+.flow-comet-tail { animation: flow-comet-tail-fwd 1.75s linear infinite; }
+.flow-comet-head.flow-solar,
+.flow-comet-tail.flow-solar { animation-duration: 1.55s; }
+.flow-comet-head.reverse { animation-name: flow-comet-head-rev; }
+.flow-comet-tail.reverse { animation-name: flow-comet-tail-rev; }
 .flow-hub-dot.active { filter: drop-shadow(0 0 8px rgba(51, 255, 119, 0.95)); }
-@keyframes flow { to { stroke-dashoffset: -48; } }
+@keyframes flow-comet-head-fwd {
+  from { stroke-dashoffset: 100; }
+  to { stroke-dashoffset: -14; }
+}
+@keyframes flow-comet-tail-fwd {
+  from { stroke-dashoffset: 114; }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes flow-comet-head-rev {
+  from { stroke-dashoffset: -14; }
+  to { stroke-dashoffset: 100; }
+}
+@keyframes flow-comet-tail-rev {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: 114; }
+}
 .device-header { margin-bottom: 8px; }
 .device-header h1 { margin-bottom: 4px; }
 .device-model { margin: 0; font-size: 14px; color: var(--secondary-text-color); }
@@ -3876,19 +3902,11 @@ ${this._modeBannerExtra()}
       .map(([id, d]) => {
         const line = lines.find((l) => l.id === id);
         if (!line && !FOX_FLOW_HUB_SPOKES.has(id)) return "";
-        const cls = id.startsWith("solar")
-          ? "flow-solar"
-          : id.includes("grid")
-            ? gridExporting && id === "hub-grid"
-              ? "flow-export"
-              : "flow-grid"
-            : id.includes("aio") || id.includes("hub-aio")
-              ? "flow-battery"
-              : "flow-home-line";
+        const cls = flowHubSpokeCls(id, gridExporting);
         const isActive = activeIds.has(id);
         if (FOX_FLOW_HUB_SPOKES.has(id)) {
-          if (!isActive) return flowPathMarkup({ d, cls, role: "track", isNight });
-          return `${flowPathMarkup({ d, cls, role: "bed", isNight })}${flowPathMarkup({
+          if (!isActive) return "";
+          return `${flowPathMarkup({ d, role: "bed", isNight })}${flowPathMarkup({
             d,
             cls,
             role: "flow",
@@ -3908,7 +3926,7 @@ ${this._modeBannerExtra()}
 <img class="fox-flow-layer fox-flow-layer-aio" src="${esc(flowSceneLayerUrl("aio", bgTheme, overlayTheme))}" alt="" loading="lazy" decoding="async" />
 <svg class="fox-flow-svg" viewBox="0 0 1024 1017" preserveAspectRatio="xMidYMid meet" aria-hidden="true" data-flow-paths-ver="${esc(this._panel?.config?.flow_paths_ver || FLOW_PATHS_VER)}" data-flow-pipe-day="${FLOW_PIPE_STROKE.day}" data-flow-stroke-base="${FLOW_STROKE.base}" data-flow-stroke-active="${FLOW_STROKE.hubActive}" data-hub-r="${FLOW_STROKE.hubR}" data-hub-home="${esc(FOX_FLOW_PATHS["hub-home"])}" data-aio-hub="${esc(FOX_FLOW_PATHS["aio-hub"])}">
 ${pathsHtml}
-<circle class="flow-hub-dot ${hubActive ? "active" : ""}" cx="${FOX_FLOW_HUB.x}" cy="${FOX_FLOW_HUB.y}" r="${FLOW_STROKE.hubR}" fill="${hubActive ? FLOW_ACTIVE_STROKE.hub : flowPipeStroke(isNight)}"/>
+<circle class="flow-hub-dot ${hubActive ? "active" : ""}" cx="${FOX_FLOW_HUB.x}" cy="${FOX_FLOW_HUB.y}" r="${FLOW_STROKE.hubR}" fill="${hubActive ? FLOW_ACTIVE_STROKE.battery : flowPipeStroke(isNight)}"/>
 </svg>
 <div class="fox-flow-badge fox-flow-badge-solar">
 <span class="fox-flow-badge-label">Solar</span>
