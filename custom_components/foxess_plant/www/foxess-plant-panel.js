@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.116
+ * @version 0.8.117
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-pipe-v3";
-const PANEL_VERSION = "0.8.116";
+const PANEL_VERSION = "0.8.117";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 
 /** Manifest version from cached module filename (foxess-plant-panel.v0_8_109.{hash}.js). */
@@ -1272,6 +1272,11 @@ function dailyConsumptionKwh(points, dayStartMs, dayEndMs) {
   return Math.round(Math.max(0, load) * 100) / 100;
 }
 
+function formatOverviewDayLabel(day) {
+  if (!(day instanceof Date) || Number.isNaN(day.getTime())) return "—";
+  return day.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+}
+
 function renderOverviewDailySparklineSvg(values, labels, accentColor) {
   const n = Math.min(values.length, labels.length);
   if (!n) return "";
@@ -1287,6 +1292,7 @@ function renderOverviewDailySparklineSvg(values, labels, accentColor) {
   const barW = Math.min(11, slotW * 0.52);
   const todayIdx = n - 1;
   const parts = [];
+  const hits = [];
   for (let i = 0; i < n; i++) {
     const v = values[i] || 0;
     const cx = pad.l + i * slotW + slotW / 2;
@@ -1294,6 +1300,8 @@ function renderOverviewDailySparklineSvg(values, labels, accentColor) {
     const x = cx - barW / 2;
     const y = pad.t + h - bh;
     const fill = i === todayIdx ? accentColor : OVERVIEW_DAILY_COLORS.barMuted;
+    const dayTitle = formatOverviewDayLabel(labels[i]);
+    const tip = `${dayTitle} · ${formatDailyKwh(v)}`;
     parts.push(
       `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="${fill}"/>`
     );
@@ -1306,8 +1314,40 @@ function renderOverviewDailySparklineSvg(values, labels, accentColor) {
     parts.push(
       `<text x="${cx.toFixed(1)}" y="${height - 3}" text-anchor="middle" class="overview-daily-day">${esc(String(labels[i].getDate()))}</text>`
     );
+    hits.push(
+      `<rect class="overview-daily-bar-hit" x="${(pad.l + i * slotW).toFixed(1)}" y="${pad.t}" width="${slotW.toFixed(1)}" height="${(h + pad.b).toFixed(1)}" fill="transparent" data-day-label="${esc(dayTitle)}" data-value="${v}"><title>${esc(tip)}</title></rect>`
+    );
   }
-  return `<svg class="overview-daily-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">${parts.join("")}</svg>`;
+  return `<div class="overview-daily-chart-wrap"><svg class="overview-daily-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">${parts.join("")}${hits.join("")}</svg><div class="overview-daily-tooltip" hidden role="tooltip"></div></div>`;
+}
+
+function bindOverviewDailyCharts(root) {
+  root?.querySelectorAll(".overview-daily-chart-wrap").forEach((wrap) => {
+    if (wrap.dataset.bound === "1") return;
+    wrap.dataset.bound = "1";
+    const tooltip = wrap.querySelector(".overview-daily-tooltip");
+    const hits = wrap.querySelectorAll(".overview-daily-bar-hit");
+    if (!tooltip || !hits.length) return;
+    const hide = () => {
+      tooltip.hidden = true;
+    };
+    const show = (hit, clientX) => {
+      const rect = wrap.getBoundingClientRect();
+      const label = hit.dataset.dayLabel || "";
+      const val = Number(hit.dataset.value);
+      tooltip.textContent = `${label} · ${formatDailyKwh(val)}`;
+      tooltip.hidden = false;
+      tooltip.style.left = `${Math.max(8, Math.min(rect.width - 8, clientX - rect.left))}px`;
+      tooltip.style.top = "0px";
+    };
+    hits.forEach((hit) => {
+      hit.addEventListener("mouseenter", (ev) => show(hit, ev.clientX));
+      hit.addEventListener("mousemove", (ev) => show(hit, ev.clientX));
+      hit.addEventListener("mouseleave", hide);
+      hit.addEventListener("click", (ev) => ev.stopPropagation());
+    });
+    wrap.addEventListener("mouseleave", hide);
+  });
 }
 
 async function fetchOverviewDailyEnergy(hass, plant, plantState) {
@@ -2002,7 +2042,19 @@ const STYLES = `
 .overview-daily-value {
   font-size: 22px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 8px; line-height: 1.15;
 }
+.overview-daily-chart-wrap { position: relative; width: 100%; }
 .overview-daily-chart { width: 100%; height: auto; display: block; }
+.overview-daily-bar-hit { cursor: default; pointer-events: all; }
+.overview-daily-tooltip {
+  position: absolute; z-index: 2; pointer-events: none;
+  transform: translate(-50%, calc(-100% - 4px));
+  padding: 5px 9px; border-radius: 8px; font-size: 11px; font-weight: 600; line-height: 1.2;
+  white-space: nowrap; color: var(--primary-text-color);
+  background: var(--card-background-color);
+  border: 1px solid var(--divider-color, rgba(127,127,127,0.35));
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+}
+.overview-daily-tooltip[hidden] { display: none !important; }
 .overview-daily-today-mark {
   font-size: 8px; font-weight: 600; fill: var(--secondary-text-color);
 }
