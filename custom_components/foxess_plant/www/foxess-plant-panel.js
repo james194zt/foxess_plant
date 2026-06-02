@@ -3848,11 +3848,17 @@ ${this._renderOverviewDailyCard(
   }
 
   _renderOverview(plant) {
+    const a = this._plantState?.analytics ?? {};
     const modelLine = plantModelSubtitle(this._hass, plant, this._plantState);
     return `<header class="header overview-header"><h1>${esc(plant.title)}</h1>${modelLine !== "—" ? `<p class="overview-model">${esc(modelLine)}</p>` : ""}${this._renderOverviewStatusBlock(plant)}</header>
 <div class="overview-hero-row">
 <div class="overview-hero-scene">
 ${this._renderEnergyScene(plant)}
+</div>
+<div class="overview-hero-stats">
+${this._stat("Self-consumption", a.self_consumption_percent_today, a.self_consumption_percent_today != null ? "%" : "")}
+${this._stat("Self-sufficiency", a.self_sufficiency_percent_today, a.self_sufficiency_percent_today != null ? "%" : "")}
+${this._stat("PV today", a.pv_production_kwh_today, a.pv_production_kwh_today != null ? " kWh" : "")}
 </div>
 </div>
 ${this._renderOverviewDailyCards()}
