@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.123
+ * @version 0.8.124
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-pipe-v3";
-const PANEL_VERSION = "0.8.123";
+const PANEL_VERSION = "0.8.124";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 
 /** Manifest version from cached module filename (foxess-plant-panel.v0_8_109.{hash}.js). */
@@ -2135,13 +2135,13 @@ const STYLES = `
 .overview-hero-row { display: flex; flex-direction: column; gap: 14px; margin-bottom: 14px; }
 .overview-hero-scene { width: 100%; max-width: none; margin: 0; min-width: 0; }
 .overview-hero-scene .scene-card--fox-flow { margin-bottom: 0; width: 100%; }
-.overview-hero-stats {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;
+.overview-hero-daily {
+  display: flex; flex-direction: column; gap: 12px;
   min-width: 0;
 }
-.overview-daily-grid {
-  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;
-  margin-bottom: 14px;
+.overview-stats-row {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;
+  margin-bottom: 14px; min-width: 0;
 }
 .overview-daily-card {
   background: var(--card-background-color); border-radius: var(--fp-radius);
@@ -2749,16 +2749,9 @@ const STYLES = `
     margin: 0;
     min-width: 0;
   }
-  .overview-hero-stats {
+  .overview-hero-daily {
     flex: none;
     min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    grid-template-columns: unset;
-  }
-  .overview-daily-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 @media (max-width: 720px) {
@@ -3973,17 +3966,17 @@ ${chart}
 
   _renderOverviewDailyCards() {
     if (this._overviewDailyLoading) {
-      return `<div class="overview-daily-grid"><div class="overview-daily-loading">Loading daily energy…</div></div>`;
+      return `<div class="overview-hero-daily"><div class="overview-daily-loading">Loading daily energy…</div></div>`;
     }
     const data = this._overviewDaily;
     if (data?.error) {
-      return `<div class="overview-daily-grid"><div class="overview-daily-card"><p class="overview-daily-empty">${esc(data.error)}</p></div></div>`;
+      return `<div class="overview-hero-daily"><div class="overview-daily-card"><p class="overview-daily-empty">${esc(data.error)}</p></div></div>`;
     }
     if (!data?.labels?.length) {
       return "";
     }
     const a = this._plantState?.analytics ?? {};
-    return `<div class="overview-daily-grid">
+    return `<div class="overview-hero-daily">
 ${this._renderOverviewDailyCard(
   "Daily Production",
   data.production,
@@ -4032,13 +4025,13 @@ ${this._renderOverviewDailyCard(
 <div class="overview-hero-scene">
 ${this._renderEnergyScene(plant)}
 </div>
-<div class="overview-hero-stats">
+${this._renderOverviewDailyCards()}
+</div>
+<div class="overview-stats-row">
 ${this._stat("Self-consumption", a.self_consumption_percent_today, a.self_consumption_percent_today != null ? "%" : "")}
 ${this._stat("Self-sufficiency", a.self_sufficiency_percent_today, a.self_sufficiency_percent_today != null ? "%" : "")}
 ${this._stat("PV today", a.pv_production_kwh_today, a.pv_production_kwh_today != null ? " kWh" : "")}
 </div>
-</div>
-${this._renderOverviewDailyCards()}
 ${this._renderImpactPanel()}
 <div class="card statistics-card" style="margin-top:14px">
 <p class="card-title">Statistics</p>
