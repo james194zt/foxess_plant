@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.113
+ * @version 0.8.114
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-pipe-v3";
-const PANEL_VERSION = "0.8.113";
+const PANEL_VERSION = "0.8.114";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 
 /** Manifest version from cached module filename (foxess-plant-panel.v0_8_109.{hash}.js). */
@@ -253,7 +253,23 @@ function foxStatusToneClass(label) {
   if (s === "fault") return "is-fault";
   if (s === "checking") return "is-checking";
   if (s === "off grid") return "is-offgrid";
-  return "";
+  return "is-default";
+}
+
+function foxWorkModeToneClass(label) {
+  const s = String(label || "").toLowerCase();
+  if (s.includes("self")) return "work-self-use";
+  if (s.includes("feed")) return "work-feed-in";
+  if (s.includes("back")) return "work-back-up";
+  if (s.includes("force charge")) return "work-force-charge";
+  if (s.includes("force discharge")) return "work-force-discharge";
+  return "work-default";
+}
+
+function foxWorkModeDisplay(label) {
+  const s = String(label || "").trim();
+  if (s.toLowerCase() === "self use") return "Self-use";
+  return s;
 }
 
 function entityUnit(hass, entityId) {
@@ -1780,18 +1796,25 @@ const STYLES = `
 .overview-model { margin: 4px 0 0; font-size: 15px; font-weight: 500; color: var(--secondary-text-color); letter-spacing: 0.01em; }
 .overview-status-block { margin-top: 12px; }
 .overview-status-row {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; line-height: 1.35;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; line-height: 1.35;
 }
-.overview-fox-status {
-  font-size: 17px; font-weight: 700; letter-spacing: -0.01em; color: var(--primary-text-color);
+.fox-pill {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 5px 14px; border-radius: 999px;
+  font-size: 13px; font-weight: 700; line-height: 1.2;
+  letter-spacing: -0.01em; white-space: nowrap;
 }
-.overview-fox-status.is-normal { color: #4caf50; }
-.overview-fox-status.is-fault { color: var(--fp-red, #e53935); }
-.overview-fox-status.is-checking { color: var(--secondary-text-color); }
-.overview-fox-status.is-offgrid { color: var(--fp-amber, #ffb300); }
-.overview-work-mode {
-  margin: 0; font-size: 15px; font-weight: 600; color: var(--primary-text-color);
-}
+.overview-fox-status.fox-pill.is-normal { background: #569e5c; color: #fff; }
+.overview-fox-status.fox-pill.is-fault { background: #c62828; color: #fff; }
+.overview-fox-status.fox-pill.is-checking { background: #5c6370; color: #fff; }
+.overview-fox-status.fox-pill.is-offgrid { background: #e6a817; color: #1a1a1a; }
+.overview-fox-status.fox-pill.is-default { background: var(--secondary-background-color); color: var(--primary-text-color); }
+.overview-work-mode.fox-pill.work-self-use { background: #f4d05d; color: #1a1a1a; }
+.overview-work-mode.fox-pill.work-feed-in { background: #7eb8ff; color: #12253d; }
+.overview-work-mode.fox-pill.work-back-up { background: #90a4ae; color: #fff; }
+.overview-work-mode.fox-pill.work-force-charge { background: #7e57c2; color: #fff; }
+.overview-work-mode.fox-pill.work-force-discharge { background: #ef6c57; color: #fff; }
+.overview-work-mode.fox-pill.work-default { background: #f4d05d; color: #1a1a1a; }
 .overview-status-row .mode-pill { flex-shrink: 0; }
 .overview-control-hint { font-size: 13px; color: var(--secondary-text-color); white-space: nowrap; }
 .mode-banner-row {
@@ -2121,12 +2144,14 @@ const STYLES = `
 .device-header h1 { margin-bottom: 4px; }
 .device-model { margin: 0; font-size: 14px; color: var(--secondary-text-color); }
 .device-fox-pill {
-  display: inline-block; font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 999px;
-  margin-bottom: 12px; background: rgba(76, 175, 80, 0.15); color: #4caf50;
+  display: inline-flex; align-items: center; padding: 5px 14px; border-radius: 999px;
+  margin-bottom: 12px; font-size: 13px; font-weight: 700;
 }
-.device-fox-pill.is-fault { background: rgba(229, 57, 53, 0.15); color: var(--fp-red, #e53935); }
-.device-fox-pill.is-checking { background: var(--secondary-background-color); color: var(--secondary-text-color); }
-.device-fox-pill.is-offgrid { background: rgba(255, 179, 0, 0.15); color: var(--fp-amber, #ffb300); }
+.device-fox-pill.is-normal { background: #569e5c; color: #fff; }
+.device-fox-pill.is-fault { background: #c62828; color: #fff; }
+.device-fox-pill.is-checking { background: #5c6370; color: #fff; }
+.device-fox-pill.is-offgrid { background: #e6a817; color: #1a1a1a; }
+.device-fox-pill.is-default { background: var(--secondary-background-color); color: var(--primary-text-color); }
 .device-hero {
   display: flex; flex-direction: column; align-items: center; gap: 14px;
   margin: 4px 0 24px; padding: 0 16px; width: 100%; box-sizing: border-box;
@@ -3392,9 +3417,12 @@ ${thumbsHtml}
     const plantMode = st.mode ?? "baseline";
     const statusPart =
       systemStatus !== "—"
-        ? `<span class="overview-fox-status ${foxStatusToneClass(systemStatus)}">${esc(systemStatus)}</span>`
+        ? `<span class="fox-pill overview-fox-status ${foxStatusToneClass(systemStatus)}">${esc(systemStatus)}</span>`
         : "";
-    const workPart = workMode !== "—" ? `<span class="overview-work-mode">${esc(workMode)}</span>` : "";
+    const workPart =
+      workMode !== "—"
+        ? `<span class="fox-pill overview-work-mode ${foxWorkModeToneClass(workMode)}">${esc(foxWorkModeDisplay(workMode))}</span>`
+        : "";
     return `<div class="overview-status-block">
 <div class="overview-status-row">
 ${statusPart}
