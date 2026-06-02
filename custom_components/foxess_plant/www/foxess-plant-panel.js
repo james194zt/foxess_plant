@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.101
+ * @version 0.8.102
  */
 
 const NAV = [
@@ -36,18 +36,20 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-aio-ground";
-const PANEL_BUILD_FALLBACK = "0.8.96";
-const PANEL_ELEMENT = `foxess-plant-panel-${PANEL_BUILD_FALLBACK.replace(/\./g, "_")}`;
+const PANEL_VERSION = "0.8.102";
+const PANEL_BUILD_FALLBACK = PANEL_VERSION;
+const PANEL_ELEMENT = `foxess-plant-panel-${PANEL_VERSION.replace(/\./g, "_")}`;
 
 /** Register current and recent version tags so HACS updates never leave a blank panel. */
 function panelElementTags() {
   const tags = new Set([PANEL_ELEMENT, "foxess-plant-panel"]);
-  const m = PANEL_BUILD_FALLBACK.match(/^(\d+)\.(\d+)\.(\d+)$/);
+  const m = PANEL_VERSION.match(/^(\d+)\.(\d+)\.(\d+)$/);
   if (m) {
     const major = Number(m[1]);
     const minor = Number(m[2]);
     const patch = Number(m[3]);
-    for (let p = Math.max(0, patch - 5); p <= patch; p++) {
+    tags.add(`foxess-plant-panel-${major}_${minor}_${patch}`);
+    for (let p = Math.max(0, patch - 12); p <= patch + 2; p++) {
       tags.add(`foxess-plant-panel-${major}_${minor}_${p}`);
     }
   }
