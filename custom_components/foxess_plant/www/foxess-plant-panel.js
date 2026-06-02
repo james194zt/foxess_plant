@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.109
+ * @version 0.8.110
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-solar-aio";
-const PANEL_VERSION = "0.8.109";
+const PANEL_VERSION = "0.8.110";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 
 /** Manifest version from cached module filename (foxess-plant-panel.v0_8_109.{hash}.js). */
@@ -72,7 +72,7 @@ function registerFoxessPlantPanel() {
 const FLOW_STROKE = { base: 5, active: 6, hubR: 8 };
 const FLOW_DASH = "20 24";
 const FLOW_SCENE_PV_THRESHOLD_W = 40;
-const FLOW_SCENE_ASSET_VER = 33;
+const FLOW_SCENE_ASSET_VER = 34;
 
 const FLOW_SCENE_BG_THEMES = new Set([
   "day_light",

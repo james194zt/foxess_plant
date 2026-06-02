@@ -15,10 +15,10 @@ BOXES = {
 
 # Defaults used when baking to www/ (override via preview CLI without writing).
 DEFAULT_PV = {
-    "scale_inset": 1.06,
+    "scale_inset": 1.04,
     "at_box_origin": True,
-    "dx": -2,
-    "dy": 8,
+    "dx": 0,
+    "dy": 18,
 }
 
 # Flow-path tap on the AIO right face toward hub (sync FOX_FLOW_PATHS aio-hub / hub-aio).
