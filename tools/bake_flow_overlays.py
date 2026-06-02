@@ -19,10 +19,9 @@ BOXES = {
     "pv": {"left": 0.388, "top": 0.342, "width": 0.448, "height": 0.242},
     "aio": {"left": 0.312, "top": 0.622, "width": 0.136, "height": 0.222},
 }
-# ~88% of box-fit: keeps 2×6 legible, fixes native overhang (0.52 was far too small).
-PV_SCALE_INSET = 0.88
-PV_PASTE_DX = -22  # pull left — sprite overhangs right gable at native scale
-PV_PASTE_DY = 10
+# Box-fit at Fox paste origin (left/top); slight inset trims gable/ridge overhang.
+PV_SCALE_INSET = 0.98
+PV_PASTE_AT_BOX_ORIGIN = True
 
 
 def is_webp(path: Path) -> bool:
@@ -60,8 +59,11 @@ def bake_pv(theme: str) -> None:
     scale = min(bw / sw, bh / sh) * PV_SCALE_INSET
     nw, nh = max(1, int(sw * scale)), max(1, int(sh * scale))
     scaled = sprite.resize((nw, nh), Image.Resampling.LANCZOS)
-    px = left + (bw - nw) // 2 + PV_PASTE_DX
-    py = top + (bh - nh) // 2 + PV_PASTE_DY
+    if PV_PASTE_AT_BOX_ORIGIN:
+        px, py = left, top
+    else:
+        px = left + (bw - nw) // 2
+        py = top + (bh - nh) // 2
     canvas = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
     canvas.paste(scaled, (px, py), scaled)
     out = WWW / f"flow_pv_scene_{theme}.png"
