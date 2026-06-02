@@ -4,9 +4,15 @@ Add-Type -AssemblyName System.Drawing
 $www = (Join-Path $PSScriptRoot "..\custom_components\foxess_plant\www" | Resolve-Path).Path
 $canvasW = 1024
 $canvasH = 1017
-$themes = @("day_light", "day_dark", "night_light", "night_dark")
-# Pixels darker than this use max(R,G,B) as alpha (straight RGB on black matte).
-$matteLum = 64
+$homeThemes = @("day_light", "day_dark", "night_light", "night_dark")
+$overlayThemes = @("day_light", "night_dark")
+# Only near-black matte pixels; keep dark roof tiles (typically max channel > 32).
+$matteLum = 28
+
+$boxes = @{
+    pv  = @{ left = 0.388; top = 0.342; width = 0.448; height = 0.242 }
+    aio = @{ left = 0.312; top = 0.622; width = 0.136; height = 0.222 }
+}
 
 function Remove-BlackMatte([System.Drawing.Bitmap]$bmp) {
     $rect = New-Object System.Drawing.Rectangle 0, 0, $bmp.Width, $bmp.Height
@@ -31,7 +37,6 @@ function Remove-BlackMatte([System.Drawing.Bitmap]$bmp) {
                 $bytes[$i + 2] = 0
                 $bytes[$i + 3] = 0
             } else {
-                # Keep RGB; only lower alpha (non-premultiplied black-matte export).
                 $bytes[$i + 3] = $na
             }
         }
@@ -58,13 +63,60 @@ function Load-HomeLayer([string]$theme) {
     return $bmp
 }
 
+function Test-IsWebP([string]$path) {
+    $head = [System.IO.File]::ReadAllBytes($path)[0..11]
+    return ([Text.Encoding]::ASCII.GetString($head[0..3]) -eq "RIFF" -and
+            [Text.Encoding]::ASCII.GetString($head[8..11]) -eq "WEBP")
+}
+
+function Bake-OverlayScene([string]$layer, [string]$theme) {
+    $box = $boxes[$layer]
+    $left = [int][Math]::Floor($box.left * $canvasW)
+    $top = [int][Math]::Floor($box.top * $canvasH)
+    $bw = [int][Math]::Round($box.width * $canvasW)
+    $bh = [int][Math]::Round($box.height * $canvasH)
+    $srcName = if ($layer -eq "pv") { "flow_pv" } else { "flow_aio_812" }
+    $srcPath = Join-Path $www "${srcName}_$theme.png"
+    $outPath = Join-Path $www "flow_${layer}_scene_$theme.png"
+
+    if ((Test-Path $srcPath) -and -not (Test-IsWebP $srcPath)) {
+        $src = [System.Drawing.Bitmap]::FromFile($srcPath)
+        $sprite = New-Object System.Drawing.Bitmap $bw, $bh, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        $gs = [System.Drawing.Graphics]::FromImage($sprite)
+        $gs.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $gs.DrawImage($src, 0, 0, $bw, $bh)
+        $gs.Dispose()
+        $src.Dispose()
+        Remove-BlackMatte $sprite
+
+        $canvas = New-Object System.Drawing.Bitmap $canvasW, $canvasH, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        $gc = [System.Drawing.Graphics]::FromImage($canvas)
+        $gc.DrawImage($sprite, $left, $top, $bw, $bh)
+        $gc.Dispose()
+        $sprite.Dispose()
+        $canvas.Save($outPath, [System.Drawing.Imaging.ImageFormat]::Png)
+        $canvas.Dispose()
+        Write-Host "wrote flow_${layer}_scene_$theme.png (from sprite)"
+        return
+    }
+
+    if (-not (Test-Path $outPath)) { throw "Missing $outPath" }
+    $scene = [System.Drawing.Bitmap]::FromFile($outPath)
+    Remove-BlackMatte $scene
+    $tmp = "$outPath.tmp"
+    $scene.Save($tmp, [System.Drawing.Imaging.ImageFormat]::Png)
+    $scene.Dispose()
+    Move-Item -Force $tmp $outPath
+    Write-Host "matte-removed flow_${layer}_scene_$theme.png (existing scene)"
+}
+
 $homeLayers = @{}
-foreach ($t in $themes) {
+foreach ($t in $homeThemes) {
     $homeLayers[$t] = Load-HomeLayer $t
     Write-Host "matte-removed flow_home_$t.png"
 }
 
-foreach ($theme in $themes) {
+foreach ($theme in $homeThemes) {
     $srcPath = Join-Path $www "flow_home_bg_$theme.png"
     $outPath = Join-Path $www "flow_home_bg_scene_$theme.png"
     if (-not (Test-Path $srcPath)) { throw "Missing $srcPath" }
@@ -100,3 +152,8 @@ foreach ($theme in $themes) {
 }
 
 foreach ($bmp in $homeLayers.Values) { $bmp.Dispose() }
+
+foreach ($theme in $overlayThemes) {
+    Bake-OverlayScene "pv" $theme
+    Bake-OverlayScene "aio" $theme
+}

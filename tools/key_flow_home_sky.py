@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WWW = ROOT / "custom_components" / "foxess_plant" / "www"
 CANVAS = (1024, 1017)
 FLOW_THEMES = ("day_light", "day_dark", "night_light", "night_dark")
-MATTE_LUM = 64
+MATTE_LUM = 28
 
 
 def remove_black_matte(im: Image.Image, lum: int = MATTE_LUM) -> Image.Image:

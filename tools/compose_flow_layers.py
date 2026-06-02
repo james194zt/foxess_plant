@@ -7,6 +7,8 @@ from pathlib import Path
 
 from PIL import Image
 
+from key_flow_home_sky import remove_black_matte
+
 ROOT = Path(__file__).resolve().parents[1]
 WWW = ROOT / "custom_components" / "foxess_plant" / "www"
 CANVAS = (1024, 1017)
@@ -96,7 +98,7 @@ def place_sprite(theme: str, layer: str) -> None:
     src_name = f"flow_{layer}" if layer == "pv" else "flow_aio_812"
     src = WWW / f"{src_name}_{theme}.png"
     out = WWW / f"flow_{layer}_scene_{theme}.png"
-    sprite = Image.open(src).convert("RGBA")
+    sprite = remove_black_matte(Image.open(src).convert("RGBA"))
     left, top, bw, bh = box_pixels(BOXES[layer])
     fitted = sprite.resize((bw, bh), Image.Resampling.LANCZOS)
     canvas = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
