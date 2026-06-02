@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.103
+ * @version 0.8.104
  */
 
 const NAV = [
@@ -22,21 +22,21 @@ const SETTINGS_NAV = [
 ];
 
 /** Fox hub-and-spoke flow (viewBox 0 0 1024 1017). Anchors sync with tools/compose_flow_layers.py */
-/** LOCKED (v0.8.47): do NOT move FOX_FLOW_HUB or hub x/y in FOX_FLOW_PATHS unless the user asks. */
-const FOX_FLOW_HUB = { x: 536, y: 726 };
+/** Hub on side/front wall corner — user-tuned v0.8.104 (was y=726). */
+const FOX_FLOW_HUB = { x: 536, y: 766 };
 
 const FOX_FLOW_PATHS = {
   "solar-aio": "M 388 406 L 388 659",
-  "grid-hub": "M 228 848 L 536 848 L 536 726",
-  "hub-grid": "M 536 726 L 536 848 L 228 848",
-  "aio-hub": "M 404 724 L 536 726",
-  "hub-aio": "M 536 726 L 404 724",
-  "hub-home": "M 536 726 L 636 698",
+  "grid-hub": "M 228 848 L 536 848 L 536 766",
+  "hub-grid": "M 536 766 L 536 848 L 228 848",
+  "aio-hub": "M 404 724 L 536 766",
+  "hub-aio": "M 536 766 L 404 724",
+  "hub-home": "M 536 766 L 636 738",
 };
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
-const FLOW_PATHS_VER = "flow-aio-tap";
-const PANEL_VERSION = "0.8.103";
+const FLOW_PATHS_VER = "flow-hub-766";
+const PANEL_VERSION = "0.8.104";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_ELEMENT = `foxess-plant-panel-${PANEL_VERSION.replace(/\./g, "_")}`;
 

@@ -21,13 +21,11 @@ BOXES = {
 }
 
 # Scene anchors (viewBox 0 0 1024 1017)
-# LOCKED (v0.8.47): HUB was hand-tuned on the side/front wall corner — do NOT change
-# coordinates unless the user explicitly asks. Sync FOX_FLOW_HUB / FOX_FLOW_PATHS in panel JS.
-HUB = (536, 726)
-# Side-face x at hub row; y derived parallel to hub-home / house base (28px rise per 100px run)
-AIO_FACE_X = AIO_CONNECT[0]
+# Hub on side/front wall corner (sync FOX_FLOW_HUB / hub-home in panel JS).
+HUB = (536, 766)
+# Window frame corner — hub-home diagonal endpoint (shifted +40 with hub v0.8.104).
+WINDOW_EDGE = (636, 738)
 WINDOW = (558, 532)  # centre of large front window
-WINDOW_EDGE = (636, 698)  # frame corner — full diagonal from hub (~16deg for 3D wall)
 GRID = (228, 788)  # grid badge anchor (left)
 GROUND_Y = 848  # visible pavement below house base
 # Roof line on flow_home art (1024×1017) — solar paths stop here, not above the ridge
