@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.106
+ * @version 0.8.108
  */
 
 const NAV = [
@@ -36,23 +36,43 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-solar-aio";
-const PANEL_VERSION = "0.8.106";
+const PANEL_VERSION = "0.8.108";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_ELEMENT = `foxess-plant-panel-${PANEL_VERSION.replace(/\./g, "_")}`;
 
+/** Manifest version baked into panel.py cache filename (foxess-plant-panel.v0_8_108.{hash}.js). */
+function panelVersionFromModuleUrl() {
+  const re = /foxess-plant-panel\.v(\d+)_(\d+)_(\d+)\.[a-f0-9]+\.js/i;
+  const scripts = document.getElementsByTagName("script");
+  for (let i = scripts.length - 1; i >= 0; i--) {
+    const src = scripts[i].src || "";
+    const m = src.match(re);
+    if (m) return `${m[1]}.${m[2]}.${m[3]}`;
+  }
+  return null;
+}
+
+function panelTagsForVersion(version) {
+  const tags = new Set();
+  const m = String(version || "").match(/^(\d+)\.(\d+)\.(\d+)$/);
+  if (!m) return tags;
+  const major = Number(m[1]);
+  const minor = Number(m[2]);
+  const patch = Number(m[3]);
+  tags.add(`foxess-plant-panel-${major}_${minor}_${patch}`);
+  for (let p = Math.max(0, patch - 30); p <= patch + 5; p++) {
+    tags.add(`foxess-plant-panel-${major}_${minor}_${p}`);
+  }
+  return tags;
+}
+
 /** Register current and recent version tags so HACS updates never leave a blank panel. */
 function panelElementTags() {
-  const tags = new Set([PANEL_ELEMENT, "foxess-plant-panel"]);
-  const m = PANEL_VERSION.match(/^(\d+)\.(\d+)\.(\d+)$/);
-  if (m) {
-    const major = Number(m[1]);
-    const minor = Number(m[2]);
-    const patch = Number(m[3]);
-    tags.add(`foxess-plant-panel-${major}_${minor}_${patch}`);
-    for (let p = Math.max(0, patch - 12); p <= patch + 2; p++) {
-      tags.add(`foxess-plant-panel-${major}_${minor}_${p}`);
-    }
+  const tags = new Set(["foxess-plant-panel"]);
+  for (const ver of [PANEL_VERSION, panelVersionFromModuleUrl()]) {
+    if (ver) panelTagsForVersion(ver).forEach((t) => tags.add(t));
   }
+  tags.add(PANEL_ELEMENT);
   return [...tags];
 }
 
