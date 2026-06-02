@@ -14,11 +14,14 @@ ROOT = Path(__file__).resolve().parents[1]
 WWW = ROOT / "custom_components" / "foxess_plant" / "www"
 CANVAS = (1024, 1017)
 
-# Scene paste origin for 576×285 PV sprites (do not resize — perspective is baked in).
+# PV: uniform scale keeps baked perspective; inset + offset fit the roof face (no overhang).
 BOXES = {
     "pv": {"left": 0.388, "top": 0.342, "width": 0.448, "height": 0.242},
     "aio": {"left": 0.312, "top": 0.622, "width": 0.136, "height": 0.222},
 }
+PV_SCALE_INSET = 0.52  # fraction of box-fit scale (native sprite is oversized)
+PV_PASTE_DX = -10  # px left of centred box
+PV_PASTE_DY = 20  # px below centred box
 
 
 def is_webp(path: Path) -> bool:
@@ -50,13 +53,19 @@ def box_pixels(box: dict) -> tuple[int, int, int, int]:
 
 
 def bake_pv(theme: str) -> None:
-    left, top, _, _ = box_pixels(BOXES["pv"])
+    left, top, bw, bh = box_pixels(BOXES["pv"])
     sprite = load_sprite("pv", theme)
+    sw, sh = sprite.size
+    scale = min(bw / sw, bh / sh) * PV_SCALE_INSET
+    nw, nh = max(1, int(sw * scale)), max(1, int(sh * scale))
+    scaled = sprite.resize((nw, nh), Image.Resampling.LANCZOS)
+    px = left + (bw - nw) // 2 + PV_PASTE_DX
+    py = top + (bh - nh) // 2 + PV_PASTE_DY
     canvas = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
-    canvas.paste(sprite, (left, top), sprite)
+    canvas.paste(scaled, (px, py), scaled)
     out = WWW / f"flow_pv_scene_{theme}.png"
     canvas.save(out, optimize=True)
-    print(f"wrote {out.name} ({out.stat().st_size} bytes) native {sprite.size} @ ({left},{top})")
+    print(f"wrote {out.name} ({out.stat().st_size} bytes) {nw}x{nh} @ ({px},{py})")
 
 
 def bake_aio(theme: str) -> None:
