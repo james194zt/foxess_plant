@@ -17,8 +17,8 @@ BOXES = {
 DEFAULT_PV = {
     "scale_inset": 1.06,
     "at_box_origin": True,
-    "dx": 0,
-    "dy": -14,
+    "dx": -10,
+    "dy": -6,
 }
 
 
