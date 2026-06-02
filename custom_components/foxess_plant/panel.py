@@ -162,6 +162,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     _sync_versioned_panel_js()
 
     config = _build_frontend_panel_config(hass)
+    build = config.get("panel_js_build", "?")
     existed = _panel_exists(hass)
     if existed:
         # Force HA to pick up a new module_url after HACS updates (update=True is not enough).
@@ -178,12 +179,13 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         update=False,
         config_panel_domain=DOMAIN,
     )
-    _LOGGER.info(
-        "Fox Plant panel %s at /%s (element=%s js build=%s url=%s)",
+    _LOGGER.warning(
+        "Fox Plant panel %s at /%s (element=%s js build=%s url=%s) — "
+        "if the browser still shows an old build, restart HA or call foxess_plant.reload_panel",
         "re-registered" if existed else "registered",
         PANEL_URL_PATH,
         _panel_component_name(),
-        _panel_js_build(),
+        build,
         _panel_js_module_url(),
     )
 

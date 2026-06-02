@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.124
+ * @version 0.8.125
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-pipe-v3";
-const PANEL_VERSION = "0.8.124";
+const PANEL_VERSION = "0.8.125";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 
 /** Manifest version from cached module filename (foxess-plant-panel.v0_8_109.{hash}.js). */
@@ -2089,6 +2089,7 @@ const STYLES = `
 .header p { margin: 6px 0 0; color: var(--secondary-text-color); font-size: 14px; }
 .overview-header { margin-bottom: 16px; }
 .overview-model { margin: 4px 0 0; font-size: 15px; font-weight: 500; color: var(--secondary-text-color); letter-spacing: 0.01em; }
+.overview-panel-build { margin: 2px 0 0; font-size: 11px; color: var(--secondary-text-color); opacity: 0.65; letter-spacing: 0.02em; }
 .overview-status-block { margin-top: 12px; }
 .overview-status-row {
   display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; line-height: 1.35;
@@ -4020,7 +4021,7 @@ ${this._renderOverviewDailyCard(
   _renderOverview(plant) {
     const a = readLiveAnalytics(this._hass, plant, this._plantState, this._overviewDaily);
     const modelLine = plantModelSubtitle(this._hass, plant, this._plantState);
-    return `<header class="header overview-header"><h1>${esc(plant.title)}</h1>${modelLine !== "—" ? `<p class="overview-model">${esc(modelLine)}</p>` : ""}${this._renderOverviewStatusBlock(plant)}</header>
+    return `<header class="header overview-header"><h1>${esc(plant.title)}</h1>${modelLine !== "—" ? `<p class="overview-model">${esc(modelLine)}</p>` : ""}<p class="overview-panel-build">Panel build ${esc(this._panelBuild())}</p>${this._renderOverviewStatusBlock(plant)}</header>
 <div class="overview-hero-row">
 <div class="overview-hero-scene">
 ${this._renderEnergyScene(plant)}

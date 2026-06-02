@@ -41,6 +41,21 @@ def _periods_from_service(data: list[dict[str, Any]]) -> list[ChargePeriodConfig
 
 def register_services(hass: HomeAssistant) -> None:
     """Register plant control services for automations and Node-RED."""
+
+    async def reload_panel(call: ServiceCall) -> None:
+        from .panel import async_register_panel
+
+        await async_register_panel(hass)
+        _LOGGER.info("Fox Plant panel reloaded via foxess_plant.reload_panel service")
+
+    if not hass.services.has_service(DOMAIN, "reload_panel"):
+        hass.services.async_register(
+            DOMAIN,
+            "reload_panel",
+            reload_panel,
+            schema=vol.Schema({vol.Optional("plant_id"): cv.string}),
+        )
+
     if hass.services.has_service(DOMAIN, "apply_baseline"):
         return
 
