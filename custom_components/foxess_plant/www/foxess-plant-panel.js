@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.114
+ * @version 0.8.115
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-pipe-v3";
-const PANEL_VERSION = "0.8.114";
+const PANEL_VERSION = "0.8.115";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 
 /** Manifest version from cached module filename (foxess-plant-panel.v0_8_109.{hash}.js). */
@@ -270,6 +270,32 @@ function foxWorkModeDisplay(label) {
   const s = String(label || "").trim();
   if (s.toLowerCase() === "self use") return "Self-use";
   return s;
+}
+
+function overviewWeatherIconSvg(iconKey) {
+  const key = String(iconKey || "unknown");
+  if (key === "cloudy") {
+    return `<svg class="overview-weather-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18h11a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6-1.2A3.8 3.8 0 0 0 7 18z" fill="#b0b8c4"/></svg>`;
+  }
+  if (key === "partly-cloudy") {
+    return `<svg class="overview-weather-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8.5" cy="9" r="3.2" fill="#f5bc00"/><g stroke="#f5bc00" stroke-width="1.6" stroke-linecap="round"><path d="M8.5 4.5v2M8.5 11.5v2M4.5 9h2M11.5 9h2"/></g><path d="M7 18h11a4 4 0 0 0 .3-8 5.2 5.2 0 0 0-10.2-1.4A3.8 3.8 0 0 0 7 18z" fill="#b0b8c4"/></svg>`;
+  }
+  if (key === "rain") {
+    return `<svg class="overview-weather-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 15h11a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6-1.2A3.8 3.8 0 0 0 7 15z" fill="#8ea0b4"/><g stroke="#5b9bd5" stroke-width="1.8" stroke-linecap="round"><path d="M9 17.5v3M12 17.5v3.5M15 17.5v3"/></g></svg>`;
+  }
+  if (key === "snow") {
+    return `<svg class="overview-weather-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 15h11a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6-1.2A3.8 3.8 0 0 0 7 15z" fill="#b0b8c4"/><g stroke="#dbeafe" stroke-width="1.6" stroke-linecap="round"><path d="M9 17l1.5 2.5M12 16.5v4M15 17l-1.5 2.5"/></g></svg>`;
+  }
+  if (key === "storm") {
+    return `<svg class="overview-weather-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14h11a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6-1.2A3.8 3.8 0 0 0 7 14z" fill="#7a8798"/><path d="M13 15.5l-2.5 4h2l-1 3.5 4-5.5h-2.2l1.7-2z" fill="#f5bc00"/></svg>`;
+  }
+  if (key === "fog") {
+    return `<svg class="overview-weather-icon" viewBox="0 0 24 24" aria-hidden="true"><g stroke="#a8b0bc" stroke-width="1.8" stroke-linecap="round"><path d="M5 10h14M4 14h16M6 18h12"/></g></svg>`;
+  }
+  if (key === "wind") {
+    return `<svg class="overview-weather-icon" viewBox="0 0 24 24" aria-hidden="true"><g stroke="#8ea0b4" stroke-width="1.8" stroke-linecap="round" fill="none"><path d="M4 8h11a3 3 0 1 0-3-3M4 13h13a2.5 2.5 0 1 1 0 5H4M4 18h9"/></g></svg>`;
+  }
+  return `<svg class="overview-weather-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="#f5bc00"/><g stroke="#f5bc00" stroke-width="2" stroke-linecap="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></g></svg>`;
 }
 
 function entityUnit(hass, entityId) {
@@ -1817,6 +1843,13 @@ const STYLES = `
 .overview-work-mode.fox-pill.work-default { background: #f4d05d; color: #1a1a1a; }
 .overview-status-row .mode-pill { flex-shrink: 0; }
 .overview-control-hint { font-size: 13px; color: var(--secondary-text-color); white-space: nowrap; }
+.overview-weather {
+  display: flex; align-items: center; gap: 6px; margin-top: 8px;
+  font-size: 14px; font-weight: 600; color: var(--primary-text-color); line-height: 1.2;
+}
+.overview-weather-icon { width: 18px; height: 18px; flex-shrink: 0; display: block; }
+.overview-weather-temp { letter-spacing: -0.01em; }
+.overview-weather-label { font-size: 13px; font-weight: 500; color: var(--secondary-text-color); }
 .mode-banner-row {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px;
 }
@@ -3409,6 +3442,20 @@ ${thumbsHtml}
     return `<div class="mode-banner-row"><span class="mode-pill ${modeClass(mode)}">${esc(mode)}</span><span class="mode-banner-hint">${st.control_active ? "Plant control active" : "Plant control off"}</span></div>${this._modeBannerExtra()}`;
   }
 
+  _renderOverviewWeather() {
+    const wx = this._plantState?.overview_weather;
+    if (!wx || (!wx.temperature_display && !wx.condition_label)) return "";
+    const icon = overviewWeatherIconSvg(wx.icon_key);
+    const temp = wx.temperature_display
+      ? `<span class="overview-weather-temp">${esc(wx.temperature_display)}</span>`
+      : "";
+    const label = wx.condition_label
+      ? `<span class="overview-weather-label">${esc(wx.condition_label)}</span>`
+      : "";
+    const aria = [wx.temperature_display, wx.condition_label].filter(Boolean).join(", ");
+    return `<div class="overview-weather" role="img" aria-label="${esc(aria || "Weather")}">${icon}${temp}${label}</div>`;
+  }
+
   _renderOverviewStatusBlock(plant) {
     const st = this._plantState;
     if (!st) return "";
@@ -3430,6 +3477,7 @@ ${workPart}
 <span class="mode-pill ${modeClass(plantMode)}">${esc(plantMode)}</span>
 <span class="overview-control-hint">${st.control_active ? "Plant control active" : "Plant control off"}</span>
 </div>
+${this._renderOverviewWeather()}
 ${this._modeBannerExtra()}
 </div>`;
   }

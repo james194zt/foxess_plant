@@ -409,6 +409,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         out["forecast_detail"] = self._storm_forecast_detail
         return out
 
+    def _overview_weather_state(self) -> dict[str, Any] | None:
+        from .storm_weather import read_overview_weather
+
+        return read_overview_weather(self.hass, self.plant.storm_prep)
+
     def get_plant_state(self) -> dict[str, Any]:
         desired = [p.to_dict() for p in self.plant.desired_periods()]
         actual = self._read_actual_periods()
@@ -438,6 +443,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "forecast_armed": self._forecast_armed,
             "tariff_modes": sorted(self.plant.tariff_modes.keys()),
             "storm_prep": self._storm_prep_state(),
+            "overview_weather": self._overview_weather_state(),
             "outage_prep": self.plant.outage_prep.to_dict(),
             "panel_display": self.plant.panel_display.to_dict(),
             "settings": {

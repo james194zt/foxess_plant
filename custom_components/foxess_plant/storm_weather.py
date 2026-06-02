@@ -173,3 +173,140 @@ def storm_type_catalog() -> list[dict[str, str]]:
         {"type": key, "label": STORM_GOOGLE_TYPE_LABELS[key]}
         for key in sorted(DEFAULT_STORM_GOOGLE_WEATHER_TYPES)
     ]
+
+
+def _weather_icon_key(condition_type: str | None, *, source: str) -> str:
+    if not condition_type:
+        return "unknown"
+    if source == "google_type":
+        token = condition_type.upper()
+        if any(k in token for k in ("THUNDER", "TORNADO", "HURRICANE", "TROPICAL")):
+            return "storm"
+        if any(k in token for k in ("RAIN", "DRIZZLE", "SHOWER")):
+            return "rain"
+        if any(k in token for k in ("SNOW", "BLIZZARD", "SLEET", "ICE")):
+            return "snow"
+        if any(k in token for k in ("FOG", "MIST", "HAZE", "SMOG")):
+            return "fog"
+        if any(k in token for k in ("WIND", "GALE", "BREEZE")):
+            return "wind"
+        if "PARTLY" in token or "INTERMITTENT" in token:
+            return "partly-cloudy"
+        if any(k in token for k in ("CLOUD", "OVERCAST")):
+            return "cloudy"
+        if any(k in token for k in ("CLEAR", "SUNNY", "FAIR")):
+            return "sunny"
+        return "unknown"
+    token = condition_type.lower()
+    if token in {"lightning", "lightning-rainy", "exceptional"}:
+        return "storm"
+    if token in {"rainy", "pouring"}:
+        return "rain"
+    if token in {"snowy", "snowy-rainy"}:
+        return "snow"
+    if token == "fog":
+        return "fog"
+    if token in {"windy", "windy-variant", "hail"}:
+        return "wind"
+    if token == "partlycloudy":
+        return "partly-cloudy"
+    if token == "cloudy":
+        return "cloudy"
+    if token == "sunny":
+        return "sunny"
+    return "unknown"
+
+
+def _weather_short_label(icon_key: str, snap: dict[str, Any] | None) -> str:
+    defaults = {
+        "sunny": "Sunny",
+        "partly-cloudy": "Partly cloudy",
+        "cloudy": "Cloudy",
+        "rain": "Rainy",
+        "snow": "Snowy",
+        "storm": "Stormy",
+        "fog": "Foggy",
+        "wind": "Windy",
+        "unknown": "Weather",
+    }
+    if snap and snap.get("label"):
+        return str(snap["label"])
+    return defaults.get(icon_key, "Weather")
+
+
+def _format_temperature(temp: Any, unit: str | None) -> str | None:
+    if temp is None:
+        return None
+    try:
+        value = round(float(temp))
+    except (TypeError, ValueError):
+        return None
+    if unit in (None, "", "°C", "C", "celsius"):
+        return f"{value}°C"
+    if unit in ("°F", "F", "fahrenheit"):
+        return f"{value}°F"
+    return f"{value}{unit}"
+
+
+def resolve_overview_weather_entities(hass: HomeAssistant, storm_prep: Any) -> tuple[str | None, str | None]:
+    """Google Weather condition + weather entities for the overview header."""
+    from .panel_config import discover_google_weather, resolve_google_weather_entry
+
+    condition_entity_id = getattr(storm_prep, "condition_entity_id", None)
+    weather_entity_id = getattr(storm_prep, "weather_entity_id", None)
+    if condition_entity_id or weather_entity_id:
+        return condition_entity_id, weather_entity_id
+
+    entry_id = getattr(storm_prep, "google_weather_entry_id", None)
+    if entry_id:
+        resolved = resolve_google_weather_entry(hass, entry_id)
+        return resolved.get("condition_entity_id"), resolved.get("weather_entity_id")
+
+    entries = discover_google_weather(hass).get("entries") or []
+    if len(entries) == 1:
+        entry = entries[0]
+        return entry.get("condition_entity_id"), entry.get("weather_entity")
+    return None, None
+
+
+def read_overview_weather(hass: HomeAssistant, storm_prep: Any) -> dict[str, Any] | None:
+    """Current temperature + condition for the overview header (Google Weather)."""
+    condition_entity_id, weather_entity_id = resolve_overview_weather_entities(hass, storm_prep)
+    storm_types = getattr(storm_prep, "storm_google_types", None)
+    snap = read_condition_snapshot(
+        hass,
+        condition_entity_id,
+        weather_entity_id,
+        storm_types=storm_types,
+    )
+
+    temperature: float | None = None
+    temperature_unit: str | None = None
+    if weather_entity_id:
+        weather_state = hass.states.get(weather_entity_id)
+        if weather_state and weather_state.state not in ("unknown", "unavailable"):
+            attrs = weather_state.attributes
+            raw_temp = attrs.get("temperature")
+            if raw_temp is not None:
+                try:
+                    temperature = float(raw_temp)
+                except (TypeError, ValueError):
+                    temperature = None
+            temperature_unit = attrs.get("temperature_unit") or attrs.get("unit_of_measurement")
+
+    if snap is None and temperature is None:
+        return None
+
+    source = (snap or {}).get("source") or "ha_condition"
+    condition_type = (snap or {}).get("type")
+    icon_key = _weather_icon_key(condition_type, source=source)
+    return {
+        "temperature": temperature,
+        "temperature_unit": temperature_unit,
+        "temperature_display": _format_temperature(temperature, temperature_unit),
+        "condition_label": _weather_short_label(icon_key, snap),
+        "condition_type": condition_type,
+        "icon_key": icon_key,
+        "weather_entity_id": weather_entity_id,
+        "condition_entity_id": condition_entity_id,
+    }
