@@ -13,8 +13,8 @@ from key_flow_home_sky import remove_black_matte
 ROOT = Path(__file__).resolve().parents[1]
 WWW = ROOT / "custom_components" / "foxess_plant" / "www"
 CANVAS = (1024, 1017)
-MATTE_LUM = 28
 
+# Scene paste origin for 576×285 PV sprites (do not resize — perspective is baked in).
 BOXES = {
     "pv": {"left": 0.388, "top": 0.342, "width": 0.448, "height": 0.242},
     "aio": {"left": 0.312, "top": 0.622, "width": 0.136, "height": 0.222},
@@ -49,21 +49,31 @@ def box_pixels(box: dict) -> tuple[int, int, int, int]:
     )
 
 
-def bake_overlay(layer: str, theme: str) -> None:
-    left, top, bw, bh = box_pixels(BOXES[layer])
-    sprite = load_sprite(layer, theme)
+def bake_pv(theme: str) -> None:
+    left, top, _, _ = box_pixels(BOXES["pv"])
+    sprite = load_sprite("pv", theme)
+    canvas = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
+    canvas.paste(sprite, (left, top), sprite)
+    out = WWW / f"flow_pv_scene_{theme}.png"
+    canvas.save(out, optimize=True)
+    print(f"wrote {out.name} ({out.stat().st_size} bytes) native {sprite.size} @ ({left},{top})")
+
+
+def bake_aio(theme: str) -> None:
+    left, top, bw, bh = box_pixels(BOXES["aio"])
+    sprite = load_sprite("aio", theme)
     fitted = sprite.resize((bw, bh), Image.Resampling.LANCZOS)
     canvas = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
     canvas.paste(fitted, (left, top), fitted)
-    out = WWW / f"flow_{layer}_scene_{theme}.png"
+    out = WWW / f"flow_aio_scene_{theme}.png"
     canvas.save(out, optimize=True)
     print(f"wrote {out.name} ({out.stat().st_size} bytes)")
 
 
 def main() -> None:
     for theme in ("day_light", "night_dark"):
-        bake_overlay("pv", theme)
-        bake_overlay("aio", theme)
+        bake_pv(theme)
+        bake_aio(theme)
 
 
 if __name__ == "__main__":
