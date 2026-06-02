@@ -5,30 +5,42 @@ $www = (Join-Path $PSScriptRoot "..\custom_components\foxess_plant\www" | Resolv
 $canvasW = 1024
 $canvasH = 1017
 $themes = @("day_light", "day_dark", "night_light", "night_dark")
+# Pixels darker than this use max(R,G,B) as alpha (black-matte unpremultiply).
+$matteLum = 48
 
-function Key-EdgeBlack([System.Drawing.Bitmap]$bmp) {
-    $w = $bmp.Width; $h = $bmp.Height
-    $seen = New-Object 'bool[]' ($w * $h)
-    $q = [System.Collections.Generic.Queue[int]]::new()
-    function IsBlack([int]$x,[int]$y) {
-        $c = $bmp.GetPixel($x,$y)
-        return ($c.A -gt 200 -and $c.R -eq 0 -and $c.G -eq 0 -and $c.B -eq 0)
+function Remove-BlackMatte([System.Drawing.Bitmap]$bmp) {
+    $rect = New-Object System.Drawing.Rectangle 0, 0, $bmp.Width, $bmp.Height
+    $data = $bmp.LockBits($rect, [System.Drawing.Imaging.ImageLockMode]::ReadWrite, $bmp.PixelFormat)
+    $bytes = New-Object byte[] ($data.Stride * $data.Height)
+    [System.Runtime.InteropServices.Marshal]::Copy($data.Scan0, $bytes, 0, $bytes.Length)
+    $w = $bmp.Width
+    $h = $bmp.Height
+    for ($y = 0; $y -lt $h; $y++) {
+        for ($x = 0; $x -lt $w; $x++) {
+            $i = $y * $data.Stride + $x * 4
+            $b = $bytes[$i]
+            $g = $bytes[$i + 1]
+            $r = $bytes[$i + 2]
+            $a = $bytes[$i + 3]
+            if ($a -eq 0) { continue }
+            $na = [Math]::Max($r, [Math]::Max($g, $b))
+            if ($na -gt $matteLum) { continue }
+            if ($na -eq 0) {
+                $bytes[$i] = 0
+                $bytes[$i + 1] = 0
+                $bytes[$i + 2] = 0
+                $bytes[$i + 3] = 0
+            } else {
+                $scale = 255.0 / $na
+                $bytes[$i] = [Math]::Min(255, [int]($b * $scale))
+                $bytes[$i + 1] = [Math]::Min(255, [int]($g * $scale))
+                $bytes[$i + 2] = [Math]::Min(255, [int]($r * $scale))
+                $bytes[$i + 3] = $na
+            }
+        }
     }
-    function Push([int]$x,[int]$y) {
-        $i = $y * $w + $x
-        if (-not $seen[$i] -and (IsBlack $x $y)) { $seen[$i] = $true; $q.Enqueue($i) }
-    }
-    for ($x=0; $x -lt $w; $x++) { Push $x 0; Push $x ($h-1) }
-    for ($y=0; $y -lt $h; $y++) { Push 0 $y; Push ($w-1) $y }
-    $clear = [System.Drawing.Color]::FromArgb(0,0,0,0)
-    while ($q.Count -gt 0) {
-        $i = $q.Dequeue(); $x = $i % $w; $y = [int][Math]::Floor($i / $w)
-        $bmp.SetPixel($x,$y,$clear)
-        if ($x -gt 0) { Push ($x-1) $y }
-        if ($x -lt $w-1) { Push ($x+1) $y }
-        if ($y -gt 0) { Push $x ($y-1) }
-        if ($y -lt $h-1) { Push $x ($y+1) }
-    }
+    [System.Runtime.InteropServices.Marshal]::Copy($bytes, 0, $data.Scan0, $bytes.Length)
+    $bmp.UnlockBits($data)
 }
 
 function Load-HomeLayer([string]$theme) {
@@ -38,19 +50,21 @@ function Load-HomeLayer([string]$theme) {
     $bmp = New-Object System.Drawing.Bitmap $canvasW, $canvasH, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $g = [System.Drawing.Graphics]::FromImage($bmp)
     $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-    $g.DrawImage($src, 0, 0, $canvasW, $canvasH)
-    $g.Dispose(); $src.Dispose()
-    Key-EdgeBlack $bmp
+    if ($src.Width -eq $canvasW -and $src.Height -eq $canvasH) {
+        $g.DrawImage($src, 0, 0)
+    } else {
+        $g.DrawImage($src, 0, 0, $canvasW, $canvasH)
+    }
+    $g.Dispose()
+    $src.Dispose()
+    Remove-BlackMatte $bmp
     return $bmp
 }
 
 $homeLayers = @{}
 foreach ($t in $themes) {
     $homeLayers[$t] = Load-HomeLayer $t
-    $tmp = Join-Path $www "flow_home_$t.keyed.png"
-    $homeLayers[$t].Save($tmp, [System.Drawing.Imaging.ImageFormat]::Png)
-    Move-Item -Force $tmp (Join-Path $www "flow_home_$t.png")
-    Write-Host "keyed flow_home_$t.png"
+    Write-Host "matte-removed flow_home_$t.png"
 }
 
 foreach ($theme in $themes) {
@@ -76,8 +90,14 @@ foreach ($theme in $themes) {
                 $g.DrawImage($src, $x, $y, $nw, $nh)
                 $g.DrawImage($homeLayers[$theme], 0, 0, $canvasW, $canvasH)
             } finally { $g.Dispose() }
-            $canvas.Save($outPath, [System.Drawing.Imaging.ImageFormat]::Png)
-            Write-Host "wrote flow_home_bg_scene_$theme.png (paired with flow_home_$theme.png)"
+
+            $flat = New-Object System.Drawing.Bitmap $canvasW, $canvasH, ([System.Drawing.Imaging.PixelFormat]::Format24bppRgb)
+            $gf = [System.Drawing.Graphics]::FromImage($flat)
+            $gf.DrawImage($canvas, 0, 0)
+            $gf.Dispose()
+            $flat.Save($outPath, [System.Drawing.Imaging.ImageFormat]::Png)
+            $flat.Dispose()
+            Write-Host "wrote flow_home_bg_scene_$theme.png"
         } finally { $canvas.Dispose() }
     } finally { $src.Dispose() }
 }
