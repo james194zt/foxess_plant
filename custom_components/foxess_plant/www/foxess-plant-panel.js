@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.115
+ * @version 0.8.116
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-pipe-v3";
-const PANEL_VERSION = "0.8.115";
+const PANEL_VERSION = "0.8.116";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 
 /** Manifest version from cached module filename (foxess-plant-panel.v0_8_109.{hash}.js). */
@@ -608,6 +608,13 @@ const ENERGY_CHART_BAR = {
   pv: { suffix: "solar_energy_today", label: "PV", color: FOX_ENERGY.pv },
   load: { suffix: "load_energy_today", label: "Load", color: FOX_ENERGY.load, computed: true },
   grid: { suffix: "grid_consumption_energy_today", label: "From grid", color: "#FF6FAF" },
+};
+
+const OVERVIEW_DAILY_DAYS = 7;
+const OVERVIEW_DAILY_COLORS = {
+  production: "#8A4DFF",
+  consumption: "#19D4DE",
+  barMuted: "#4a5058",
 };
 
 function startOfLocalDay(d) {
@@ -1234,6 +1241,110 @@ function buildDailyLabels(startDay, count) {
     labels.push(d);
   }
   return labels;
+}
+
+function buildLastNDays(count = OVERVIEW_DAILY_DAYS) {
+  const labels = [];
+  const anchor = startOfLocalDay(new Date());
+  for (let i = count - 1; i >= 0; i--) {
+    const d = new Date(anchor);
+    d.setDate(d.getDate() - i);
+    labels.push(d);
+  }
+  return labels;
+}
+
+function formatDailyKwh(value) {
+  if (value == null || !Number.isFinite(Number(value))) return "— kWh";
+  return `${Number(value).toFixed(2)} kWh`;
+}
+
+function dailyProductionKwh(points, dayStartMs, dayEndMs) {
+  return Math.round(dailyMaxInRange(points.pv, dayStartMs, dayEndMs) * 100) / 100;
+}
+
+function dailyConsumptionKwh(points, dayStartMs, dayEndMs) {
+  const load =
+    dailyMaxInRange(points.load, dayStartMs, dayEndMs) -
+    dailyMaxInRange(points.discharge, dayStartMs, dayEndMs) +
+    dailyMaxInRange(points.charge, dayStartMs, dayEndMs) +
+    dailyMaxInRange(points.grid, dayStartMs, dayEndMs);
+  return Math.round(Math.max(0, load) * 100) / 100;
+}
+
+function renderOverviewDailySparklineSvg(values, labels, accentColor) {
+  const n = Math.min(values.length, labels.length);
+  if (!n) return "";
+  const width = 156;
+  const height = 54;
+  const pad = { l: 6, r: 6, t: 16, b: 16 };
+  const w = width - pad.l - pad.r;
+  const h = height - pad.t - pad.b;
+  let yMax = 0.1;
+  for (let i = 0; i < n; i++) yMax = Math.max(yMax, values[i] || 0);
+  yMax *= 1.1;
+  const slotW = w / n;
+  const barW = Math.min(11, slotW * 0.52);
+  const todayIdx = n - 1;
+  const parts = [];
+  for (let i = 0; i < n; i++) {
+    const v = values[i] || 0;
+    const cx = pad.l + i * slotW + slotW / 2;
+    const bh = Math.max(2, (v / yMax) * h);
+    const x = cx - barW / 2;
+    const y = pad.t + h - bh;
+    const fill = i === todayIdx ? accentColor : OVERVIEW_DAILY_COLORS.barMuted;
+    parts.push(
+      `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="${fill}"/>`
+    );
+    if (i === todayIdx) {
+      parts.push(`<text x="${cx.toFixed(1)}" y="9" text-anchor="middle" class="overview-daily-today-mark">Today</text>`);
+      parts.push(
+        `<line x1="${cx.toFixed(1)}" y1="11" x2="${cx.toFixed(1)}" y2="${(y - 1).toFixed(1)}" class="overview-daily-today-line"/>`
+      );
+    }
+    parts.push(
+      `<text x="${cx.toFixed(1)}" y="${height - 3}" text-anchor="middle" class="overview-daily-day">${esc(String(labels[i].getDate()))}</text>`
+    );
+  }
+  return `<svg class="overview-daily-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">${parts.join("")}</svg>`;
+}
+
+async function fetchOverviewDailyEnergy(hass, plant, plantState) {
+  const map = resolveEntityMap(hass, plant, plantState);
+  const ent = {
+    pv: map.solar_energy_today,
+    load: map.load_energy_today,
+    discharge: map.battery_discharge_today,
+    charge: map.battery_charge_today,
+    grid: map.grid_consumption_energy_today,
+  };
+  const ids = [ent.pv, ent.load, ent.discharge, ent.charge, ent.grid].filter(Boolean);
+  const labels = buildLastNDays(OVERVIEW_DAILY_DAYS);
+  if (!ids.length) {
+    return { error: "Daily energy sensors not found. Reload FoxESS Plant after foxess_modbus is configured." };
+  }
+  const rangeStart = labels[0];
+  const now = new Date();
+  const hist = await fetchHistoryDuring(hass, ids, rangeStart, now);
+  const points = {
+    pv: historyToPoints(historyRowsForEntity(hist, ent.pv)),
+    load: historyToPoints(historyRowsForEntity(hist, ent.load)),
+    discharge: historyToPoints(historyRowsForEntity(hist, ent.discharge)),
+    charge: historyToPoints(historyRowsForEntity(hist, ent.charge)),
+    grid: historyToPoints(historyRowsForEntity(hist, ent.grid)),
+  };
+  const production = labels.map((day) => {
+    const ds = startOfLocalDay(day).getTime();
+    const de = endOfLocalDay(day).getTime();
+    return dailyProductionKwh(points, ds, de);
+  });
+  const consumption = labels.map((day) => {
+    const ds = startOfLocalDay(day).getTime();
+    const de = endOfLocalDay(day).getTime();
+    return dailyConsumptionKwh(points, ds, de);
+  });
+  return { labels, production, consumption };
 }
 
 function formatChartDayLabel(d) {
@@ -1869,6 +1980,40 @@ const STYLES = `
 .overview-hero-stats {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;
 }
+.overview-daily-grid {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;
+  margin-bottom: 14px;
+}
+.overview-daily-card {
+  background: var(--card-background-color); border-radius: var(--fp-radius);
+  border: 1px solid var(--divider-color, transparent);
+  box-shadow: var(--ha-card-box-shadow, 0 1px 2px rgba(0,0,0,0.06));
+  padding: 14px 14px 10px; min-width: 0; text-align: left;
+  cursor: pointer; font-family: inherit; color: inherit;
+}
+.overview-daily-card:hover { background: var(--secondary-background-color); }
+.overview-daily-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px;
+}
+.overview-daily-title {
+  font-size: 12px; font-weight: 600; color: var(--secondary-text-color); letter-spacing: 0.01em;
+}
+.overview-daily-chev { font-size: 16px; line-height: 1; color: var(--secondary-text-color); opacity: 0.55; }
+.overview-daily-value {
+  font-size: 22px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 8px; line-height: 1.15;
+}
+.overview-daily-chart { width: 100%; height: auto; display: block; }
+.overview-daily-today-mark {
+  font-size: 8px; font-weight: 600; fill: var(--secondary-text-color);
+}
+.overview-daily-today-line { stroke: rgba(127,127,127,0.35); stroke-width: 1; }
+.overview-daily-day { font-size: 9px; fill: var(--secondary-text-color); }
+.overview-daily-loading {
+  font-size: 13px; color: var(--secondary-text-color); padding: 24px 14px; text-align: center;
+}
+.overview-daily-empty {
+  font-size: 12px; color: var(--secondary-text-color); line-height: 1.45; padding: 8px 0 0;
+}
 .breakdown-card { margin-top: 14px; padding-bottom: 8px; }
 .statistics-card { padding-bottom: 16px; }
 .statistics-card .card-title { margin-bottom: 12px; }
@@ -2436,6 +2581,9 @@ const STYLES = `
     gap: 12px;
     grid-template-columns: unset;
   }
+  .overview-daily-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 @media (max-width: 720px) {
   .device-grid { grid-template-columns: 1fr; gap: 12px; }
@@ -2487,6 +2635,9 @@ class FoxessPlantPanel extends HTMLElement {
     this._statisticsChart = null;
     this._statisticsChartLoading = false;
     this._statisticsChartPlantId = undefined;
+    this._overviewDaily = null;
+    this._overviewDailyLoading = false;
+    this._overviewDailyPlantId = undefined;
     this._chartsDraft = null;
     this._forecastCandidates = null;
     this._headerHasSubTabs = undefined;
@@ -3624,20 +3775,87 @@ ${basis}
 </div>`;
   }
 
-  _renderOverview(plant) {
+  _renderOverviewDailyCard(title, values, labels, accentColor, analyticsFallback) {
+    const todayVal = values?.[values.length - 1];
+    const display =
+      todayVal != null && Number.isFinite(todayVal) && todayVal > 0
+        ? todayVal
+        : analyticsFallback != null && Number.isFinite(Number(analyticsFallback))
+          ? Number(analyticsFallback)
+          : todayVal;
+    const chart =
+      values?.length && labels?.length
+        ? renderOverviewDailySparklineSvg(values, labels, accentColor)
+        : "";
+    return `<button type="button" class="overview-daily-card" data-action="nav" data-view="energy" aria-label="${esc(title)}">
+<div class="overview-daily-head"><span class="overview-daily-title">${esc(title)}</span><span class="overview-daily-chev" aria-hidden="true">›</span></div>
+<div class="overview-daily-value">${esc(formatDailyKwh(display))}</div>
+${chart}
+</button>`;
+  }
+
+  _renderOverviewDailyCards() {
+    if (this._overviewDailyLoading) {
+      return `<div class="overview-daily-grid"><div class="overview-daily-loading">Loading daily energy…</div></div>`;
+    }
+    const data = this._overviewDaily;
+    if (data?.error) {
+      return `<div class="overview-daily-grid"><div class="overview-daily-card"><p class="overview-daily-empty">${esc(data.error)}</p></div></div>`;
+    }
+    if (!data?.labels?.length) {
+      return "";
+    }
     const a = this._plantState?.analytics ?? {};
+    return `<div class="overview-daily-grid">
+${this._renderOverviewDailyCard(
+  "Daily Production",
+  data.production,
+  data.labels,
+  OVERVIEW_DAILY_COLORS.production,
+  a.pv_production_kwh_today
+)}
+${this._renderOverviewDailyCard(
+  "Daily Consumption",
+  data.consumption,
+  data.labels,
+  OVERVIEW_DAILY_COLORS.consumption,
+  a.load_consumption_kwh_today
+)}
+</div>`;
+  }
+
+  async _loadOverviewDailyCards() {
+    const plant = this._getPlant();
+    if (!plant || !this._hass) return;
+    const plantId = plant.entry_id;
+    this._overviewDailyLoading = true;
+    this._overviewDaily = null;
+    this._overviewDailyPlantId = plantId;
+    this._scheduleRender();
+    try {
+      if (!this._plantState) await this._refreshPlantState();
+      this._overviewDaily = await fetchOverviewDailyEnergy(this._hass, plant, this._plantState);
+    } catch (err) {
+      this._overviewDaily = {
+        error:
+          err?.message ||
+          "Could not load daily energy history. Enable the Home Assistant recorder for your daily kWh sensors.",
+      };
+    } finally {
+      this._overviewDailyLoading = false;
+      if (this._getPlant()?.entry_id === plantId && this._view === "overview") this._scheduleRender();
+    }
+  }
+
+  _renderOverview(plant) {
     const modelLine = plantModelSubtitle(this._hass, plant, this._plantState);
     return `<header class="header overview-header"><h1>${esc(plant.title)}</h1>${modelLine !== "—" ? `<p class="overview-model">${esc(modelLine)}</p>` : ""}${this._renderOverviewStatusBlock(plant)}</header>
 <div class="overview-hero-row">
 <div class="overview-hero-scene">
 ${this._renderEnergyScene(plant)}
 </div>
-<div class="overview-hero-stats">
-${this._stat("Self-consumption", a.self_consumption_percent_today, a.self_consumption_percent_today != null ? "%" : "")}
-${this._stat("Self-sufficiency", a.self_sufficiency_percent_today, a.self_sufficiency_percent_today != null ? "%" : "")}
-${this._stat("PV today", a.pv_production_kwh_today, a.pv_production_kwh_today != null ? " kWh" : "")}
 </div>
-</div>
+${this._renderOverviewDailyCards()}
 ${this._renderImpactPanel()}
 <div class="card statistics-card" style="margin-top:14px">
 <p class="card-title">Statistics</p>
@@ -4607,6 +4825,13 @@ ${active
         (this._statisticsChartPlantId !== plant.entry_id || !this._statisticsChart)
       ) {
         this._loadStatisticsChart();
+      }
+      if (
+        plant &&
+        !this._overviewDailyLoading &&
+        (this._overviewDailyPlantId !== plant.entry_id || !this._overviewDaily)
+      ) {
+        this._loadOverviewDailyCards();
       }
     }
   }
