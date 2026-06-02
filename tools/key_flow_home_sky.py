@@ -11,11 +11,11 @@ ROOT = Path(__file__).resolve().parents[1]
 WWW = ROOT / "custom_components" / "foxess_plant" / "www"
 CANVAS = (1024, 1017)
 FLOW_THEMES = ("day_light", "day_dark", "night_light", "night_dark")
-MATTE_LUM = 48
+MATTE_LUM = 64
 
 
 def remove_black_matte(im: Image.Image, lum: int = MATTE_LUM) -> Image.Image:
-    """Un-premultiply anti-aliased edges exported on a black background."""
+    """Convert straight RGB-on-black mattes to proper alpha (no colour scaling)."""
     im = im.convert("RGBA")
     px = im.load()
     w, h = im.size
@@ -30,13 +30,7 @@ def remove_black_matte(im: Image.Image, lum: int = MATTE_LUM) -> Image.Image:
             if na == 0:
                 px[x, y] = (0, 0, 0, 0)
             else:
-                scale = 255.0 / na
-                px[x, y] = (
-                    min(255, int(r * scale)),
-                    min(255, int(g * scale)),
-                    min(255, int(b * scale)),
-                    na,
-                )
+                px[x, y] = (r, g, b, na)
     return im
 
 

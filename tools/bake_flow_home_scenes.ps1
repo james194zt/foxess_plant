@@ -5,8 +5,8 @@ $www = (Join-Path $PSScriptRoot "..\custom_components\foxess_plant\www" | Resolv
 $canvasW = 1024
 $canvasH = 1017
 $themes = @("day_light", "day_dark", "night_light", "night_dark")
-# Pixels darker than this use max(R,G,B) as alpha (black-matte unpremultiply).
-$matteLum = 48
+# Pixels darker than this use max(R,G,B) as alpha (straight RGB on black matte).
+$matteLum = 64
 
 function Remove-BlackMatte([System.Drawing.Bitmap]$bmp) {
     $rect = New-Object System.Drawing.Rectangle 0, 0, $bmp.Width, $bmp.Height
@@ -31,10 +31,7 @@ function Remove-BlackMatte([System.Drawing.Bitmap]$bmp) {
                 $bytes[$i + 2] = 0
                 $bytes[$i + 3] = 0
             } else {
-                $scale = 255.0 / $na
-                $bytes[$i] = [Math]::Min(255, [int]($b * $scale))
-                $bytes[$i + 1] = [Math]::Min(255, [int]($g * $scale))
-                $bytes[$i + 2] = [Math]::Min(255, [int]($r * $scale))
+                # Keep RGB; only lower alpha (non-premultiplied black-matte export).
                 $bytes[$i + 3] = $na
             }
         }
