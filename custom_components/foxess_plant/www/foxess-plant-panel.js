@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.104
+ * @version 0.8.105
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-hub-766";
-const PANEL_VERSION = "0.8.104";
+const PANEL_VERSION = "0.8.105";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_ELEMENT = `foxess-plant-panel-${PANEL_VERSION.replace(/\./g, "_")}`;
 
@@ -1519,13 +1519,14 @@ function computeFlowLines(flows, threshold = FLOW_SCENE_PV_THRESHOLD_W) {
   const { discharging, charging } = inferBatteryFlowDirection(flows, threshold);
   const hasLoad = flows.loadW > threshold;
 
+  const aioToHub = hasPv || discharging || hasGridOut;
   if (hasPv) {
     lines.push({ id: "solar-aio" });
   }
   if (hasGridIn) lines.push({ id: "grid-hub" });
   if (hasGridOut) lines.push({ id: "hub-grid" });
-  if (discharging) lines.push({ id: "aio-hub" });
-  if (charging) lines.push({ id: "hub-aio", reverse: true });
+  if (aioToHub) lines.push({ id: "aio-hub" });
+  else if (charging) lines.push({ id: "hub-aio", reverse: true });
   if (hasLoad && (hasGridOut || hasGridIn || discharging || charging || hasPv)) {
     lines.push({ id: "hub-home" });
   }
