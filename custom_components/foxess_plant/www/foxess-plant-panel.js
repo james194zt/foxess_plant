@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.128
+ * @version 0.8.129
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-pipe-v3";
-const PANEL_VERSION = "0.8.128";
+const PANEL_VERSION = "0.8.129";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -112,11 +112,18 @@ function flowActiveStroke(cls) {
   return FLOW_ACTIVE_STROKE.battery;
 }
 
+/** Hub spokes share one flow class + one pipe colour so segments match (incl. hub-home). */
+function flowHubSpokeCls(id, gridExporting) {
+  if (id.startsWith("solar")) return "flow-solar";
+  if (id.includes("grid")) return gridExporting && id === "hub-grid" ? "flow-export" : "flow-grid";
+  return "flow-battery";
+}
+
 /** role: track = idle pipe, bed = full-width grey under active hub dashes, flow = animated segment */
-function flowPathMarkup({ d, cls, role = "track", isNight = false, reverse = false }) {
+function flowPathMarkup({ d, cls = "", role = "track", isNight = false, reverse = false }) {
   const isFlow = role === "flow";
   const isBed = role === "bed";
-  const isHubFlow = isFlow && (cls === "flow-battery" || cls === "flow-home-line");
+  const isHubFlow = isFlow && cls === "flow-battery";
   const sw = isFlow
     ? isHubFlow
       ? FLOW_STROKE.hubActive
@@ -129,8 +136,9 @@ function flowPathMarkup({ d, cls, role = "track", isNight = false, reverse = fal
   const cap = isFlow || isBed ? ' stroke-linecap="butt"' : ' stroke-linecap="round"';
   const activeCls = isFlow ? " active" : "";
   const bedCls = isBed ? " flow-path-bed" : "";
+  const paintCls = isBed ? "" : cls;
   const rev = reverse ? " reverse" : "";
-  return `<path class="flow-path${bedCls} ${cls}${activeCls}${rev}" d="${d}" stroke="${stroke}" stroke-width="${sw}"${dash}${cap}></path>`;
+  return `<path class="flow-path${bedCls}${paintCls ? ` ${paintCls}` : ""}${activeCls}${rev}" d="${d}" stroke="${stroke}" stroke-width="${sw}"${dash}${cap}></path>`;
 }
 
 const DEFAULT_PERIODS = [
@@ -2474,7 +2482,7 @@ const STYLES = `
 .fox-flow-badge-battery { left: 50%; bottom: 6%; transform: translateX(-50%); }
 .fox-flow-badge-home { right: 4%; bottom: 6%; align-items: flex-end; }
 .flow-path { fill: none; stroke-linecap: round; stroke-linejoin: round; opacity: 1; }
-.flow-path-underlay { opacity: 1; }
+.flow-path-bed { opacity: 1; }
 .flow-path.active {
   animation: flow 1.1s linear infinite; opacity: 1;
   stroke-linecap: butt; paint-order: stroke;
@@ -3880,7 +3888,7 @@ ${this._modeBannerExtra()}
         const isActive = activeIds.has(id);
         if (FOX_FLOW_HUB_SPOKES.has(id)) {
           if (!isActive) return flowPathMarkup({ d, cls, role: "track", isNight });
-          return `${flowPathMarkup({ d, cls, role: "track", isNight })}${flowPathMarkup({
+          return `${flowPathMarkup({ d, cls, role: "bed", isNight })}${flowPathMarkup({
             d,
             cls,
             role: "flow",
