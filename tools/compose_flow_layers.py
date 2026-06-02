@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from flow_scene_place import AIO_CONNECT, render_aio_layer, render_pv_layer
+from flow_scene_place import AIO_CONNECT, SOLAR_AIO_ROOF_Y, SOLAR_AIO_X, aio_solar_connect, render_aio_layer, render_pv_layer
 from key_flow_home_sky import remove_black_matte
 
 ROOT = Path(__file__).resolve().parents[1]

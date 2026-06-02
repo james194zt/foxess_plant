@@ -70,6 +70,28 @@ def aio_hub_connect(sprite: Image.Image, placement: AioPlacement) -> tuple[int, 
     return round((x0 + x1) / 2), tap_y
 
 
+# Vertical solar→AIO drop (sync FOX_FLOW_PATHS solar-aio in panel JS).
+SOLAR_AIO_X = 388
+SOLAR_AIO_ROOF_Y = 422  # lower edge of roof at this column (not ridge)
+
+
+def aio_solar_connect(sprite: Image.Image, placement: AioPlacement) -> tuple[int, int]:
+    """Top-centre of baked AIO layer for solar-aio vertical path."""
+    layer = render_aio_layer(sprite, placement)
+    alpha = layer.split()[3]
+    bbox = alpha.getbbox()
+    if not bbox:
+        return SOLAR_AIO_X, 696
+    x0, y0, x1, y1 = bbox
+    cx = SOLAR_AIO_X
+    if cx < x0 or cx > x1:
+        cx = (x0 + x1) // 2
+    for y in range(y0, y1):
+        if alpha.getpixel((cx, y)) > 40:
+            return cx, y
+    return cx, y0
+
+
 DEFAULT_AIO = {
     "scale_inset": 1.0,
     "dx": 0,
