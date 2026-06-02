@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.131
+ * @version 0.8.133
  */
 
 const NAV = [
@@ -35,8 +35,8 @@ const FOX_FLOW_PATHS = {
 };
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
-const FLOW_PATHS_VER = "flow-comet-v1";
-const PANEL_VERSION = "0.8.131";
+const FLOW_PATHS_VER = "flow-comet-v2";
+const PANEL_VERSION = "0.8.133";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -70,7 +70,7 @@ function registerFoxessPlantPanel() {
     console.error(`FoxESS Plant: could not register <${tag}>`, err);
   }
 }
-const FLOW_STROKE = { base: 4, underlay: 5, active: 7, hubActive: 10, hubR: 8 };
+const FLOW_STROKE = { base: 4, underlay: 5, active: 7, hubActive: 7, hubR: 8 };
 /** Inactive pipe track (light grey on house wall — inline stroke, not CSS vars). */
 const FLOW_PIPE_STROKE = { day: "#BEC5CE", night: "#78808C" };
 /** Pale underlay beneath animated hub spokes so dashes do not sit on dark gaps. */
@@ -86,11 +86,10 @@ const FLOW_ACTIVE_STROKE = {
 };
 const FLOW_COMET = {
   pathLen: 100,
-  head: 8,
-  tail: 20,
-  hubHeadSw: 5,
-  headSw: 4.5,
-  tailScale: 1.2,
+  pulse: 11,
+  hubHeadSw: 3.5,
+  headSw: 3,
+  glowScale: 2.1,
   dur: 1.75,
   durSolar: 1.55,
 };
@@ -127,36 +126,54 @@ function flowHubSpokeCls(id, gridExporting) {
   return "flow-battery";
 }
 
-/** Fox-style comet pulse: bright head + fading tail, one shot per path length. */
+/** Single Fox-style comet pulse (one blob + soft glow, same phase — not two dashes). */
 function flowCometPaths({ d, cls = "", headSw, stroke, reverse = false }) {
   const L = FLOW_COMET.pathLen;
-  const head = FLOW_COMET.head;
-  const tail = FLOW_COMET.tail;
+  const pulse = FLOW_COMET.pulse;
+  const gap = L - pulse;
   const rev = reverse ? " reverse" : "";
   const clsAttr = cls ? ` ${cls}` : "";
-  const tailSw = (headSw * FLOW_COMET.tailScale).toFixed(2);
+  const glowSw = (headSw * FLOW_COMET.glowScale).toFixed(2);
+  const dash = `${pulse} ${gap}`;
   return (
-    `<path class="flow-comet flow-comet-tail${clsAttr}${rev}" d="${d}" pathLength="${L}" stroke="${stroke}" stroke-width="${tailSw}" stroke-dasharray="${tail} ${L - tail}" stroke-linecap="round"></path>` +
-    `<path class="flow-comet flow-comet-head${clsAttr}${rev}" d="${d}" pathLength="${L}" stroke="${stroke}" stroke-width="${headSw}" stroke-dasharray="${head} ${L - head}" stroke-linecap="round"></path>`
+    `<path class="flow-comet flow-comet-glow${clsAttr}${rev}" d="${d}" pathLength="${L}" stroke="${stroke}" stroke-width="${glowSw}" stroke-dasharray="${dash}" stroke-linecap="round"></path>` +
+    `<path class="flow-comet flow-comet-pulse${clsAttr}${rev}" d="${d}" pathLength="${L}" stroke="${stroke}" stroke-width="${headSw}" stroke-dasharray="${dash}" stroke-linecap="round"></path>`
   );
 }
 
-/** role: track = idle pipe, bed = full-width grey pipe, flow = comet pulse */
-function flowPathMarkup({ d, cls = "", role = "track", isNight = false, reverse = false, idle = false }) {
-  const isFlow = role === "flow";
-  const isBed = role === "bed";
-  const isHubFlow = isFlow && cls === "flow-battery";
-  const stroke = isFlow ? flowActiveStroke(cls) : flowPipeStroke(isNight);
-  if (isFlow) {
-    const headSw = isHubFlow ? FLOW_COMET.hubHeadSw : FLOW_COMET.headSw;
-    return flowCometPaths({ d, cls, headSw, stroke, reverse });
-  }
-  const sw = isBed ? FLOW_STROKE.hubActive : FLOW_STROKE.base;
-  const cap = isBed ? ' stroke-linecap="butt"' : ' stroke-linecap="round"';
-  const bedCls = isBed ? " flow-path-bed" : "";
-  const idleCls = idle ? " flow-path-idle" : "";
-  const paintCls = isBed ? "" : cls;
-  return `<path class="flow-path${bedCls}${idleCls}${paintCls ? ` ${paintCls}` : ""}" d="${d}" stroke="${stroke}" stroke-width="${sw}"${cap}></path>`;
+function flowIdlePipeMarkup(d, isNight) {
+  const stroke = flowPipeStroke(isNight);
+  return `<path class="flow-path flow-path-idle" d="${d}" stroke="${stroke}" stroke-width="${FLOW_STROKE.hubActive}" stroke-linecap="round" stroke-linejoin="round"></path>`;
+}
+
+function renderFlowScenePaths({ lines, activeIds, gridExporting, isNight }) {
+  const idleHtml = Object.entries(FOX_FLOW_PATHS)
+    .map(([id, d]) => (FOX_FLOW_HUB_SPOKES.has(id) ? flowIdlePipeMarkup(d, isNight) : ""))
+    .join("");
+  const activeHtml = Object.entries(FOX_FLOW_PATHS)
+    .map(([id, d]) => {
+      const line = lines.find((l) => l.id === id);
+      if (!line || !FOX_FLOW_HUB_SPOKES.has(id)) return "";
+      const cls = flowHubSpokeCls(id, gridExporting);
+      if (!activeIds.has(id)) return "";
+      return flowPathMarkup({
+        d,
+        cls,
+        role: "flow",
+        isNight,
+        reverse: !!line?.reverse,
+      });
+    })
+    .join("");
+  return idleHtml + activeHtml;
+}
+
+/** role: flow = comet pulse (idle pipes drawn separately via renderFlowScenePaths). */
+function flowPathMarkup({ d, cls = "", role = "flow", isNight = false, reverse = false }) {
+  const isHubFlow = cls === "flow-battery";
+  const stroke = flowActiveStroke(cls);
+  const headSw = isHubFlow ? FLOW_COMET.hubHeadSw : FLOW_COMET.headSw;
+  return flowCometPaths({ d, cls, headSw, stroke, reverse });
 }
 
 const DEFAULT_PERIODS = [
@@ -2499,37 +2516,29 @@ const STYLES = `
 .fox-flow-badge-grid { left: 4%; bottom: 6%; align-items: flex-start; }
 .fox-flow-badge-battery { left: 50%; bottom: 6%; transform: translateX(-50%); }
 .fox-flow-badge-home { right: 4%; bottom: 6%; align-items: flex-end; }
-.flow-path { fill: none; stroke-linecap: round; stroke-linejoin: round; opacity: 1; }
-.flow-path-bed { opacity: 1; }
+.flow-path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.flow-path-idle { opacity: 0.92; }
 .flow-comet { fill: none; stroke-linejoin: round; pointer-events: none; }
-.flow-comet-tail { opacity: 0.38; }
-.flow-comet-head { opacity: 1; }
-.flow-comet-head.flow-solar { filter: drop-shadow(0 0 6px rgba(245, 188, 0, 0.85)); }
-.flow-comet-head.flow-grid { filter: drop-shadow(0 0 6px rgba(74, 154, 255, 0.85)); }
-.flow-comet-head.flow-export { filter: drop-shadow(0 0 6px rgba(181, 101, 255, 0.85)); }
-.flow-comet-head.flow-battery { filter: drop-shadow(0 0 8px rgba(51, 255, 119, 0.85)); }
-.flow-comet-head { animation: flow-comet-head-fwd 1.75s linear infinite; }
-.flow-comet-tail { animation: flow-comet-tail-fwd 1.75s linear infinite; }
-.flow-comet-head.flow-solar,
-.flow-comet-tail.flow-solar { animation-duration: 1.55s; }
-.flow-comet-head.reverse { animation-name: flow-comet-head-rev; }
-.flow-comet-tail.reverse { animation-name: flow-comet-tail-rev; }
+.flow-comet-glow { opacity: 0.28; }
+.flow-comet-pulse { opacity: 1; }
+.flow-comet-pulse.flow-solar { filter: drop-shadow(0 0 3px rgba(245, 188, 0, 0.7)); }
+.flow-comet-pulse.flow-grid { filter: drop-shadow(0 0 3px rgba(74, 154, 255, 0.7)); }
+.flow-comet-pulse.flow-export { filter: drop-shadow(0 0 3px rgba(181, 101, 255, 0.7)); }
+.flow-comet-pulse.flow-battery { filter: drop-shadow(0 0 4px rgba(51, 255, 119, 0.65)); }
+.flow-comet-pulse { animation: flow-comet-pulse-fwd 1.75s linear infinite; }
+.flow-comet-glow { animation: flow-comet-pulse-fwd 1.75s linear infinite; }
+.flow-comet-pulse.flow-solar,
+.flow-comet-glow.flow-solar { animation-duration: 1.55s; }
+.flow-comet-pulse.reverse,
+.flow-comet-glow.reverse { animation-name: flow-comet-pulse-rev; }
 .flow-hub-dot.active { filter: drop-shadow(0 0 8px rgba(51, 255, 119, 0.95)); }
-@keyframes flow-comet-head-fwd {
+@keyframes flow-comet-pulse-fwd {
   from { stroke-dashoffset: 100; }
-  to { stroke-dashoffset: -14; }
+  to { stroke-dashoffset: -12; }
 }
-@keyframes flow-comet-tail-fwd {
-  from { stroke-dashoffset: 114; }
-  to { stroke-dashoffset: 0; }
-}
-@keyframes flow-comet-head-rev {
-  from { stroke-dashoffset: -14; }
+@keyframes flow-comet-pulse-rev {
+  from { stroke-dashoffset: -12; }
   to { stroke-dashoffset: 100; }
-}
-@keyframes flow-comet-tail-rev {
-  from { stroke-dashoffset: 0; }
-  to { stroke-dashoffset: 114; }
 }
 .device-header { margin-bottom: 8px; }
 .device-header h1 { margin-bottom: 4px; }
@@ -3903,25 +3912,12 @@ ${this._modeBannerExtra()}
     const gridPower = gridExporting ? flows.gridExportW : flows.gridImportW;
     const batteryStatus = String(flows.batteryStatus || "Idle").toUpperCase();
     const batteryPower = Math.abs(flows.batteryW);
-    const pathsHtml = Object.entries(FOX_FLOW_PATHS)
-      .map(([id, d]) => {
-        const line = lines.find((l) => l.id === id);
-        if (!line && !FOX_FLOW_HUB_SPOKES.has(id)) return "";
-        const cls = flowHubSpokeCls(id, gridExporting);
-        const isActive = activeIds.has(id);
-        if (FOX_FLOW_HUB_SPOKES.has(id)) {
-          if (!isActive) return "";
-          return `${flowPathMarkup({ d, role: "bed", isNight })}${flowPathMarkup({
-            d,
-            cls,
-            role: "flow",
-            isNight,
-            reverse: !!line?.reverse,
-          })}`;
-        }
-        return flowPathMarkup({ d, cls, role: "flow", isNight, reverse: !!line?.reverse });
-      })
-      .join("");
+    const pathsHtml = renderFlowScenePaths({
+      lines,
+      activeIds,
+      gridExporting,
+      isNight,
+    });
     const hubActive = lines.some((l) => l.id.includes("hub"));
     return `<div class="scene-card scene-card--fox-flow">
 <div class="fox-flow-scene ${isNight ? "fox-flow-scene--night" : "fox-flow-scene--day"}" role="img" aria-label="Live energy flow" data-panel-build="${esc(this._panelBuild())}">
