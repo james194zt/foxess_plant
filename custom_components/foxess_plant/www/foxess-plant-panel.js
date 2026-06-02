@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.121
+ * @version 0.8.123
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-pipe-v3";
-const PANEL_VERSION = "0.8.121";
+const PANEL_VERSION = "0.8.123";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 
 /** Manifest version from cached module filename (foxess-plant-panel.v0_8_109.{hash}.js). */
@@ -2134,11 +2134,7 @@ const STYLES = `
 .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 12px; }
 .overview-hero-row { display: flex; flex-direction: column; gap: 14px; margin-bottom: 14px; }
 .overview-hero-scene { width: 100%; max-width: none; margin: 0; min-width: 0; }
-.overview-hero-scene .fox-flow-scene,
-.overview-hero-scene .fox-flow-stage {
-  width: 100%; max-width: none; margin: 0;
-}
-.overview-hero-scene .scene-card--fox-flow { margin-bottom: 0; }
+.overview-hero-scene .scene-card--fox-flow { margin-bottom: 0; width: 100%; }
 .overview-hero-stats {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;
   min-width: 0;
@@ -2429,14 +2425,18 @@ const STYLES = `
   width: 100%; margin: 0 0 14px; overflow: hidden;
 }
 .fox-flow-scene {
-  display: block; width: 100%; max-width: 440px; margin: 0 auto; background: transparent;
+  display: block; width: 100%; background: transparent;
 }
 .fox-flow-stage {
-  position: relative; width: 100%; max-width: 440px; margin: 0 auto;
+  position: relative; width: 100%;
   background: #000;
 }
 .fox-flow-stage::before {
   content: ""; display: block; width: 100%; padding-top: 99.31640625%;
+}
+.overview-hero-row .overview-hero-scene .fox-flow-scene,
+.overview-hero-row .overview-hero-scene .fox-flow-stage {
+  width: 100%; max-width: none; margin: 0; box-sizing: border-box;
 }
 .fox-flow-layer {
   position: absolute; pointer-events: none; user-select: none;
@@ -2736,20 +2736,21 @@ const STYLES = `
 .storm-advanced { margin-top: 4px; }
 .trigger-row.google-weather { background: color-mix(in srgb, var(--fp-accent) 10%, transparent); }
 .trigger-role { display: inline-block; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 6px; border-radius: 6px; margin-left: 6px; background: var(--secondary-background-color); color: var(--fp-accent); }
-@container fp-main (min-width: 720px) {
+@container fp-main (min-width: 560px) {
   .overview-hero-row {
-    flex-direction: row;
-    align-items: flex-start;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
     gap: 14px;
   }
   .overview-hero-scene {
-    flex: 0 0 440px;
-    width: 440px;
-    max-width: 440px;
+    width: 100%;
+    max-width: none;
     margin: 0;
+    min-width: 0;
   }
   .overview-hero-stats {
-    flex: 1;
+    flex: none;
     min-width: 0;
     display: flex;
     flex-direction: column;
