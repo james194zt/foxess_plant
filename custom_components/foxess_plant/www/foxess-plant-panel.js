@@ -29,8 +29,8 @@ const FOX_FLOW_PATHS = {
   "solar-aio": "M 388 406 L 388 659",
   "grid-hub": "M 228 848 L 536 848 L 536 726",
   "hub-grid": "M 536 726 L 536 848 L 228 848",
-  "aio-hub": "M 405 724 L 536 726",
-  "hub-aio": "M 536 726 L 405 724",
+  "aio-hub": "M 404 724 L 536 726",
+  "hub-aio": "M 536 726 L 404 724",
   "hub-home": "M 536 726 L 636 698",
 };
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);

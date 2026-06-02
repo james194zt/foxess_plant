@@ -27,7 +27,7 @@ AIO_FACE_X = 405
 AIO_FOOT_Y = 778
 # ~2/3 up the right edge of opaque AIO art (from foot toward top).
 AIO_HUB_TAP_UP_FRAC = 2 / 3
-AIO_CONNECT = (405, 724)
+AIO_CONNECT = (404, 724)
 # Opaque bbox fractions on flow_aio_812 sprite (232×255, after matte strip).
 AIO_OPAQUE_FRAC = (66 / 232, 14 / 255, 172 / 232, 175 / 255)  # y1 = cabinet base (excl. shadow)
 
@@ -55,13 +55,19 @@ def aio_paste_xy(sprite: Image.Image, placement: AioPlacement) -> tuple[int, int
 
 
 def aio_hub_connect(sprite: Image.Image, placement: AioPlacement) -> tuple[int, int]:
-    """Right-edge tap for aio-hub / hub-aio (default ~2/3 up from AIO foot)."""
-    px, py, scale, _, _ = aio_paste_xy(sprite, placement)
-    ox0, oy0, ox1, oy1 = AIO_OPAQUE_FRAC
-    sw, sh = sprite.size
-    x0, y0, x1, y1 = int(sw * ox0), int(sh * oy0), int(sw * ox1), int(sh * oy1)
-    tap_y = y1 - (y1 - y0) * AIO_HUB_TAP_UP_FRAC
-    return round(px + x1 * scale), round(py + tap_y * scale)
+    """Right-edge tap for aio-hub / hub-aio (~2/3 up from AIO foot on baked layer)."""
+    layer = render_aio_layer(sprite, placement)
+    alpha = layer.split()[3]
+    bbox = alpha.getbbox()
+    if not bbox:
+        return AIO_CONNECT
+    x0, y0, x1, y1 = bbox
+    tap_y = round(y1 - (y1 - y0) * AIO_HUB_TAP_UP_FRAC)
+    tap_y = max(y0, min(y1 - 1, tap_y))
+    for x in range(x1, x0 - 1, -1):
+        if alpha.getpixel((x, tap_y)) > 40:
+            return x, tap_y
+    return round((x0 + x1) / 2), tap_y
 
 
 DEFAULT_AIO = {
