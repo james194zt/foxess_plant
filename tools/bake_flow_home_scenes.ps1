@@ -6,18 +6,24 @@ $canvasW = 1024
 $canvasH = 1017
 $homeThemes = @("day_light", "day_dark", "night_light", "night_dark")
 $overlayThemes = @("day_light", "night_dark")
-# Only near-black matte pixels; keep dark roof tiles (typically max channel > 32).
 $matteLum = 28
 
 $boxes = @{
+    pv  = @{ left = 0.388; top = 0.342; width = 0.448; height = 0.242 }
     aio = @{ left = 0.312; top = 0.622; width = 0.136; height = 0.222 }
 }
-# Right roof slope quad on 1024x1017 (TL, TR, BL for GDI+ DrawImage).
-$pvRoofQuad = @(
-    @{ x = 422; y = 410 }
-    @{ x = 706; y = 368 }
-    @{ x = 438; y = 558 }
-)
+
+function Invoke-DecodeWebp {
+    $need = $false
+    foreach ($theme in $overlayThemes) {
+        if (-not (Test-Path (Join-Path $www "flow_pv_${theme}_sprite.png"))) { $need = $true }
+    }
+    if (-not $need) { return }
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    wsl bash -c "sed -i 's/\r$//' /mnt/c/Users/James/Documents/repo/foxess_plant/tools/decode_flow_webp.sh 2>/dev/null; bash /mnt/c/Users/James/Documents/repo/foxess_plant/tools/decode_flow_webp.sh" 2>&1 | Out-Host
+    $ErrorActionPreference = $prevEap
+}
 
 function Remove-BlackMatte([System.Drawing.Bitmap]$bmp) {
     $rect = New-Object System.Drawing.Rectangle 0, 0, $bmp.Width, $bmp.Height
@@ -68,79 +74,41 @@ function Load-HomeLayer([string]$theme) {
     return $bmp
 }
 
-function Get-SpriteCrop([System.Drawing.Bitmap]$bmp) {
-    $minX = $bmp.Width; $minY = $bmp.Height; $maxX = 0; $maxY = 0
-    for ($y = 0; $y -lt $bmp.Height; $y++) {
-        for ($x = 0; $x -lt $bmp.Width; $x++) {
-            if ($bmp.GetPixel($x, $y).A -gt 24) {
-                if ($x -lt $minX) { $minX = $x }
-                if ($y -lt $minY) { $minY = $y }
-                if ($x -gt $maxX) { $maxX = $x }
-                if ($y -gt $maxY) { $maxY = $y }
-            }
-        }
-    }
-    if ($maxX -le $minX) { throw "No opaque pixels in sprite source" }
-    $w = $maxX - $minX + 1
-    $h = $maxY - $minY + 1
-    $crop = New-Object System.Drawing.Bitmap $w, $h, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
-    $g = [System.Drawing.Graphics]::FromImage($crop)
-    $g.DrawImage($bmp, (New-Object System.Drawing.Rectangle 0, 0, $w, $h),
-        (New-Object System.Drawing.Rectangle $minX, $minY, $w, $h),
-        [System.Drawing.GraphicsUnit]::Pixel)
-    $g.Dispose()
-    return $crop
-}
+function Bake-OverlayScene([string]$layer, [string]$theme) {
+    $box = $boxes[$layer]
+    $left = [int][Math]::Floor($box.left * $canvasW)
+    $top = [int][Math]::Floor($box.top * $canvasH)
+    $bw = [int][Math]::Round($box.width * $canvasW)
+    $bh = [int][Math]::Round($box.height * $canvasH)
+    $spriteName = if ($layer -eq "pv") { "flow_pv" } else { "flow_aio_812" }
+    $spritePath = Join-Path $www "${spriteName}_${theme}_sprite.png"
+    if (-not (Test-Path $spritePath)) { throw "Missing $spritePath (run decode_flow_webp.sh)" }
+    $outPath = Join-Path $www "flow_${layer}_scene_$theme.png"
 
-function Draw-SpriteOnRoof([System.Drawing.Graphics]$g, [System.Drawing.Bitmap]$sprite, $quad) {
-    $dest = [System.Drawing.Point[]]@(
-        [System.Drawing.Point]::new([int]$quad[0].x, [int]$quad[0].y),
-        [System.Drawing.Point]::new([int]$quad[1].x, [int]$quad[1].y),
-        [System.Drawing.Point]::new([int]$quad[2].x, [int]$quad[2].y)
-    )
-    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-    $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-    $g.DrawImage($sprite, $dest)
-}
+    $src = [System.Drawing.Bitmap]::FromFile($spritePath)
+    $fitted = New-Object System.Drawing.Bitmap $bw, $bh, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $gs = [System.Drawing.Graphics]::FromImage($fitted)
+    $gs.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $gs.DrawImage($src, 0, 0, $bw, $bh)
+    $gs.Dispose()
+    $src.Dispose()
+    Remove-BlackMatte $fitted
 
-function Bake-PvScene([string]$theme) {
-    $outPath = Join-Path $www "flow_pv_scene_$theme.png"
-    if (-not (Test-Path $outPath)) { throw "Missing $outPath" }
-    $legacy = [System.Drawing.Bitmap]::FromFile($outPath)
-    $sprite = Get-SpriteCrop $legacy
-    $legacy.Dispose()
-    Remove-BlackMatte $sprite
     $canvas = New-Object System.Drawing.Bitmap $canvasW, $canvasH, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
-    $g = [System.Drawing.Graphics]::FromImage($canvas)
-    Draw-SpriteOnRoof $g $sprite $pvRoofQuad
-    $g.Dispose()
-    $sprite.Dispose()
+    $gc = [System.Drawing.Graphics]::FromImage($canvas)
+    $gc.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $gc.DrawImage($fitted, $left, $top, $bw, $bh)
+    $gc.Dispose()
+    $fitted.Dispose()
     $tmp = "$outPath.tmp"
     $canvas.Save($tmp, [System.Drawing.Imaging.ImageFormat]::Png)
     $canvas.Dispose()
     if (Test-Path $outPath) { Remove-Item -Force $outPath }
     Move-Item -Force $tmp $outPath
-    Write-Host "wrote flow_pv_scene_$theme.png (roof perspective)"
+    Write-Host "wrote flow_${layer}_scene_$theme.png"
 }
 
-function Bake-AioScene([string]$theme) {
-    $box = $boxes.aio
-    $left = [int][Math]::Floor($box.left * $canvasW)
-    $top = [int][Math]::Floor($box.top * $canvasH)
-    $bw = [int][Math]::Round($box.width * $canvasW)
-    $bh = [int][Math]::Round($box.height * $canvasH)
-    $srcPath = Join-Path $www "flow_aio_812_$theme.png"
-    $outPath = Join-Path $www "flow_aio_scene_$theme.png"
-    if (-not (Test-Path $outPath)) { throw "Missing $outPath" }
-    $scene = [System.Drawing.Bitmap]::FromFile($outPath)
-    Remove-BlackMatte $scene
-    $tmp = "$outPath.tmp"
-    $scene.Save($tmp, [System.Drawing.Imaging.ImageFormat]::Png)
-    $scene.Dispose()
-    if (Test-Path $outPath) { Remove-Item -Force $outPath }
-    Move-Item -Force $tmp $outPath
-    Write-Host "matte-removed flow_aio_scene_$theme.png"
-}
+Invoke-DecodeWebp
 
 $homeLayers = @{}
 foreach ($t in $homeThemes) {
@@ -186,6 +154,6 @@ foreach ($theme in $homeThemes) {
 foreach ($bmp in $homeLayers.Values) { $bmp.Dispose() }
 
 foreach ($theme in $overlayThemes) {
-    Bake-PvScene $theme
-    Bake-AioScene $theme
+    Bake-OverlayScene "pv" $theme
+    Bake-OverlayScene "aio" $theme
 }
