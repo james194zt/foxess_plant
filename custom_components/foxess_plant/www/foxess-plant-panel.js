@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.112
+ * @version 0.8.113
  */
 
 const NAV = [
@@ -35,8 +35,8 @@ const FOX_FLOW_PATHS = {
 };
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
-const FLOW_PATHS_VER = "flow-solar-aio";
-const PANEL_VERSION = "0.8.112";
+const FLOW_PATHS_VER = "flow-pipe-v3";
+const PANEL_VERSION = "0.8.113";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 
 /** Manifest version from cached module filename (foxess-plant-panel.v0_8_109.{hash}.js). */
@@ -69,19 +69,22 @@ function registerFoxessPlantPanel() {
     console.error(`FoxESS Plant: could not register <${tag}>`, err);
   }
 }
-const FLOW_STROKE = { base: 4, active: 7, hubR: 8 };
-/** Inactive pipe track — Fox charcoal softened for 3D scene overlay (app uses darker on flat grey UI). */
-const FLOW_PIPE_STROKE = "#A8AEB6";
-/** Active flow colours (brighter than Material defaults for contrast on pipe tracks). */
+const FLOW_STROKE = { base: 4, underlay: 5, active: 7, hubActive: 10, hubR: 8 };
+/** Inactive pipe track (light grey on house wall — inline stroke, not CSS vars). */
+const FLOW_PIPE_STROKE = { day: "#BEC5CE", night: "#78808C" };
+/** Pale underlay beneath animated hub spokes so dashes do not sit on dark gaps. */
+const FLOW_PIPE_UNDERLAY = { day: "#EEF1F5", night: "#9AA4B0" };
+/** Active flow colours — inline on SVG paths for reliable rendering in HA shadow DOM. */
 const FLOW_ACTIVE_STROKE = {
   solar: "#F5BC00",
   grid: "#4A9AFF",
   export: "#B565FF",
-  battery: "#4DDC72",
-  home: "#4DDC72",
+  battery: "#33FF77",
+  home: "#33FF77",
   hub: "#4C925B",
 };
-const FLOW_DASH = "18 22";
+const FLOW_DASH = "14 10";
+const FLOW_HUB_DASH = "16 8";
 const FLOW_SCENE_PV_THRESHOLD_W = 40;
 const FLOW_SCENE_ASSET_VER = 34;
 
@@ -92,14 +95,45 @@ const FLOW_SCENE_BG_THEMES = new Set([
   "night_dark",
 ]);
 
-function flowPathMarkup({ d, cls, isBase = false, isActive = false, reverse = false }) {
-  const sw = isActive && !isBase ? FLOW_STROKE.active : FLOW_STROKE.base;
-  const dash = isActive && !isBase ? ` stroke-dasharray="${FLOW_DASH}"` : "";
-  const cap = isActive && !isBase ? ' stroke-linecap="butt"' : ' stroke-linecap="round"';
-  const activeCls = isActive && !isBase ? " active" : "";
+function flowPipeStroke(isNight) {
+  return isNight ? FLOW_PIPE_STROKE.night : FLOW_PIPE_STROKE.day;
+}
+
+function flowPipeUnderlay(isNight) {
+  return isNight ? FLOW_PIPE_UNDERLAY.night : FLOW_PIPE_UNDERLAY.day;
+}
+
+function flowActiveStroke(cls) {
+  if (cls === "flow-solar") return FLOW_ACTIVE_STROKE.solar;
+  if (cls === "flow-grid") return FLOW_ACTIVE_STROKE.grid;
+  if (cls === "flow-export") return FLOW_ACTIVE_STROKE.export;
+  if (cls === "flow-home-line") return FLOW_ACTIVE_STROKE.home;
+  return FLOW_ACTIVE_STROKE.battery;
+}
+
+/** role: track = idle pipe, underlay = pale bed under active dash, flow = animated segment */
+function flowPathMarkup({ d, cls, role = "track", isNight = false, reverse = false }) {
+  const isFlow = role === "flow";
+  const isUnderlay = role === "underlay";
+  const isHubFlow = isFlow && (cls === "flow-battery" || cls === "flow-home-line");
+  const sw = isFlow
+    ? isHubFlow
+      ? FLOW_STROKE.hubActive
+      : FLOW_STROKE.active
+    : isUnderlay
+      ? FLOW_STROKE.underlay
+      : FLOW_STROKE.base;
+  const stroke = isFlow
+    ? flowActiveStroke(cls)
+    : isUnderlay
+      ? flowPipeUnderlay(isNight)
+      : flowPipeStroke(isNight);
+  const dash = isFlow ? ` stroke-dasharray="${isHubFlow ? FLOW_HUB_DASH : FLOW_DASH}"` : "";
+  const cap = isFlow ? ' stroke-linecap="butt"' : ' stroke-linecap="round"';
+  const activeCls = isFlow ? " active" : "";
+  const underlayCls = isUnderlay ? " flow-path-underlay" : "";
   const rev = reverse ? " reverse" : "";
-  const baseCls = isBase ? " flow-path-base" : "";
-  return `<path class="flow-path${baseCls} ${cls}${activeCls}${rev}" d="${d}" stroke-width="${sw}"${dash}${cap}></path>`;
+  return `<path class="flow-path${underlayCls} ${cls}${activeCls}${rev}" d="${d}" stroke="${stroke}" stroke-width="${sw}"${dash}${cap}></path>`;
 }
 
 const DEFAULT_PERIODS = [
@@ -1658,13 +1692,6 @@ const STYLES = `
   --fp-green: #2e7d32;
   --fp-amber: #f9a825;
   --fp-red: #e53935;
-  --fp-flow-pipe: ${FLOW_PIPE_STROKE};
-  --fp-flow-active-solar: ${FLOW_ACTIVE_STROKE.solar};
-  --fp-flow-active-grid: ${FLOW_ACTIVE_STROKE.grid};
-  --fp-flow-active-export: ${FLOW_ACTIVE_STROKE.export};
-  --fp-flow-active-battery: ${FLOW_ACTIVE_STROKE.battery};
-  --fp-flow-active-home: ${FLOW_ACTIVE_STROKE.home};
-  --fp-flow-active-hub: ${FLOW_ACTIVE_STROKE.hub};
 }
 .shell {
   display: flex; flex-direction: column; height: 100%;
@@ -2071,27 +2098,25 @@ const STYLES = `
 .fox-flow-badge-grid { left: 4%; bottom: 6%; align-items: flex-start; }
 .fox-flow-badge-battery { left: 50%; bottom: 6%; transform: translateX(-50%); }
 .fox-flow-badge-home { right: 4%; bottom: 6%; align-items: flex-end; }
-.flow-path { fill: none; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; stroke: var(--fp-flow-pipe); opacity: 0.92; }
-.flow-path-base { pointer-events: none; }
+.flow-path { fill: none; stroke-linecap: round; stroke-linejoin: round; opacity: 1; }
+.flow-path-underlay { opacity: 1; }
 .flow-path.active {
-  stroke-width: 7; stroke-dasharray: 18 22; animation: flow 1.1s linear infinite; opacity: 1;
-  stroke-linecap: butt; paint-order: stroke; filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.55));
+  animation: flow 1.1s linear infinite; opacity: 1;
+  stroke-linecap: butt; paint-order: stroke;
+  filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.75));
 }
 .flow-path.reverse { animation-direction: reverse; }
-.flow-solar.active { stroke: var(--fp-flow-active-solar); filter: drop-shadow(0 0 5px rgba(245, 188, 0, 0.75)); }
-.flow-grid.active { stroke: var(--fp-flow-active-grid); filter: drop-shadow(0 0 5px rgba(74, 154, 255, 0.75)); }
-.flow-export.active { stroke: var(--fp-flow-active-export); filter: drop-shadow(0 0 5px rgba(181, 101, 255, 0.75)); }
+.flow-solar.active { filter: drop-shadow(0 0 6px rgba(245, 188, 0, 0.85)); }
+.flow-grid.active { filter: drop-shadow(0 0 6px rgba(74, 154, 255, 0.85)); }
+.flow-export.active { filter: drop-shadow(0 0 6px rgba(181, 101, 255, 0.85)); }
 .flow-battery.active {
-  stroke: var(--fp-flow-active-battery);
-  filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.65)) drop-shadow(0 0 8px rgba(77, 220, 114, 0.9));
+  filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.85)) drop-shadow(0 0 10px rgba(51, 255, 119, 0.95));
 }
 .flow-home-line.active {
-  stroke: var(--fp-flow-active-home);
-  filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.65)) drop-shadow(0 0 8px rgba(77, 220, 114, 0.9));
+  filter: drop-shadow(0 0 5px rgba(255, 255, 255, 0.85)) drop-shadow(0 0 10px rgba(51, 255, 119, 0.95));
 }
-.flow-hub-dot { fill: var(--fp-flow-pipe); opacity: 0.92; }
-.flow-hub-dot.active { fill: var(--fp-flow-active-hub); filter: drop-shadow(0 0 6px rgba(77, 220, 114, 0.95)); }
-@keyframes flow { to { stroke-dashoffset: -80; } }
+.flow-hub-dot.active { filter: drop-shadow(0 0 8px rgba(51, 255, 119, 0.95)); }
+@keyframes flow { to { stroke-dashoffset: -48; } }
 .device-header { margin-bottom: 8px; }
 .device-header h1 { margin-bottom: 4px; }
 .device-model { margin: 0; font-size: 14px; color: var(--secondary-text-color); }
@@ -3409,11 +3434,16 @@ ${this._modeBannerExtra()}
               : "flow-home-line";
         const isActive = activeIds.has(id);
         if (FOX_FLOW_HUB_SPOKES.has(id)) {
-          const base = flowPathMarkup({ d, cls, isBase: true });
-          if (!isActive) return base;
-          return `${base}${flowPathMarkup({ d, cls, isActive: true, reverse: !!line?.reverse })}`;
+          if (!isActive) return flowPathMarkup({ d, cls, role: "track", isNight });
+          return `${flowPathMarkup({ d, cls, role: "underlay", isNight })}${flowPathMarkup({
+            d,
+            cls,
+            role: "flow",
+            isNight,
+            reverse: !!line?.reverse,
+          })}`;
         }
-        return flowPathMarkup({ d, cls, isActive });
+        return flowPathMarkup({ d, cls, role: "flow", isNight, reverse: !!line?.reverse });
       })
       .join("");
     const hubActive = lines.some((l) => l.id.includes("hub"));
@@ -3423,9 +3453,9 @@ ${this._modeBannerExtra()}
 <img class="fox-flow-layer fox-flow-layer-bg" src="${esc(flowSceneLayerUrl("bg", bgTheme, overlayTheme))}" alt="" loading="eager" decoding="async" fetchpriority="high" />
 <img class="fox-flow-layer fox-flow-layer-pv" src="${esc(flowSceneLayerUrl("pv", bgTheme, overlayTheme))}" alt="" loading="lazy" decoding="async" />
 <img class="fox-flow-layer fox-flow-layer-aio" src="${esc(flowSceneLayerUrl("aio", bgTheme, overlayTheme))}" alt="" loading="lazy" decoding="async" />
-<svg class="fox-flow-svg" viewBox="0 0 1024 1017" preserveAspectRatio="xMidYMid meet" aria-hidden="true" data-flow-paths-ver="${esc(this._panel?.config?.flow_paths_ver || FLOW_PATHS_VER)}" data-flow-stroke-base="${FLOW_STROKE.base}" data-flow-stroke-active="${FLOW_STROKE.active}" data-hub-r="${FLOW_STROKE.hubR}" data-hub-home="${esc(FOX_FLOW_PATHS["hub-home"])}" data-aio-hub="${esc(FOX_FLOW_PATHS["aio-hub"])}">
+<svg class="fox-flow-svg" viewBox="0 0 1024 1017" preserveAspectRatio="xMidYMid meet" aria-hidden="true" data-flow-paths-ver="${esc(this._panel?.config?.flow_paths_ver || FLOW_PATHS_VER)}" data-flow-pipe-day="${FLOW_PIPE_STROKE.day}" data-flow-stroke-base="${FLOW_STROKE.base}" data-flow-stroke-active="${FLOW_STROKE.hubActive}" data-hub-r="${FLOW_STROKE.hubR}" data-hub-home="${esc(FOX_FLOW_PATHS["hub-home"])}" data-aio-hub="${esc(FOX_FLOW_PATHS["aio-hub"])}">
 ${pathsHtml}
-<circle class="flow-hub-dot ${hubActive ? "active" : ""}" cx="${FOX_FLOW_HUB.x}" cy="${FOX_FLOW_HUB.y}" r="${FLOW_STROKE.hubR}"/>
+<circle class="flow-hub-dot ${hubActive ? "active" : ""}" cx="${FOX_FLOW_HUB.x}" cy="${FOX_FLOW_HUB.y}" r="${FLOW_STROKE.hubR}" fill="${hubActive ? FLOW_ACTIVE_STROKE.hub : flowPipeStroke(isNight)}"/>
 </svg>
 <div class="fox-flow-badge fox-flow-badge-solar">
 <span class="fox-flow-badge-label">Solar</span>
