@@ -1496,13 +1496,27 @@ function flowSceneLayerUrl(layer, bgTheme, overlayTheme = flowSceneOverlayTheme(
   return `/foxess_plant_panel/flow_${layer}_scene_${theme}.png?v=${FLOW_SCENE_ASSET_VER}`;
 }
 
+function inferBatteryFlowDirection(flows, threshold = FLOW_SCENE_PV_THRESHOLD_W) {
+  const st = String(flows.batteryStatus || "").toLowerCase();
+  if (st.includes("discharg")) {
+    return { discharging: true, charging: false };
+  }
+  if (st.includes("charg")) {
+    return { discharging: false, charging: true };
+  }
+  const w = flows.batteryW;
+  return {
+    discharging: w > threshold,
+    charging: w < -threshold,
+  };
+}
+
 function computeFlowLines(flows, threshold = FLOW_SCENE_PV_THRESHOLD_W) {
   const lines = [];
   const hasPv = flows.pvW > threshold;
   const hasGridIn = flows.gridImportW > threshold;
   const hasGridOut = flows.gridExportW > threshold;
-  const discharging = flows.batteryW > threshold;
-  const charging = flows.batteryW < -threshold;
+  const { discharging, charging } = inferBatteryFlowDirection(flows, threshold);
   const hasLoad = flows.loadW > threshold;
 
   if (hasPv) {
