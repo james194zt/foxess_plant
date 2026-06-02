@@ -18,7 +18,7 @@ DEFAULT_PV = {
     "scale_inset": 1.06,
     "at_box_origin": True,
     "dx": -10,
-    "dy": -6,
+    "dy": -4,
 }
 
 
