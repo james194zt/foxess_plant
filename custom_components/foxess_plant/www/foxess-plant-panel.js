@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.117
+ * @version 0.8.119
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-pipe-v3";
-const PANEL_VERSION = "0.8.117";
+const PANEL_VERSION = "0.8.119";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 
 /** Manifest version from cached module filename (foxess-plant-panel.v0_8_109.{hash}.js). */
@@ -638,11 +638,132 @@ const CHART_ENTITY_FALLBACKS = {
   grid_export: ["feed_in", "grid_ct", "grid_export"],
   load_power: ["load_power", "load_power_total"],
   solar_energy_today: ["solar_energy_today"],
+  feed_in_energy_today: ["feed_in_energy_today", "feed_in_energy"],
   load_energy_today: ["load_energy_today"],
   battery_discharge_today: ["battery_discharge_today"],
   battery_charge_today: ["battery_charge_today"],
   grid_consumption_energy_today: ["grid_consumption_energy_today"],
 };
+
+const ANALYTICS_STATE_KEYS = [
+  "solar_energy_today",
+  "feed_in_energy_today",
+  "load_energy_today",
+  "grid_consumption_energy_today",
+  "battery_discharge_today",
+  "battery_charge_today",
+];
+
+const ANALYTICS_SUFFIXES = {
+  solar_energy_today: ["solar_energy_today"],
+  feed_in_energy_today: ["feed_in_energy_today", "feed_in_energy"],
+  load_energy_today: ["load_energy_today"],
+  grid_consumption_energy_today: ["grid_consumption_energy_today"],
+  battery_discharge_today: ["battery_discharge_today"],
+  battery_charge_today: ["battery_charge_today"],
+};
+
+function analyticsFloat(states, key) {
+  const raw = states[key];
+  if (raw == null || raw === "" || raw === "unknown" || raw === "unavailable") return 0;
+  const n = parseFloat(raw);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function computeAnalyticsFromStates(states) {
+  const pv = analyticsFloat(states, "solar_energy_today");
+  const toGrid = analyticsFloat(states, "feed_in_energy_today");
+  const toLoadBattery = Math.max(0, pv - toGrid);
+  const baseLoad = analyticsFloat(states, "load_energy_today");
+  const batteryDischarge = analyticsFloat(states, "battery_discharge_today");
+  const batteryCharge = analyticsFloat(states, "battery_charge_today");
+  const fromGrid = analyticsFloat(states, "grid_consumption_energy_today");
+  const loadConsumption = baseLoad - batteryDischarge + batteryCharge + fromGrid;
+  const fromPvBattery = Math.max(0, loadConsumption - fromGrid);
+  const selfConsumption = pv > 0 ? Math.min(100, Math.max(0, (toLoadBattery / pv) * 100)) : 0;
+  const selfSufficiency =
+    loadConsumption > 0 ? Math.min(100, Math.max(0, (fromPvBattery / loadConsumption) * 100)) : 0;
+  return {
+    pv_production_kwh_today: Math.round(pv * 100) / 100,
+    pv_to_load_battery_kwh_today: Math.round(toLoadBattery * 100) / 100,
+    pv_to_grid_kwh_today: Math.round(toGrid * 100) / 100,
+    load_consumption_kwh_today: Math.round(loadConsumption * 100) / 100,
+    load_from_pv_battery_kwh_today: Math.round(fromPvBattery * 100) / 100,
+    load_from_grid_kwh_today: Math.round(fromGrid * 100) / 100,
+    self_consumption_percent_today: Math.round(selfConsumption * 10) / 10,
+    self_sufficiency_percent_today: Math.round(selfSufficiency * 10) / 10,
+    battery_charge_kwh_today: Math.round(batteryCharge * 100) / 100,
+    battery_discharge_kwh_today: Math.round(batteryDischarge * 100) / 100,
+  };
+}
+
+/** Prefer live hass.states (with suffix scan) — coordinator analytics can lag or miss mapped entities. */
+function resolveAnalyticsEntityStates(hass, map) {
+  const states = {};
+  if (!hass?.states) return states;
+  const ids = Object.keys(hass.states);
+  for (const key of ANALYTICS_STATE_KEYS) {
+    const suffixes = ANALYTICS_SUFFIXES[key] || [key];
+    const candidates = new Set();
+    if (map[key]) candidates.add(map[key]);
+    for (const entityId of ids) {
+      for (const suffix of suffixes) {
+        if (entityIdMatchesSuffix(entityId, suffix)) candidates.add(entityId);
+      }
+    }
+    let bestState = null;
+    let bestVal = -1;
+    for (const entityId of candidates) {
+      const st = hass.states[entityId];
+      if (!st || st.state === "unknown" || st.state === "unavailable") continue;
+      const v = parseFloat(st.state);
+      if (!Number.isFinite(v)) continue;
+      if (v >= bestVal) {
+        bestVal = v;
+        bestState = st.state;
+      }
+    }
+    if (bestState != null) states[key] = bestState;
+  }
+  return states;
+}
+
+function readLiveAnalytics(hass, plant, plantState, overviewDaily) {
+  const map = resolveEntityMap(hass, plant, plantState);
+  const states = resolveAnalyticsEntityStates(hass, map);
+  let analytics = computeAnalyticsFromStates(states);
+  const cached = plantState?.analytics ?? {};
+
+  const pvFromHistory = overviewDaily?.production?.at(-1);
+  const loadFromHistory = overviewDaily?.consumption?.at(-1);
+  if (pvFromHistory > 0 && analytics.pv_production_kwh_today < pvFromHistory) {
+    analytics = computeAnalyticsFromStates({ ...states, solar_energy_today: String(pvFromHistory) });
+  }
+  if (loadFromHistory > 0 && analytics.load_consumption_kwh_today < loadFromHistory) {
+    const patched = { ...states, load_energy_today: String(loadFromHistory) };
+    if (analyticsFloat(states, "grid_consumption_energy_today") === 0) {
+      patched.grid_consumption_energy_today = "0";
+    }
+    analytics = {
+      ...analytics,
+      load_consumption_kwh_today: Math.round(loadFromHistory * 100) / 100,
+      self_sufficiency_percent_today:
+        loadFromHistory > 0
+          ? Math.round(
+              Math.min(
+                100,
+                Math.max(0, ((loadFromHistory - analyticsFloat(states, "grid_consumption_energy_today")) / loadFromHistory) * 100)
+              ) * 10
+            ) / 10
+          : analytics.self_sufficiency_percent_today,
+    };
+  }
+
+  if (!Object.keys(states).length && cached.pv_production_kwh_today != null) {
+    return cached;
+  }
+  return { ...cached, ...analytics };
+}
 
 function entityIdMatchesSuffix(entityId, suffix) {
   return (
@@ -3769,8 +3890,9 @@ ${pathsHtml}
   }
 
   _stat(label, value, suffix = "") {
-    const has = value != null && value !== "—";
-    return `<div class="stat"><label>${esc(label)}</label><strong>${has ? esc(String(value)) + esc(suffix) : "—"}</strong></div>`;
+    const has = value != null && value !== "—" && !(typeof value === "number" && !Number.isFinite(value));
+    const show = has ? esc(String(value)) + esc(suffix) : "—";
+    return `<div class="stat"><label>${esc(label)}</label><strong>${show}</strong></div>`;
   }
 
   _renderImpactPanel() {
@@ -3900,7 +4022,7 @@ ${this._renderOverviewDailyCard(
   }
 
   _renderOverview(plant) {
-    const a = this._plantState?.analytics ?? {};
+    const a = readLiveAnalytics(this._hass, plant, this._plantState, this._overviewDaily);
     const modelLine = plantModelSubtitle(this._hass, plant, this._plantState);
     return `<header class="header overview-header"><h1>${esc(plant.title)}</h1>${modelLine !== "—" ? `<p class="overview-model">${esc(modelLine)}</p>` : ""}${this._renderOverviewStatusBlock(plant)}</header>
 <div class="overview-hero-row">
@@ -4857,6 +4979,9 @@ ${active
       this._statisticsChart?.series
     ) {
       this._bindStatisticsChart();
+    }
+    if (this._view === "overview" && this._overviewDaily?.labels?.length) {
+      bindOverviewDailyCharts(this._root);
     }
     if (this._view === "energy") {
       const plant = this._getPlant();
