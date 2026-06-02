@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.119
+ * @version 0.8.120
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-pipe-v3";
-const PANEL_VERSION = "0.8.119";
+const PANEL_VERSION = "0.8.120";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 
 /** Manifest version from cached module filename (foxess-plant-panel.v0_8_109.{hash}.js). */
@@ -1403,9 +1403,11 @@ function renderOverviewDailySparklineSvg(values, labels, accentColor) {
   if (!n) return "";
   const width = 156;
   const height = 54;
-  const pad = { l: 6, r: 6, t: 16, b: 16 };
+  const pad = { l: 6, r: 6, t: 14, b: 12 };
   const w = width - pad.l - pad.r;
   const h = height - pad.t - pad.b;
+  const dayFont = 6;
+  const todayFont = 5.5;
   let yMax = 0.1;
   for (let i = 0; i < n; i++) yMax = Math.max(yMax, values[i] || 0);
   yMax *= 1.1;
@@ -1421,22 +1423,23 @@ function renderOverviewDailySparklineSvg(values, labels, accentColor) {
     const x = cx - barW / 2;
     const y = pad.t + h - bh;
     const fill = i === todayIdx ? accentColor : OVERVIEW_DAILY_COLORS.barMuted;
-    const dayTitle = formatOverviewDayLabel(labels[i]);
-    const tip = `${dayTitle} · ${formatDailyKwh(v)}`;
+    const tip = formatDailyKwh(v);
     parts.push(
       `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="${fill}"/>`
     );
     if (i === todayIdx) {
-      parts.push(`<text x="${cx.toFixed(1)}" y="9" text-anchor="middle" class="overview-daily-today-mark">Today</text>`);
       parts.push(
-        `<line x1="${cx.toFixed(1)}" y1="11" x2="${cx.toFixed(1)}" y2="${(y - 1).toFixed(1)}" class="overview-daily-today-line"/>`
+        `<text x="${cx.toFixed(1)}" y="8" text-anchor="middle" class="overview-daily-today-mark" font-size="${todayFont}">Today</text>`
+      );
+      parts.push(
+        `<line x1="${cx.toFixed(1)}" y1="9.5" x2="${cx.toFixed(1)}" y2="${(y - 1).toFixed(1)}" class="overview-daily-today-line"/>`
       );
     }
     parts.push(
-      `<text x="${cx.toFixed(1)}" y="${height - 3}" text-anchor="middle" class="overview-daily-day">${esc(String(labels[i].getDate()))}</text>`
+      `<text x="${cx.toFixed(1)}" y="${(height - 4).toFixed(1)}" text-anchor="middle" class="overview-daily-day" font-size="${dayFont}">${esc(String(labels[i].getDate()))}</text>`
     );
     hits.push(
-      `<rect class="overview-daily-bar-hit" x="${(pad.l + i * slotW).toFixed(1)}" y="${pad.t}" width="${slotW.toFixed(1)}" height="${(h + pad.b).toFixed(1)}" fill="transparent" data-day-label="${esc(dayTitle)}" data-value="${v}"><title>${esc(tip)}</title></rect>`
+      `<rect class="overview-daily-bar-hit" x="${(pad.l + i * slotW).toFixed(1)}" y="${pad.t}" width="${slotW.toFixed(1)}" height="${(h + pad.b).toFixed(1)}" fill="transparent" data-value="${v}"><title>${esc(tip)}</title></rect>`
     );
   }
   return `<div class="overview-daily-chart-wrap"><svg class="overview-daily-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">${parts.join("")}${hits.join("")}</svg><div class="overview-daily-tooltip" hidden role="tooltip"></div></div>`;
@@ -1454,9 +1457,8 @@ function bindOverviewDailyCharts(root) {
     };
     const show = (hit, clientX) => {
       const rect = wrap.getBoundingClientRect();
-      const label = hit.dataset.dayLabel || "";
       const val = Number(hit.dataset.value);
-      tooltip.textContent = `${label} · ${formatDailyKwh(val)}`;
+      tooltip.textContent = formatDailyKwh(val);
       tooltip.hidden = false;
       tooltip.style.left = `${Math.max(8, Math.min(rect.width - 8, clientX - rect.left))}px`;
       tooltip.style.top = "0px";
