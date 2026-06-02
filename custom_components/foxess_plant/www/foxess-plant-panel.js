@@ -84,7 +84,16 @@ const FLOW_ACTIVE_STROKE = {
   home: "#33FF77",
   hub: "#4C925B",
 };
-const FLOW_COMET = { pathLen: 100, head: 11, tail: 28, trailLead: 14, dur: 1.75, durSolar: 1.55 };
+const FLOW_COMET = {
+  pathLen: 100,
+  head: 8,
+  tail: 20,
+  hubHeadSw: 5,
+  headSw: 4.5,
+  tailScale: 1.2,
+  dur: 1.75,
+  durSolar: 1.55,
+};
 const FLOW_SCENE_PV_THRESHOLD_W = 40;
 const FLOW_SCENE_ASSET_VER = 34;
 
@@ -119,39 +128,35 @@ function flowHubSpokeCls(id, gridExporting) {
 }
 
 /** Fox-style comet pulse: bright head + fading tail, one shot per path length. */
-function flowCometPaths({ d, cls = "", sw, stroke, reverse = false }) {
+function flowCometPaths({ d, cls = "", headSw, stroke, reverse = false }) {
   const L = FLOW_COMET.pathLen;
   const head = FLOW_COMET.head;
   const tail = FLOW_COMET.tail;
   const rev = reverse ? " reverse" : "";
   const clsAttr = cls ? ` ${cls}` : "";
-  const tailSw = (sw * 1.45).toFixed(2);
+  const tailSw = (headSw * FLOW_COMET.tailScale).toFixed(2);
   return (
     `<path class="flow-comet flow-comet-tail${clsAttr}${rev}" d="${d}" pathLength="${L}" stroke="${stroke}" stroke-width="${tailSw}" stroke-dasharray="${tail} ${L - tail}" stroke-linecap="round"></path>` +
-    `<path class="flow-comet flow-comet-head${clsAttr}${rev}" d="${d}" pathLength="${L}" stroke="${stroke}" stroke-width="${sw}" stroke-dasharray="${head} ${L - head}" stroke-linecap="round"></path>`
+    `<path class="flow-comet flow-comet-head${clsAttr}${rev}" d="${d}" pathLength="${L}" stroke="${stroke}" stroke-width="${headSw}" stroke-dasharray="${head} ${L - head}" stroke-linecap="round"></path>`
   );
 }
 
-/** role: track = idle pipe, bed = full-width grey under active flow, flow = comet pulse */
-function flowPathMarkup({ d, cls = "", role = "track", isNight = false, reverse = false }) {
+/** role: track = idle pipe, bed = full-width grey pipe, flow = comet pulse */
+function flowPathMarkup({ d, cls = "", role = "track", isNight = false, reverse = false, idle = false }) {
   const isFlow = role === "flow";
   const isBed = role === "bed";
   const isHubFlow = isFlow && cls === "flow-battery";
-  const sw = isFlow
-    ? isHubFlow
-      ? FLOW_STROKE.hubActive
-      : FLOW_STROKE.active
-    : isBed
-      ? FLOW_STROKE.hubActive
-      : FLOW_STROKE.base;
   const stroke = isFlow ? flowActiveStroke(cls) : flowPipeStroke(isNight);
   if (isFlow) {
-    return flowCometPaths({ d, cls, sw, stroke, reverse });
+    const headSw = isHubFlow ? FLOW_COMET.hubHeadSw : FLOW_COMET.headSw;
+    return flowCometPaths({ d, cls, headSw, stroke, reverse });
   }
+  const sw = isBed ? FLOW_STROKE.hubActive : FLOW_STROKE.base;
   const cap = isBed ? ' stroke-linecap="butt"' : ' stroke-linecap="round"';
   const bedCls = isBed ? " flow-path-bed" : "";
+  const idleCls = idle ? " flow-path-idle" : "";
   const paintCls = isBed ? "" : cls;
-  return `<path class="flow-path${bedCls}${paintCls ? ` ${paintCls}` : ""}" d="${d}" stroke="${stroke}" stroke-width="${sw}"${cap}></path>`;
+  return `<path class="flow-path${bedCls}${idleCls}${paintCls ? ` ${paintCls}` : ""}" d="${d}" stroke="${stroke}" stroke-width="${sw}"${cap}></path>`;
 }
 
 const DEFAULT_PERIODS = [
