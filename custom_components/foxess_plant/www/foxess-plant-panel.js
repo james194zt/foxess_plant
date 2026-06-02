@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.111
+ * @version 0.8.112
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-solar-aio";
-const PANEL_VERSION = "0.8.111";
+const PANEL_VERSION = "0.8.112";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 
 /** Manifest version from cached module filename (foxess-plant-panel.v0_8_109.{hash}.js). */
@@ -69,10 +69,19 @@ function registerFoxessPlantPanel() {
     console.error(`FoxESS Plant: could not register <${tag}>`, err);
   }
 }
-const FLOW_STROKE = { base: 5, active: 6, hubR: 8 };
-/** Inactive pipe track — sampled from Fox ESS app flow diagram reference. */
-const FLOW_PIPE_STROKE = "#333336";
-const FLOW_DASH = "20 24";
+const FLOW_STROKE = { base: 4, active: 7, hubR: 8 };
+/** Inactive pipe track — Fox charcoal softened for 3D scene overlay (app uses darker on flat grey UI). */
+const FLOW_PIPE_STROKE = "#A8AEB6";
+/** Active flow colours (brighter than Material defaults for contrast on pipe tracks). */
+const FLOW_ACTIVE_STROKE = {
+  solar: "#F5BC00",
+  grid: "#4A9AFF",
+  export: "#B565FF",
+  battery: "#4DDC72",
+  home: "#4DDC72",
+  hub: "#4C925B",
+};
+const FLOW_DASH = "18 22";
 const FLOW_SCENE_PV_THRESHOLD_W = 40;
 const FLOW_SCENE_ASSET_VER = 34;
 
@@ -1650,6 +1659,12 @@ const STYLES = `
   --fp-amber: #f9a825;
   --fp-red: #e53935;
   --fp-flow-pipe: ${FLOW_PIPE_STROKE};
+  --fp-flow-active-solar: ${FLOW_ACTIVE_STROKE.solar};
+  --fp-flow-active-grid: ${FLOW_ACTIVE_STROKE.grid};
+  --fp-flow-active-export: ${FLOW_ACTIVE_STROKE.export};
+  --fp-flow-active-battery: ${FLOW_ACTIVE_STROKE.battery};
+  --fp-flow-active-home: ${FLOW_ACTIVE_STROKE.home};
+  --fp-flow-active-hub: ${FLOW_ACTIVE_STROKE.hub};
 }
 .shell {
   display: flex; flex-direction: column; height: 100%;
@@ -2056,18 +2071,27 @@ const STYLES = `
 .fox-flow-badge-grid { left: 4%; bottom: 6%; align-items: flex-start; }
 .fox-flow-badge-battery { left: 50%; bottom: 6%; transform: translateX(-50%); }
 .fox-flow-badge-home { right: 4%; bottom: 6%; align-items: flex-end; }
-.flow-path { fill: none; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; stroke: var(--fp-flow-pipe); opacity: 1; }
+.flow-path { fill: none; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; stroke: var(--fp-flow-pipe); opacity: 0.92; }
 .flow-path-base { pointer-events: none; }
-.flow-path.active { stroke-width: 6; stroke-dasharray: 20 24; animation: flow 1.1s linear infinite; opacity: 1; stroke-linecap: butt; }
+.flow-path.active {
+  stroke-width: 7; stroke-dasharray: 18 22; animation: flow 1.1s linear infinite; opacity: 1;
+  stroke-linecap: butt; paint-order: stroke; filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.55));
+}
 .flow-path.reverse { animation-direction: reverse; }
-.flow-solar.active { stroke: #f4b400; }
-.flow-grid.active { stroke: #4285f4; }
-.flow-export.active { stroke: #9c27b0; }
-.flow-battery.active { stroke: #0f9d58; }
-.flow-home-line.active { stroke: #0f9d58; }
-.flow-hub-dot { fill: var(--fp-flow-pipe); }
-.flow-hub-dot.active { fill: #0f9d58; filter: drop-shadow(0 0 10px rgba(15, 157, 88, 0.9)); }
-@keyframes flow { to { stroke-dashoffset: -88; } }
+.flow-solar.active { stroke: var(--fp-flow-active-solar); filter: drop-shadow(0 0 5px rgba(245, 188, 0, 0.75)); }
+.flow-grid.active { stroke: var(--fp-flow-active-grid); filter: drop-shadow(0 0 5px rgba(74, 154, 255, 0.75)); }
+.flow-export.active { stroke: var(--fp-flow-active-export); filter: drop-shadow(0 0 5px rgba(181, 101, 255, 0.75)); }
+.flow-battery.active {
+  stroke: var(--fp-flow-active-battery);
+  filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.65)) drop-shadow(0 0 8px rgba(77, 220, 114, 0.9));
+}
+.flow-home-line.active {
+  stroke: var(--fp-flow-active-home);
+  filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.65)) drop-shadow(0 0 8px rgba(77, 220, 114, 0.9));
+}
+.flow-hub-dot { fill: var(--fp-flow-pipe); opacity: 0.92; }
+.flow-hub-dot.active { fill: var(--fp-flow-active-hub); filter: drop-shadow(0 0 6px rgba(77, 220, 114, 0.95)); }
+@keyframes flow { to { stroke-dashoffset: -80; } }
 .device-header { margin-bottom: 8px; }
 .device-header h1 { margin-bottom: 4px; }
 .device-model { margin: 0; font-size: 14px; color: var(--secondary-text-color); }
