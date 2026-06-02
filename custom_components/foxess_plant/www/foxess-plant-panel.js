@@ -2133,10 +2133,15 @@ const STYLES = `
 .card-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--secondary-text-color); margin: 0 0 14px; }
 .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 12px; }
 .overview-hero-row { display: flex; flex-direction: column; gap: 14px; margin-bottom: 14px; }
-.overview-hero-scene { width: 100%; max-width: 440px; margin: 0 auto; }
+.overview-hero-scene { width: 100%; max-width: none; margin: 0; min-width: 0; }
+.overview-hero-scene .fox-flow-scene,
+.overview-hero-scene .fox-flow-stage {
+  width: 100%; max-width: none; margin: 0;
+}
 .overview-hero-scene .scene-card--fox-flow { margin-bottom: 0; }
 .overview-hero-stats {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;
+  min-width: 0;
 }
 .overview-daily-grid {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;
