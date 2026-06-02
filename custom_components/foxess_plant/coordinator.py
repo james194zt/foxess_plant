@@ -415,6 +415,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return read_overview_weather(self.hass, self.plant.storm_prep)
 
     def get_plant_state(self) -> dict[str, Any]:
+        from .panel import get_panel_disk_info
+
         desired = [p.to_dict() for p in self.plant.desired_periods()]
         actual = self._read_actual_periods()
         drift = self._compute_drift(desired, actual)
@@ -446,6 +448,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "overview_weather": self._overview_weather_state(),
             "outage_prep": self.plant.outage_prep.to_dict(),
             "panel_display": self.plant.panel_display.to_dict(),
+            "panel_runtime": get_panel_disk_info(),
             "settings": {
                 "max_soc": self._entity_float("max_soc"),
                 "min_soc": self._entity_float("min_soc"),

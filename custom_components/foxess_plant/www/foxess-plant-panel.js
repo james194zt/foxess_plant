@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.125
+ * @version 0.8.127
  */
 
 const NAV = [
@@ -36,8 +36,9 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-pipe-v3";
-const PANEL_VERSION = "0.8.125";
+const PANEL_VERSION = "0.8.127";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
+const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
 /** Manifest version from cached module filename (foxess-plant-panel.v0_8_109.{hash}.js). */
 function panelVersionFromModuleUrl() {
@@ -2090,6 +2091,7 @@ const STYLES = `
 .overview-header { margin-bottom: 16px; }
 .overview-model { margin: 4px 0 0; font-size: 15px; font-weight: 500; color: var(--secondary-text-color); letter-spacing: 0.01em; }
 .overview-panel-build { margin: 2px 0 0; font-size: 11px; color: var(--secondary-text-color); opacity: 0.65; letter-spacing: 0.02em; }
+.panel-stale-banner { margin-bottom: 14px; }
 .overview-status-block { margin-top: 12px; }
 .overview-status-row {
   display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; line-height: 1.35;
@@ -2808,6 +2810,8 @@ class FoxessPlantPanel extends HTMLElement {
     this._overviewDaily = null;
     this._overviewDailyLoading = false;
     this._overviewDailyPlantId = undefined;
+    this._panelSyncBusy = false;
+    this._panelStale = false;
     this._chartsDraft = null;
     this._forecastCandidates = null;
     this._headerHasSubTabs = undefined;
@@ -2885,7 +2889,53 @@ class FoxessPlantPanel extends HTMLElement {
   }
 
   _panelBuild() {
-    return this._panel?.config?.panel_js_build || PANEL_BUILD_FALLBACK;
+    const jsVer = panelVersionFromModuleUrl() || PANEL_VERSION;
+    const regBuild = this._panel?.config?.panel_js_build || "—";
+    const regVer = String(regBuild).split("-")[0] || "—";
+    const diskVer = this._plantState?.panel_runtime?.manifest_version || "—";
+    return `js ${jsVer} · registered ${regVer} · disk ${diskVer}`;
+  }
+
+  _panelIsStale() {
+    const runtime = this._plantState?.panel_runtime;
+    if (!runtime?.js_build) return false;
+    const jsVer = panelVersionFromModuleUrl() || PANEL_VERSION;
+    const regBuild = this._panel?.config?.panel_js_build;
+    const diskVer = runtime.manifest_version;
+    const staleReg = Boolean(regBuild && runtime.js_build && regBuild !== runtime.js_build);
+    const staleJs = Boolean(diskVer && jsVer && diskVer !== jsVer);
+    return staleReg || staleJs;
+  }
+
+  _renderPanelStaleBanner() {
+    if (!this._panelStale) return "";
+    const runtime = this._plantState?.panel_runtime ?? {};
+    const jsVer = panelVersionFromModuleUrl() || PANEL_VERSION;
+    const regVer = String(this._panel?.config?.panel_js_build || "—").split("-")[0];
+    return `<div class="banner warn panel-stale-banner" role="status">
+<strong>Panel update pending</strong>
+Browser ${esc(jsVer)} · HA registered ${esc(regVer)} · files on disk ${esc(runtime.manifest_version || "—")}.
+Reloading panel registration…
+</div>`;
+  }
+
+  async _syncPanelIfStale() {
+    if (this._panelSyncBusy || !this._hass) return;
+    const runtime = this._plantState?.panel_runtime;
+    if (!runtime?.js_build) return;
+    this._panelStale = this._panelIsStale();
+    if (!this._panelStale) return;
+    const attempted = sessionStorage.getItem(PANEL_SYNC_STORAGE_KEY);
+    if (attempted === runtime.js_build) return;
+    this._panelSyncBusy = true;
+    sessionStorage.setItem(PANEL_SYNC_STORAGE_KEY, runtime.js_build);
+    this._scheduleRender();
+    try {
+      await this._hass.callService("foxess_plant", "reload_panel", {}, undefined, true, true);
+    } catch (err) {
+      console.warn("FoxESS Plant: reload_panel failed (restart HA if panel stays stale)", err);
+    }
+    window.setTimeout(() => window.location.reload(), 400);
   }
 
   async _initBrandIcons() {
@@ -2949,7 +2999,9 @@ class FoxessPlantPanel extends HTMLElement {
       if (this._settingsView !== "quick") this._socDraft = null;
       if (this._settingsView !== "workmode") this._workModeDraft = null;
       if (this._settingsView !== "storm") this._stormDraft = null;
+      this._panelStale = this._panelIsStale();
       if (!this._socDrag) this._scheduleRender();
+      void this._syncPanelIfStale();
     } catch {
       /* ws optional */
     }
@@ -4022,6 +4074,7 @@ ${this._renderOverviewDailyCard(
     const a = readLiveAnalytics(this._hass, plant, this._plantState, this._overviewDaily);
     const modelLine = plantModelSubtitle(this._hass, plant, this._plantState);
     return `<header class="header overview-header"><h1>${esc(plant.title)}</h1>${modelLine !== "—" ? `<p class="overview-model">${esc(modelLine)}</p>` : ""}<p class="overview-panel-build">Panel build ${esc(this._panelBuild())}</p>${this._renderOverviewStatusBlock(plant)}</header>
+${this._renderPanelStaleBanner()}
 <div class="overview-hero-row">
 <div class="overview-hero-scene">
 ${this._renderEnergyScene(plant)}

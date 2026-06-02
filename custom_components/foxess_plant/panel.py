@@ -75,6 +75,19 @@ def _panel_js_build() -> str:
     return f"{_panel_js_version()}-{_panel_js_fingerprint()}"
 
 
+def get_panel_disk_info() -> dict[str, str]:
+    """Manifest + JS build read from disk (for stale-panel detection in the UI)."""
+    return {
+        "manifest_version": _panel_js_version(),
+        "js_build": _panel_js_build(),
+        "module_url": _panel_js_module_url(),
+        "element": _panel_component_name(),
+    }
+
+
+_REGISTERED_BUILD_KEY = "_foxess_plant_panel_registered_build"
+
+
 def _panel_exists(hass: HomeAssistant) -> bool:
     """Return True if our panel URL is already registered."""
     from homeassistant.components import frontend
@@ -188,6 +201,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         build,
         _panel_js_module_url(),
     )
+    hass.data[_REGISTERED_BUILD_KEY] = build
 
 
 async def async_update_panel(hass: HomeAssistant) -> None:

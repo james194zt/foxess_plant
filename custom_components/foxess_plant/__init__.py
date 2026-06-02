@@ -5,7 +5,8 @@ from __future__ import annotations
 import logging
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED
+from homeassistant.core import Event, HomeAssistant
 from homeassistant.helpers import device_registry as dr
 
 from .const import DOMAIN, PLATFORMS
@@ -15,17 +16,21 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up global handlers for foxess_plant."""
-    from .panel import async_register_panel
     from .websocket_api import async_register_ws_handlers
 
     async_register_ws_handlers(hass)
 
-    # Re-register panel + static assets after restart when config entries exist.
-    if hass.config_entries.async_entries(DOMAIN):
+    async def _register_panel_on_start(_event: Event) -> None:
+        if not hass.config_entries.async_entries(DOMAIN):
+            return
+        from .panel import async_register_panel
+
         try:
             await async_register_panel(hass)
         except Exception:
-            _LOGGER.exception("Fox Plant panel registration failed during setup")
+            _LOGGER.exception("Fox Plant panel registration failed on HA start")
+
+    hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _register_panel_on_start)
 
     return True
 

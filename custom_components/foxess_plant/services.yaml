@@ -159,6 +159,11 @@ get_plant_state:
       selector:
         text:
 
+reload_panel:
+  name: Reload Fox Plant panel
+  description: Re-register the sidebar panel after a HACS update (reads manifest + JS from disk).
+  fields: {}
+
 set_tariff_mode:
   name: Set tariff mode
   description: Apply a named tariff mode from integration config (charge_periods profile).
