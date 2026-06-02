@@ -17,8 +17,54 @@ BOXES = {
 DEFAULT_PV = {
     "scale_inset": 1.06,
     "at_box_origin": True,
-    "dx": -10,
-    "dy": -4,
+    "dx": -2,
+    "dy": 8,
+}
+
+# Flow-path tap on the AIO face (sync FOX_FLOW_PATHS aio-hub / hub-aio in panel JS).
+AIO_FACE_X = 405
+# White wall → grey apron on flow_home_bg_scene (column ~380); not the placement-box floor.
+AIO_FOOT_Y = 778
+AIO_CONNECT = (405, 783)
+# Opaque face / bbox fractions on flow_aio_812 sprite (232×255, after matte strip).
+AIO_FACE_FRAC = (147 / 232, 167 / 255)
+AIO_OPAQUE_FRAC = (66 / 232, 14 / 255, 172 / 232, 175 / 255)  # y1 = cabinet base (excl. shadow)
+
+
+def _aio_scale(sprite: Image.Image, scale_inset: float) -> tuple[float, int, int]:
+    _, top, bw, bh = box_pixels(BOXES["aio"])
+    sw, sh = sprite.size
+    scale = min(bw / sw, bh / sh) * scale_inset
+    nw = max(1, int(sw * scale))
+    nh = max(1, int(sh * scale))
+    return scale, nw, nh
+
+
+def aio_paste_xy(sprite: Image.Image, placement: AioPlacement) -> tuple[int, int, float, int, int]:
+    """Bottom of opaque art on the placement-box floor (wall ground in scene)."""
+    left, top, bw, bh = box_pixels(BOXES["aio"])
+    ox0, oy0, ox1, oy1 = AIO_OPAQUE_FRAC
+    sw, sh = sprite.size
+    x0, y0, x1, y1 = int(sw * ox0), int(sh * oy0), int(sw * ox1), int(sh * oy1)
+    scale, nw, nh = _aio_scale(sprite, placement.scale_inset)
+    opaque_cx = (x0 + x1) / 2
+    px = round(left + bw / 2 - opaque_cx * scale) + placement.dx
+    py = round(AIO_FOOT_Y - y1 * scale) + placement.dy
+    return px, py, scale, nw, nh
+
+
+def aio_face_canvas(sprite: Image.Image, placement: AioPlacement) -> tuple[int, int]:
+    px, py, scale, _, _ = aio_paste_xy(sprite, placement)
+    sw, sh = sprite.size
+    fx = int(sw * AIO_FACE_FRAC[0])
+    fy = int(sh * AIO_FACE_FRAC[1])
+    return round(px + fx * scale), round(py + fy * scale)
+
+
+DEFAULT_AIO = {
+    "scale_inset": 1.0,
+    "dx": 0,
+    "dy": 10,
 }
 
 
@@ -28,6 +74,13 @@ class PvPlacement:
     at_box_origin: bool = DEFAULT_PV["at_box_origin"]
     dx: int = 0
     dy: int = 0
+
+
+@dataclass
+class AioPlacement:
+    scale_inset: float = DEFAULT_AIO["scale_inset"]
+    dx: int = DEFAULT_AIO["dx"]
+    dy: int = DEFAULT_AIO["dy"]
 
 
 def box_pixels(box: dict, canvas: tuple[int, int] = CANVAS) -> tuple[int, int, int, int]:
@@ -42,7 +95,7 @@ def box_pixels(box: dict, canvas: tuple[int, int] = CANVAS) -> tuple[int, int, i
 
 def render_pv_layer(sprite: Image.Image, placement: PvPlacement | None = None) -> Image.Image:
     """Transparent 1024×1017 canvas with PV sprite placed like the HA panel overlay."""
-    placement = placement or PvPlacement()
+    placement = placement or PvPlacement(**DEFAULT_PV)
     left, top, bw, bh = box_pixels(BOXES["pv"])
     sw, sh = sprite.size
     scale = min(bw / sw, bh / sh) * placement.scale_inset
@@ -60,11 +113,14 @@ def render_pv_layer(sprite: Image.Image, placement: PvPlacement | None = None) -
     return canvas
 
 
-def render_aio_layer(sprite: Image.Image) -> Image.Image:
-    left, top, bw, bh = box_pixels(BOXES["aio"])
-    fitted = sprite.resize((bw, bh), Image.Resampling.LANCZOS)
+def render_aio_layer(sprite: Image.Image, placement: AioPlacement | None = None) -> Image.Image:
+    """Uniform scale; opaque bottom on placement-box floor (ground level on wall)."""
+    placement = placement or AioPlacement(**DEFAULT_AIO)
+    px, py, _, nw, nh = aio_paste_xy(sprite, placement)
+    sw, sh = sprite.size
+    scaled = sprite.resize((nw, nh), Image.Resampling.LANCZOS)
     canvas = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
-    canvas.paste(fitted, (left, top), fitted)
+    canvas.paste(scaled, (px, py), scaled)
     return canvas
 
 
@@ -96,5 +152,15 @@ def pv_placement_summary(placement: PvPlacement, sprite: Image.Image) -> str:
         f"pv {nw}x{nh} @ ({px},{py}) "
         f"scale_inset={placement.scale_inset} "
         f"origin={'box-tl' if placement.at_box_origin else 'centered'} "
+        f"offset=({placement.dx},{placement.dy})"
+    )
+
+
+def aio_placement_summary(placement: AioPlacement, sprite: Image.Image) -> str:
+    px, py, _, nw, nh = aio_paste_xy(sprite, placement)
+    face = aio_face_canvas(sprite, placement)
+    return (
+        f"aio {nw}x{nh} @ ({px},{py}) "
+        f"scale_inset={placement.scale_inset} face@{face} "
         f"offset=({placement.dx},{placement.dy})"
     )

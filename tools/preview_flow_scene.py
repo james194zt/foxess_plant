@@ -33,7 +33,9 @@ from PIL import Image
 
 from flow_scene_place import (
     CANVAS,
+    AioPlacement,
     PvPlacement,
+    aio_placement_summary,
     composite_scene,
     pv_placement_summary,
     render_aio_layer,
@@ -97,6 +99,7 @@ def preview_theme(
     *,
     live: bool,
     placement: PvPlacement,
+    aio_placement: AioPlacement,
     write_www: bool,
     also_layers: bool,
 ) -> Path:
@@ -105,8 +108,9 @@ def preview_theme(
         pv_sprite = load_sprite("pv", theme)
         aio_sprite = load_sprite("aio", theme)
         pv = render_pv_layer(pv_sprite, placement)
-        aio = render_aio_layer(aio_sprite)
+        aio = render_aio_layer(aio_sprite, aio_placement)
         print(theme, pv_placement_summary(placement, pv_sprite))
+        print("      ", aio_placement_summary(aio_placement, aio_sprite))
         if write_www:
             print(f"  wrote {write_baked_pv(theme, pv).relative_to(ROOT)}")
             print(f"  wrote {write_baked_aio(theme, aio).relative_to(ROOT)}")
@@ -153,18 +157,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--pv-dx", type=int, default=None, help="Extra paste offset X (px); default from flow_scene_place")
     p.add_argument("--pv-dy", type=int, default=None, help="Extra paste offset Y (px); default from flow_scene_place")
     p.add_argument("--pv-center", action="store_true", help="Center in box instead of box top-left origin")
+    p.add_argument("--aio-scale", type=float, default=None, metavar="F", help="AIO uniform scale inset (default bake value)")
+    p.add_argument("--aio-dx", type=int, default=None, help="AIO paste offset X (px)")
+    p.add_argument("--aio-dy", type=int, default=None, help="AIO paste offset Y (px)")
     return p.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    from flow_scene_place import DEFAULT_PV
+    from flow_scene_place import DEFAULT_AIO, DEFAULT_PV
 
     placement = PvPlacement(
         scale_inset=args.pv_scale if args.pv_scale is not None else DEFAULT_PV["scale_inset"],
         at_box_origin=not args.pv_center,
         dx=args.pv_dx if args.pv_dx is not None else DEFAULT_PV["dx"],
         dy=args.pv_dy if args.pv_dy is not None else DEFAULT_PV["dy"],
+    )
+    aio_placement = AioPlacement(
+        scale_inset=args.aio_scale if args.aio_scale is not None else DEFAULT_AIO["scale_inset"],
+        dx=args.aio_dx if args.aio_dx is not None else DEFAULT_AIO["dx"],
+        dy=args.aio_dy if args.aio_dy is not None else DEFAULT_AIO["dy"],
     )
 
     themes = list(OVERLAY_THEMES) if args.theme == "all" else [args.theme]
@@ -183,6 +195,7 @@ def main(argv: list[str] | None = None) -> int:
                     bg_theme,
                     live=args.live,
                     placement=placement,
+                    aio_placement=aio_placement,
                     write_www=args.write_www,
                     also_layers=args.layers,
                 )

@@ -8,7 +8,14 @@ from pathlib import Path
 
 from PIL import Image
 
-from flow_scene_place import DEFAULT_PV, PvPlacement, render_aio_layer, render_pv_layer
+from flow_scene_place import (
+    DEFAULT_AIO,
+    DEFAULT_PV,
+    AioPlacement,
+    PvPlacement,
+    render_aio_layer,
+    render_pv_layer,
+)
 from key_flow_home_sky import remove_black_matte
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,7 +27,8 @@ PV_PASTE_AT_BOX_ORIGIN = DEFAULT_PV["at_box_origin"]
 PV_PASTE_DX = DEFAULT_PV["dx"]
 PV_PASTE_DY = DEFAULT_PV["dy"]
 
-DEFAULT_PLACEMENT = PvPlacement(**DEFAULT_PV)
+DEFAULT_PV_PLACEMENT = PvPlacement(**DEFAULT_PV)
+DEFAULT_AIO_PLACEMENT = AioPlacement(**DEFAULT_AIO)
 
 
 def is_webp(path: Path) -> bool:
@@ -42,7 +50,7 @@ def load_sprite(layer: str, theme: str) -> Image.Image:
 
 
 def bake_pv(theme: str, placement: PvPlacement | None = None) -> None:
-    placement = placement or DEFAULT_PLACEMENT
+    placement = placement or DEFAULT_PV_PLACEMENT
     sprite = load_sprite("pv", theme)
     canvas = render_pv_layer(sprite, placement)
     out = WWW / f"flow_pv_scene_{theme}.png"
@@ -51,12 +59,14 @@ def bake_pv(theme: str, placement: PvPlacement | None = None) -> None:
     print(f"wrote {out.name} ({out.stat().st_size} bytes) bbox={bbox}")
 
 
-def bake_aio(theme: str) -> None:
+def bake_aio(theme: str, placement: AioPlacement | None = None) -> None:
+    placement = placement or DEFAULT_AIO_PLACEMENT
     sprite = load_sprite("aio", theme)
-    canvas = render_aio_layer(sprite)
+    canvas = render_aio_layer(sprite, placement)
     out = WWW / f"flow_aio_scene_{theme}.png"
     canvas.save(out, optimize=True)
-    print(f"wrote {out.name} ({out.stat().st_size} bytes)")
+    bbox = canvas.getbbox()
+    print(f"wrote {out.name} ({out.stat().st_size} bytes) bbox={bbox}")
 
 
 def main() -> None:

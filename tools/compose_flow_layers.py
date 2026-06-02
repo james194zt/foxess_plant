@@ -7,6 +7,7 @@ from pathlib import Path
 
 from PIL import Image
 
+from flow_scene_place import AIO_CONNECT, render_aio_layer, render_pv_layer
 from key_flow_home_sky import remove_black_matte
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,9 +25,7 @@ BOXES = {
 # coordinates unless the user explicitly asks. Sync FOX_FLOW_HUB / FOX_FLOW_PATHS in panel JS.
 HUB = (536, 726)
 # Side-face x at hub row; y derived parallel to hub-home / house base (28px rise per 100px run)
-AIO_FACE_X = 405
-WALL_3D_RISE_RUN = (726 - 698) / (636 - 536)  # hub-home slope — parallel perspective lines
-AIO_CONNECT = (AIO_FACE_X, round(HUB[1] - (HUB[0] - AIO_FACE_X) * WALL_3D_RISE_RUN))
+AIO_FACE_X = AIO_CONNECT[0]
 WINDOW = (558, 532)  # centre of large front window
 WINDOW_EDGE = (636, 698)  # frame corner — full diagonal from hub (~16deg for 3D wall)
 GRID = (228, 788)  # grid badge anchor (left)
@@ -101,10 +100,12 @@ def place_sprite(theme: str, layer: str) -> None:
     src = sprite_path if sprite_path.is_file() else WWW / f"{src_name}_{theme}.png"
     out = WWW / f"flow_{layer}_scene_{theme}.png"
     sprite = remove_black_matte(Image.open(src).convert("RGBA"))
-    left, top, bw, bh = box_pixels(BOXES[layer])
-    fitted = sprite.resize((bw, bh), Image.Resampling.LANCZOS)
-    canvas = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
-    canvas.paste(fitted, (left, top), fitted)
+    if layer == "pv":
+        from flow_scene_place import DEFAULT_PV, PvPlacement
+
+        canvas = render_pv_layer(sprite, PvPlacement(**DEFAULT_PV))
+    else:
+        canvas = render_aio_layer(sprite)
     canvas.save(out, optimize=True)
     print(f"wrote {out.name} ({out.stat().st_size} bytes)")
 
