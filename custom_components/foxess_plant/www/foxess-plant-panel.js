@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.140
+ * @version 0.8.141
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.8.140";
+const PANEL_VERSION = "0.8.141";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -2897,7 +2897,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._overviewDaily = null;
     this._overviewDailyLoading = false;
     this._overviewDailyPlantId = undefined;
-    this._overviewDailySlotKey = undefined;
+    this._overviewDailySlotCache = undefined;
     this._panelSyncBusy = false;
     this._panelStale = false;
     this._flowSceneKey = undefined;
@@ -4095,7 +4095,7 @@ ${this._renderImpactPanel()}`;
       this._flowScenePlantId = plant.entry_id;
       this._flowSceneKeyPending = undefined;
       this._flowSceneKeyPendingN = 0;
-      this._overviewDailySlotKey = undefined;
+      this._overviewDailySlotCache = undefined;
     }
     const stableKey = this._stableFlowSceneKey(ctx.key);
     const rebuildFlow = stableKey !== this._flowSceneKey;
@@ -4115,9 +4115,9 @@ ${this._renderImpactPanel()}`;
       this._renderOverviewHeader(plant) + this._renderPanelStaleBanner();
     const dailyKey = this._overviewDailySlotKey();
     const dailySlot = mainEl.querySelector(".overview-hero-daily-slot");
-    if (dailyKey !== this._overviewDailySlotKey) {
+    if (dailyKey !== this._overviewDailySlotCache) {
       dailySlot.innerHTML = this._renderOverviewDailyCards();
-      this._overviewDailySlotKey = dailyKey;
+      this._overviewDailySlotCache = dailyKey;
     }
     mainEl.querySelector(".overview-after-hero").innerHTML = this._renderOverviewAfterHero(plant);
 
