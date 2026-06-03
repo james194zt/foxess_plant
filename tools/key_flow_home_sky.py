@@ -12,6 +12,8 @@ WWW = ROOT / "custom_components" / "foxess_plant" / "www"
 CANVAS = (1024, 1017)
 FLOW_THEMES = ("day_light", "day_dark", "night_light", "night_dark")
 MATTE_LUM = 28
+# Fox app flow stage (sync FLOW_SCENE_CANVAS_BG in foxess-plant-panel.js)
+CANVAS_BG_RGBA = (26, 31, 38, 255)
 
 
 def remove_black_matte(im: Image.Image, lum: int = MATTE_LUM) -> Image.Image:
@@ -49,12 +51,12 @@ def bake_scene(theme: str, home_layers: dict[str, Image.Image]) -> None:
     scale = max(CANVAS[0] / bg.width, CANVAS[1] / bg.height)
     nw, nh = int(bg.width * scale), int(bg.height * scale)
     bg = bg.resize((nw, nh), Image.Resampling.LANCZOS)
-    canvas = Image.new("RGBA", CANVAS, (0, 0, 0, 255))
+    canvas = Image.new("RGBA", CANVAS, CANVAS_BG_RGBA)
     x = (CANVAS[0] - nw) // 2
     y = CANVAS[1] - nh
     canvas.paste(bg, (x, y), bg)
     canvas = Image.alpha_composite(canvas, home_layers[theme])
-    canvas.convert("RGB").save(out, optimize=True)
+    canvas.save(out, optimize=True)
     print(f"wrote {out.name} ({out.stat().st_size} bytes)")
 
 
