@@ -70,9 +70,9 @@ function registerFoxessPlantPanel() {
     console.error(`FoxESS Plant: could not register <${tag}>`, err);
   }
 }
-const FLOW_STROKE = { base: 4, underlay: 5, active: 7, hubActive: 7, hubR: 8 };
-/** Inactive pipe track (light grey on house wall — inline stroke, not CSS vars). */
-const FLOW_PIPE_STROKE = { day: "#BEC5CE", night: "#78808C" };
+const FLOW_STROKE = { base: 4, underlay: 5, active: 7, hubActive: 8, hubR: 8 };
+/** Idle pipe track — darker on day (white walls), lighter on night (black scene). */
+const FLOW_PIPE_STROKE = { day: "#5E6A78", night: "#9AA8B8" };
 /** Pale underlay beneath animated hub spokes so dashes do not sit on dark gaps. */
 const FLOW_PIPE_UNDERLAY = { day: "#EEF1F5", night: "#9AA4B0" };
 /** Active flow colours — inline on SVG paths for reliable rendering in HA shadow DOM. */
