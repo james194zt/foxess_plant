@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.141
+ * @version 0.8.142
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.8.141";
+const PANEL_VERSION = "0.8.142";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -204,13 +204,46 @@ const DEFAULT_PERIODS = [
   { enable_force_charge: false, enable_charge_from_grid: false, start: "00:00", end: "00:00" },
 ];
 
-const WORK_MODE_HINTS = {
-  "Self Use": "Prioritise powering your home from solar and battery.",
-  "Feed-in Priority": "Export surplus solar to the grid first.",
-  "Back Up": "Keep battery reserved for outages.",
-  "Force Charge": "Active remote force-charge session.",
-  "Force Discharge": "Active remote force-discharge session.",
+/** Display title + hint per FoxESS work_mode select option (key = entity option string). */
+const WORK_MODE_META = {
+  "Self Use": {
+    title: "Self Use",
+    hint: "Optimised for self consumption, reduce reliance on grid electricity.",
+  },
+  "Feed-in First": {
+    title: "Feed-in Priority",
+    hint: "Prioritises electricity sales to generate income.",
+  },
+  "Feed-in Priority": {
+    title: "Feed-in Priority",
+    hint: "Prioritises electricity sales to generate income.",
+  },
+  "Back-up": {
+    title: "Back-up",
+    hint: "Tailored for areas with unstable power grids. Reserves SOC to prevent power outages.",
+  },
+  "Back Up": {
+    title: "Back-up",
+    hint: "Tailored for areas with unstable power grids. Reserves SOC to prevent power outages.",
+  },
+  "Peak Shaving": {
+    title: "Peak Shaving",
+    hint: "Implements energy management strategies by setting battery SOC and import limits according to production schedules, reducing overall energy consumption during peak periods.",
+  },
+  "Force Charge": {
+    title: "Force Charge",
+    hint: "Active remote force-charge session.",
+  },
+  "Force Discharge": {
+    title: "Force Discharge",
+    hint: "Active remote force-discharge session.",
+  },
 };
+
+function workModeMeta(option) {
+  const key = String(option ?? "").trim();
+  return WORK_MODE_META[key] || { title: key, hint: "" };
+}
 
 function esc(s) {
   return String(s ?? "")
@@ -331,7 +364,9 @@ function foxWorkModeToneClass(label) {
 
 function foxWorkModeDisplay(label) {
   const s = String(label || "").trim();
-  if (s.toLowerCase() === "self use") return "Self-use";
+  const meta = WORK_MODE_META[s];
+  if (meta?.title) return meta.title;
+  if (s.toLowerCase() === "self use") return "Self Use";
   return s;
 }
 
@@ -2753,8 +2788,9 @@ const STYLES = `
   cursor: pointer; font-family: inherit; color: inherit; transition: border-color 0.15s;
 }
 .mode-option.selected { border-color: var(--fp-accent); background: color-mix(in srgb, var(--fp-accent) 10%, var(--card-background-color)); }
-.mode-option .name { font-weight: 600; font-size: 15px; }
-.mode-option .hint { font-size: 12px; color: var(--secondary-text-color); margin-top: 4px; }
+.mode-option-body { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; width: 100%; }
+.mode-option .name { display: block; font-weight: 600; font-size: 15px; line-height: 1.3; }
+.mode-option .hint { display: block; font-size: 12px; line-height: 1.4; color: var(--secondary-text-color); }
 .hero { border-radius: var(--fp-radius); overflow: hidden; background: var(--card-background-color); margin-bottom: 14px; border: 1px solid var(--divider-color); }
 .hero-caption { padding: 12px 16px; font-size: 13px; color: var(--secondary-text-color); line-height: 1.45; border-top: 1px solid var(--divider-color); }
 .storm-hero {
@@ -5046,9 +5082,9 @@ ${this._renderPeriodCard(1, this._chargeDraft[1])}
 <div class="mode-grid">${options
       .map((opt) => {
         const sel = opt === this._workModeDraft ? "selected" : "";
-        const hint = WORK_MODE_HINTS[opt] || "";
+        const meta = workModeMeta(opt);
         return `<button type="button" class="mode-option ${sel}" data-action="pick-work-mode" data-mode="${esc(opt)}">
-<span class="name">${esc(opt)}</span>${hint ? `<span class="hint">${esc(hint)}</span>` : ""}</button>`;
+<span class="mode-option-body"><span class="name">${esc(meta.title)}</span>${meta.hint ? `<span class="hint">${esc(meta.hint)}</span>` : ""}</span></button>`;
       })
       .join("")}</div>
 <div class="btn-row" style="margin-top:16px"><button type="button" class="btn btn-primary" data-action="save-work-mode" ${this._busy ? "disabled" : ""}>Apply work mode</button></div>`;
