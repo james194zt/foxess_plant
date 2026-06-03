@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Preview Fox flow scene outside Home Assistant (bg + pv + aio composite).
+"""Preview Fox flow scene outside Home Assistant (dark canvas + sky + house + pv + aio).
 
-Mirrors the panel layer stack in foxess-plant-panel.js — three full-canvas PNGs
-with object-fit: contain / object-position: center bottom (alignment is baked into
-the 1024×1017 assets).
+Mirrors the panel layer stack in foxess-plant-panel.js — dark stage (#1a1f26),
+flow_home_bg_{theme} sky, flow_home_{theme} house (matte keyed), then pv/aio overlays.
 
 Examples:
   # What is currently in www/ (after bake):
@@ -41,7 +40,7 @@ from flow_scene_place import (
     render_aio_layer,
     render_pv_layer,
 )
-from key_flow_home_sky import remove_black_matte
+from key_flow_home_sky import load_home_layer, load_sky_layer, remove_black_matte
 
 ROOT = Path(__file__).resolve().parents[1]
 WWW = ROOT / "custom_components" / "foxess_plant" / "www"
@@ -49,6 +48,10 @@ OUT_DIR = Path(__file__).resolve().parent / "flow_scene_preview"
 
 OVERLAY_THEMES = ("day_light", "night_dark")
 BG_THEMES = ("day_light", "day_dark", "night_light", "night_dark")
+
+
+def overlay_theme_for_bg(bg_theme: str) -> str:
+    return "day_light" if bg_theme.startswith("day_") else "night_dark"
 
 
 def is_webp(path: Path) -> bool:
@@ -70,15 +73,24 @@ def load_sprite(layer: str, theme: str) -> Image.Image:
 
 
 def load_baked_layer(kind: str, theme: str) -> Image.Image:
-    if kind == "bg":
-        path = WWW / f"flow_home_bg_scene_{theme}.png"
-    elif kind == "pv":
+    if kind == "pv":
         path = WWW / f"flow_pv_scene_{theme}.png"
-    else:
+    elif kind == "aio":
         path = WWW / f"flow_aio_scene_{theme}.png"
+    else:
+        raise ValueError(kind)
     if not path.is_file():
         raise FileNotFoundError(path)
     return Image.open(path).convert("RGBA")
+
+
+def composite_panel_scene(bg_theme: str, pv: Image.Image, aio: Image.Image) -> Image.Image:
+    """Panel stack: dark canvas → sky → house → pv → aio."""
+    out = load_sky_layer(bg_theme)
+    out.alpha_composite(load_home_layer(bg_theme))
+    out.alpha_composite(pv.convert("RGBA"))
+    out.alpha_composite(aio.convert("RGBA"))
+    return out
 
 
 def write_baked_pv(theme: str, layer: Image.Image) -> Path:
@@ -103,7 +115,6 @@ def preview_theme(
     write_www: bool,
     also_layers: bool,
 ) -> Path:
-    bg = load_baked_layer("bg", bg_theme)
     if live:
         pv_sprite = load_sprite("pv", theme)
         aio_sprite = load_sprite("aio", theme)
@@ -118,9 +129,9 @@ def preview_theme(
         pv = load_baked_layer("pv", theme)
         aio = load_baked_layer("aio", theme)
 
-    composite = composite_scene(bg, pv, aio)
+    composite = composite_panel_scene(bg_theme, pv, aio)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = OUT_DIR / f"preview_{theme}.png"
+    out_path = OUT_DIR / f"preview_{bg_theme}.png"
     composite.save(out_path, optimize=True)
     print(f"  composite → {out_path}")
 
@@ -137,9 +148,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument(
         "--theme",
-        choices=[*OVERLAY_THEMES, "all"],
+        choices=[*OVERLAY_THEMES, *BG_THEMES, "all", "all-bg"],
         default="day_light",
-        help="Overlay theme (pv/aio); default day_light",
+        help="Overlay theme for pv/aio, or all-bg for every background theme",
     )
     p.add_argument(
         "--bg",
@@ -179,19 +190,31 @@ def main(argv: list[str] | None = None) -> int:
         dy=args.aio_dy if args.aio_dy is not None else DEFAULT_AIO["dy"],
     )
 
-    themes = list(OVERLAY_THEMES) if args.theme == "all" else [args.theme]
+    if args.theme == "all":
+        themes = list(OVERLAY_THEMES)
+    elif args.theme == "all-bg":
+        themes = list(BG_THEMES)
+    elif args.theme in BG_THEMES:
+        themes = [args.theme]
+    else:
+        themes = [args.theme]
     print(f"Canvas {CANVAS[0]}×{CANVAS[1]} — mode {'live' if args.live else 'baked www'}")
 
     paths: list[Path] = []
     for theme in themes:
-        bg_theme = args.bg or theme
+        if theme in BG_THEMES:
+            bg_theme = theme
+            overlay_theme = overlay_theme_for_bg(bg_theme)
+        else:
+            overlay_theme = theme
+            bg_theme = args.bg or theme
         if bg_theme not in BG_THEMES:
             print(f"skip {theme}: unknown bg theme {bg_theme}", file=sys.stderr)
             continue
         try:
             paths.append(
                 preview_theme(
-                    theme,
+                    overlay_theme,
                     bg_theme,
                     live=args.live,
                     placement=placement,
