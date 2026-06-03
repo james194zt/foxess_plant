@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.133
+ * @version 0.8.135
  */
 
 const NAV = [
@@ -35,8 +35,8 @@ const FOX_FLOW_PATHS = {
 };
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
-const FLOW_PATHS_VER = "flow-comet-v2";
-const PANEL_VERSION = "0.8.133";
+const FLOW_PATHS_VER = "flow-comet-v3";
+const PANEL_VERSION = "0.8.135";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -77,19 +77,19 @@ const FLOW_PIPE_STROKE = { day: "#5E6A78", night: "#9AA8B8" };
 const FLOW_PIPE_UNDERLAY = { day: "#EEF1F5", night: "#9AA4B0" };
 /** Active flow colours — inline on SVG paths for reliable rendering in HA shadow DOM. */
 const FLOW_ACTIVE_STROKE = {
-  solar: "#F5BC00",
-  grid: "#4A9AFF",
-  export: "#B565FF",
-  battery: "#33FF77",
-  home: "#33FF77",
-  hub: "#4C925B",
+  solar: "#FFC400",
+  grid: "#3D9AFF",
+  export: "#C06AFF",
+  battery: "#00FF66",
+  home: "#00FF66",
+  hub: "#00FF66",
 };
 const FLOW_COMET = {
   pathLen: 100,
-  pulse: 11,
-  hubHeadSw: 3.5,
-  headSw: 3,
-  glowScale: 2.1,
+  pulse: 12,
+  hubHeadSw: 4.5,
+  headSw: 4,
+  glowScale: 2.35,
   dur: 1.75,
   durSolar: 1.55,
 };
@@ -143,7 +143,14 @@ function flowCometPaths({ d, cls = "", headSw, stroke, reverse = false }) {
 
 function flowIdlePipeMarkup(d, isNight) {
   const stroke = flowPipeStroke(isNight);
-  return `<path class="flow-path flow-path-idle" d="${d}" stroke="${stroke}" stroke-width="${FLOW_STROKE.hubActive}" stroke-linecap="round" stroke-linejoin="round"></path>`;
+  const sw = FLOW_STROKE.hubActive;
+  const outline = isNight
+    ? ""
+    : `<path class="flow-path flow-path-idle-outline" d="${d}" stroke="rgba(28, 36, 48, 0.55)" stroke-width="${sw + 2.5}" stroke-linecap="round" stroke-linejoin="round"></path>`;
+  return (
+    outline +
+    `<path class="flow-path flow-path-idle" d="${d}" stroke="${stroke}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"></path>`
+  );
 }
 
 function renderFlowScenePaths({ lines, activeIds, gridExporting, isNight }) {
@@ -166,6 +173,22 @@ function renderFlowScenePaths({ lines, activeIds, gridExporting, isNight }) {
     })
     .join("");
   return idleHtml + activeHtml;
+}
+
+/** Stable key — only changes when which pipes are active or scene theme changes (not power W). */
+function flowSceneStructureKey(lines, gridExporting, isNight, bgTheme) {
+  const active = lines
+    .map((l) => `${l.id}${l.reverse ? ":r" : ""}`)
+    .sort()
+    .join(",");
+  return `${bgTheme}|${isNight ? "n" : "d"}|${gridExporting ? "x" : "i"}|${active}`;
+}
+
+function renderFlowSceneSvgInner({ lines, activeIds, gridExporting, isNight }) {
+  const pathsHtml = renderFlowScenePaths({ lines, activeIds, gridExporting, isNight });
+  const hubActive = lines.some((l) => l.id.includes("hub"));
+  const hubFill = hubActive ? FLOW_ACTIVE_STROKE.battery : flowPipeStroke(isNight);
+  return `${pathsHtml}<circle class="flow-hub-dot ${hubActive ? "active" : ""}" cx="${FOX_FLOW_HUB.x}" cy="${FOX_FLOW_HUB.y}" r="${FLOW_STROKE.hubR}" fill="${hubFill}"/>`;
 }
 
 /** role: flow = comet pulse (idle pipes drawn separately via renderFlowScenePaths). */
@@ -2517,21 +2540,22 @@ const STYLES = `
 .fox-flow-badge-battery { left: 50%; bottom: 6%; transform: translateX(-50%); }
 .fox-flow-badge-home { right: 4%; bottom: 6%; align-items: flex-end; }
 .flow-path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
-.flow-path-idle { opacity: 0.92; }
+.flow-path-idle { opacity: 1; }
+.flow-path-idle-outline { opacity: 1; pointer-events: none; }
 .flow-comet { fill: none; stroke-linejoin: round; pointer-events: none; }
-.flow-comet-glow { opacity: 0.28; }
+.flow-comet-glow { opacity: 0.48; }
 .flow-comet-pulse { opacity: 1; }
-.flow-comet-pulse.flow-solar { filter: drop-shadow(0 0 3px rgba(245, 188, 0, 0.7)); }
-.flow-comet-pulse.flow-grid { filter: drop-shadow(0 0 3px rgba(74, 154, 255, 0.7)); }
-.flow-comet-pulse.flow-export { filter: drop-shadow(0 0 3px rgba(181, 101, 255, 0.7)); }
-.flow-comet-pulse.flow-battery { filter: drop-shadow(0 0 4px rgba(51, 255, 119, 0.65)); }
+.flow-comet-pulse.flow-solar { filter: drop-shadow(0 0 5px rgba(255, 196, 0, 0.95)); }
+.flow-comet-pulse.flow-grid { filter: drop-shadow(0 0 5px rgba(61, 154, 255, 0.95)); }
+.flow-comet-pulse.flow-export { filter: drop-shadow(0 0 5px rgba(192, 106, 255, 0.95)); }
+.flow-comet-pulse.flow-battery { filter: drop-shadow(0 0 6px rgba(0, 255, 102, 0.95)); }
 .flow-comet-pulse { animation: flow-comet-pulse-fwd 1.75s linear infinite; }
 .flow-comet-glow { animation: flow-comet-pulse-fwd 1.75s linear infinite; }
 .flow-comet-pulse.flow-solar,
 .flow-comet-glow.flow-solar { animation-duration: 1.55s; }
 .flow-comet-pulse.reverse,
 .flow-comet-glow.reverse { animation-name: flow-comet-pulse-rev; }
-.flow-hub-dot.active { filter: drop-shadow(0 0 8px rgba(51, 255, 119, 0.95)); }
+.flow-hub-dot.active { filter: drop-shadow(0 0 10px rgba(0, 255, 102, 0.95)); }
 @keyframes flow-comet-pulse-fwd {
   from { stroke-dashoffset: 100; }
   to { stroke-dashoffset: -12; }
@@ -2856,6 +2880,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._overviewDailyPlantId = undefined;
     this._panelSyncBusy = false;
     this._panelStale = false;
+    this._flowSceneKey = undefined;
     this._chartsDraft = null;
     this._forecastCandidates = null;
     this._headerHasSubTabs = undefined;
@@ -3900,6 +3925,46 @@ ${this._modeBannerExtra()}
   }
 
   _renderEnergyScene(plant) {
+    const ctx = this._flowSceneContext(plant);
+    this._flowSceneKey = ctx.key;
+    const pathsHtml = renderFlowScenePaths({
+      lines: ctx.lines,
+      activeIds: ctx.activeIds,
+      gridExporting: ctx.gridExporting,
+      isNight: ctx.isNight,
+    });
+    return `<div class="scene-card scene-card--fox-flow">
+<div class="fox-flow-scene ${ctx.isNight ? "fox-flow-scene--night" : "fox-flow-scene--day"}" role="img" aria-label="Live energy flow" data-panel-build="${esc(this._panelBuild())}">
+<div class="fox-flow-stage">
+<img class="fox-flow-layer fox-flow-layer-bg" src="${esc(flowSceneLayerUrl("bg", ctx.bgTheme, ctx.overlayTheme))}" alt="" loading="eager" decoding="async" fetchpriority="high" />
+<img class="fox-flow-layer fox-flow-layer-pv" src="${esc(flowSceneLayerUrl("pv", ctx.bgTheme, ctx.overlayTheme))}" alt="" loading="lazy" decoding="async" />
+<img class="fox-flow-layer fox-flow-layer-aio" src="${esc(flowSceneLayerUrl("aio", ctx.bgTheme, ctx.overlayTheme))}" alt="" loading="lazy" decoding="async" />
+<svg class="fox-flow-svg" viewBox="0 0 1024 1017" preserveAspectRatio="xMidYMid meet" aria-hidden="true" data-flow-paths-ver="${esc(this._panel?.config?.flow_paths_ver || FLOW_PATHS_VER)}" data-flow-pipe-day="${FLOW_PIPE_STROKE.day}" data-flow-stroke-base="${FLOW_STROKE.base}" data-flow-stroke-active="${FLOW_STROKE.hubActive}" data-hub-r="${FLOW_STROKE.hubR}" data-hub-home="${esc(FOX_FLOW_PATHS["hub-home"])}" data-aio-hub="${esc(FOX_FLOW_PATHS["aio-hub"])}">
+${pathsHtml}
+<circle class="flow-hub-dot ${ctx.hubActive ? "active" : ""}" cx="${FOX_FLOW_HUB.x}" cy="${FOX_FLOW_HUB.y}" r="${FLOW_STROKE.hubR}" fill="${ctx.hubActive ? FLOW_ACTIVE_STROKE.battery : flowPipeStroke(ctx.isNight)}"/>
+</svg>
+<div class="fox-flow-badge fox-flow-badge-solar">
+<span class="fox-flow-badge-label">Solar</span>
+<span class="fox-flow-badge-value">${esc(formatFoxPower(ctx.flows.pvW))}</span>
+</div>
+<div class="fox-flow-badge fox-flow-badge-grid">
+<span class="fox-flow-badge-label">${esc(ctx.gridLabel)}</span>
+<span class="fox-flow-badge-value">${esc(formatFoxPower(ctx.gridPower))}</span>
+</div>
+<div class="fox-flow-badge fox-flow-badge-battery">
+<span class="fox-flow-badge-label">${esc(ctx.batteryStatus)}</span>
+<span class="fox-flow-badge-value">${esc(formatFoxPower(ctx.batteryPower))} | ${esc(formatPercent(ctx.soc))}</span>
+</div>
+<div class="fox-flow-badge fox-flow-badge-home">
+<span class="fox-flow-badge-label">Home</span>
+<span class="fox-flow-badge-value">${esc(formatFoxPower(ctx.flows.loadW))}</span>
+</div>
+</div>
+</div>
+</div>`;
+  }
+
+  _flowSceneContext(plant) {
     const flows = readEnergyFlows(this._hass, plant, this._plantState);
     const lines = computeFlowLines(flows);
     const activeIds = new Set(lines.map((l) => l.id));
@@ -3907,47 +3972,92 @@ ${this._modeBannerExtra()}
     const overlayTheme = flowSceneOverlayTheme(bgTheme);
     const isNight = !bgTheme.startsWith("day_");
     const soc = Math.min(100, Math.max(0, flows.batterySoc));
-    const gridExporting = flows.gridExportW > flows.gridImportW && flows.gridExportW > FLOW_SCENE_PV_THRESHOLD_W;
-    const gridLabel = gridExporting ? "To Grid" : "On Grid";
-    const gridPower = gridExporting ? flows.gridExportW : flows.gridImportW;
-    const batteryStatus = String(flows.batteryStatus || "Idle").toUpperCase();
-    const batteryPower = Math.abs(flows.batteryW);
-    const pathsHtml = renderFlowScenePaths({
+    const gridExporting =
+      flows.gridExportW > flows.gridImportW && flows.gridExportW > FLOW_SCENE_PV_THRESHOLD_W;
+    return {
+      flows,
       lines,
       activeIds,
-      gridExporting,
+      bgTheme,
+      overlayTheme,
       isNight,
+      soc,
+      gridExporting,
+      gridLabel: gridExporting ? "To Grid" : "On Grid",
+      gridPower: gridExporting ? flows.gridExportW : flows.gridImportW,
+      batteryStatus: String(flows.batteryStatus || "Idle").toUpperCase(),
+      batteryPower: Math.abs(flows.batteryW),
+      hubActive: lines.some((l) => l.id.includes("hub")),
+      key: flowSceneStructureKey(lines, gridExporting, isNight, bgTheme),
+    };
+  }
+
+  _patchFlowBadges(stage, ctx) {
+    const set = (sel, text) => {
+      const el = stage.querySelector(sel);
+      if (el) el.textContent = text;
+    };
+    set(".fox-flow-badge-solar .fox-flow-badge-value", formatFoxPower(ctx.flows.pvW));
+    set(".fox-flow-badge-grid .fox-flow-badge-label", ctx.gridLabel);
+    set(".fox-flow-badge-grid .fox-flow-badge-value", formatFoxPower(ctx.gridPower));
+    set(".fox-flow-badge-battery .fox-flow-badge-label", ctx.batteryStatus);
+    set(
+      ".fox-flow-badge-battery .fox-flow-badge-value",
+      `${formatFoxPower(ctx.batteryPower)} | ${formatPercent(ctx.soc)}`
+    );
+    set(".fox-flow-badge-home .fox-flow-badge-value", formatFoxPower(ctx.flows.loadW));
+  }
+
+  _patchOverviewStats(plant) {
+    const a = readLiveAnalytics(this._hass, plant, this._plantState, this._overviewDaily);
+    const row = this._root.querySelector(".overview-stats-row");
+    if (!row) return;
+    const stats = row.querySelectorAll(".stat");
+    if (stats.length < 3) return;
+    const vals = [
+      [a.self_consumption_percent_today, a.self_consumption_percent_today != null ? "%" : ""],
+      [a.self_sufficiency_percent_today, a.self_sufficiency_percent_today != null ? "%" : ""],
+      [a.pv_production_kwh_today, a.pv_production_kwh_today != null ? " kWh" : ""],
+    ];
+    stats.forEach((el, i) => {
+      const [v, suffix] = vals[i];
+      const strong = el.querySelector("strong");
+      if (!strong) return;
+      const has = v != null && v !== "—" && !(typeof v === "number" && !Number.isFinite(v));
+      strong.textContent = has ? String(v) + suffix : "—";
     });
-    const hubActive = lines.some((l) => l.id.includes("hub"));
-    return `<div class="scene-card scene-card--fox-flow">
-<div class="fox-flow-scene ${isNight ? "fox-flow-scene--night" : "fox-flow-scene--day"}" role="img" aria-label="Live energy flow" data-panel-build="${esc(this._panelBuild())}">
-<div class="fox-flow-stage">
-<img class="fox-flow-layer fox-flow-layer-bg" src="${esc(flowSceneLayerUrl("bg", bgTheme, overlayTheme))}" alt="" loading="eager" decoding="async" fetchpriority="high" />
-<img class="fox-flow-layer fox-flow-layer-pv" src="${esc(flowSceneLayerUrl("pv", bgTheme, overlayTheme))}" alt="" loading="lazy" decoding="async" />
-<img class="fox-flow-layer fox-flow-layer-aio" src="${esc(flowSceneLayerUrl("aio", bgTheme, overlayTheme))}" alt="" loading="lazy" decoding="async" />
-<svg class="fox-flow-svg" viewBox="0 0 1024 1017" preserveAspectRatio="xMidYMid meet" aria-hidden="true" data-flow-paths-ver="${esc(this._panel?.config?.flow_paths_ver || FLOW_PATHS_VER)}" data-flow-pipe-day="${FLOW_PIPE_STROKE.day}" data-flow-stroke-base="${FLOW_STROKE.base}" data-flow-stroke-active="${FLOW_STROKE.hubActive}" data-hub-r="${FLOW_STROKE.hubR}" data-hub-home="${esc(FOX_FLOW_PATHS["hub-home"])}" data-aio-hub="${esc(FOX_FLOW_PATHS["aio-hub"])}">
-${pathsHtml}
-<circle class="flow-hub-dot ${hubActive ? "active" : ""}" cx="${FOX_FLOW_HUB.x}" cy="${FOX_FLOW_HUB.y}" r="${FLOW_STROKE.hubR}" fill="${hubActive ? FLOW_ACTIVE_STROKE.battery : flowPipeStroke(isNight)}"/>
-</svg>
-<div class="fox-flow-badge fox-flow-badge-solar">
-<span class="fox-flow-badge-label">Solar</span>
-<span class="fox-flow-badge-value">${esc(formatFoxPower(flows.pvW))}</span>
-</div>
-<div class="fox-flow-badge fox-flow-badge-grid">
-<span class="fox-flow-badge-label">${esc(gridLabel)}</span>
-<span class="fox-flow-badge-value">${esc(formatFoxPower(gridPower))}</span>
-</div>
-<div class="fox-flow-badge fox-flow-badge-battery">
-<span class="fox-flow-badge-label">${esc(batteryStatus)}</span>
-<span class="fox-flow-badge-value">${esc(formatFoxPower(batteryPower))} | ${esc(formatPercent(soc))}</span>
-</div>
-<div class="fox-flow-badge fox-flow-badge-home">
-<span class="fox-flow-badge-label">Home</span>
-<span class="fox-flow-badge-value">${esc(formatFoxPower(flows.loadW))}</span>
-</div>
-</div>
-</div>
-</div>`;
+  }
+
+  /** Update live values without rebuilding flow SVG (keeps comet animation running). */
+  _patchOverviewLive(plant) {
+    const stage = this._root.querySelector(".fox-flow-stage");
+    if (!stage) return false;
+    const ctx = this._flowSceneContext(plant);
+    this._patchFlowBadges(stage, ctx);
+    this._patchOverviewStats(plant);
+    if (ctx.key === this._flowSceneKey) return true;
+    this._flowSceneKey = ctx.key;
+    const bg = stage.querySelector(".fox-flow-layer-bg");
+    const pv = stage.querySelector(".fox-flow-layer-pv");
+    const aio = stage.querySelector(".fox-flow-layer-aio");
+    if (bg) bg.src = flowSceneLayerUrl("bg", ctx.bgTheme, ctx.overlayTheme);
+    if (pv) pv.src = flowSceneLayerUrl("pv", ctx.bgTheme, ctx.overlayTheme);
+    if (aio) aio.src = flowSceneLayerUrl("aio", ctx.bgTheme, ctx.overlayTheme);
+    const scene = stage.closest(".fox-flow-scene");
+    if (scene) {
+      scene.classList.toggle("fox-flow-scene--night", ctx.isNight);
+      scene.classList.toggle("fox-flow-scene--day", !ctx.isNight);
+    }
+    const svg = stage.querySelector(".fox-flow-svg");
+    if (svg) {
+      svg.innerHTML = renderFlowSceneSvgInner({
+        lines: ctx.lines,
+        activeIds: ctx.activeIds,
+        gridExporting: ctx.gridExporting,
+        isNight: ctx.isNight,
+      });
+    }
+    return true;
   }
 
   _renderStormHero(armed) {
@@ -5038,7 +5148,16 @@ ${active
       this._syncTabActive(headerEl);
     }
 
-    shell.querySelector(".main").innerHTML = this._renderView(plant);
+    const mainEl = shell.querySelector(".main");
+    if (this._view === "overview" && mainEl.querySelector(".overview-header")) {
+      this._patchOverviewLive(plant);
+    } else {
+      this._flowSceneKey = undefined;
+      mainEl.innerHTML = this._renderView(plant);
+      if (this._view === "overview") {
+        this._flowSceneKey = this._flowSceneContext(plant).key;
+      }
+    }
 
     if (this._view === "settings" && this._settingsView === "quick") {
       this._bindTripleSoc();
