@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.135
+ * @version 0.8.136
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.8.135";
+const PANEL_VERSION = "0.8.136";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -2068,6 +2068,7 @@ const STYLES = `
   --fp-red: #e53935;
 }
 .shell {
+  position: relative;
   display: flex; flex-direction: column; height: 100%;
   min-height: calc(100vh - 56px);
   background: var(--primary-background-color);
@@ -2152,7 +2153,14 @@ const STYLES = `
 .header p { margin: 6px 0 0; color: var(--secondary-text-color); font-size: 14px; }
 .overview-header { margin-bottom: 16px; }
 .overview-model { margin: 4px 0 0; font-size: 15px; font-weight: 500; color: var(--secondary-text-color); letter-spacing: 0.01em; }
-.overview-panel-build { margin: 2px 0 0; font-size: 11px; color: var(--secondary-text-color); opacity: 0.65; letter-spacing: 0.02em; }
+.panel-build-footer {
+  position: absolute; right: 12px; bottom: 8px; z-index: 1;
+  margin: 0; padding: 0;
+  font-size: 9px; line-height: 1.3;
+  color: var(--secondary-text-color); opacity: 0.42;
+  letter-spacing: 0.02em; white-space: nowrap;
+  pointer-events: none;
+}
 .panel-stale-banner { margin-bottom: 14px; }
 .overview-status-block { margin-top: 12px; }
 .overview-status-row {
@@ -2963,6 +2971,18 @@ class FoxessPlantPanel extends HTMLElement {
     const regVer = String(regBuild).split("-")[0] || "—";
     const diskVer = this._plantState?.panel_runtime?.manifest_version || "—";
     return `js ${jsVer} · registered ${regVer} · disk ${diskVer}`;
+  }
+
+  _syncPanelBuildFooter(shell) {
+    if (!shell) return;
+    let el = shell.querySelector(".panel-build-footer");
+    if (!el) {
+      el = document.createElement("p");
+      el.className = "panel-build-footer";
+      el.setAttribute("aria-hidden", "true");
+      shell.appendChild(el);
+    }
+    el.textContent = `Panel build ${this._panelBuild()}`;
   }
 
   _panelIsStale() {
@@ -4206,7 +4226,7 @@ ${this._renderOverviewDailyCard(
   _renderOverview(plant) {
     const a = readLiveAnalytics(this._hass, plant, this._plantState, this._overviewDaily);
     const modelLine = plantModelSubtitle(this._hass, plant, this._plantState);
-    return `<header class="header overview-header"><h1>${esc(plant.title)}</h1>${modelLine !== "—" ? `<p class="overview-model">${esc(modelLine)}</p>` : ""}<p class="overview-panel-build">Panel build ${esc(this._panelBuild())}</p>${this._renderOverviewStatusBlock(plant)}</header>
+    return `<header class="header overview-header"><h1>${esc(plant.title)}</h1>${modelLine !== "—" ? `<p class="overview-model">${esc(modelLine)}</p>` : ""}${this._renderOverviewStatusBlock(plant)}</header>
 ${this._renderPanelStaleBanner()}
 <div class="overview-hero-row">
 <div class="overview-hero-scene">
@@ -5140,6 +5160,7 @@ ${active
     } else {
       shell.classList.toggle("narrow", this._narrow);
     }
+    this._syncPanelBuildFooter(shell);
 
     const headerEl = shell.querySelector(".page-header");
     if (this._headerHasSubTabs !== showSubTabs) {
