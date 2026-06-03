@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.138
+ * @version 0.8.139
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.8.138";
+const PANEL_VERSION = "0.8.139";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -70,7 +70,7 @@ function registerFoxessPlantPanel() {
     console.error(`FoxESS Plant: could not register <${tag}>`, err);
   }
 }
-const FLOW_STROKE = { base: 4, underlay: 5, active: 7, hubActive: 8, hubR: 8 };
+const FLOW_STROKE = { base: 3, underlay: 4, active: 5, hubActive: 6, hubR: 6.5 };
 /** Idle pipe track — darker on day (white walls), lighter on night (black scene). */
 const FLOW_PIPE_STROKE = { day: "#5E6A78", night: "#9AA8B8" };
 /** Pale underlay beneath animated hub spokes so dashes do not sit on dark gaps. */
@@ -87,8 +87,8 @@ const FLOW_ACTIVE_STROKE = {
 const FLOW_COMET = {
   pathLen: 100,
   pulse: 12,
-  hubHeadSw: 4.5,
-  headSw: 4,
+  hubHeadSw: 3.5,
+  headSw: 3,
   glowScale: 2.35,
   dur: 1.75,
   durSolar: 1.55,
@@ -146,7 +146,7 @@ function flowIdlePipeMarkup(d, isNight) {
   const sw = FLOW_STROKE.hubActive;
   const outline = isNight
     ? ""
-    : `<path class="flow-path flow-path-idle-outline" d="${d}" stroke="rgba(28, 36, 48, 0.55)" stroke-width="${sw + 2.5}" stroke-linecap="round" stroke-linejoin="round"></path>`;
+    : `<path class="flow-path flow-path-idle-outline" d="${d}" stroke="rgba(28, 36, 48, 0.55)" stroke-width="${sw + 2}" stroke-linecap="round" stroke-linejoin="round"></path>`;
   return (
     outline +
     `<path class="flow-path flow-path-idle" d="${d}" stroke="${stroke}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"></path>`
