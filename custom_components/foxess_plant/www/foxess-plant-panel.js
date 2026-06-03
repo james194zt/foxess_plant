@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.137
+ * @version 0.8.138
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.8.137";
+const PANEL_VERSION = "0.8.138";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -2565,11 +2565,11 @@ const STYLES = `
 .flow-comet-glow.reverse { animation-name: flow-comet-pulse-rev; }
 .flow-hub-dot.active { filter: drop-shadow(0 0 10px rgba(0, 255, 102, 0.95)); }
 @keyframes flow-comet-pulse-fwd {
-  from { stroke-dashoffset: 100; }
-  to { stroke-dashoffset: -12; }
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -100; }
 }
 @keyframes flow-comet-pulse-rev {
-  from { stroke-dashoffset: -12; }
+  from { stroke-dashoffset: 0; }
   to { stroke-dashoffset: 100; }
 }
 .device-header { margin-bottom: 8px; }
@@ -2889,6 +2889,9 @@ class FoxessPlantPanel extends HTMLElement {
     this._panelSyncBusy = false;
     this._panelStale = false;
     this._flowSceneKey = undefined;
+    this._flowScenePlantId = undefined;
+    this._flowSceneKeyPending = undefined;
+    this._flowSceneKeyPendingN = 0;
     this._chartsDraft = null;
     this._forecastCandidates = null;
     this._headerHasSubTabs = undefined;
@@ -4011,6 +4014,32 @@ ${pathsHtml}
     };
   }
 
+  /** Require two matching updates before rebuilding flow pipes (avoids threshold flicker). */
+  _stableFlowSceneKey(nextKey) {
+    if (this._flowSceneKey == null) {
+      this._flowSceneKeyPending = undefined;
+      this._flowSceneKeyPendingN = 0;
+      return nextKey;
+    }
+    if (nextKey === this._flowSceneKey) {
+      this._flowSceneKeyPending = undefined;
+      this._flowSceneKeyPendingN = 0;
+      return this._flowSceneKey;
+    }
+    if (nextKey === this._flowSceneKeyPending) {
+      this._flowSceneKeyPendingN += 1;
+    } else {
+      this._flowSceneKeyPending = nextKey;
+      this._flowSceneKeyPendingN = 1;
+    }
+    if (this._flowSceneKeyPendingN >= 2) {
+      this._flowSceneKeyPending = undefined;
+      this._flowSceneKeyPendingN = 0;
+      return nextKey;
+    }
+    return this._flowSceneKey;
+  }
+
   _patchFlowBadges(stage, ctx) {
     const set = (sel, text) => {
       const el = stage.querySelector(sel);
@@ -4027,25 +4056,61 @@ ${pathsHtml}
     set(".fox-flow-badge-home .fox-flow-badge-value", formatFoxPower(ctx.flows.loadW));
   }
 
-  /** Full overview refresh; keep flow scene DOM when active routes unchanged (smooth comet). */
+  _renderOverviewHeader(plant) {
+    const modelLine = plantModelSubtitle(this._hass, plant, this._plantState);
+    return `<header class="header overview-header"><h1>${esc(plant.title)}</h1>${modelLine !== "—" ? `<p class="overview-model">${esc(modelLine)}</p>` : ""}${this._renderOverviewStatusBlock(plant)}</header>`;
+  }
+
+  _renderOverviewAfterHero(plant) {
+    const a = readLiveAnalytics(this._hass, plant, this._plantState, this._overviewDaily);
+    return `<div class="overview-stats-row">
+${this._stat("Self-consumption", a.self_consumption_percent_today, a.self_consumption_percent_today != null ? "%" : "")}
+${this._stat("Self-sufficiency", a.self_sufficiency_percent_today, a.self_sufficiency_percent_today != null ? "%" : "")}
+${this._stat("PV today", a.pv_production_kwh_today, a.pv_production_kwh_today != null ? " kWh" : "")}
+</div>
+<div class="card statistics-card" style="margin-top:14px">
+<p class="card-title">Statistics</p>
+${this._renderStatisticsChartBody()}
+</div>
+${this._renderImpactPanel()}`;
+  }
+
+  /** Refresh overview without disconnecting the flow scene (CSS animations keep running). */
   _renderOverviewMain(mainEl, plant) {
     const ctx = this._flowSceneContext(plant);
-    const existing = mainEl.querySelector(".overview-hero-scene");
-    let preservedScene = null;
-    if (existing && this._flowSceneKey === ctx.key) {
-      preservedScene = existing;
-      preservedScene.remove();
+    if (this._flowScenePlantId !== plant.entry_id) {
+      this._flowSceneKey = undefined;
+      this._flowScenePlantId = plant.entry_id;
+      this._flowSceneKeyPending = undefined;
+      this._flowSceneKeyPendingN = 0;
     }
-    mainEl.innerHTML = this._renderOverview(plant);
-    if (preservedScene) {
-      const slot = mainEl.querySelector(".overview-hero-scene");
-      if (slot) {
-        slot.replaceWith(preservedScene);
-        const stage = preservedScene.querySelector(".fox-flow-stage");
-        if (stage) this._patchFlowBadges(stage, ctx);
-      }
+    const stableKey = this._stableFlowSceneKey(ctx.key);
+    const rebuildFlow = stableKey !== this._flowSceneKey;
+
+    if (!mainEl.querySelector(".overview-root")) {
+      mainEl.innerHTML = `<div class="overview-root">
+<div class="overview-chrome"></div>
+<div class="overview-hero-row">
+<div class="overview-hero-scene"></div>
+<div class="overview-hero-daily-slot"></div>
+</div>
+<div class="overview-after-hero"></div>
+</div>`;
     }
-    this._flowSceneKey = ctx.key;
+
+    mainEl.querySelector(".overview-chrome").innerHTML =
+      this._renderOverviewHeader(plant) + this._renderPanelStaleBanner();
+    mainEl.querySelector(".overview-hero-daily-slot").innerHTML = this._renderOverviewDailyCards();
+    mainEl.querySelector(".overview-after-hero").innerHTML = this._renderOverviewAfterHero(plant);
+
+    const sceneSlot = mainEl.querySelector(".overview-hero-scene");
+    if (rebuildFlow || !sceneSlot.querySelector(".fox-flow-stage")) {
+      sceneSlot.innerHTML = this._renderEnergyScene(plant);
+      this._flowSceneKey = stableKey;
+    } else {
+      const stage = sceneSlot.querySelector(".fox-flow-stage");
+      if (stage) this._patchFlowBadges(stage, ctx);
+    }
   }
 
   _renderStormHero(armed) {
@@ -4192,9 +4257,7 @@ ${this._renderOverviewDailyCard(
   }
 
   _renderOverview(plant) {
-    const a = readLiveAnalytics(this._hass, plant, this._plantState, this._overviewDaily);
-    const modelLine = plantModelSubtitle(this._hass, plant, this._plantState);
-    return `<header class="header overview-header"><h1>${esc(plant.title)}</h1>${modelLine !== "—" ? `<p class="overview-model">${esc(modelLine)}</p>` : ""}${this._renderOverviewStatusBlock(plant)}</header>
+    return `${this._renderOverviewHeader(plant)}
 ${this._renderPanelStaleBanner()}
 <div class="overview-hero-row">
 <div class="overview-hero-scene">
@@ -4202,16 +4265,7 @@ ${this._renderEnergyScene(plant)}
 </div>
 ${this._renderOverviewDailyCards()}
 </div>
-<div class="overview-stats-row">
-${this._stat("Self-consumption", a.self_consumption_percent_today, a.self_consumption_percent_today != null ? "%" : "")}
-${this._stat("Self-sufficiency", a.self_sufficiency_percent_today, a.self_sufficiency_percent_today != null ? "%" : "")}
-${this._stat("PV today", a.pv_production_kwh_today, a.pv_production_kwh_today != null ? " kWh" : "")}
-</div>
-<div class="card statistics-card" style="margin-top:14px">
-<p class="card-title">Statistics</p>
-${this._renderStatisticsChartBody()}
-</div>
-${this._renderImpactPanel()}`;
+${this._renderOverviewAfterHero(plant)}`;
   }
 
   _identityRows(plant) {
@@ -5142,6 +5196,9 @@ ${active
       this._renderOverviewMain(mainEl, plant);
     } else {
       this._flowSceneKey = undefined;
+      this._flowScenePlantId = undefined;
+      this._flowSceneKeyPending = undefined;
+      this._flowSceneKeyPendingN = 0;
       mainEl.innerHTML = this._renderView(plant);
     }
 
