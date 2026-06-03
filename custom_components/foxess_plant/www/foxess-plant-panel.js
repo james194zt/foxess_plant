@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.142
+ * @version 0.8.143
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.8.142";
+const PANEL_VERSION = "0.8.143";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -2548,10 +2548,51 @@ const STYLES = `
 }
 .fox-flow-stage {
   position: relative; width: 100%;
-  background: #000;
+  background: #0d1117;
 }
 .fox-flow-stage::before {
   content: ""; display: block; width: 100%; padding-top: 99.31640625%;
+}
+.fox-flow-scene--day .fox-flow-stage::after {
+  content: "";
+  position: absolute; left: 0; right: 0; bottom: 0; height: 46%;
+  z-index: 0; pointer-events: none;
+  background: linear-gradient(
+    to top,
+    #0d1117 0%,
+    #121820 22%,
+    rgba(18, 24, 32, 0.82) 42%,
+    transparent 100%
+  );
+}
+.fox-flow-scene--night .fox-flow-stage::after {
+  content: "";
+  position: absolute; left: 0; right: 0; bottom: 0; height: 40%;
+  z-index: 0; pointer-events: none;
+  background: linear-gradient(to top, #080c10 0%, rgba(8, 12, 16, 0.6) 50%, transparent 100%);
+}
+.fox-flow-ground {
+  position: absolute; left: 50%; bottom: 12%;
+  width: 80%; height: 34%;
+  transform: translateX(-50%);
+  z-index: 1; pointer-events: none; border-radius: 50%;
+}
+.fox-flow-scene--day .fox-flow-ground {
+  background: radial-gradient(
+    ellipse 100% 88% at 50% 52%,
+    #1e2732 0%,
+    #151c26 38%,
+    #0f141c 68%,
+    rgba(15, 20, 28, 0) 100%
+  );
+}
+.fox-flow-scene--night .fox-flow-ground {
+  background: radial-gradient(
+    ellipse 100% 88% at 50% 52%,
+    #161d28 0%,
+    #0e131a 45%,
+    rgba(14, 19, 26, 0) 100%
+  );
 }
 .overview-hero-row .overview-hero-scene .fox-flow-scene,
 .overview-hero-row .overview-hero-scene .fox-flow-stage {
@@ -2569,7 +2610,7 @@ const STYLES = `
 .fox-flow-layer-aio {
   inset: 0; width: 100%; height: 100%;
   object-fit: contain; object-position: center bottom;
-  z-index: 1;
+  z-index: 2;
 }
 .fox-flow-svg {
   position: absolute; inset: 0; width: 100%; height: 100%;
@@ -2590,6 +2631,12 @@ const STYLES = `
   letter-spacing: -0.01em;
 }
 .fox-flow-badge-solar { left: 50%; top: 1%; transform: translateX(-50%); }
+.fox-flow-scene--light-sky .fox-flow-badge-solar .fox-flow-badge-label {
+  color: rgba(0, 0, 0, 0.58);
+}
+.fox-flow-scene--light-sky .fox-flow-badge-solar .fox-flow-badge-value {
+  color: #141414;
+}
 .fox-flow-badge-grid { left: 4%; bottom: 6%; align-items: flex-start; }
 .fox-flow-badge-battery { left: 50%; bottom: 6%; transform: translateX(-50%); }
 .fox-flow-badge-home { right: 4%; bottom: 6%; align-items: flex-end; }
@@ -4004,9 +4051,10 @@ ${this._modeBannerExtra()}
       isNight: ctx.isNight,
     });
     return `<div class="scene-card scene-card--fox-flow">
-<div class="fox-flow-scene ${ctx.isNight ? "fox-flow-scene--night" : "fox-flow-scene--day"}" role="img" aria-label="Live energy flow" data-panel-build="${esc(this._panelBuild())}">
+<div class="fox-flow-scene ${ctx.isNight ? "fox-flow-scene--night" : "fox-flow-scene--day"}${ctx.bgTheme === "day_light" ? " fox-flow-scene--light-sky" : ""}" role="img" aria-label="Live energy flow" data-panel-build="${esc(this._panelBuild())}">
 <div class="fox-flow-stage">
 <img class="fox-flow-layer fox-flow-layer-bg" src="${esc(flowSceneLayerUrl("bg", ctx.bgTheme, ctx.overlayTheme))}" alt="" loading="eager" decoding="async" fetchpriority="high" />
+<div class="fox-flow-ground" aria-hidden="true"></div>
 <img class="fox-flow-layer fox-flow-layer-pv" src="${esc(flowSceneLayerUrl("pv", ctx.bgTheme, ctx.overlayTheme))}" alt="" loading="lazy" decoding="async" />
 <img class="fox-flow-layer fox-flow-layer-aio" src="${esc(flowSceneLayerUrl("aio", ctx.bgTheme, ctx.overlayTheme))}" alt="" loading="lazy" decoding="async" />
 <svg class="fox-flow-svg" viewBox="0 0 1024 1017" preserveAspectRatio="xMidYMid meet" aria-hidden="true" data-flow-paths-ver="${esc(this._panel?.config?.flow_paths_ver || FLOW_PATHS_VER)}" data-flow-pipe-day="${FLOW_PIPE_STROKE.day}" data-flow-stroke-base="${FLOW_STROKE.base}" data-flow-stroke-active="${FLOW_STROKE.hubActive}" data-hub-r="${FLOW_STROKE.hubR}" data-hub-home="${esc(FOX_FLOW_PATHS["hub-home"])}" data-aio-hub="${esc(FOX_FLOW_PATHS["aio-hub"])}">
