@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.139
+ * @version 0.8.140
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.8.139";
+const PANEL_VERSION = "0.8.140";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -1497,10 +1497,10 @@ function renderOverviewDailySparklineSvg(values, labels, accentColor) {
       `<text x="${cx.toFixed(1)}" y="${(height - 4).toFixed(1)}" text-anchor="middle" class="overview-daily-day" font-size="${dayFont}">${esc(String(labels[i].getDate()))}</text>`
     );
     hits.push(
-      `<rect class="overview-daily-bar-hit" x="${(pad.l + i * slotW).toFixed(1)}" y="${pad.t}" width="${slotW.toFixed(1)}" height="${(h + pad.b).toFixed(1)}" fill="transparent" data-value="${v}"><title>${esc(tip)}</title></rect>`
+      `<rect class="overview-daily-bar-hit" x="${(pad.l + i * slotW).toFixed(1)}" y="${pad.t}" width="${slotW.toFixed(1)}" height="${(h + pad.b).toFixed(1)}" fill="transparent" data-value="${v}" aria-label="${esc(tip)}"/>`
     );
   }
-  return `<div class="overview-daily-chart-wrap"><svg class="overview-daily-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">${parts.join("")}${hits.join("")}</svg><div class="overview-daily-tooltip" hidden role="tooltip"></div></div>`;
+  return `<div class="overview-daily-chart-wrap"><svg class="overview-daily-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" aria-hidden="true"><rect class="overview-daily-hover-col" visibility="hidden" fill="rgba(127,127,127,0.14)" pointer-events="none"/>${parts.join("")}${hits.join("")}</svg><div class="overview-daily-tooltip" hidden role="tooltip"></div></div>`;
 }
 
 function bindOverviewDailyCharts(root) {
@@ -1508,10 +1508,12 @@ function bindOverviewDailyCharts(root) {
     if (wrap.dataset.bound === "1") return;
     wrap.dataset.bound = "1";
     const tooltip = wrap.querySelector(".overview-daily-tooltip");
-    const hits = wrap.querySelectorAll(".overview-daily-bar-hit");
-    if (!tooltip || !hits.length) return;
+    const svg = wrap.querySelector(".overview-daily-chart");
+    const highlight = svg?.querySelector(".overview-daily-hover-col");
+    if (!tooltip || !svg || !highlight) return;
     const hide = () => {
       tooltip.hidden = true;
+      highlight.setAttribute("visibility", "hidden");
     };
     const show = (hit, clientX) => {
       const rect = wrap.getBoundingClientRect();
@@ -1520,14 +1522,21 @@ function bindOverviewDailyCharts(root) {
       tooltip.hidden = false;
       tooltip.style.left = `${Math.max(8, Math.min(rect.width - 8, clientX - rect.left))}px`;
       tooltip.style.top = "0px";
+      highlight.setAttribute("x", hit.getAttribute("x"));
+      highlight.setAttribute("y", hit.getAttribute("y"));
+      highlight.setAttribute("width", hit.getAttribute("width"));
+      highlight.setAttribute("height", hit.getAttribute("height"));
+      highlight.setAttribute("visibility", "visible");
     };
-    hits.forEach((hit) => {
-      hit.addEventListener("mouseenter", (ev) => show(hit, ev.clientX));
-      hit.addEventListener("mousemove", (ev) => show(hit, ev.clientX));
-      hit.addEventListener("mouseleave", hide);
-      hit.addEventListener("click", (ev) => ev.stopPropagation());
+    wrap.addEventListener("mousemove", (ev) => {
+      const hit = ev.target.closest?.(".overview-daily-bar-hit");
+      if (hit && wrap.contains(hit)) show(hit, ev.clientX);
+      else hide();
     });
     wrap.addEventListener("mouseleave", hide);
+    wrap.addEventListener("click", (ev) => {
+      if (ev.target.closest?.(".overview-daily-bar-hit")) ev.stopPropagation();
+    });
   });
 }
 
@@ -2224,6 +2233,8 @@ const STYLES = `
   cursor: pointer; font-family: inherit; color: inherit;
 }
 .overview-daily-card:hover { background: var(--secondary-background-color); }
+.overview-daily-card:has(.overview-daily-chart-wrap:hover) { background: var(--card-background-color); }
+.overview-daily-hover-col { pointer-events: none; }
 .overview-daily-head {
   display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px;
 }
@@ -2886,6 +2897,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._overviewDaily = null;
     this._overviewDailyLoading = false;
     this._overviewDailyPlantId = undefined;
+    this._overviewDailySlotKey = undefined;
     this._panelSyncBusy = false;
     this._panelStale = false;
     this._flowSceneKey = undefined;
@@ -4083,6 +4095,7 @@ ${this._renderImpactPanel()}`;
       this._flowScenePlantId = plant.entry_id;
       this._flowSceneKeyPending = undefined;
       this._flowSceneKeyPendingN = 0;
+      this._overviewDailySlotKey = undefined;
     }
     const stableKey = this._stableFlowSceneKey(ctx.key);
     const rebuildFlow = stableKey !== this._flowSceneKey;
@@ -4100,7 +4113,12 @@ ${this._renderImpactPanel()}`;
 
     mainEl.querySelector(".overview-chrome").innerHTML =
       this._renderOverviewHeader(plant) + this._renderPanelStaleBanner();
-    mainEl.querySelector(".overview-hero-daily-slot").innerHTML = this._renderOverviewDailyCards();
+    const dailyKey = this._overviewDailySlotKey();
+    const dailySlot = mainEl.querySelector(".overview-hero-daily-slot");
+    if (dailyKey !== this._overviewDailySlotKey) {
+      dailySlot.innerHTML = this._renderOverviewDailyCards();
+      this._overviewDailySlotKey = dailyKey;
+    }
     mainEl.querySelector(".overview-after-hero").innerHTML = this._renderOverviewAfterHero(plant);
 
     const sceneSlot = mainEl.querySelector(".overview-hero-scene");
@@ -4201,6 +4219,18 @@ ${basis}
 <div class="overview-daily-value">${esc(formatDailyKwh(display))}</div>
 ${chart}
 </button>`;
+  }
+
+  _overviewDailySlotKey() {
+    if (this._overviewDailyLoading) return "loading";
+    const data = this._overviewDaily;
+    if (data?.error) return `err:${data.error}`;
+    if (!data?.labels?.length) return "empty";
+    const a = this._plantState?.analytics ?? {};
+    const dates = data.labels.map((d) => d.getTime()).join(",");
+    const prod = (data.production || []).join(",");
+    const cons = (data.consumption || []).join(",");
+    return `${dates}|${prod}|${cons}|${a.pv_production_kwh_today ?? ""}|${a.load_consumption_kwh_today ?? ""}`;
   }
 
   _renderOverviewDailyCards() {
@@ -5214,7 +5244,7 @@ ${active
     ) {
       this._bindStatisticsChart();
     }
-    if (this._view === "overview" && this._overviewDaily?.labels?.length) {
+    if (this._view === "overview") {
       bindOverviewDailyCharts(this._root);
     }
     if (this._view === "energy") {
