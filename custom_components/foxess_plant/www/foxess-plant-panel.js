@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.136
+ * @version 0.8.137
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.8.136";
+const PANEL_VERSION = "0.8.137";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -3946,7 +3946,6 @@ ${this._modeBannerExtra()}
 
   _renderEnergyScene(plant) {
     const ctx = this._flowSceneContext(plant);
-    this._flowSceneKey = ctx.key;
     const pathsHtml = renderFlowScenePaths({
       lines: ctx.lines,
       activeIds: ctx.activeIds,
@@ -4028,56 +4027,25 @@ ${pathsHtml}
     set(".fox-flow-badge-home .fox-flow-badge-value", formatFoxPower(ctx.flows.loadW));
   }
 
-  _patchOverviewStats(plant) {
-    const a = readLiveAnalytics(this._hass, plant, this._plantState, this._overviewDaily);
-    const row = this._root.querySelector(".overview-stats-row");
-    if (!row) return;
-    const stats = row.querySelectorAll(".stat");
-    if (stats.length < 3) return;
-    const vals = [
-      [a.self_consumption_percent_today, a.self_consumption_percent_today != null ? "%" : ""],
-      [a.self_sufficiency_percent_today, a.self_sufficiency_percent_today != null ? "%" : ""],
-      [a.pv_production_kwh_today, a.pv_production_kwh_today != null ? " kWh" : ""],
-    ];
-    stats.forEach((el, i) => {
-      const [v, suffix] = vals[i];
-      const strong = el.querySelector("strong");
-      if (!strong) return;
-      const has = v != null && v !== "—" && !(typeof v === "number" && !Number.isFinite(v));
-      strong.textContent = has ? String(v) + suffix : "—";
-    });
-  }
-
-  /** Update live values without rebuilding flow SVG (keeps comet animation running). */
-  _patchOverviewLive(plant) {
-    const stage = this._root.querySelector(".fox-flow-stage");
-    if (!stage) return false;
+  /** Full overview refresh; keep flow scene DOM when active routes unchanged (smooth comet). */
+  _renderOverviewMain(mainEl, plant) {
     const ctx = this._flowSceneContext(plant);
-    this._patchFlowBadges(stage, ctx);
-    this._patchOverviewStats(plant);
-    if (ctx.key === this._flowSceneKey) return true;
+    const existing = mainEl.querySelector(".overview-hero-scene");
+    let preservedScene = null;
+    if (existing && this._flowSceneKey === ctx.key) {
+      preservedScene = existing;
+      preservedScene.remove();
+    }
+    mainEl.innerHTML = this._renderOverview(plant);
+    if (preservedScene) {
+      const slot = mainEl.querySelector(".overview-hero-scene");
+      if (slot) {
+        slot.replaceWith(preservedScene);
+        const stage = preservedScene.querySelector(".fox-flow-stage");
+        if (stage) this._patchFlowBadges(stage, ctx);
+      }
+    }
     this._flowSceneKey = ctx.key;
-    const bg = stage.querySelector(".fox-flow-layer-bg");
-    const pv = stage.querySelector(".fox-flow-layer-pv");
-    const aio = stage.querySelector(".fox-flow-layer-aio");
-    if (bg) bg.src = flowSceneLayerUrl("bg", ctx.bgTheme, ctx.overlayTheme);
-    if (pv) pv.src = flowSceneLayerUrl("pv", ctx.bgTheme, ctx.overlayTheme);
-    if (aio) aio.src = flowSceneLayerUrl("aio", ctx.bgTheme, ctx.overlayTheme);
-    const scene = stage.closest(".fox-flow-scene");
-    if (scene) {
-      scene.classList.toggle("fox-flow-scene--night", ctx.isNight);
-      scene.classList.toggle("fox-flow-scene--day", !ctx.isNight);
-    }
-    const svg = stage.querySelector(".fox-flow-svg");
-    if (svg) {
-      svg.innerHTML = renderFlowSceneSvgInner({
-        lines: ctx.lines,
-        activeIds: ctx.activeIds,
-        gridExporting: ctx.gridExporting,
-        isNight: ctx.isNight,
-      });
-    }
-    return true;
   }
 
   _renderStormHero(armed) {
@@ -5170,14 +5138,11 @@ ${active
     }
 
     const mainEl = shell.querySelector(".main");
-    if (this._view === "overview" && mainEl.querySelector(".overview-header")) {
-      this._patchOverviewLive(plant);
+    if (this._view === "overview") {
+      this._renderOverviewMain(mainEl, plant);
     } else {
       this._flowSceneKey = undefined;
       mainEl.innerHTML = this._renderView(plant);
-      if (this._view === "overview") {
-        this._flowSceneKey = this._flowSceneContext(plant).key;
-      }
     }
 
     if (this._view === "settings" && this._settingsView === "quick") {
