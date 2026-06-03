@@ -7,12 +7,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from key_flow_home_sky import (
-    CANVAS,
-    FLOW_THEMES,
-    dissolve_sky_horizon,
-    process_home_layer,
-)
+from key_flow_home_sky import CANVAS, FLOW_THEMES, process_home_layer
 
 ROOT = Path(__file__).resolve().parents[1]
 WWW = ROOT / "custom_components" / "foxess_plant" / "www"
@@ -28,17 +23,8 @@ def rekey_home(theme: str) -> None:
     print(f"rekeyed {path.name} ({path.stat().st_size} bytes)")
 
 
-def rekey_sky(theme: str) -> None:
-    path = WWW / f"flow_home_bg_{theme}.png"
-    im = Image.open(path).convert("RGBA")
-    out = dissolve_sky_horizon(im)
-    out.save(path, optimize=True)
-    print(f"rekeyed {path.name} ({path.stat().st_size} bytes)")
-
-
 def main() -> None:
     for theme in FLOW_THEMES:
-        rekey_sky(theme)
         rekey_home(theme)
 
 

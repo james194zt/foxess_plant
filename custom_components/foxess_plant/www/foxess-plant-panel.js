@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.145
+ * @version 0.8.146
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.8.145";
+const PANEL_VERSION = "0.8.146";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -96,7 +96,7 @@ const FLOW_COMET = {
 const FLOW_SCENE_PV_THRESHOLD_W = 40;
 /** Dark stage behind transparent Fox flow layers (matches Fox app canvas, not white). */
 const FLOW_SCENE_CANVAS_BG = "#1a1f26";
-const FLOW_SCENE_ASSET_VER = 37;
+const FLOW_SCENE_ASSET_VER = 38;
 
 const FLOW_SCENE_BG_THEMES = new Set([
   "day_light",
@@ -1957,6 +1957,10 @@ function flowSceneOverlayTheme(bgTheme) {
   return bgTheme.startsWith("day_") ? "day_light" : "night_dark";
 }
 
+function flowSceneUsesCssSky(bgTheme) {
+  return bgTheme.startsWith("day_");
+}
+
 function flowSceneLayerUrl(layer, bgTheme, overlayTheme = flowSceneOverlayTheme(bgTheme)) {
   const theme = layer === "sky" || layer === "house" ? bgTheme : overlayTheme;
   if (layer === "sky") {
@@ -2549,11 +2553,44 @@ const STYLES = `
   width: 100%; margin: 0 0 14px; overflow: hidden;
 }
 .fox-flow-scene {
-  display: block; width: 100%; background: transparent;
+  display: block; width: 100%;
+  background: ${FLOW_SCENE_CANVAS_BG};
 }
 .fox-flow-stage {
   position: relative; width: 100%;
   background: ${FLOW_SCENE_CANVAS_BG};
+}
+.fox-flow-sky-css {
+  position: absolute; inset: 0; z-index: 0; pointer-events: none;
+}
+.fox-flow-sky-css--day-light {
+  background: linear-gradient(
+    180deg,
+    #3d7fb8 0%,
+    #6fa3cc 20%,
+    #a8c4dc 36%,
+    rgba(26, 31, 38, 0) 52%
+  );
+}
+.fox-flow-sky-css--day-dark {
+  background: linear-gradient(
+    180deg,
+    #2a4a62 0%,
+    #3d5a72 28%,
+    rgba(26, 31, 38, 0) 50%
+  );
+}
+.fox-flow-scene--night .fox-flow-layer-sky {
+  clip-path: inset(0 0 58% 0);
+}
+.fox-flow-ground-fade {
+  position: absolute; inset: 0; z-index: 2; pointer-events: none;
+  background: linear-gradient(
+    to top,
+    rgba(26, 31, 38, 0.85) 0%,
+    rgba(26, 31, 38, 0.45) 22%,
+    transparent 42%
+  );
 }
 .fox-flow-stage::before {
   content: ""; display: block; width: 100%; padding-top: 99.31640625%;
@@ -2576,7 +2613,7 @@ const STYLES = `
 .fox-flow-layer-sky { z-index: 0; }
 .fox-flow-layer-house { z-index: 1; }
 .fox-flow-layer-pv,
-.fox-flow-layer-aio { z-index: 2; }
+.fox-flow-layer-aio { z-index: 3; }
 .fox-flow-svg {
   position: absolute; inset: 0; width: 100%; height: 100%;
   z-index: 3; pointer-events: none;
@@ -4007,6 +4044,15 @@ ${this._modeBannerExtra()}
 </div>`;
   }
 
+  _renderFlowSkyMarkup(ctx) {
+    if (flowSceneUsesCssSky(ctx.bgTheme)) {
+      const skyCls =
+        ctx.bgTheme === "day_dark" ? "fox-flow-sky-css--day-dark" : "fox-flow-sky-css--day-light";
+      return `<div class="fox-flow-sky-css ${skyCls}" aria-hidden="true"></div>`;
+    }
+    return `<img class="fox-flow-layer fox-flow-layer-sky" src="${esc(flowSceneLayerUrl("sky", ctx.bgTheme, ctx.overlayTheme))}" alt="" loading="eager" decoding="async" fetchpriority="high" />`;
+  }
+
   _renderEnergyScene(plant) {
     const ctx = this._flowSceneContext(plant);
     const pathsHtml = renderFlowScenePaths({
@@ -4018,8 +4064,9 @@ ${this._modeBannerExtra()}
     return `<div class="scene-card scene-card--fox-flow">
 <div class="fox-flow-scene ${ctx.isNight ? "fox-flow-scene--night" : "fox-flow-scene--day"}${ctx.bgTheme === "day_light" ? " fox-flow-scene--light-sky" : ""}" role="img" aria-label="Live energy flow" data-panel-build="${esc(this._panelBuild())}">
 <div class="fox-flow-stage">
-<img class="fox-flow-layer fox-flow-layer-sky" src="${esc(flowSceneLayerUrl("sky", ctx.bgTheme, ctx.overlayTheme))}" alt="" loading="eager" decoding="async" fetchpriority="high" />
+${this._renderFlowSkyMarkup(ctx)}
 <img class="fox-flow-layer fox-flow-layer-house" src="${esc(flowSceneLayerUrl("house", ctx.bgTheme, ctx.overlayTheme))}" alt="" loading="eager" decoding="async" fetchpriority="high" />
+<div class="fox-flow-ground-fade" aria-hidden="true"></div>
 <img class="fox-flow-layer fox-flow-layer-pv" src="${esc(flowSceneLayerUrl("pv", ctx.bgTheme, ctx.overlayTheme))}" alt="" loading="lazy" decoding="async" />
 <img class="fox-flow-layer fox-flow-layer-aio" src="${esc(flowSceneLayerUrl("aio", ctx.bgTheme, ctx.overlayTheme))}" alt="" loading="lazy" decoding="async" />
 <svg class="fox-flow-svg" viewBox="0 0 1024 1017" preserveAspectRatio="xMidYMid meet" aria-hidden="true" data-flow-paths-ver="${esc(this._panel?.config?.flow_paths_ver || FLOW_PATHS_VER)}" data-flow-pipe-day="${FLOW_PIPE_STROKE.day}" data-flow-stroke-base="${FLOW_STROKE.base}" data-flow-stroke-active="${FLOW_STROKE.hubActive}" data-hub-r="${FLOW_STROKE.hubR}" data-hub-home="${esc(FOX_FLOW_PATHS["hub-home"])}" data-aio-hub="${esc(FOX_FLOW_PATHS["aio-hub"])}">

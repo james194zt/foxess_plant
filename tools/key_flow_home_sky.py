@@ -37,22 +37,22 @@ def luminance_matte(im: Image.Image, black_cut: int = MATTE_LUM) -> Image.Image:
     return im
 
 
-def strip_grey_ground_apron(
+def strip_ground_plane(
     im: Image.Image,
     *,
-    grey_lo: int = 42,
-    grey_hi: int = 218,
-    max_sat: int = 38,
-    band_frac: float = 0.34,
+    min_lum: int = 48,
+    max_lum: int = 205,
+    max_sat: int = 48,
+    band_px: int = 88,
 ) -> Image.Image:
-    """Remove opaque grey/white ground plane under house (Fox fades into dark stage)."""
+    """Remove only the grey ground apron under the house (not white walls)."""
     im = im.convert("RGBA")
     alpha = im.split()[3]
     bbox = alpha.getbbox()
     if not bbox:
         return im
-    _, y0, _, y1 = bbox
-    ground_start = int(y1 - (y1 - y0) * band_frac)
+    _, _y0, _, y1 = bbox
+    ground_start = max(0, y1 - band_px)
     px = im.load()
     w, h = im.size
     for y in range(ground_start, h):
@@ -62,56 +62,20 @@ def strip_grey_ground_apron(
                 continue
             na = max(r, g, b)
             sat = max(r, g, b) - min(r, g, b)
-            if sat <= max_sat and grey_lo <= na <= grey_hi:
+            if sat <= max_sat and min_lum <= na <= max_lum:
                 px[x, y] = (0, 0, 0, 0)
     return im
 
 
-def dissolve_sky_horizon(im: Image.Image, start_frac: float = 0.54, power: float = 1.22) -> Image.Image:
-    """Fade sky art into dark stage from mid-frame down (removes opaque ground plate)."""
-    im = im.convert("RGBA")
-    w, h = im.size
-    y0 = int(h * start_frac)
-    px = im.load()
-    for y in range(y0, h):
-        t = (y - y0) / max(1, h - y0 - 1)
-        mul = max(0.0, 1.0 - (t**power))
-        for x in range(w):
-            r, g, b, a = px[x, y]
-            if a <= 0:
-                continue
-            na = max(r, g, b)
-            sat = max(r, g, b) - min(r, g, b)
-            if na <= MATTE_LUM:
-                px[x, y] = (0, 0, 0, 0)
-                continue
-            if sat <= 44 and na <= 210:
-                key_a = int(na * mul)
-                if key_a <= MATTE_LUM:
-                    px[x, y] = (0, 0, 0, 0)
-                    continue
-                nr = min(255, int(round(r * 255 / na)))
-                ng = min(255, int(round(g * 255 / na)))
-                nb = min(255, int(round(b * 255 / na)))
-                px[x, y] = (nr, ng, nb, key_a)
-            else:
-                new_a = int(a * mul)
-                if new_a <= MATTE_LUM:
-                    px[x, y] = (0, 0, 0, 0)
-                else:
-                    px[x, y] = (r, g, b, new_a)
-    return im
-
-
-def feather_home_ground(im: Image.Image, band_frac: float = 0.3, power: float = 1.35) -> Image.Image:
+def feather_home_ground(im: Image.Image, band_px: int = 72, power: float = 1.45) -> Image.Image:
     """Extra soft fade at house base (grey apron → dark stage)."""
     im = im.convert("RGBA")
     alpha = im.split()[3]
     bbox = alpha.getbbox()
     if not bbox:
         return im
-    _, y0, _, y1 = bbox
-    ground_start = int(y1 - (y1 - y0) * band_frac)
+    _, _y0, _, y1 = bbox
+    ground_start = max(0, y1 - band_px)
     px = im.load()
     w, h = im.size
     for y in range(ground_start, h):
@@ -155,21 +119,82 @@ def remove_black_matte(im: Image.Image, lum: int = MATTE_LUM) -> Image.Image:
 
 
 def process_home_layer(home: Image.Image) -> Image.Image:
-    return feather_home_ground(strip_grey_ground_apron(remove_black_matte_only(home)))
+    return feather_home_ground(strip_ground_plane(remove_black_matte_only(home)))
 
 
-def load_sky_layer(bg_theme: str) -> Image.Image:
-    """Sky on dark Fox canvas (use rekeyed flow_home_bg_* assets)."""
+def _lerp(a: int, b: int, t: float) -> int:
+    return int(a + (b - a) * t)
+
+
+def paint_css_sky(canvas: Image.Image, bg_theme: str) -> None:
+    """Match panel CSS sky gradients (no sky PNG — avoids ground plate)."""
+    w, h = canvas.size
+    px = canvas.load()
+    if bg_theme == "day_dark":
+        stops = [(0.0, (42, 74, 98)), (0.28, (61, 90, 114)), (0.50, (26, 31, 38))]
+    else:
+        stops = [(0.0, (61, 127, 184)), (0.20, (111, 163, 204)), (0.36, (168, 196, 220)), (0.52, (26, 31, 38))]
+    for y in range(h):
+        t = y / max(1, h - 1)
+        if t >= stops[-1][0]:
+            r, g, b = stops[-1][1]
+        else:
+            for i in range(len(stops) - 1):
+                t0, c0 = stops[i]
+                t1, c1 = stops[i + 1]
+                if t0 <= t <= t1:
+                    f = (t - t0) / (t1 - t0) if t1 > t0 else 0
+                    r = _lerp(c0[0], c1[0], f)
+                    g = _lerp(c0[1], c1[1], f)
+                    b = _lerp(c0[2], c1[2], f)
+                    break
+        for x in range(w):
+            px[x, y] = (r, g, b, 255)
+
+
+def paste_night_sky_top(canvas: Image.Image, bg_theme: str, top_frac: float = 0.44) -> None:
+    """Only the upper sky from PNG; lower frame stays dark canvas (Fox-style)."""
     src = WWW / f"flow_home_bg_{bg_theme}.png"
-    bg = Image.open(src).convert("RGBA")
+    bg = remove_black_matte_only(Image.open(src).convert("RGBA"))
     scale = max(CANVAS[0] / bg.width, CANVAS[1] / bg.height)
     nw, nh = int(bg.width * scale), int(bg.height * scale)
     bg = bg.resize((nw, nh), Image.Resampling.LANCZOS)
-    canvas = Image.new("RGBA", CANVAS, CANVAS_BG_RGBA)
     x = (CANVAS[0] - nw) // 2
     y = CANVAS[1] - nh
-    canvas.paste(bg, (x, y), bg)
-    return canvas
+    crop_h = max(1, int(nh * top_frac))
+    top = bg.crop((0, 0, nw, crop_h))
+    canvas.paste(top, (x, y), top)
+
+
+def apply_ground_vignette(canvas: Image.Image) -> None:
+    """Soft dark fade at base — window spill blends into stage."""
+    w, h = canvas.size
+    overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    px = overlay.load()
+    bg = CANVAS_BG_RGBA
+    for y in range(h):
+        t = y / max(1, h - 1)
+        if t < 0.58:
+            continue
+        fade = ((t - 0.58) / 0.42) ** 1.35
+        alpha = int(255 * min(1.0, fade * 0.72))
+        for x in range(w):
+            px[x, y] = (*bg[:3], alpha)
+    canvas.alpha_composite(overlay)
+
+
+def build_panel_scene(bg_theme: str, home: Image.Image, pv: Image.Image, aio: Image.Image) -> Image.Image:
+    """Same stack as foxess-plant-panel.js after v0.8.146."""
+    out = Image.new("RGBA", CANVAS, CANVAS_BG_RGBA)
+    if bg_theme.startswith("day_"):
+        paint_css_sky(out, bg_theme)
+    else:
+        paste_night_sky_top(out, bg_theme)
+    out.alpha_composite(home.convert("RGBA"))
+    apply_ground_vignette(out)
+    out.alpha_composite(pv.convert("RGBA"))
+    out.alpha_composite(aio.convert("RGBA"))
+    return out
 
 
 def load_home_layer(theme: str) -> Image.Image:

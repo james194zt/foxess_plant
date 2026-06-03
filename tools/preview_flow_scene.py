@@ -40,7 +40,7 @@ from flow_scene_place import (
     render_aio_layer,
     render_pv_layer,
 )
-from key_flow_home_sky import load_home_layer, load_sky_layer, remove_black_matte
+from key_flow_home_sky import build_panel_scene, load_home_layer, remove_black_matte
 
 ROOT = Path(__file__).resolve().parents[1]
 WWW = ROOT / "custom_components" / "foxess_plant" / "www"
@@ -85,12 +85,7 @@ def load_baked_layer(kind: str, theme: str) -> Image.Image:
 
 
 def composite_panel_scene(bg_theme: str, pv: Image.Image, aio: Image.Image) -> Image.Image:
-    """Panel stack: dark canvas → sky → house → pv → aio."""
-    out = load_sky_layer(bg_theme)
-    out.alpha_composite(load_home_layer(bg_theme))
-    out.alpha_composite(pv.convert("RGBA"))
-    out.alpha_composite(aio.convert("RGBA"))
-    return out
+    return build_panel_scene(bg_theme, load_home_layer(bg_theme), pv, aio)
 
 
 def write_baked_pv(theme: str, layer: Image.Image) -> Path:
