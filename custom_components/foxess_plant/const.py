@@ -13,6 +13,7 @@ CONF_STORM_PREP = "storm_prep"
 CONF_OUTAGE_PREP = "outage_prep"
 CONF_FORECAST_PREP = "forecast_prep"
 CONF_PANEL_DISPLAY = "panel_display"
+CONF_PV_CONFIG = "pv_config"
 CONF_TARIFF_MODES = "tariff_modes"
 
 CHARGE_PERIOD_KEYS = (
@@ -236,6 +237,23 @@ DEFAULT_FORECAST_PREP = {
 
 DEFAULT_PANEL_DISPLAY = {
     "forecast_entity_id": None,
+}
+
+DEFAULT_PV_STRING = {
+    "enabled": True,
+    "panel_count": 6,
+    "watts_per_panel": 450,
+    "efficiency_factor": 100.0,
+}
+
+DEFAULT_PV_CONFIG = {
+    "pv1": DEFAULT_PV_STRING,
+    "pv2": {
+        "enabled": False,
+        "panel_count": 1,
+        "watts_per_panel": 450,
+        "efficiency_factor": 100.0,
+    },
 }
 
 TRIGGER_ON_STATES = frozenset({"on", "true", "1", "active", "warning", "severe"})

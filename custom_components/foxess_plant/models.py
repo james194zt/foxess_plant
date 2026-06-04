@@ -233,6 +233,87 @@ class PanelDisplayConfig:
 
 
 @dataclass
+class PvStringConfig:
+    """Physical PV string settings for analysis and forecasting."""
+
+    enabled: bool = True
+    panel_count: int = 6
+    watts_per_panel: int = 450
+    efficiency_factor: float = 100.0
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], *, defaults: dict[str, Any] | None = None) -> PvStringConfig:
+        base = defaults or {}
+        raw_count = data.get("panel_count", base.get("panel_count", 6))
+        raw_watts = data.get("watts_per_panel", base.get("watts_per_panel", 450))
+        raw_eff = data.get("efficiency_factor", base.get("efficiency_factor", 100.0))
+        try:
+            panel_count = int(raw_count)
+        except (TypeError, ValueError):
+            panel_count = 6
+        try:
+            watts_per_panel = int(raw_watts)
+        except (TypeError, ValueError):
+            watts_per_panel = 450
+        try:
+            efficiency_factor = float(raw_eff)
+        except (TypeError, ValueError):
+            efficiency_factor = 100.0
+        panel_count = max(1, min(12, panel_count))
+        watts_per_panel = max(100, min(1000, watts_per_panel))
+        efficiency_factor = max(1.0, min(100.0, efficiency_factor))
+        return cls(
+            enabled=bool(data.get("enabled", base.get("enabled", True))),
+            panel_count=panel_count,
+            watts_per_panel=watts_per_panel,
+            efficiency_factor=efficiency_factor,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "panel_count": self.panel_count,
+            "watts_per_panel": self.watts_per_panel,
+            "efficiency_factor": self.efficiency_factor,
+        }
+
+    @property
+    def nameplate_dc_w(self) -> float:
+        return float(self.panel_count * self.watts_per_panel)
+
+    @property
+    def effective_dc_w(self) -> float:
+        return self.nameplate_dc_w * (self.efficiency_factor / 100.0)
+
+
+@dataclass
+class PvSystemConfig:
+    """PV1 / PV2 configuration for the plant."""
+
+    pv1: PvStringConfig = field(default_factory=PvStringConfig)
+    pv2: PvStringConfig = field(
+        default_factory=lambda: PvStringConfig(enabled=False, panel_count=1)
+    )
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> PvSystemConfig:
+        from .const import DEFAULT_PV_CONFIG
+
+        pv1_defaults = DEFAULT_PV_CONFIG["pv1"]
+        pv2_defaults = DEFAULT_PV_CONFIG["pv2"]
+        return cls(
+            pv1=PvStringConfig.from_dict(data.get("pv1", {}), defaults=pv1_defaults),
+            pv2=PvStringConfig.from_dict(data.get("pv2", {}), defaults=pv2_defaults),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "pv1": self.pv1.to_dict(),
+            "pv2": self.pv2.to_dict(),
+        }
+
+
+@dataclass
 class PlantConfig:
     device_id: str
     inverter_target: str
@@ -245,6 +326,7 @@ class PlantConfig:
     outage_prep: PrepPolicyConfig = field(default_factory=PrepPolicyConfig)
     forecast_prep: ForecastPrepConfig = field(default_factory=ForecastPrepConfig)
     panel_display: PanelDisplayConfig = field(default_factory=PanelDisplayConfig)
+    pv_config: PvSystemConfig = field(default_factory=PvSystemConfig)
     tariff_modes: dict[str, list[ChargePeriodConfig]] = field(default_factory=dict)
 
     @classmethod
@@ -254,6 +336,7 @@ class PlantConfig:
             DEFAULT_FORECAST_PREP,
             DEFAULT_OUTAGE_PREP,
             DEFAULT_PANEL_DISPLAY,
+            DEFAULT_PV_CONFIG,
             DEFAULT_STORM_PREP,
         )
 
@@ -278,6 +361,7 @@ class PlantConfig:
                 data.get("forecast_prep", {}), DEFAULT_FORECAST_PREP["charge_periods"]
             ),
             panel_display=PanelDisplayConfig.from_dict(data.get("panel_display", DEFAULT_PANEL_DISPLAY)),
+            pv_config=PvSystemConfig.from_dict(data.get("pv_config", DEFAULT_PV_CONFIG)),
             tariff_modes=tariff_modes,
         )
 
@@ -294,6 +378,7 @@ class PlantConfig:
             "outage_prep": self.outage_prep.to_dict(),
             "forecast_prep": self.forecast_prep.to_dict(),
             "panel_display": self.panel_display.to_dict(),
+            "pv_config": self.pv_config.to_dict(),
             "tariff_modes": {
                 name: [p.to_dict() for p in periods] for name, periods in self.tariff_modes.items()
             },

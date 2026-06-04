@@ -23,6 +23,7 @@ WS_TYPE_UPDATE_STORM_PREP = "foxess_plant/update_storm_prep"
 WS_TYPE_SET_SOC_LIMITS = "foxess_plant/set_soc_limits"
 WS_TYPE_FORECAST_ENTITY_CANDIDATES = "foxess_plant/forecast_entity_candidates"
 WS_TYPE_UPDATE_PANEL_DISPLAY = "foxess_plant/update_panel_display"
+WS_TYPE_UPDATE_PV_CONFIG = "foxess_plant/update_pv_config"
 WS_TYPE_FETCH_HISTORY = "foxess_plant/fetch_history"
 WS_TYPE_FETCH_STATISTICS = "foxess_plant/fetch_statistics"
 
@@ -32,6 +33,22 @@ PERIOD_SCHEMA = vol.Schema(
         vol.Required("enable_charge_from_grid"): cv.boolean,
         vol.Optional("start", default="00:00"): cv.string,
         vol.Optional("end", default="00:00"): cv.string,
+    }
+)
+
+PV_STRING_SCHEMA = vol.Schema(
+    {
+        vol.Required("enabled"): cv.boolean,
+        vol.Required("panel_count"): vol.All(vol.Coerce(int), vol.Range(min=1, max=12)),
+        vol.Required("watts_per_panel"): vol.All(vol.Coerce(int), vol.Range(min=100, max=1000)),
+        vol.Required("efficiency_factor"): vol.All(vol.Coerce(float), vol.Range(min=1, max=100)),
+    }
+)
+
+PV_CONFIG_SCHEMA = vol.Schema(
+    {
+        vol.Required("pv1"): PV_STRING_SCHEMA,
+        vol.Required("pv2"): PV_STRING_SCHEMA,
     }
 )
 
@@ -311,6 +328,27 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
 
     @websocket_api.websocket_command(
         {
+            vol.Required("type"): WS_TYPE_UPDATE_PV_CONFIG,
+            vol.Optional("plant_id"): str,
+            vol.Required("pv_config"): PV_CONFIG_SCHEMA,
+        }
+    )
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def ws_update_pv_config(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        await coordinator.async_save_pv_config(pv_config=msg["pv_config"])
+        connection.send_result(msg["id"], coordinator.get_plant_state())
+
+    @websocket_api.websocket_command(
+        {
             vol.Required("type"): WS_TYPE_FETCH_HISTORY,
             vol.Required("start_time"): str,
             vol.Optional("end_time"): str,
@@ -392,6 +430,7 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_set_soc_limits)
     websocket_api.async_register_command(hass, ws_forecast_entity_candidates)
     websocket_api.async_register_command(hass, ws_update_panel_display)
+    websocket_api.async_register_command(hass, ws_update_pv_config)
     websocket_api.async_register_command(hass, ws_fetch_history)
     websocket_api.async_register_command(hass, ws_fetch_statistics)
     hass.data["_foxess_plant_ws_registered"] = True

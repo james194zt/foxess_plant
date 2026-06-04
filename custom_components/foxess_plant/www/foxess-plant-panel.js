@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.157
+ * @version 0.8.158
  */
 
 const NAV = [
@@ -16,10 +16,25 @@ const SETTINGS_NAV = [
   { id: "quick", label: "Quick" },
   { id: "schedules", label: "Schedule" },
   { id: "workmode", label: "Work mode" },
+  { id: "pv", label: "PV" },
   { id: "storm", label: "StormSafe" },
   { id: "charts", label: "Charts" },
   { id: "control", label: "Control" },
 ];
+
+const DEFAULT_PV_STRING = {
+  enabled: true,
+  panel_count: 6,
+  watts_per_panel: 450,
+  efficiency_factor: 100,
+};
+
+const DEFAULT_PV_CONFIG = {
+  pv1: { ...DEFAULT_PV_STRING },
+  pv2: { enabled: false, panel_count: 1, watts_per_panel: 450, efficiency_factor: 100 },
+};
+
+const PV_EFFICIENCY_FACTOR_URL = "https://kb.solcast.com.au/what-is-the-efficiency-factor";
 
 /** Fox hub-and-spoke flow (viewBox 0 0 1024 1017). Anchors sync with tools/compose_flow_layers.py */
 /** Hub on side/front wall corner — user-tuned v0.8.104 (was y=726). */
@@ -36,7 +51,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.8.157";
+const PANEL_VERSION = "0.8.158";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -370,6 +385,45 @@ function foxWorkModeDisplay(label) {
   if (meta?.title) return meta.title;
   if (s.toLowerCase() === "self use") return "Self Use";
   return s;
+}
+
+function normalizePvString(raw, defaults) {
+  const base = defaults || DEFAULT_PV_STRING;
+  const src = raw && typeof raw === "object" ? raw : {};
+  let panelCount = parseInt(src.panel_count, 10);
+  if (!Number.isFinite(panelCount)) panelCount = base.panel_count;
+  panelCount = Math.max(1, Math.min(12, panelCount));
+  let watts = parseInt(src.watts_per_panel, 10);
+  if (!Number.isFinite(watts)) watts = base.watts_per_panel;
+  watts = Math.max(100, Math.min(1000, watts));
+  let eff = parseFloat(src.efficiency_factor);
+  if (!Number.isFinite(eff)) eff = base.efficiency_factor;
+  eff = Math.max(1, Math.min(100, eff));
+  return {
+    enabled: Boolean(src.enabled ?? base.enabled),
+    panel_count: panelCount,
+    watts_per_panel: watts,
+    efficiency_factor: eff,
+  };
+}
+
+function normalizePvConfig(raw) {
+  const src = raw && typeof raw === "object" ? raw : {};
+  return {
+    pv1: normalizePvString(src.pv1, DEFAULT_PV_CONFIG.pv1),
+    pv2: normalizePvString(src.pv2, DEFAULT_PV_CONFIG.pv2),
+  };
+}
+
+function pvStringSummary(cfg) {
+  if (!cfg?.enabled) return "Off";
+  const kw = (cfg.panel_count * cfg.watts_per_panel) / 1000;
+  return `${cfg.panel_count} panels · ${cfg.watts_per_panel} W · ${kw.toFixed(2)} kW DC`;
+}
+
+function pvConfigSummary(pv) {
+  const cfg = normalizePvConfig(pv);
+  return `PV1: ${pvStringSummary(cfg.pv1)} · PV2: ${pvStringSummary(cfg.pv2)}`;
 }
 
 function overviewWeatherIconSvg(iconKey) {
@@ -2783,6 +2837,14 @@ const STYLES = `
 .period-times .field { margin-bottom: 0; }
 .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; font-size: 14px; }
 .toggle-row input { width: 18px; height: 18px; accent-color: var(--fp-accent); }
+.field-hint { font-size: 12px; color: var(--secondary-text-color); margin: 0 0 8px; line-height: 1.45; }
+.field-link { color: var(--fp-accent); text-decoration: none; }
+.field-link:hover { text-decoration: underline; }
+.pv-range-row { display: flex; align-items: center; gap: 12px; }
+.pv-range-row input[type="range"] { flex: 1; min-width: 0; accent-color: var(--fp-accent); }
+.pv-range-value { min-width: 56px; font-size: 14px; font-variant-numeric: tabular-nums; text-align: right; color: var(--primary-text-color); }
+.pv-string-card.pv-string-disabled .pv-config-fields { opacity: 0.55; pointer-events: none; }
+.field input[type="number"].pv-eff-input { width: 100%; max-width: 120px; box-sizing: border-box; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(255,255,255,0.12)); background: var(--card-background-color, #1c1c1e); color: var(--primary-text-color); }
 .triple-soc { padding: 8px 4px 4px; user-select: none; touch-action: none; }
 .triple-soc-head { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
 .triple-soc-battery {
@@ -3015,6 +3077,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._flowSceneKeyPending = undefined;
     this._flowSceneKeyPendingN = 0;
     this._chartsDraft = null;
+    this._pvDraft = null;
     this._forecastCandidates = null;
     this._headerHasSubTabs = undefined;
     this._renderRaf = 0;
@@ -3389,6 +3452,14 @@ Reloading panel registration…
     };
   }
 
+  _initPvDraft() {
+    this._pvDraft = normalizePvConfig(this._plantState?.pv_config);
+  }
+
+  _enterPvSettings() {
+    this._initPvDraft();
+  }
+
   _enterChartsSettings() {
     this._initChartsDraft();
     void this._loadForecastCandidates();
@@ -3408,6 +3479,28 @@ Reloading panel registration…
       if (this._settingsView === "charts") this._scheduleRender();
     } catch {
       this._forecastCandidates = [];
+    }
+  }
+
+  async _savePvConfig() {
+    const plant = this._getPlant();
+    if (!plant || !this._pvDraft) return;
+    this._busy = true;
+    this._render();
+    try {
+      const state = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/update_pv_config",
+        plant_id: plant.entry_id,
+        pv_config: normalizePvConfig(this._pvDraft),
+      });
+      if (state) this._plantState = state;
+      this._initPvDraft();
+      this._showToast("PV configuration saved");
+    } catch (err) {
+      this._showToast(err?.message || "Save failed", "err");
+    } finally {
+      this._busy = false;
+      this._render();
     }
   }
 
@@ -3517,6 +3610,7 @@ Reloading panel registration…
     }
     if (action === "device-sub") {
       this._deviceSub = btn.dataset.sub;
+      if (btn.dataset.sub === "pv-config") this._enterPvSettings();
       this._render();
       return;
     }
@@ -3533,6 +3627,7 @@ Reloading panel registration…
       if (btn.dataset.sub === "workmode") this._initWorkModeDraft();
       if (btn.dataset.sub === "storm") this._enterStormSettings();
       if (btn.dataset.sub === "charts") this._enterChartsSettings();
+      if (btn.dataset.sub === "pv") this._enterPvSettings();
       this._render();
       return;
     }
@@ -3544,7 +3639,12 @@ Reloading panel registration…
       if (btn.dataset.sub === "workmode") this._initWorkModeDraft();
       if (btn.dataset.sub === "storm") this._enterStormSettings();
       if (btn.dataset.sub === "charts") this._enterChartsSettings();
+      if (btn.dataset.sub === "pv") this._enterPvSettings();
       this._render();
+      return;
+    }
+    if (action === "save-pv-config") {
+      await this._savePvConfig();
       return;
     }
     if (action === "save-charts-settings") {
@@ -3747,6 +3847,32 @@ Reloading panel registration…
     }
     if (kind === "toggle-storm-forecast" && this._stormDraft) {
       this._stormDraft.use_forecast_lead = el.checked;
+      this._scheduleRender();
+      return;
+    }
+    if (kind === "pv" && this._pvDraft) {
+      const which = parts[1];
+      const field = parts[2];
+      const cfg = this._pvDraft[which];
+      if (!cfg || !field) return;
+      if (el.type === "checkbox") {
+        cfg.enabled = el.checked;
+        this._scheduleRender();
+        return;
+      }
+      if (field === "panel_count") {
+        cfg.panel_count = Math.max(1, Math.min(12, parseInt(el.value, 10) || 1));
+      } else if (field === "watts_per_panel") {
+        cfg.watts_per_panel = Math.max(100, Math.min(1000, parseInt(el.value, 10) || 450));
+      } else if (field === "efficiency_factor") {
+        const raw = String(el.value).trim();
+        if (raw === "") return;
+        const v = parseFloat(raw);
+        if (!Number.isFinite(v)) return;
+        cfg.efficiency_factor = Math.max(1, Math.min(100, v));
+        if (e.type === "change") this._scheduleRender();
+        return;
+      }
       this._scheduleRender();
       return;
     }
@@ -4487,6 +4613,12 @@ ${this._renderOverviewAfterHero(plant)}`;
         .filter(Boolean);
       return `<button type="button" class="back-btn" data-action="device-back">← Device</button><header class="header"><h1>Battery</h1></header>${this._entityList(rows)}`;
     }
+    if (this._deviceSub === "pv-config") {
+      return `<button type="button" class="back-btn" data-action="device-back">← Device</button>${this._renderPvConfiguration({
+        title: "System PV Configuration",
+        subtitle: "General solar panel settings for PV1 and PV2",
+      })}`;
+    }
     const flows = readEnergyFlows(this._hass, plant, this._plantState);
     const pvKw = flows.pvW / 1000;
     const map = resolveEntityMap(this._hass, plant, this._plantState);
@@ -4511,7 +4643,8 @@ ${statusPill}
 <div class="device-card device-card--battery">${renderDeviceBatteryCard(flows, tempDisplay)}</div>
 </div>
 ${renderListButton({ action: "device-sub", sub: "parameters" }, "Detailed parameters", "Live Modbus values")}
-${renderListButton({ action: "device-sub", sub: "system" }, "System info", "Firmware, BMS, grid status")}`;
+${renderListButton({ action: "device-sub", sub: "system" }, "System info", "Firmware, BMS, grid status")}
+${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Configuration", pvConfigSummary(this._plantState?.pv_config))}`;
   }
 
   _entityList(rows) {
@@ -5116,6 +5249,7 @@ ${this._modeBanner()}
 ${renderListButton({ action: "settings-sub", sub: "quick" }, "Quick Settings", `Max ${s.max_soc ?? "—"}% · Min ${s.min_soc ?? "—"}% · Off-grid ${s.min_soc_on_grid ?? "—"}%`)}
 ${renderListButton({ action: "settings-sub", sub: "schedules" }, "Charge schedule", "Two charge windows (baseline)")}
 ${renderListButton({ action: "settings-sub", sub: "workmode" }, "Work mode", String(s.work_mode ?? "—"))}
+${renderListButton({ action: "settings-sub", sub: "pv" }, "PV Configuration", pvConfigSummary(this._plantState?.pv_config))}
 ${renderListButton({ action: "settings-sub", sub: "storm" }, "StormSafe", stormSub)}
 ${renderListButton({ action: "settings-sub", sub: "charts" }, "Charts", this._forecastEntityLabel())}
 ${renderListButton({ action: "settings-sub", sub: "control" }, "Plant control", this._plantState?.control_active ? "Fox Plant manages periods" : "Released to manual")}`;
@@ -5221,6 +5355,67 @@ ${this._renderPeriodCard(1, draft.charge_periods[1], "storm-period", "Storm peri
 </div>`;
   }
 
+  _renderPvStringBlock(which) {
+    if (!this._pvDraft) this._initPvDraft();
+    const cfg = this._pvDraft[which];
+    const sectionTitle = which === "pv2" ? "PV2 configuration" : "PV1 configuration";
+    const enabledLabel = which === "pv2" ? "PV2 Enabled" : "PV1 Enabled";
+    const arrayHintTarget = which === "pv2" ? "PV2" : "PV1";
+    const disabled = this._busy || !cfg.enabled;
+    const disabledClass = cfg.enabled ? "" : " pv-string-disabled";
+    const nameplateKw = ((cfg.panel_count * cfg.watts_per_panel) / 1000).toFixed(2);
+    const effectiveKw = (
+      (cfg.panel_count * cfg.watts_per_panel * cfg.efficiency_factor) /
+      100000
+    ).toFixed(2);
+    return `<div class="card pv-string-card${disabledClass}">
+<p class="card-title">${esc(sectionTitle)}</p>
+<div class="toggle-row"><span><strong>${esc(enabledLabel)}</strong></span>
+<input type="checkbox" data-field="pv:${which}:enabled" ${cfg.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+<div class="pv-config-fields">
+<div class="field">
+<label>PV Array size</label>
+<p class="field-hint">Total number of panels on ${esc(arrayHintTarget)}</p>
+<div class="pv-range-row">
+<input type="range" min="1" max="12" step="1" data-field="pv:${which}:panel_count" value="${esc(String(cfg.panel_count))}" ${disabled ? "disabled" : ""}>
+<span class="pv-range-value">${esc(String(cfg.panel_count))}</span>
+</div>
+</div>
+<div class="field">
+<label>Wattage per panel</label>
+<div class="pv-range-row">
+<input type="range" min="100" max="1000" step="10" data-field="pv:${which}:watts_per_panel" value="${esc(String(cfg.watts_per_panel))}" ${disabled ? "disabled" : ""}>
+<span class="pv-range-value">${esc(String(cfg.watts_per_panel))} W</span>
+</div>
+</div>
+<div class="field">
+<label>Efficiency Factor</label>
+<p class="field-hint"><a class="field-link" href="${esc(PV_EFFICIENCY_FACTOR_URL)}" target="_blank" rel="noopener noreferrer">What is the efficiency factor?</a></p>
+<input type="number" class="pv-eff-input" min="1" max="100" step="1" data-field="pv:${which}:efficiency_factor" value="${esc(String(cfg.efficiency_factor))}" ${disabled ? "disabled" : ""} aria-label="Efficiency factor percent"> <span style="font-size:14px">%</span>
+</div>
+<p class="field-hint" style="margin-top:4px">Nameplate ${esc(nameplateKw)} kW DC · Effective ${esc(effectiveKw)} kW (after efficiency)</p>
+</div>
+</div>`;
+  }
+
+  _renderPvConfiguration({ title, subtitle }) {
+    if (!this._pvDraft) this._initPvDraft();
+    return `<header class="header"><h1>${esc(title)}</h1>${subtitle ? `<p>${esc(subtitle)}</p>` : ""}</header>
+<section class="card" style="margin-bottom:12px"><p class="card-title">PV Configuration</p>
+<p class="field-hint" style="margin:0">Panel count, wattage, and efficiency are stored for future analysis charts and yield calculations.</p>
+</section>
+${this._renderPvStringBlock("pv1")}
+${this._renderPvStringBlock("pv2")}
+<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-pv-config" ${this._busy ? "disabled" : ""}>Save PV configuration</button></div>`;
+  }
+
+  _renderSettingsPv() {
+    return this._renderPvConfiguration({
+      title: "PV Configuration",
+      subtitle: "Configure PV1 and PV2 arrays for analysis",
+    });
+  }
+
   _renderSettingsCharts() {
     if (!this._chartsDraft) this._initChartsDraft();
     const selected = this._chartsDraft.forecast_entity_id || "";
@@ -5268,6 +5463,8 @@ ${active
         return this._renderSettingsSchedules();
       case "workmode":
         return this._renderSettingsWorkMode();
+      case "pv":
+        return this._renderSettingsPv();
       case "storm":
         return this._renderSettingsStorm();
       case "charts":

@@ -23,6 +23,7 @@ from .const import (
     IMPACT_ENTITY_SUFFIXES,
     AUTOMATION_MODES,
     CONF_PANEL_DISPLAY,
+    CONF_PV_CONFIG,
     CONF_STORM_PREP,
     IDENTITY_ENTITY_SUFFIXES,
     EVENT_BASELINE_RESTORED,
@@ -43,7 +44,7 @@ from .const import (
     MODE_TARIFF,
     TRIGGER_ON_STATES,
 )
-from .models import ChargePeriodConfig, OverrideState, PanelDisplayConfig, PlantConfig
+from .models import ChargePeriodConfig, OverrideState, PanelDisplayConfig, PlantConfig, PvSystemConfig
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -448,6 +449,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "overview_weather": self._overview_weather_state(),
             "outage_prep": self.plant.outage_prep.to_dict(),
             "panel_display": self.plant.panel_display.to_dict(),
+            "pv_config": self.plant.pv_config.to_dict(),
             "panel_runtime": get_panel_disk_info(),
             "settings": {
                 "max_soc": self._entity_float("max_soc"),
@@ -725,6 +727,14 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 raise HomeAssistantError(f"{entity_id} must be a sensor entity")
         data = dict(self.config_entry.data)
         data[CONF_PANEL_DISPLAY] = PanelDisplayConfig(forecast_entity_id=entity_id).to_dict()
+        self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+        self.update_plant_config(PlantConfig.from_entry_data(data))
+        await self.async_request_refresh()
+
+    async def async_save_pv_config(self, *, pv_config: dict[str, Any]) -> None:
+        """Persist PV1/PV2 physical configuration from the panel."""
+        data = dict(self.config_entry.data)
+        data[CONF_PV_CONFIG] = PvSystemConfig.from_dict(pv_config).to_dict()
         self.hass.config_entries.async_update_entry(self.config_entry, data=data)
         self.update_plant_config(PlantConfig.from_entry_data(data))
         await self.async_request_refresh()
