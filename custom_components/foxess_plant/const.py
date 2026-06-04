@@ -14,6 +14,7 @@ CONF_OUTAGE_PREP = "outage_prep"
 CONF_FORECAST_PREP = "forecast_prep"
 CONF_PANEL_DISPLAY = "panel_display"
 CONF_PV_CONFIG = "pv_config"
+CONF_SOLCAST = "solcast"
 CONF_TARIFF_MODES = "tariff_modes"
 
 CHARGE_PERIOD_KEYS = (
@@ -158,6 +159,27 @@ AUTOMATION_MODES = frozenset({MODE_STORM, MODE_OUTAGE, MODE_FORECAST})
 
 GOOGLE_WEATHER_DOMAIN = "google_weather"
 STORM_ALERT_PROVIDER_GOOGLE = "google_weather"
+STORM_ALERT_PROVIDER_SOLCAST = "solcast"
+
+SOLCAST_AUTO_UPDATE_DAYLIGHT = "daylight"
+SOLCAST_AUTO_UPDATE_ALL_DAY = "all_day"
+
+DEFAULT_SOLCAST_API_LIMIT = 10
+DEFAULT_STORM_SOLCAST_CAPE_THRESHOLD = 800.0
+DEFAULT_STORM_SOLCAST_PRECIP_MM_H = 2.0
+DEFAULT_STORM_SOLCAST_WEATHER_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "thunder",
+        "storm",
+        "hail",
+        "tornado",
+        "hurricane",
+        "blizzard",
+        "heavy rain",
+        "heavy shower",
+        "severe",
+    }
+)
 GOOGLE_WEATHER_ALERT_SUFFIXES = (
     "_weather_alert",
     "_severe_weather_alert",
@@ -244,6 +266,20 @@ DEFAULT_PV_STRING = {
     "panel_count": 6,
     "watts_per_panel": 450,
     "efficiency_factor": 100.0,
+}
+
+DEFAULT_SOLCAST = {
+    "enabled": False,
+    "api_key": None,
+    "api_limit": DEFAULT_SOLCAST_API_LIMIT,
+    "auto_update": SOLCAST_AUTO_UPDATE_DAYLIGHT,
+    "latitude": None,
+    "longitude": None,
+    "period": "PT30M",
+    "api_used_today": 0,
+    "api_used_date": None,
+    "last_fetch_at": None,
+    "last_error": None,
 }
 
 DEFAULT_PV_CONFIG = {

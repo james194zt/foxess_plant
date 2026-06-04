@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.158
+ * @version 0.9.0
  */
 
 const NAV = [
@@ -17,6 +17,7 @@ const SETTINGS_NAV = [
   { id: "schedules", label: "Schedule" },
   { id: "workmode", label: "Work mode" },
   { id: "pv", label: "PV" },
+  { id: "solcast", label: "Solcast" },
   { id: "storm", label: "StormSafe" },
   { id: "charts", label: "Charts" },
   { id: "control", label: "Control" },
@@ -35,6 +36,8 @@ const DEFAULT_PV_CONFIG = {
 };
 
 const PV_EFFICIENCY_FACTOR_URL = "https://kb.solcast.com.au/what-is-the-efficiency-factor";
+const SOLCAST_API_DOCS_URL = "https://docs.solcast.com.au/";
+const SOLCAST_HOBBYIST_URL = "https://solcast.com/free-rooftop-solar-forecasting";
 
 /** Fox hub-and-spoke flow (viewBox 0 0 1024 1017). Anchors sync with tools/compose_flow_layers.py */
 /** Hub on side/front wall corner — user-tuned v0.8.104 (was y=726). */
@@ -51,7 +54,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.8.158";
+const PANEL_VERSION = "0.9.0";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -3078,6 +3081,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._flowSceneKeyPendingN = 0;
     this._chartsDraft = null;
     this._pvDraft = null;
+    this._solcastDraft = null;
     this._forecastCandidates = null;
     this._headerHasSubTabs = undefined;
     this._renderRaf = 0;
@@ -3460,6 +3464,32 @@ Reloading panel registration…
     this._initPvDraft();
   }
 
+  _initSolcastDraft() {
+    const sc = this._plantState?.solcast ?? {};
+    this._solcastDraft = {
+      enabled: Boolean(sc.enabled),
+      api_key: "",
+      api_key_set: Boolean(sc.api_key_set),
+      api_limit: sc.api_limit ?? 10,
+      auto_update: sc.auto_update === "all_day" ? "all_day" : "daylight",
+      latitude: sc.latitude ?? sc.coordinates?.latitude ?? "",
+      longitude: sc.longitude ?? sc.coordinates?.longitude ?? "",
+      period: sc.period ?? "PT30M",
+    };
+  }
+
+  _enterSolcastSettings() {
+    this._initSolcastDraft();
+  }
+
+  _solcastSettingsSubtitle() {
+    const sc = this._plantState?.solcast;
+    if (!sc?.enabled) return "Off — using Google Weather if configured";
+    if (!sc.api_key_set) return "API key required";
+    const rem = sc.api_remaining ?? "—";
+    return `On · ${sc.api_used_today ?? 0}/${sc.api_limit ?? 10} API calls today · ${rem} left`;
+  }
+
   _enterChartsSettings() {
     this._initChartsDraft();
     void this._loadForecastCandidates();
@@ -3479,6 +3509,81 @@ Reloading panel registration…
       if (this._settingsView === "charts") this._scheduleRender();
     } catch {
       this._forecastCandidates = [];
+    }
+  }
+
+  async _saveSolcastSettings() {
+    const plant = this._getPlant();
+    if (!plant || !this._solcastDraft) return;
+    this._busy = true;
+    this._render();
+    try {
+      const draft = this._solcastDraft;
+      const payload = {
+        enabled: Boolean(draft.enabled),
+        api_limit: Math.max(1, Math.min(50, parseInt(draft.api_limit, 10) || 10)),
+        auto_update: draft.auto_update === "all_day" ? "all_day" : "daylight",
+        period: draft.period || "PT30M",
+        latitude: draft.latitude === "" ? null : parseFloat(draft.latitude),
+        longitude: draft.longitude === "" ? null : parseFloat(draft.longitude),
+      };
+      const key = String(draft.api_key || "").trim();
+      if (key) payload.api_key = key;
+      const state = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/update_solcast",
+        plant_id: plant.entry_id,
+        solcast: payload,
+      });
+      if (state) this._plantState = state;
+      this._initSolcastDraft();
+      this._showToast("Solcast settings saved");
+    } catch (err) {
+      this._showToast(err?.message || "Save failed", "err");
+    } finally {
+      this._busy = false;
+      this._render();
+    }
+  }
+
+  async _testSolcastConnection() {
+    const plant = this._getPlant();
+    if (!plant || !this._solcastDraft) return;
+    this._busy = true;
+    this._render();
+    try {
+      const draft = this._solcastDraft;
+      const payload = {
+        enabled: Boolean(draft.enabled),
+        api_limit: Math.max(1, Math.min(50, parseInt(draft.api_limit, 10) || 10)),
+        auto_update: draft.auto_update === "all_day" ? "all_day" : "daylight",
+        period: draft.period || "PT30M",
+        latitude: draft.latitude === "" ? null : parseFloat(draft.latitude),
+        longitude: draft.longitude === "" ? null : parseFloat(draft.longitude),
+      };
+      const key = String(draft.api_key || "").trim();
+      if (key) payload.api_key = key;
+      let state = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/update_solcast",
+        plant_id: plant.entry_id,
+        solcast: payload,
+      });
+      if (state) this._plantState = state;
+      const res = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/test_solcast",
+        plant_id: plant.entry_id,
+      });
+      if (res?.plant_state) this._plantState = res.plant_state;
+      this._initSolcastDraft();
+      const summary = res?.solcast?.live_summary;
+      const msg = summary?.condition_label
+        ? `Solcast OK — ${summary.temperature_display || ""} ${summary.condition_label}`.trim()
+        : "Solcast connection OK";
+      this._showToast(msg);
+    } catch (err) {
+      this._showToast(err?.message || "Solcast test failed", "err");
+    } finally {
+      this._busy = false;
+      this._render();
     }
   }
 
@@ -3628,6 +3733,7 @@ Reloading panel registration…
       if (btn.dataset.sub === "storm") this._enterStormSettings();
       if (btn.dataset.sub === "charts") this._enterChartsSettings();
       if (btn.dataset.sub === "pv") this._enterPvSettings();
+      if (btn.dataset.sub === "solcast") this._enterSolcastSettings();
       this._render();
       return;
     }
@@ -3640,11 +3746,20 @@ Reloading panel registration…
       if (btn.dataset.sub === "storm") this._enterStormSettings();
       if (btn.dataset.sub === "charts") this._enterChartsSettings();
       if (btn.dataset.sub === "pv") this._enterPvSettings();
+      if (btn.dataset.sub === "solcast") this._enterSolcastSettings();
       this._render();
       return;
     }
     if (action === "save-pv-config") {
       await this._savePvConfig();
+      return;
+    }
+    if (action === "save-solcast-settings") {
+      await this._saveSolcastSettings();
+      return;
+    }
+    if (action === "test-solcast") {
+      await this._testSolcastConnection();
       return;
     }
     if (action === "save-charts-settings") {
@@ -3848,6 +3963,34 @@ Reloading panel registration…
     if (kind === "toggle-storm-forecast" && this._stormDraft) {
       this._stormDraft.use_forecast_lead = el.checked;
       this._scheduleRender();
+      return;
+    }
+    if (kind === "solcast" && this._solcastDraft) {
+      const field = parts[1];
+      if (!field) return;
+      if (field === "enabled") {
+        this._solcastDraft.enabled = el.checked;
+        this._scheduleRender();
+        return;
+      }
+      if (field === "auto_update") {
+        this._solcastDraft.auto_update = el.value === "all_day" ? "all_day" : "daylight";
+        return;
+      }
+      if (field === "api_limit") {
+        const n = parseInt(String(el.value).trim(), 10);
+        this._solcastDraft.api_limit = Math.max(1, Math.min(50, Number.isFinite(n) ? n : 10));
+        this._scheduleRender();
+        return;
+      }
+      if (field === "api_key") {
+        this._solcastDraft.api_key = el.value;
+        return;
+      }
+      if (field === "latitude" || field === "longitude") {
+        this._solcastDraft[field] = el.value;
+        return;
+      }
       return;
     }
     if (kind === "pv" && this._pvDraft) {
@@ -5250,6 +5393,7 @@ ${renderListButton({ action: "settings-sub", sub: "quick" }, "Quick Settings", `
 ${renderListButton({ action: "settings-sub", sub: "schedules" }, "Charge schedule", "Two charge windows (baseline)")}
 ${renderListButton({ action: "settings-sub", sub: "workmode" }, "Work mode", String(s.work_mode ?? "—"))}
 ${renderListButton({ action: "settings-sub", sub: "pv" }, "PV Configuration", pvConfigSummary(this._plantState?.pv_config))}
+${renderListButton({ action: "settings-sub", sub: "solcast" }, "Solcast", this._solcastSettingsSubtitle())}
 ${renderListButton({ action: "settings-sub", sub: "storm" }, "StormSafe", stormSub)}
 ${renderListButton({ action: "settings-sub", sub: "charts" }, "Charts", this._forecastEntityLabel())}
 ${renderListButton({ action: "settings-sub", sub: "control" }, "Plant control", this._plantState?.control_active ? "Fox Plant manages periods" : "Released to manual")}`;
@@ -5316,7 +5460,7 @@ ${this._renderPeriodCard(1, this._chargeDraft[1])}
     const activeTriggers = this._plantState?.active_storm_triggers ?? [];
     const maxSocVal = draft.target_max_soc == null ? "" : String(draft.target_max_soc);
     return `${this._renderStormHero(armed)}
-<header class="header storm-settings-header"><h1>StormSafe</h1><p>Pre-charge before severe weather — configured here, no blueprints required</p></header>
+<header class="header storm-settings-header"><h1>StormSafe</h1><p>Pre-charge before severe weather — configured here, no blueprints required${this._plantState?.solcast?.enabled && this._plantState?.solcast?.api_key_set ? " · <strong>Weather source: Solcast</strong>" : ""}</p></header>
 <div class="card">
 <p class="card-title">Status</p>
 <p style="margin:0 0 10px;font-size:14px">${armed ? "Storm prep is <strong>active</strong> — storm charge schedule applied." : "No storm triggers active right now."}</p>
@@ -5416,6 +5560,66 @@ ${this._renderPvStringBlock("pv2")}
     });
   }
 
+  _renderSettingsSolcast() {
+    if (!this._solcastDraft) this._initSolcastDraft();
+    const draft = this._solcastDraft;
+    const live = this._plantState?.solcast ?? {};
+    const haLat = this._hass?.config?.latitude;
+    const haLon = this._hass?.config?.longitude;
+    const keyPlaceholder = draft.api_key_set ? "••••••••  (leave blank to keep)" : "Paste Solcast API key";
+    const lastFetch = live.last_fetch_at ? esc(String(live.last_fetch_at)) : "—";
+    const lastErr = live.last_error ? esc(String(live.last_error)) : "None";
+    const liveSummary = live.live_summary
+      ? `${esc(live.live_summary.temperature_display || "")} ${esc(live.live_summary.condition_label || "")}`.trim()
+      : "—";
+    return `<header class="header"><h1>Solcast</h1><p>Direct <a class="field-link" href="${esc(SOLCAST_API_DOCS_URL)}" target="_blank" rel="noopener noreferrer">Solcast API</a> (hobbyist) — weather, storms, and PV forecasts without a separate integration</p></header>
+<div class="card">
+<p class="card-title">Account</p>
+<p class="field-hint">Register a free <a class="field-link" href="${esc(SOLCAST_HOBBYIST_URL)}" target="_blank" rel="noopener noreferrer">Home PV System</a> account (10 API requests/day). Keys are stored in your Fox Plant config entry.</p>
+<div class="toggle-row"><span><strong>Enable Solcast</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">When on, overview weather and StormSafe use Solcast instead of Google Weather</span></span>
+<input type="checkbox" data-field="solcast:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+<div class="field"><label>API key</label>
+<input type="password" autocomplete="off" data-field="solcast:api_key" placeholder="${esc(keyPlaceholder)}" ${this._busy ? "disabled" : ""}></div>
+<div class="field"><label>API limit (requests per day)</label>
+<p class="field-hint">Hobbyist plans are typically 10/day — used to spread automatic polling.</p>
+<input type="number" min="1" max="50" step="1" data-field="solcast:api_limit" value="${esc(String(draft.api_limit))}" ${this._busy ? "disabled" : ""}></div>
+</div>
+<div class="card">
+<p class="card-title">Auto update</p>
+<div class="field"><label>Schedule</label>
+<select data-field="solcast:auto_update" ${this._busy ? "disabled" : ""}>
+<option value="daylight" ${draft.auto_update === "daylight" ? "selected" : ""}>Automatic update of forecasts from sunrise to sunset</option>
+<option value="all_day" ${draft.auto_update === "all_day" ? "selected" : ""}>Automatic update over 24 hours</option>
+</select></div>
+<p class="field-hint">Poll interval is spread across the day to stay within your API limit. Each live refresh uses 1 request; StormSafe forecast lead may use 1 more.</p>
+</div>
+<div class="card">
+<p class="card-title">Location</p>
+<p class="field-hint">Leave blank to use Home Assistant home coordinates (${esc(String(haLat ?? "—"))}, ${esc(String(haLon ?? "—"))}).</p>
+<div class="field"><label>Latitude (optional)</label>
+<input type="number" step="any" data-field="solcast:latitude" value="${esc(String(draft.latitude))}" placeholder="${esc(String(haLat ?? ""))}" ${this._busy ? "disabled" : ""}></div>
+<div class="field"><label>Longitude (optional)</label>
+<input type="number" step="any" data-field="solcast:longitude" value="${esc(String(draft.longitude))}" placeholder="${esc(String(haLon ?? ""))}" ${this._busy ? "disabled" : ""}></div>
+<div class="field"><label>Data period</label>
+<p class="field-hint">PT30M = 30-minute resolution (recommended for hobbyist quota).</p>
+<input type="text" data-field="solcast:period" value="${esc(String(draft.period))}" readonly></div>
+</div>
+<div class="card">
+<p class="card-title">Status</p>
+<div class="entity-list">
+<div class="entity-row"><span class="entity-name">API used today</span><span class="entity-value">${esc(String(live.api_used_today ?? 0))} / ${esc(String(live.api_limit ?? draft.api_limit))}</span></div>
+<div class="entity-row"><span class="entity-name">Remaining today</span><span class="entity-value">${esc(String(live.api_remaining ?? "—"))}</span></div>
+<div class="entity-row"><span class="entity-name">Last fetch</span><span class="entity-value">${lastFetch}</span></div>
+<div class="entity-row"><span class="entity-name">Last error</span><span class="entity-value">${lastErr}</span></div>
+<div class="entity-row"><span class="entity-name">Live summary</span><span class="entity-value">${liveSummary || "—"}</span></div>
+</div>
+</div>
+<div class="btn-row">
+<button type="button" class="btn btn-primary" data-action="save-solcast-settings" ${this._busy ? "disabled" : ""}>Save</button>
+<button type="button" class="btn btn-secondary" data-action="test-solcast" ${this._busy ? "disabled" : ""}>Test connection</button>
+</div>`;
+  }
+
   _renderSettingsCharts() {
     if (!this._chartsDraft) this._initChartsDraft();
     const selected = this._chartsDraft.forecast_entity_id || "";
@@ -5465,6 +5669,8 @@ ${active
         return this._renderSettingsWorkMode();
       case "pv":
         return this._renderSettingsPv();
+      case "solcast":
+        return this._renderSettingsSolcast();
       case "storm":
         return this._renderSettingsStorm();
       case "charts":

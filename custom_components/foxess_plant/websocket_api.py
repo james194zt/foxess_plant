@@ -24,6 +24,8 @@ WS_TYPE_SET_SOC_LIMITS = "foxess_plant/set_soc_limits"
 WS_TYPE_FORECAST_ENTITY_CANDIDATES = "foxess_plant/forecast_entity_candidates"
 WS_TYPE_UPDATE_PANEL_DISPLAY = "foxess_plant/update_panel_display"
 WS_TYPE_UPDATE_PV_CONFIG = "foxess_plant/update_pv_config"
+WS_TYPE_UPDATE_SOLCAST = "foxess_plant/update_solcast"
+WS_TYPE_TEST_SOLCAST = "foxess_plant/test_solcast"
 WS_TYPE_FETCH_HISTORY = "foxess_plant/fetch_history"
 WS_TYPE_FETCH_STATISTICS = "foxess_plant/fetch_statistics"
 
@@ -49,6 +51,18 @@ PV_CONFIG_SCHEMA = vol.Schema(
     {
         vol.Required("pv1"): PV_STRING_SCHEMA,
         vol.Required("pv2"): PV_STRING_SCHEMA,
+    }
+)
+
+SOLCAST_SCHEMA = vol.Schema(
+    {
+        vol.Required("enabled"): cv.boolean,
+        vol.Optional("api_key"): vol.Any(str, None),
+        vol.Required("api_limit"): vol.All(vol.Coerce(int), vol.Range(min=1, max=50)),
+        vol.Required("auto_update"): vol.In(["daylight", "all_day"]),
+        vol.Optional("latitude"): vol.Any(vol.Coerce(float), None),
+        vol.Optional("longitude"): vol.Any(vol.Coerce(float), None),
+        vol.Optional("period", default="PT30M"): str,
     }
 )
 
@@ -349,6 +363,51 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
 
     @websocket_api.websocket_command(
         {
+            vol.Required("type"): WS_TYPE_UPDATE_SOLCAST,
+            vol.Optional("plant_id"): str,
+            vol.Required("solcast"): SOLCAST_SCHEMA,
+        }
+    )
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def ws_update_solcast(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        await coordinator.async_save_solcast(solcast=msg["solcast"])
+        connection.send_result(msg["id"], coordinator.get_plant_state())
+
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): WS_TYPE_TEST_SOLCAST,
+            vol.Optional("plant_id"): str,
+        }
+    )
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def ws_test_solcast(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        try:
+            result = await coordinator.async_test_solcast()
+        except Exception as err:
+            connection.send_error(msg["id"], "solcast_test_failed", str(err))
+            return
+        connection.send_result(msg["id"], {"solcast": result, "plant_state": coordinator.get_plant_state()})
+
+    @websocket_api.websocket_command(
+        {
             vol.Required("type"): WS_TYPE_FETCH_HISTORY,
             vol.Required("start_time"): str,
             vol.Optional("end_time"): str,
@@ -431,6 +490,8 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_forecast_entity_candidates)
     websocket_api.async_register_command(hass, ws_update_panel_display)
     websocket_api.async_register_command(hass, ws_update_pv_config)
+    websocket_api.async_register_command(hass, ws_update_solcast)
+    websocket_api.async_register_command(hass, ws_test_solcast)
     websocket_api.async_register_command(hass, ws_fetch_history)
     websocket_api.async_register_command(hass, ws_fetch_statistics)
     hass.data["_foxess_plant_ws_registered"] = True

@@ -287,6 +287,75 @@ class PvStringConfig:
 
 
 @dataclass
+class SolcastConfig:
+    """Solcast hobbyist API settings (stored in config entry)."""
+
+    enabled: bool = False
+    api_key: str | None = None
+    api_limit: int = 10
+    auto_update: str = "daylight"
+    latitude: float | None = None
+    longitude: float | None = None
+    period: str = "PT30M"
+    api_used_today: int = 0
+    api_used_date: str | None = None
+    last_fetch_at: str | None = None
+    last_error: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> SolcastConfig:
+        from .const import DEFAULT_SOLCAST, DEFAULT_SOLCAST_API_LIMIT, SOLCAST_AUTO_UPDATE_DAYLIGHT
+
+        base = DEFAULT_SOLCAST
+        raw_limit = data.get("api_limit", base.get("api_limit", DEFAULT_SOLCAST_API_LIMIT))
+        try:
+            api_limit = int(raw_limit)
+        except (TypeError, ValueError):
+            api_limit = DEFAULT_SOLCAST_API_LIMIT
+        api_limit = max(1, min(50, api_limit))
+        auto = str(data.get("auto_update", base.get("auto_update", SOLCAST_AUTO_UPDATE_DAYLIGHT)))
+        if auto not in ("daylight", "all_day"):
+            auto = SOLCAST_AUTO_UPDATE_DAYLIGHT
+        lat = data.get("latitude")
+        lon = data.get("longitude")
+        return cls(
+            enabled=bool(data.get("enabled", base.get("enabled", False))),
+            api_key=str(data["api_key"]) if data.get("api_key") else None,
+            api_limit=api_limit,
+            auto_update=auto,
+            latitude=float(lat) if lat is not None else None,
+            longitude=float(lon) if lon is not None else None,
+            period=str(data.get("period", base.get("period", "PT30M"))),
+            api_used_today=int(data.get("api_used_today", 0) or 0),
+            api_used_date=data.get("api_used_date"),
+            last_fetch_at=data.get("last_fetch_at"),
+            last_error=data.get("last_error"),
+        )
+
+    def to_dict(self, *, include_api_key: bool = True) -> dict[str, Any]:
+        out: dict[str, Any] = {
+            "enabled": self.enabled,
+            "api_limit": self.api_limit,
+            "auto_update": self.auto_update,
+            "latitude": self.latitude,
+            "longitude": self.longitude,
+            "period": self.period,
+            "api_used_today": self.api_used_today,
+            "api_used_date": self.api_used_date,
+            "last_fetch_at": self.last_fetch_at,
+            "last_error": self.last_error,
+        }
+        if include_api_key:
+            out["api_key"] = self.api_key
+        else:
+            out["api_key_set"] = bool(self.api_key)
+        return out
+
+    def api_key_configured(self) -> bool:
+        return bool(self.api_key and str(self.api_key).strip())
+
+
+@dataclass
 class PvSystemConfig:
     """PV1 / PV2 configuration for the plant."""
 
@@ -327,6 +396,7 @@ class PlantConfig:
     forecast_prep: ForecastPrepConfig = field(default_factory=ForecastPrepConfig)
     panel_display: PanelDisplayConfig = field(default_factory=PanelDisplayConfig)
     pv_config: PvSystemConfig = field(default_factory=PvSystemConfig)
+    solcast: SolcastConfig = field(default_factory=SolcastConfig)
     tariff_modes: dict[str, list[ChargePeriodConfig]] = field(default_factory=dict)
 
     @classmethod
@@ -337,6 +407,7 @@ class PlantConfig:
             DEFAULT_OUTAGE_PREP,
             DEFAULT_PANEL_DISPLAY,
             DEFAULT_PV_CONFIG,
+            DEFAULT_SOLCAST,
             DEFAULT_STORM_PREP,
         )
 
@@ -362,6 +433,7 @@ class PlantConfig:
             ),
             panel_display=PanelDisplayConfig.from_dict(data.get("panel_display", DEFAULT_PANEL_DISPLAY)),
             pv_config=PvSystemConfig.from_dict(data.get("pv_config", DEFAULT_PV_CONFIG)),
+            solcast=SolcastConfig.from_dict(data.get("solcast", DEFAULT_SOLCAST)),
             tariff_modes=tariff_modes,
         )
 
@@ -379,6 +451,7 @@ class PlantConfig:
             "forecast_prep": self.forecast_prep.to_dict(),
             "panel_display": self.panel_display.to_dict(),
             "pv_config": self.pv_config.to_dict(),
+            "solcast": self.solcast.to_dict(),
             "tariff_modes": {
                 name: [p.to_dict() for p in periods] for name, periods in self.tariff_modes.items()
             },
