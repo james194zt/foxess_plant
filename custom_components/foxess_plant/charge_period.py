@@ -16,12 +16,13 @@ _LOGGER = logging.getLogger(__name__)
 
 _EVO_CHARGE_PERIOD_HINT = (
     "This error comes from the **FoxESS Modbus** integration (not Fox Plant). "
-    "Modbus register 48010 is used for FoxESS **EVO** charge period 1. "
-    "Update **FoxESS Modbus** from github.com/james194zt/foxess_modbus_evo and restart HA. "
-    "If your inverter is not an EVO, open **FoxESS Modbus** → configure → set the correct "
-    "inverter model, then reload FoxESS Modbus and FoxESS Plant. "
-    "Clear any charge schedules in the Fox app/cloud that may block local Modbus writes. "
-    "You can test with Developer Tools → Actions → `foxess_modbus.update_all_charge_periods`."
+    "EVO charge periods use registers **48010–48023** only — not 41xxx. "
+    "If the error mentions **41001**, update FoxESS Modbus to the latest "
+    "github.com/james194zt/foxess_modbus_evo (41xxx fallback was removed). "
+    "Check Developer Tools for `sensor.*time_period_1_start` — if those are "
+    "unavailable, the inverter model in FoxESS Modbus may be wrong (EVO vs H3 Pro). "
+    "Clear Fox app/cloud charge schedules, then test "
+    "`foxess_modbus.update_all_charge_periods` in Developer Tools."
 )
 
 
