@@ -215,7 +215,7 @@ DEFAULT_STORM_PREP = {
         {
             "enable_force_charge": True,
             "enable_charge_from_grid": True,
-            "start": "00:00",
+            "start": "00:01",
             "end": "23:59",
         },
         {
@@ -235,7 +235,7 @@ DEFAULT_OUTAGE_PREP = {
         {
             "enable_force_charge": True,
             "enable_charge_from_grid": True,
-            "start": "00:00",
+            "start": "00:01",
             "end": "23:59",
         },
         {

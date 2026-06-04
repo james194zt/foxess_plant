@@ -38,11 +38,20 @@ class ChargePeriodConfig:
         return asdict(self)
 
     def to_service_dict(self) -> dict[str, Any]:
+        start_t = _parse_hhmm(self.start)
+        end_t = _parse_hhmm(self.end)
+        if (
+            self.enable_force_charge
+            and start_t.hour == 0
+            and start_t.minute == 0
+            and (end_t.hour, end_t.minute) != (0, 0)
+        ):
+            start_t = time(hour=0, minute=1)
         return {
             "enable_force_charge": self.enable_force_charge,
             "enable_charge_from_grid": self.enable_charge_from_grid,
-            "start": _parse_hhmm(self.start),
-            "end": _parse_hhmm(self.end),
+            "start": start_t,
+            "end": end_t,
         }
 
     def matches_modbus_state(
