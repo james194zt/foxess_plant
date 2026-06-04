@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.20
+ * @version 0.9.22
  */
 
 const NAV = [
@@ -452,8 +452,8 @@ function pvStringEffectiveMaxKw(cfg) {
 function enabledPvStrings(pvConfig) {
   const cfg = normalizePvConfig(pvConfig);
   const out = [];
-  if (cfg.pv1?.enabled) out.push({ key: "pv1", label: "PV1", cfg: cfg.pv1 });
-  if (cfg.pv2?.enabled) out.push({ key: "pv2", label: "PV2", cfg: cfg.pv2 });
+  if (cfg.pv1?.enabled) out.push({ key: "pv1", label: "PV1 Power", cfg: cfg.pv1 });
+  if (cfg.pv2?.enabled) out.push({ key: "pv2", label: "PV2 Power", cfg: cfg.pv2 });
   return out;
 }
 
@@ -664,11 +664,12 @@ function renderPvThreeQuarterGauge(pvKw, maxKw, valueText, labelText, pctOfMax) 
     fillLen > 0.5
       ? `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--fp-accent)" stroke-width="9" stroke-linecap="round" stroke-dasharray="${fillLen} ${circ - fillLen}" transform="rotate(${rot} ${cx} ${cy})"/>`
       : "";
-  const sub = pctLabel ? `<div class="device-pv-cap">${esc(pctLabel)}</div>` : "";
+  const cap = pctLabel ? `<div class="device-pv-cap">${esc(pctLabel)}</div>` : "";
   return `<div class="device-pv-wrap" role="img" aria-label="${esc(labelText)} ${esc(valueText)} ${esc(pctLabel)}">
 <div class="device-pv-gauge"><svg viewBox="0 0 100 104" aria-hidden="true">${track}${fill}</svg>
-<div class="device-pv-readout"><div class="device-pv-value">${esc(valueText)}</div><div class="device-pv-label">${esc(labelText)}</div>${sub}</div>
+<div class="device-pv-readout"><div class="device-pv-value">${esc(valueText)}</div><div class="device-pv-label">${esc(labelText)}</div></div>
 </div>
+${cap}
 </div>`;
 }
 
@@ -705,7 +706,7 @@ function renderDevicePvCard(hass, plant, plantState) {
       liveKw,
       maxKw,
       formatDevicePowerKw(flows.pvW),
-      "PV1",
+      "PV1 Power",
       pct
     );
     return `<div class="device-card device-card--pv"><div class="device-pv-gauges device-pv-gauges--single">${gauge}</div></div>`;
@@ -2238,7 +2239,7 @@ async function fetchTriggerCandidates(hass) {
 const DEFAULT_BRAND_DOMAIN = "foxess_plant";
 const DEFAULT_MODBUS_BRAND_DOMAIN = "foxess_modbus";
 const DEFAULT_BRAND_ICON_STATIC = "/foxess_plant_panel/icon.png";
-const DEVICE_EVO_IMAGE_STATIC = "/foxess_plant_panel/evo10.png?v=14";
+const DEVICE_EVO_IMAGE_STATIC = "/foxess_plant_panel/evo10.png?v=15";
 const STORM_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_storm_safe_charging.png?v=1";
 const IMPACT_ICON_ASSET_VER = 1;
 const IMPACT_ICON_PATHS = {
@@ -2868,11 +2869,11 @@ const STYLES = `
 .device-fox-pill.is-offgrid { background: #e6a817; color: #1a1a1a; }
 .device-fox-pill.is-default { background: var(--secondary-background-color); color: var(--primary-text-color); }
 .device-hero {
-  display: flex; flex-direction: column; align-items: center; gap: 14px;
-  margin: 4px 0 24px; padding: 0 16px; width: 100%; box-sizing: border-box;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  margin: 4px 0 18px; padding: 0 16px; width: 100%; box-sizing: border-box;
 }
 .device-hero-img {
-  max-width: min(200px, 62vw); max-height: 260px; width: auto; height: auto;
+  max-width: min(200px, 62vw); max-height: 220px; width: auto; height: auto;
   display: block; object-fit: contain;
 }
 .device-serial-btn {
@@ -2908,10 +2909,9 @@ const STYLES = `
   flex: 1 1 0; min-width: 0; max-width: 50%;
 }
 .device-pv-gauges--dual .device-pv-gauge { max-width: 108px; }
-.device-pv-gauges--dual .device-pv-value { font-size: 17px; }
-.device-pv-gauges--dual .device-pv-label { font-size: 12px; margin-top: 6px; }
-.device-pv-gauges--dual .device-pv-cap { font-size: 9px; line-height: 1.2; }
-.device-pv-wrap { width: 100%; display: flex; flex-direction: column; align-items: center; }
+.device-pv-gauges--dual .device-pv-value { font-size: 15px; }
+.device-pv-gauges--dual .device-pv-label { font-size: 11px; margin-top: 2px; }
+.device-pv-wrap { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .device-pv-gauge {
   position: relative; width: 100%; max-width: 140px; aspect-ratio: 100 / 104; flex-shrink: 0;
 }
@@ -2920,9 +2920,12 @@ const STYLES = `
   position: absolute; left: 0; right: 0; top: 40%; transform: translateY(-50%);
   text-align: center; min-width: 0; padding: 0 10px; box-sizing: border-box; pointer-events: none;
 }
-.device-pv-value { font-size: 20px; font-weight: 700; line-height: 1.2; letter-spacing: -0.02em; margin: 0; }
+.device-pv-value { font-size: 17px; font-weight: 700; line-height: 1.2; letter-spacing: -0.02em; margin: 0; }
 .device-pv-label { font-size: 12px; color: var(--secondary-text-color); font-weight: 500; line-height: 1.3; margin: 3px 0 0; }
-.device-pv-cap { font-size: 10px; color: var(--secondary-text-color); line-height: 1.25; margin: 2px 0 0; opacity: 0.9; }
+.device-pv-cap {
+  font-size: 10px; color: var(--secondary-text-color); line-height: 1.25; margin: 0;
+  text-align: center; width: 100%; opacity: 0.9;
+}
 .device-battery-card { width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 0; }
 .device-battery-top {
   display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
@@ -3154,10 +3157,10 @@ const STYLES = `
   .device-grid { grid-template-columns: 1fr; gap: 12px; }
   .device-card--pv, .device-card--battery { padding: 20px 20px 22px; }
   .device-pv-gauges--dual .device-pv-gauge { max-width: 120px; }
-  .device-pv-gauges--dual .device-pv-value { font-size: 16px; }
+  .device-pv-gauges--dual .device-pv-value { font-size: 14px; }
   .device-pv-gauges--dual .device-pv-readout { padding: 0 6px; }
   .device-pv-gauge { max-width: 160px; }
-  .device-pv-value { font-size: 22px; }
+  .device-pv-value { font-size: 18px; }
   .device-battery-pct { font-size: 32px; }
 }
 @media (max-width: 600px) {
