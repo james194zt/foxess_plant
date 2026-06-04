@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.14
+ * @version 0.9.15
  */
 
 const NAV = [
@@ -511,6 +511,7 @@ function nativeSolcastPvForecastEnabled(plantState) {
     solcastEnabledFromLive(sc) &&
     sc?.api_key_set &&
     sc?.coordinates_configured &&
+    sc?.hobbyist_sites_resolved &&
     sc?.fetch_pv_forecast !== false
   );
 }
@@ -3756,6 +3757,7 @@ Reloading panel registration…
     if (!solcastEnabledFromLive(sc)) return "Off — PV charts use manual forecast entity";
     if (!sc.api_key_set) return "API key required";
     if (!sc.coordinates_configured) return "Solcast site latitude/longitude required";
+    if (!sc.hobbyist_sites_resolved) return "Linking to Solcast Home PV site(s)… save settings";
     const rem = sc.api_remaining ?? "—";
     return `PV forecast · ${sc.api_used_today ?? 0}/${sc.api_limit ?? 10} API calls today · ${rem} left`;
   }
@@ -3872,10 +3874,12 @@ Reloading panel registration…
       this._reloadStatisticsChartIfOverview();
       const sc = res?.solcast ?? {};
       const summary = sc.live_summary;
-      const place = sc.test_location ? ` (${sc.test_location}, unmetered)` : " (unmetered test site)";
-      const msg = summary?.condition_label
-        ? `Solcast OK${place} — ${summary.temperature_display || ""} ${summary.condition_label}`.trim()
-        : `Solcast connection OK${place}`;
+      const match = sc.test_match_note || summary?.match_note;
+      const msg = match
+        ? `Solcast hobbyist OK — ${match}`
+        : summary?.condition_label
+          ? `Solcast hobbyist OK — ${summary.condition_label}`
+          : "Solcast hobbyist API OK (listed Home PV sites)";
       this._showToast(msg);
     } catch (err) {
       this._showToast(err?.message || "Solcast test failed", "err");
@@ -5993,7 +5997,7 @@ ${this._renderPvStringBlock("pv2")}
 </select></div>
 ${scheduleHint}
 <p class="field-hint">Each refresh uses <strong>1 request per unique tilt/azimuth group</strong>. In daylight mode, your ${esc(String(draft.api_limit))} daily calls are spread from <strong>sunrise</strong> until <strong>1 hour before sunset</strong> (from Home Assistant <code>sun.sun</code>).</p>
-<div class="toggle-row" style="margin-top:12px"><span><strong>Fetch PV forecast</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Calls Solcast <code>rooftop_pv_power</code> using PV1/PV2 capacity, tilt, azimuth, and efficiency</span></span>
+<div class="toggle-row" style="margin-top:12px"><span><strong>Fetch PV forecast</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Uses hobbyist <code>rooftop_sites/{resource_id}/forecasts</code> (matched to your toolkit Home PV sites)</span></span>
 <input type="checkbox" data-field="solcast:fetch_pv_forecast" ${draft.fetch_pv_forecast ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 </div>
 <div class="card">
@@ -6027,6 +6031,13 @@ ${this._renderPvTiltAzimuthFields("pv2", { allowWhenDisabled: true })}
 <div class="entity-row"><span class="entity-name">Last error</span><span class="entity-value">${lastErr}</span></div>
 <div class="entity-row"><span class="entity-name">PV forecast</span><span class="entity-value">${esc(pvStatus)}</span></div>
 <div class="entity-row"><span class="entity-name">Installation date</span><span class="entity-value">${installDisplay}</span></div>
+<div class="entity-row"><span class="entity-name">Toolkit sites</span><span class="entity-value">${esc(
+      live.hobbyist_sites_resolved
+        ? (live.rooftop_sites_meta ?? [])
+            .map((s) => `${s.label}: ${s.name || s.resource_id}`)
+            .join(" · ") || "Linked"
+        : "Not linked — press Save"
+    )}</span></div>
 </div>
 <p class="field-hint" style="margin-top:8px"><strong>API groups</strong> (from PV config):<br>${pvReqLines}</p>
 <p class="field-hint">Diagnostic sensors expose <code>detailed_forecast</code> for automations — charts use plant state directly.</p>
@@ -6034,7 +6045,7 @@ ${this._renderPvTiltAzimuthFields("pv2", { allowWhenDisabled: true })}
 <div class="btn-row">
 <button type="button" class="btn btn-primary" data-action="save-solcast-settings" ${this._busy ? "disabled" : ""}>Save</button>
 <button type="button" class="btn btn-secondary" data-action="test-solcast" ${this._busy ? "disabled" : ""}>Test connection</button>
-<p class="field-hint" style="margin-top:10px">Test uses a Solcast <a class="field-link" href="https://docs.solcast.com.au/#00577cf8-b43b-4349-b4b5-a5f063916f5a" target="_blank" rel="noopener noreferrer">unmetered location</a> (default: Sydney Opera House) so your daily API limit is not used.</p>
+<p class="field-hint" style="margin-top:10px">Test lists your <strong>Home PV systems</strong> from the Solcast toolkit (does not use your daily forecast quota).</p>
 </div>`;
   }
 

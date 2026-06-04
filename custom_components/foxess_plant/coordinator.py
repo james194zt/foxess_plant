@@ -837,17 +837,31 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         data[CONF_SOLCAST] = SolcastConfig.from_dict(merged).to_dict()
         self.hass.config_entries.async_update_entry(self.config_entry, data=data)
         self.update_plant_config(PlantConfig.from_entry_data(data))
+        if merged.get("enabled") and self.plant.solcast.api_key_configured():
+            from .solcast_hobbyist import async_resolve_rooftop_bindings
+
+            try:
+                await async_resolve_rooftop_bindings(self.hass, self.plant)
+            except SolcastApiError as err:
+                raise HomeAssistantError(str(err)) from err
+            data = dict(self.config_entry.data)
+            data[CONF_SOLCAST] = self.plant.solcast.to_dict()
+            self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+            self.update_plant_config(PlantConfig.from_entry_data(data))
         if fetch_now and self._solcast_pv_active():
             await self._async_refresh_solcast_pv(force=True)
         await self.async_request_refresh()
 
     async def async_test_solcast(self) -> dict[str, Any]:
-        """Verify Solcast API key via an unmetered test location (no quota use)."""
+        """Verify Solcast hobbyist API key by listing Home PV sites (no quota use)."""
+        from .solcast_api import SolcastApiError
         from .solcast_poll import async_test_solcast_connection, solcast_status_dict
 
         if not self.plant.solcast.api_key_configured():
             raise HomeAssistantError("Solcast API key is not configured")
-        test_result = await async_test_solcast_connection(self.hass, self.plant.solcast)
+        test_result = await async_test_solcast_connection(
+            self.hass, self.plant.solcast, plant=self.plant
+        )
         status = solcast_status_dict(
             self.plant.solcast, self._solcast_cache, plant=self.plant, hass=self.hass
         )

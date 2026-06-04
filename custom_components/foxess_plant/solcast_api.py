@@ -13,6 +13,9 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 _LOGGER = logging.getLogger(__name__)
 
 SOLCAST_BASE_URL = "https://api.solcast.com.au"
+# Hobbyist Home PV toolkit (10 requests/day) — use resource_id from GET /rooftop_sites
+ROOFTOP_SITES = "/rooftop_sites"
+# Commercial / advanced self-serve endpoints (not on hobbyist plans)
 LIVE_RADIATION_WEATHER = "/data/live/radiation_and_weather"
 LIVE_ROOFTOP_PV = "/data/live/rooftop_pv_power"
 FORECAST_RADIATION_WEATHER = "/data/forecast/radiation_and_weather"
@@ -89,6 +92,26 @@ class SolcastApiClient:
                 raise SolcastApiError(f"Solcast HTTP {resp.status}: {body[:240]}")
         except aiohttp.ClientError as err:
             raise SolcastApiError(str(err)) from err
+
+    async def list_rooftop_sites(self) -> dict[str, Any]:
+        """List registered Home PV sites (hobbyist; does not consume daily forecast quota)."""
+        return await self._request(ROOFTOP_SITES, {"format": "json"})
+
+    async def hobbyist_site_forecasts(
+        self,
+        resource_id: str,
+        *,
+        hours: int,
+        period: str = "PT30M",
+    ) -> dict[str, Any]:
+        """Forecast for one toolkit Home PV site (1 API request)."""
+        rid = str(resource_id).strip()
+        if not rid:
+            raise SolcastApiError("Solcast rooftop resource_id is missing")
+        return await self._request(
+            f"{ROOFTOP_SITES}/{rid}/forecasts",
+            {"format": "json", "hours": hours, "period": period},
+        )
 
     async def live_radiation_and_weather(
         self,
@@ -171,7 +194,7 @@ class SolcastApiClient:
         period: str = "PT30M",
         hours: int = 48,
     ) -> dict[str, Any]:
-        """Rooftop PV power forecast (1 API request) — hobbyist endpoint."""
+        """Commercial self-serve rooftop PV forecast (not available on hobbyist plans)."""
         return await self._request(
             FORECAST_ROOFTOP_PV,
             {

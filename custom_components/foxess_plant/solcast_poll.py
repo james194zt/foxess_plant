@@ -25,8 +25,7 @@ from .solcast_pv import (
     parse_detailed_forecast,
     rooftop_requests_summary,
 )
-from .solcast_unmetered import DEFAULT_UNMETERED_TEST_LOCATION, resolve_unmetered_location
-from .solcast_weather import parse_live_overview, resolve_coordinates
+from .solcast_weather import resolve_coordinates
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -209,34 +208,45 @@ async def _fetch_rooftop_pv_forecasts(
     hass: HomeAssistant,
     plant: PlantConfig,
     client: SolcastApiClient,
-    *,
-    lat: float,
-    lon: float,
 ) -> tuple[dict[str, Any] | None, list[str]]:
+    """Fetch forecasts via hobbyist GET /rooftop_sites/{resource_id}/forecasts."""
+    from .solcast_hobbyist import async_resolve_rooftop_bindings
+
+    solcast = plant.solcast
     requests = build_rooftop_pv_requests(plant.pv_config)
     if not requests:
         return None, ["No enabled PV strings in PV Configuration"]
+
+    if not solcast.rooftop_site_bindings:
+        await async_resolve_rooftop_bindings(hass, plant)
+
+    bindings = solcast.rooftop_site_bindings
     hours = forecast_hours_until_local_midnight(hass)
     period = plant.solcast.period
     payloads: list[tuple[str, dict[str, Any]]] = []
     errors: list[str] = []
+    fetched_by_rid: dict[str, dict[str, Any]] = {}
+
     for req in requests:
-        try:
-            data = await client.forecast_rooftop_pv_power(
-                latitude=lat,
-                longitude=lon,
-                capacity_kw=req.capacity_kw,
-                tilt=req.tilt,
-                azimuth=req.azimuth,
-                loss_factor=req.loss_factor,
-                period=period,
-                hours=hours,
+        resource_id = bindings.get(req.label)
+        if not resource_id:
+            errors.append(
+                f"{req.label}: no matching Solcast Home PV site "
+                f"(tilt {req.tilt}° / azimuth {req.azimuth}°)"
             )
-            payloads.append((req.label, data))
+            continue
+        try:
+            if resource_id not in fetched_by_rid:
+                fetched_by_rid[resource_id] = await client.hobbyist_site_forecasts(
+                    resource_id,
+                    hours=hours,
+                    period=period,
+                )
+            payloads.append((req.label, fetched_by_rid[resource_id]))
         except SolcastApiError as err:
             msg = f"{req.label}: {err}"
             errors.append(msg)
-            _LOGGER.warning("Solcast PV forecast failed for %s: %s", req.label, err)
+            _LOGGER.warning("Solcast hobbyist forecast failed for %s: %s", req.label, err)
     if not payloads:
         return None, errors
     return parse_detailed_forecast(payloads), errors
@@ -262,7 +272,19 @@ async def async_refresh_solcast(
     if not force and not should_poll_now(hass, solcast):
         return cache
 
-    pv_calls = len(requests)
+    bindings = solcast.rooftop_site_bindings
+    if not bindings:
+        try:
+            from .solcast_hobbyist import async_resolve_rooftop_bindings
+
+            await async_resolve_rooftop_bindings(hass, plant)
+            bindings = solcast.rooftop_site_bindings
+        except SolcastApiError as err:
+            solcast.last_error = str(err)
+            return cache
+
+    unique_sites = {bindings[r.label] for r in requests if r.label in bindings}
+    pv_calls = max(1, len(unique_sites))
     last_at = cache.get("updated_at")
     if last_at and not force:
         try:
@@ -280,10 +302,9 @@ async def async_refresh_solcast(
         solcast.last_error = "Daily API limit reached"
         return cache
 
-    lat, lon = resolve_coordinates(hass, solcast)
     client = SolcastApiClient(hass, api_key=solcast.api_key or "")
     try:
-        parsed, fetch_errors = await _fetch_rooftop_pv_forecasts(hass, plant, client, lat=lat, lon=lon)
+        parsed, fetch_errors = await _fetch_rooftop_pv_forecasts(hass, plant, client)
     except SolcastApiError as err:
         solcast.last_error = str(err)
         _LOGGER.warning("Solcast PV forecast fetch failed: %s", err)
@@ -294,6 +315,7 @@ async def async_refresh_solcast(
         record_api_use(solcast, pv_calls)
         cache["pv_forecast_parsed"] = parsed
         cache["pv_forecast_fetched_at"] = dt_util.utcnow().isoformat()
+        lat, lon = resolve_coordinates(hass, solcast)
         cache["coordinates"] = {"latitude": lat, "longitude": lon}
         cache["updated_at"] = dt_util.utcnow().isoformat()
         solcast.last_fetch_at = cache["updated_at"]
@@ -312,46 +334,60 @@ async def async_test_solcast_connection(
     hass: HomeAssistant,
     solcast: SolcastConfig,
     *,
-    unmetered_name: str | None = None,
+    plant: PlantConfig | None = None,
 ) -> dict[str, Any]:
-    """Verify API key using a Solcast unmetered location (does not use daily quota)."""
+    """Verify hobbyist API key by listing Home PV sites (no daily quota use)."""
+    from .solcast_hobbyist import async_list_rooftop_sites, match_rooftop_site_bindings
+
     if not solcast.api_key_configured():
         return {"test_ok": False, "error": "Solcast API key is not configured"}
 
-    label, lat, lon = resolve_unmetered_location(unmetered_name or DEFAULT_UNMETERED_TEST_LOCATION)
-    client = SolcastApiClient(hass, api_key=solcast.api_key or "")
     try:
-        live = await client.live_radiation_and_weather(
-            latitude=lat,
-            longitude=lon,
-            period=solcast.period,
-        )
+        sites = await async_list_rooftop_sites(hass, solcast)
     except SolcastApiError as err:
         solcast.last_error = str(err)
         return {
             "test_ok": False,
             "error": str(err),
-            "test_location": label,
-            "test_unmetered": True,
+            "test_hobbyist": True,
             "quota_charged": False,
         }
 
-    overview = parse_live_overview(live)
+    if not sites:
+        solcast.last_error = "No Home PV systems on this Solcast account"
+        return {
+            "test_ok": False,
+            "error": solcast.last_error,
+            "test_hobbyist": True,
+            "quota_charged": False,
+        }
+
+    names = [str(s.get("name") or s.get("resource_id") or "site") for s in sites]
+    match_note = None
+    if solcast.coordinates_configured() and plant is not None:
+        coords = resolve_coordinates(hass, solcast)
+        requests = build_rooftop_pv_requests(plant.pv_config)
+        if coords and requests:
+            bindings, _meta = match_rooftop_site_bindings(
+                sites, coords[0], coords[1], requests
+            )
+            if bindings:
+                match_note = f"Matched {len(bindings)} PV group(s) to toolkit site(s)"
+            else:
+                match_note = "Sites found but none match saved coordinates / tilt / azimuth"
+
     solcast.last_error = None
     return {
         "test_ok": True,
-        "test_location": label,
-        "test_unmetered": True,
+        "test_hobbyist": True,
         "quota_charged": False,
-        "test_coordinates": {"latitude": lat, "longitude": lon},
-        "live_summary": (
-            {
-                "condition_label": overview.get("condition_label"),
-                "temperature_display": overview.get("temperature_display"),
-                "icon_key": overview.get("icon_key"),
-            }
-            if overview
-            else None
-        ),
+        "test_site_count": len(sites),
+        "test_site_names": names[:5],
+        "test_match_note": match_note,
+        "live_summary": {
+            "condition_label": f"{len(sites)} Home PV site(s) on account",
+            "site_names": ", ".join(names[:3]),
+            "match_note": match_note,
+        },
     }
 

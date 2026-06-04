@@ -319,6 +319,8 @@ class SolcastConfig:
     api_used_date: str | None = None
     last_fetch_at: str | None = None
     last_error: str | None = None
+    rooftop_site_bindings: dict[str, str] = field(default_factory=dict)
+    rooftop_sites_meta: list[dict[str, Any]] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> SolcastConfig:
@@ -341,6 +343,14 @@ class SolcastConfig:
         install_date = parse_solcast_installation_date(
             data.get("installation_date", base.get("installation_date"))
         )
+        raw_bindings = data.get("rooftop_site_bindings", base.get("rooftop_site_bindings", {}))
+        bindings = (
+            {str(k): str(v) for k, v in raw_bindings.items() if v}
+            if isinstance(raw_bindings, dict)
+            else {}
+        )
+        raw_meta = data.get("rooftop_sites_meta", base.get("rooftop_sites_meta", []))
+        sites_meta = [m for m in raw_meta if isinstance(m, dict)] if isinstance(raw_meta, list) else []
         return cls(
             enabled=bool(data.get("enabled", base.get("enabled", False))),
             api_key=str(data["api_key"]) if data.get("api_key") else None,
@@ -355,6 +365,8 @@ class SolcastConfig:
             api_used_date=data.get("api_used_date"),
             last_fetch_at=data.get("last_fetch_at"),
             last_error=data.get("last_error"),
+            rooftop_site_bindings=bindings,
+            rooftop_sites_meta=sites_meta,
         )
 
     def to_dict(self, *, include_api_key: bool = True) -> dict[str, Any]:
@@ -371,13 +383,19 @@ class SolcastConfig:
             "api_used_date": self.api_used_date,
             "last_fetch_at": self.last_fetch_at,
             "last_error": self.last_error,
+            "rooftop_site_bindings": dict(self.rooftop_site_bindings),
+            "rooftop_sites_meta": list(self.rooftop_sites_meta),
         }
         if include_api_key:
             out["api_key"] = self.api_key
         else:
             out["api_key_set"] = bool(self.api_key)
         out["coordinates_configured"] = self.coordinates_configured()
+        out["hobbyist_sites_resolved"] = self.hobbyist_sites_resolved()
         return out
+
+    def hobbyist_sites_resolved(self) -> bool:
+        return bool(self.rooftop_site_bindings)
 
     def api_key_configured(self) -> bool:
         return bool(self.api_key and str(self.api_key).strip())
