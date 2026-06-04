@@ -40,18 +40,18 @@ from flow_scene_place import (
     render_aio_layer,
     render_pv_layer,
 )
-from key_flow_home_sky import build_panel_scene, load_home_layer, remove_black_matte
+from key_flow_home_sky import build_panel_scene, remove_black_matte
 
 ROOT = Path(__file__).resolve().parents[1]
 WWW = ROOT / "custom_components" / "foxess_plant" / "www"
 OUT_DIR = Path(__file__).resolve().parent / "flow_scene_preview"
 
-OVERLAY_THEMES = ("day_light", "night_dark")
-BG_THEMES = ("day_light", "day_dark", "night_light", "night_dark")
+OVERLAY_THEMES = ("day_dark", "night_dark")
+BG_THEMES = ("day_dark", "night_dark")
 
 
 def overlay_theme_for_bg(bg_theme: str) -> str:
-    return "day_light" if bg_theme.startswith("day_") else "night_dark"
+    return "night_dark" if bg_theme == "night_dark" else "day_dark"
 
 
 def is_webp(path: Path) -> bool:
@@ -85,7 +85,7 @@ def load_baked_layer(kind: str, theme: str) -> Image.Image:
 
 
 def composite_panel_scene(bg_theme: str, pv: Image.Image, aio: Image.Image) -> Image.Image:
-    return build_panel_scene(bg_theme, load_home_layer(bg_theme), pv, aio)
+    return build_panel_scene(bg_theme, pv, aio)
 
 
 def write_baked_pv(theme: str, layer: Image.Image) -> Path:

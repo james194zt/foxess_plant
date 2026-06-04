@@ -70,7 +70,7 @@ def bake_aio(theme: str, placement: AioPlacement | None = None) -> None:
 
 
 def main() -> None:
-    for theme in ("day_light", "night_dark"):
+    for theme in ("day_dark", "night_dark"):
         bake_pv(theme)
         bake_aio(theme)
 

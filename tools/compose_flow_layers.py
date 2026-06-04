@@ -30,7 +30,7 @@ GRID = (228, 788)  # grid badge anchor (left)
 GROUND_Y = 848  # visible pavement below house base
 # Roof line on flow_home art (1024×1017) — solar paths stop here, not above the ridge
 SOLAR_LABEL_Y = 92
-SOLAR_ROOF_Y = {626: 354, 388: 406}  # just under ridge at each solar spoke x
+SOLAR_ROOF_Y = {626: 354, SOLAR_AIO_X: SOLAR_AIO_ROOF_Y}
 
 
 def box_pixels(box: dict) -> tuple[int, int, int, int]:
