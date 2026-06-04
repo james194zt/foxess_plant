@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.2
+ * @version 0.9.10
  */
 
 const NAV = [
@@ -34,7 +34,14 @@ const DEFAULT_PV_STRING = {
 
 const DEFAULT_PV_CONFIG = {
   pv1: { ...DEFAULT_PV_STRING },
-  pv2: { enabled: false, panel_count: 1, watts_per_panel: 450, efficiency_factor: 100 },
+  pv2: {
+    enabled: false,
+    panel_count: 1,
+    watts_per_panel: 450,
+    efficiency_factor: 100,
+    tilt: 25,
+    azimuth: 180,
+  },
 };
 
 const PV_EFFICIENCY_FACTOR_URL = "https://kb.solcast.com.au/what-is-the-efficiency-factor";
@@ -448,6 +455,28 @@ function normalizeSolcastCoordinateInput(raw) {
   return Math.round(v * factor) / factor;
 }
 
+function normalizeSolcastInstallationDateInput(raw) {
+  const v = String(raw ?? "").trim();
+  if (!v) return null;
+  const iso = v.length >= 10 ? v.slice(0, 10) : v;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
+  const parts = iso.split("-").map((x) => parseInt(x, 10));
+  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return null;
+  const probe = new Date(parts[0], parts[1] - 1, parts[2]);
+  if (
+    probe.getFullYear() !== parts[0] ||
+    probe.getMonth() !== parts[1] - 1 ||
+    probe.getDate() !== parts[2]
+  ) {
+    return null;
+  }
+  return iso;
+}
+
+function solcastInstallationDateMax() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function validateSolcastDraft(draft) {
   if (!draft?.enabled) return null;
   const lat = normalizeSolcastCoordinateInput(draft.latitude);
@@ -457,6 +486,16 @@ function validateSolcastDraft(draft) {
   }
   if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
     return "Latitude must be between -90 and 90; longitude between -180 and 180.";
+  }
+  const installRaw = String(draft.installation_date ?? "").trim();
+  if (installRaw) {
+    const install = normalizeSolcastInstallationDateInput(installRaw);
+    if (!install) {
+      return "Installation date must be YYYY-MM-DD (match your Solcast Home PV system listing).";
+    }
+    if (install > solcastInstallationDateMax()) {
+      return "Installation date cannot be in the future.";
+    }
   }
   return null;
 }
@@ -2941,6 +2980,9 @@ const STYLES = `
 .pv-range-row input[type="range"] { flex: 1; min-width: 0; accent-color: var(--fp-accent); }
 .pv-range-value { min-width: 56px; font-size: 14px; font-variant-numeric: tabular-nums; text-align: right; color: var(--primary-text-color); }
 .pv-string-card.pv-string-disabled .pv-config-fields { opacity: 0.55; pointer-events: none; }
+.pv-geometry-block { margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(127,127,127,0.2); }
+.pv-geometry-block:first-of-type { margin-top: 0; padding-top: 0; border-top: none; }
+.pv-geometry-label { margin: 0 0 8px; font-size: 13px; color: var(--secondary-text-color); }
 .field input[type="number"].pv-eff-input { width: 100%; max-width: 120px; box-sizing: border-box; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(255,255,255,0.12)); background: var(--card-background-color, #1c1c1e); color: var(--primary-text-color); }
 .triple-soc { padding: 8px 4px 4px; user-select: none; touch-action: none; }
 .triple-soc-head { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
@@ -3569,12 +3611,14 @@ Reloading panel registration…
       fetch_pv_forecast: sc.fetch_pv_forecast !== false,
       latitude: sc.latitude ?? sc.coordinates?.latitude ?? "",
       longitude: sc.longitude ?? sc.coordinates?.longitude ?? "",
+      installation_date: sc.installation_date ?? "",
       period: sc.period ?? "PT30M",
     };
   }
 
   _enterSolcastSettings() {
     this._initSolcastDraft();
+    this._initPvDraft();
   }
 
   _solcastSettingsSubtitle() {
@@ -3630,6 +3674,7 @@ Reloading panel registration…
         period: draft.period || "PT30M",
         latitude: lat,
         longitude: lon,
+        installation_date: normalizeSolcastInstallationDateInput(draft.installation_date),
       };
       const key = String(draft.api_key || "").trim();
       if (key) payload.api_key = key;
@@ -3639,6 +3684,15 @@ Reloading panel registration…
         solcast: payload,
       });
       if (state) this._plantState = state;
+      if (this._pvDraft && draft.fetch_pv_forecast) {
+        const pvState = await this._hass.connection.sendMessagePromise({
+          type: "foxess_plant/update_pv_config",
+          plant_id: plant.entry_id,
+          pv_config: normalizePvConfig(this._pvDraft),
+        });
+        if (pvState) this._plantState = pvState;
+        this._initPvDraft();
+      }
       this._initSolcastDraft();
       this._showToast("Solcast settings saved");
     } catch (err) {
@@ -4104,6 +4158,10 @@ Reloading panel registration…
       }
       if (field === "latitude" || field === "longitude") {
         this._solcastDraft[field] = el.value;
+        return;
+      }
+      if (field === "installation_date") {
+        this._solcastDraft.installation_date = el.value;
         return;
       }
       return;
@@ -5624,6 +5682,33 @@ ${this._renderPeriodCard(1, draft.charge_periods[1], "storm-period", "Storm peri
 </div>`;
   }
 
+  _renderPvTiltAzimuthFields(which, { allowWhenDisabled = false } = {}) {
+    if (!this._pvDraft) this._initPvDraft();
+    const cfg = this._pvDraft[which];
+    const stringLabel = which === "pv2" ? "PV2" : "PV1";
+    const disabled = this._busy || (!allowWhenDisabled && !cfg.enabled);
+    const offHint = !cfg.enabled && !allowWhenDisabled ? " (string off — enable under PV Configuration)" : "";
+    return `<div class="pv-geometry-block" data-pv-string="${esc(which)}">
+<p class="pv-geometry-label"><strong>${esc(stringLabel)}</strong>${esc(offHint)}</p>
+<div class="field">
+<label>Tilt (°)</label>
+<p class="field-hint">Panel angle from horizontal (default 25° if unset)</p>
+<div class="pv-range-row">
+<input type="range" min="0" max="90" step="1" data-field="pv:${which}:tilt" value="${esc(String(cfg.tilt))}" ${disabled ? "disabled" : ""}>
+<span class="pv-range-value">${esc(String(cfg.tilt))}°</span>
+</div>
+</div>
+<div class="field">
+<label>Azimuth (°)</label>
+<p class="field-hint">0° = north, 90° = east, 180° = south (default 180° if unset)</p>
+<div class="pv-range-row">
+<input type="range" min="0" max="359" step="1" data-field="pv:${which}:azimuth" value="${esc(String(cfg.azimuth))}" ${disabled ? "disabled" : ""}>
+<span class="pv-range-value">${esc(String(cfg.azimuth))}°</span>
+</div>
+</div>
+</div>`;
+  }
+
   _renderPvStringBlock(which) {
     if (!this._pvDraft) this._initPvDraft();
     const cfg = this._pvDraft[which];
@@ -5662,22 +5747,7 @@ ${this._renderPeriodCard(1, draft.charge_periods[1], "storm-period", "Storm peri
 <p class="field-hint"><a class="field-link" href="${esc(PV_EFFICIENCY_FACTOR_URL)}" target="_blank" rel="noopener noreferrer">What is the efficiency factor?</a></p>
 <input type="number" class="pv-eff-input" min="1" max="100" step="1" data-field="pv:${which}:efficiency_factor" value="${esc(String(cfg.efficiency_factor))}" ${disabled ? "disabled" : ""} aria-label="Efficiency factor percent"> <span style="font-size:14px">%</span>
 </div>
-<div class="field">
-<label>Tilt (°)</label>
-<p class="field-hint">Panel angle from horizontal — sent to Solcast rooftop PV API</p>
-<div class="pv-range-row">
-<input type="range" min="0" max="90" step="1" data-field="pv:${which}:tilt" value="${esc(String(cfg.tilt))}" ${disabled ? "disabled" : ""}>
-<span class="pv-range-value">${esc(String(cfg.tilt))}°</span>
-</div>
-</div>
-<div class="field">
-<label>Azimuth (°)</label>
-<p class="field-hint">0° = north, 90° = east, 180° = south (typical in AU)</p>
-<div class="pv-range-row">
-<input type="range" min="0" max="359" step="1" data-field="pv:${which}:azimuth" value="${esc(String(cfg.azimuth))}" ${disabled ? "disabled" : ""}>
-<span class="pv-range-value">${esc(String(cfg.azimuth))}°</span>
-</div>
-</div>
+${this._renderPvTiltAzimuthFields(which)}
 <p class="field-hint" style="margin-top:4px">Nameplate ${esc(nameplateKw)} kW DC · Effective ${esc(effectiveKw)} kW (after efficiency)</p>
 </div>
 </div>`;
@@ -5711,6 +5781,10 @@ ${this._renderPvStringBlock("pv2")}
       live.coordinates?.latitude != null && live.coordinates?.longitude != null
         ? `${Number(live.coordinates.latitude).toFixed(SOLCAST_COORD_DECIMALS)}, ${Number(live.coordinates.longitude).toFixed(SOLCAST_COORD_DECIMALS)}`
         : "Not set";
+    const installDisplay = live.installation_date
+      ? esc(String(live.installation_date))
+      : "Not set";
+    const installMax = solcastInstallationDateMax();
     const lastFetch = live.last_fetch_at ? esc(String(live.last_fetch_at)) : "—";
     const lastErr = live.last_error ? esc(String(live.last_error)) : "None";
     const pvReqs = live.pv_requests ?? [];
@@ -5758,9 +5832,15 @@ ${this._renderPvStringBlock("pv2")}
 <option value="all_day" ${draft.auto_update === "all_day" ? "selected" : ""}>Automatic update over 24 hours</option>
 </select></div>
 ${scheduleHint}
-<p class="field-hint">Each refresh uses <strong>1 request per unique tilt/azimuth group</strong> (see PV Configuration). In daylight mode, your ${esc(String(draft.api_limit))} daily calls are spread from <strong>sunrise</strong> until <strong>1 hour before sunset</strong> (from Home Assistant <code>sun.sun</code>).</p>
+<p class="field-hint">Each refresh uses <strong>1 request per unique tilt/azimuth group</strong>. In daylight mode, your ${esc(String(draft.api_limit))} daily calls are spread from <strong>sunrise</strong> until <strong>1 hour before sunset</strong> (from Home Assistant <code>sun.sun</code>).</p>
 <div class="toggle-row" style="margin-top:12px"><span><strong>Fetch PV forecast</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Calls Solcast <code>rooftop_pv_power</code> using PV1/PV2 capacity, tilt, azimuth, and efficiency</span></span>
 <input type="checkbox" data-field="solcast:fetch_pv_forecast" ${draft.fetch_pv_forecast ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+</div>
+<div class="card">
+<p class="card-title">Rooftop tilt &amp; azimuth</p>
+<p class="field-hint" style="margin:0">Used for each enabled PV string on the Solcast API. Panel count, wattage, and efficiency are under <strong>Settings → PV Configuration</strong>. Saved together when you press <strong>Save</strong> below.</p>
+${this._renderPvTiltAzimuthFields("pv1", { allowWhenDisabled: true })}
+${this._renderPvTiltAzimuthFields("pv2", { allowWhenDisabled: true })}
 </div>
 <div class="card">
 <p class="card-title">Solcast site location</p>
@@ -5770,6 +5850,10 @@ ${scheduleHint}
 <div class="field"><label>Longitude <span class="field-required">*</span></label>
 <input type="number" step="0.0001" inputmode="decimal" data-field="solcast:longitude" value="${esc(String(draft.longitude))}" placeholder="e.g. 151.2153" ${this._busy ? "disabled" : ""} required></div>
 <p class="field-hint">Saved as ${SOLCAST_COORD_DECIMALS} decimal places to match typical Solcast listings. Saved site: <strong>${esc(coordDisplay)}</strong>${coordConfigured ? "" : " — required when Solcast is enabled"}</p>
+<div class="field"><label>Installation date</label>
+<p class="field-hint">Same field as Solcast <strong>Add Home PV System</strong> (used for age derating on their site). Optional here — not sent to the rooftop API yet. Use your best estimate if unsure.</p>
+<input type="date" data-field="solcast:installation_date" value="${esc(String(draft.installation_date || ""))}" max="${esc(installMax)}" ${this._busy ? "disabled" : ""}></div>
+<p class="field-hint">Saved: <strong>${installDisplay}</strong></p>
 <div class="field"><label>Data period</label>
 <p class="field-hint">PT30M = 30-minute resolution (recommended for hobbyist quota).</p>
 <input type="text" data-field="solcast:period" value="${esc(String(draft.period))}" readonly></div>
@@ -5782,6 +5866,7 @@ ${scheduleHint}
 <div class="entity-row"><span class="entity-name">Last fetch</span><span class="entity-value">${lastFetch}</span></div>
 <div class="entity-row"><span class="entity-name">Last error</span><span class="entity-value">${lastErr}</span></div>
 <div class="entity-row"><span class="entity-name">PV forecast</span><span class="entity-value">${esc(pvStatus)}</span></div>
+<div class="entity-row"><span class="entity-name">Installation date</span><span class="entity-value">${installDisplay}</span></div>
 </div>
 <p class="field-hint" style="margin-top:8px"><strong>API groups</strong> (from PV config):<br>${pvReqLines}</p>
 <p class="field-hint">Diagnostic sensors expose <code>detailed_forecast</code> for automations — charts use plant state directly.</p>

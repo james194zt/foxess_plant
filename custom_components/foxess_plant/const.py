@@ -286,6 +286,7 @@ DEFAULT_SOLCAST = {
     "fetch_pv_forecast": True,
     "latitude": None,
     "longitude": None,
+    "installation_date": None,
     "period": "PT30M",
     "api_used_today": 0,
     "api_used_date": None,

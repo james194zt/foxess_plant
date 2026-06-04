@@ -213,6 +213,23 @@ def parse_solcast_coordinates(
     return lat, lon
 
 
+def parse_solcast_installation_date(value: Any) -> str | None:
+    """Normalize Solcast toolkit installation date to YYYY-MM-DD (not sent to rooftop API yet)."""
+    if value is None:
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    parsed = dt_util.parse_date(raw[:10] if len(raw) >= 10 else raw)
+    if parsed is None:
+        parsed_dt = dt_util.parse_datetime(raw)
+        if parsed_dt is not None:
+            parsed = dt_util.as_local(parsed_dt).date()
+    if parsed is None:
+        return None
+    return parsed.isoformat()
+
+
 def solcast_coordinates_configured(solcast: Any) -> bool:
     lat = getattr(solcast, "latitude", None)
     lon = getattr(solcast, "longitude", None)

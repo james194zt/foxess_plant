@@ -802,11 +802,22 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_save_solcast(self, *, solcast: dict[str, Any], fetch_now: bool = True) -> None:
         """Persist Solcast API settings from the panel."""
-        from .solcast_weather import parse_solcast_coordinates
+        from .solcast_weather import parse_solcast_coordinates, parse_solcast_installation_date
 
         fetch_now = bool(solcast.pop("fetch_now", fetch_now))
         current = self.plant.solcast.to_dict()
         merged = {**current, **solcast}
+        if "installation_date" in solcast:
+            raw_install = solcast.get("installation_date")
+            if raw_install is None or str(raw_install).strip() == "":
+                merged["installation_date"] = None
+            else:
+                install_date = parse_solcast_installation_date(raw_install)
+                if install_date is None:
+                    raise HomeAssistantError(
+                        "Installation date must be YYYY-MM-DD (match your Solcast site listing)."
+                    )
+                merged["installation_date"] = install_date
         if merged.get("enabled"):
             coords = parse_solcast_coordinates(merged.get("latitude"), merged.get("longitude"))
             if coords is None:

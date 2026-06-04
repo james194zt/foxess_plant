@@ -312,6 +312,7 @@ class SolcastConfig:
     auto_update: str = "daylight"
     latitude: float | None = None
     longitude: float | None = None
+    installation_date: str | None = None
     period: str = "PT30M"
     fetch_pv_forecast: bool = True
     api_used_today: int = 0
@@ -333,10 +334,13 @@ class SolcastConfig:
         auto = str(data.get("auto_update", base.get("auto_update", SOLCAST_AUTO_UPDATE_DAYLIGHT)))
         if auto not in ("daylight", "all_day"):
             auto = SOLCAST_AUTO_UPDATE_DAYLIGHT
-        from .solcast_weather import parse_solcast_coordinates
+        from .solcast_weather import parse_solcast_coordinates, parse_solcast_installation_date
 
         coords = parse_solcast_coordinates(data.get("latitude"), data.get("longitude"))
         lat, lon = coords if coords else (None, None)
+        install_date = parse_solcast_installation_date(
+            data.get("installation_date", base.get("installation_date"))
+        )
         return cls(
             enabled=bool(data.get("enabled", base.get("enabled", False))),
             api_key=str(data["api_key"]) if data.get("api_key") else None,
@@ -344,6 +348,7 @@ class SolcastConfig:
             auto_update=auto,
             latitude=lat,
             longitude=lon,
+            installation_date=install_date,
             period=str(data.get("period", base.get("period", "PT30M"))),
             fetch_pv_forecast=bool(data.get("fetch_pv_forecast", base.get("fetch_pv_forecast", True))),
             api_used_today=int(data.get("api_used_today", 0) or 0),
@@ -359,6 +364,7 @@ class SolcastConfig:
             "auto_update": self.auto_update,
             "latitude": self.latitude,
             "longitude": self.longitude,
+            "installation_date": self.installation_date,
             "period": self.period,
             "fetch_pv_forecast": self.fetch_pv_forecast,
             "api_used_today": self.api_used_today,

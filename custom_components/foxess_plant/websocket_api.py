@@ -64,6 +64,7 @@ SOLCAST_SCHEMA = vol.Schema(
         vol.Required("auto_update"): vol.In(["daylight", "all_day"]),
         vol.Optional("latitude"): vol.Any(vol.Coerce(float), None),
         vol.Optional("longitude"): vol.Any(vol.Coerce(float), None),
+        vol.Optional("installation_date"): vol.Any(str, None),
         vol.Optional("period", default="PT30M"): str,
         vol.Optional("fetch_pv_forecast", default=True): cv.boolean,
         vol.Optional("fetch_now", default=True): cv.boolean,

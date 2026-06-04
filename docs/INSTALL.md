@@ -47,8 +47,8 @@ See [STORMSAFE_GOOGLE_WEATHER.md](STORMSAFE_GOOGLE_WEATHER.md) for technical det
 Fox Plant uses **Google Weather** for overview conditions and **StormSafe**. Solcast is used only for **rooftop PV power forecasts** (chart overlay and diagnostic sensors), so your 10/day hobbyist quota is not spent on weather.
 
 1. Register a free Solcast **Home PV System** account (10 API requests/day).
-2. Fox Plant → **Settings** → **Solcast** → enable, paste API key, enter **latitude and longitude** copied from one of your **two registered sites** on the [Solcast Locations](https://toolkit.solcast.com.au/account/locations) page (not Home Assistant home coordinates), turn on **Fetch PV forecast**, save.
-3. **Settings** → **PV Configuration** — panel count, wattage, **efficiency** (loss factor), **tilt**, and **azimuth** for each enabled PV string (one API call per unique tilt/azimuth group).
+2. Fox Plant → **Settings** → **Solcast** → enable, paste API key, enter **latitude and longitude** copied from one of your **two registered sites** on the [Solcast Locations](https://toolkit.solcast.com.au/account/locations) page (not Home Assistant home coordinates), **installation date** (optional; stored to match your Solcast site listing, not sent to the API yet), turn on **Fetch PV forecast**, save.
+3. **Settings** → **PV Configuration** — panel count, wattage, **efficiency** (loss factor), **tilt**, and **azimuth** for each enabled PV string (one API call per unique tilt/azimuth group). Tilt/azimuth are also editable under **Solcast**.
 4. Power charts use the native PV forecast automatically; you can remove a third-party Solcast HA integration and clear **Charts** → forecast entity if you no longer need a fallback.
 5. Diagnostic sensors (e.g. *Solcast PV forecast remaining today*) expose `detailed_forecast` in attributes for automations.
 
