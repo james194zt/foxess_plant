@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.34
+ * @version 0.9.35
  */
 
 const NAV = [
@@ -64,7 +64,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.34";
+const PANEL_VERSION = "0.9.35";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -2740,6 +2740,15 @@ function clampSocDraft(d) {
   return d;
 }
 
+function tripleSocBatteryFillMarkup(liveSoc) {
+  const live = Math.max(0, Math.min(100, Math.round(liveSoc ?? 0)));
+  if (live >= 99) {
+    return `<div class="triple-soc-battery-fill is-full"></div>`;
+  }
+  const h = Math.max(4, live);
+  return `<div class="triple-soc-battery-fill" style="height:max(4px,calc((100% - 8px) * ${h} / 100))"></div>`;
+}
+
 /** Apply drag to the active thumb first, then push siblings (Fox-app style). */
 function applySocDrag(d, thumb, pct) {
   const p = Math.max(SOC_MIN_PCT, Math.min(100, Math.round(pct)));
@@ -3488,9 +3497,15 @@ const STYLES = `
   background: var(--secondary-background-color);
 }
 .triple-soc-battery-fill {
-  position: absolute; left: 4px; right: 4px; bottom: 4px; border-radius: 6px;
+  position: absolute; left: 4px; right: 4px; bottom: 4px; border-radius: 0 0 6px 6px;
   background: linear-gradient(180deg, #66bb6a 0%, #2e7d32 100%);
-  transition: height 0.35s ease;
+  transition: height 0.35s ease, top 0.35s ease, border-radius 0.2s ease;
+  min-height: 4px;
+}
+.triple-soc-battery-fill.is-full {
+  top: 4px;
+  height: auto;
+  border-radius: 6px;
 }
 .triple-soc-battery-cap {
   position: absolute; top: -8px; left: 50%; transform: translateX(-50%);
@@ -4910,7 +4925,7 @@ Reloading panel registration…
     const mid = clamped.min_soc_on_grid;
     const max = clamped.max_soc;
     const live = Math.max(0, Math.min(100, Math.round(liveSoc ?? 0)));
-    const fillH = Math.max(4, live);
+    const fillMarkup = tripleSocBatteryFillMarkup(live);
 
     const thumbsHtml = SOC_THUMBS.map(
       (t) =>
@@ -4926,7 +4941,7 @@ Reloading panel registration…
 <div class="triple-soc-head">
 <div class="triple-soc-battery" aria-hidden="true">
 <div class="triple-soc-battery-cap"></div>
-<div class="triple-soc-battery-fill" style="height:${fillH}%"></div>
+${fillMarkup}
 <div class="triple-soc-battery-pct">${live}%</div>
 </div>
 <div class="triple-soc-summary">
