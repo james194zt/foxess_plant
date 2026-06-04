@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.12
+ * @version 0.9.13
  */
 
 const NAV = [
@@ -500,10 +500,15 @@ function validateSolcastDraft(draft) {
   return null;
 }
 
+function solcastEnabledFromLive(sc) {
+  const v = sc?.enabled;
+  return v === true || v === 1 || v === "1" || v === "true";
+}
+
 function nativeSolcastPvForecastEnabled(plantState) {
   const sc = plantState?.solcast;
   return Boolean(
-    sc?.enabled &&
+    solcastEnabledFromLive(sc) &&
     sc?.api_key_set &&
     sc?.coordinates_configured &&
     sc?.fetch_pv_forecast !== false
@@ -3436,6 +3441,17 @@ Reloading panel registration…
       if (this._settingsView !== "quick") this._socDraft = null;
       if (this._settingsView !== "workmode") this._workModeDraft = null;
       if (this._settingsView !== "storm") this._stormDraft = null;
+      if (
+        this._settingsView === "solcast" &&
+        this._solcastDraft &&
+        !this._settingsFieldFocused &&
+        !this._rangeDrag
+      ) {
+        const sc = this._plantState?.solcast ?? {};
+        this._solcastDraft.enabled = solcastEnabledFromLive(sc);
+        this._solcastDraft.fetch_pv_forecast = sc.fetch_pv_forecast !== false;
+        this._solcastDraft.api_key_set = Boolean(sc.api_key_set);
+      }
       this._panelStale = this._panelIsStale();
       if (!this._socDrag) this._scheduleRender();
       void this._syncPanelIfStale();
@@ -3688,7 +3704,7 @@ Reloading panel registration…
   _initSolcastDraft() {
     const sc = this._plantState?.solcast ?? {};
     this._solcastDraft = {
-      enabled: Boolean(sc.enabled),
+      enabled: solcastEnabledFromLive(sc),
       api_key: "",
       api_key_set: Boolean(sc.api_key_set),
       api_limit: sc.api_limit ?? 10,
@@ -3702,13 +3718,23 @@ Reloading panel registration…
   }
 
   _enterSolcastSettings() {
+    this._solcastDraft = null;
     this._initSolcastDraft();
     this._initPvDraft();
   }
 
+  _syncSolcastDraftFromDom() {
+    if (!this._solcastDraft) return;
+    const root = this._root;
+    const enabledEl = root.querySelector('[data-field="solcast:enabled"]');
+    if (enabledEl) this._solcastDraft.enabled = enabledEl.checked;
+    const fetchEl = root.querySelector('[data-field="solcast:fetch_pv_forecast"]');
+    if (fetchEl) this._solcastDraft.fetch_pv_forecast = fetchEl.checked;
+  }
+
   _solcastSettingsSubtitle() {
     const sc = this._plantState?.solcast;
-    if (!sc?.enabled) return "Off — PV charts use manual forecast entity";
+    if (!solcastEnabledFromLive(sc)) return "Off — PV charts use manual forecast entity";
     if (!sc.api_key_set) return "API key required";
     if (!sc.coordinates_configured) return "Solcast site latitude/longitude required";
     const rem = sc.api_remaining ?? "—";
@@ -3740,6 +3766,7 @@ Reloading panel registration…
   async _saveSolcastSettings() {
     const plant = this._getPlant();
     if (!plant || !this._solcastDraft) return;
+    this._syncSolcastDraftFromDom();
     this._busy = true;
     this._render();
     try {
@@ -3791,6 +3818,7 @@ Reloading panel registration…
   async _testSolcastConnection() {
     const plant = this._getPlant();
     if (!plant || !this._solcastDraft) return;
+    this._syncSolcastDraftFromDom();
     this._busy = true;
     this._render();
     try {
@@ -3948,6 +3976,7 @@ Reloading panel registration…
     if (action === "nav") {
       this._view = btn.dataset.view;
       this._settingsView = "main";
+      this._solcastDraft = null;
       this._deviceSub = "main";
       if (this._view === "energy") this._loadEnergyCharts();
       if (this._view === "overview") this._loadStatisticsChart();
@@ -3975,6 +4004,7 @@ Reloading panel registration…
     }
     if (action === "settings-sub") {
       this._view = "settings";
+      if (btn.dataset.sub !== "solcast") this._solcastDraft = null;
       this._settingsView = btn.dataset.sub;
       if (btn.dataset.sub === "schedules") this._initChargeDraft();
       if (btn.dataset.sub === "quick") this._initSocDraft();
@@ -3988,6 +4018,7 @@ Reloading panel registration…
     }
     if (action === "settings-tab") {
       this._view = "settings";
+      if (btn.dataset.sub !== "solcast") this._solcastDraft = null;
       this._settingsView = btn.dataset.sub;
       if (btn.dataset.sub === "schedules") this._initChargeDraft();
       if (btn.dataset.sub === "quick") this._initSocDraft();
@@ -4130,6 +4161,18 @@ Reloading panel registration…
     if (this._busy) return;
     if (el?.dataset?.field) {
       const parts = el.dataset.field.split(":");
+      if (parts[0] === "solcast" && this._solcastDraft) {
+        if (parts[1] === "enabled") {
+          this._solcastDraft.enabled = el.checked;
+          this._scheduleRender();
+          return;
+        }
+        if (parts[1] === "fetch_pv_forecast") {
+          this._solcastDraft.fetch_pv_forecast = el.checked;
+          this._scheduleRender();
+          return;
+        }
+      }
       if (parts[0] === "pv" && ["tilt", "azimuth", "panel_count", "watts_per_panel"].includes(parts[2])) {
         this._rangeDrag = false;
         this._scheduleRender(true);
@@ -5891,9 +5934,10 @@ ${this._renderPvStringBlock("pv2")}
           )
           .join("<br>")
       : "Enable PV strings in PV Configuration to request rooftop forecasts.";
+    const solcastLiveOn = solcastEnabledFromLive(live) && live.fetch_pv_forecast !== false;
     const pvStatus = live.pv_forecast_available
       ? `${live.pv_forecast_periods ?? 0} forecast periods · ${live.pv_power_now_kw != null ? `${Number(live.pv_power_now_kw).toFixed(2)} kW now` : "power pending"}`
-      : draft.fetch_pv_forecast && draft.enabled
+      : solcastLiveOn
         ? "Awaiting PV forecast fetch"
         : "PV forecast off";
     const sched = live.poll_schedule;
