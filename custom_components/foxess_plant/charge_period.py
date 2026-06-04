@@ -15,11 +15,11 @@ from .models import ChargePeriodConfig
 _LOGGER = logging.getLogger(__name__)
 
 _EVO_CHARGE_PERIOD_HINT = (
+    "This error comes from the **FoxESS Modbus** integration (not Fox Plant). "
     "Modbus register 48010 is used for FoxESS **EVO** charge period 1. "
+    "Update **FoxESS Modbus** from github.com/james194zt/foxess_modbus_evo and restart HA. "
     "If your inverter is not an EVO, open **FoxESS Modbus** → configure → set the correct "
     "inverter model, then reload FoxESS Modbus and FoxESS Plant. "
-    "On EVO units, ensure you are running the **markybry/james194zt EVO fork** of FoxESS Modbus "
-    "(not the stock integration with 41xxx charge-period registers). "
     "Clear any charge schedules in the Fox app/cloud that may block local Modbus writes. "
     "You can test with Developer Tools → Actions → `foxess_modbus.update_all_charge_periods`."
 )
