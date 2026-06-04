@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.17
+ * @version 0.9.18
  */
 
 const NAV = [
@@ -19,7 +19,6 @@ const SETTINGS_NAV = [
   { id: "pv", label: "PV" },
   { id: "solcast", label: "Solcast" },
   { id: "storm", label: "StormSafe" },
-  { id: "charts", label: "Charts" },
   { id: "control", label: "Control" },
 ];
 
@@ -1542,45 +1541,6 @@ function buildStatisticsSeriesPoints(hass, entityId, spec, range, statsMap, hist
   }));
 }
 
-function findSolcastTodayEntity(hass, forecastEntityId) {
-  if (!hass?.states || !String(forecastEntityId || "").toLowerCase().includes("solcast")) return null;
-  const preferred = "sensor.solcast_pv_forecast_forecast_today";
-  if (hass.states[preferred]) return preferred;
-  const matches = Object.keys(hass.states).filter((eid) => {
-    const oid = eid.split(".")[1]?.toLowerCase() || "";
-    return oid.includes("solcast") && oid.includes("forecast") && oid.includes("today");
-  });
-  return matches.sort()[0] || null;
-}
-
-function solcastDetailedForecastAttribute(attrs) {
-  if (!attrs) return null;
-  if (Array.isArray(attrs.detailed_forecast) && attrs.detailed_forecast.length) {
-    return attrs.detailed_forecast;
-  }
-  if (Array.isArray(attrs.detailedForecast) && attrs.detailedForecast.length) {
-    return attrs.detailedForecast;
-  }
-  const siteKeys = Object.keys(attrs).filter((k) => k.startsWith("detailedForecast_"));
-  if (!siteKeys.length) return null;
-  if (siteKeys.length === 1 && Array.isArray(attrs[siteKeys[0]])) return attrs[siteKeys[0]];
-  const byStart = new Map();
-  for (const key of siteKeys) {
-    const rows = attrs[key];
-    if (!Array.isArray(rows)) continue;
-    for (const row of rows) {
-      const ps = row.period_start;
-      const v = Number(row.pv_estimate);
-      if (!ps || !Number.isFinite(v)) continue;
-      byStart.set(ps, (byStart.get(ps) || 0) + v);
-    }
-  }
-  if (!byStart.size) return null;
-  return Array.from(byStart.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([period_start, pv_estimate]) => ({ period_start, pv_estimate }));
-}
-
 function interpolatePointsToPeriod(points, periodMs, originMs, endMs) {
   if (!points.length) return [];
   const sorted = [...points].sort((a, b) => a.t - b.t);
@@ -1592,55 +1552,10 @@ function interpolatePointsToPeriod(points, periodMs, originMs, endMs) {
   return out;
 }
 
-/** Carry last reading into empty 5-minute buckets (sparse forecast sensors). */
-function forwardFillResamplePoints(points, periodMs, originMs, endMs) {
-  if (!points.length) return [];
-  const sorted = [...points].sort((a, b) => a.t - b.t);
-  const out = [];
-  let lastV = sorted[0].v;
-  for (let t = originMs; t <= endMs; t += periodMs) {
-    const bucketEnd = t + periodMs;
-    let sum = 0;
-    let count = 0;
-    for (const p of sorted) {
-      if (p.t >= t && p.t < bucketEnd) {
-        sum += p.v;
-        count++;
-      }
-    }
-    if (count > 0) lastV = sum / count;
-    else {
-      const mid = t + periodMs / 2;
-      for (let i = sorted.length - 1; i >= 0; i--) {
-        if (sorted[i].t <= mid) {
-          lastV = sorted[i].v;
-          break;
-        }
-      }
-    }
-    out.push({ t, v: lastV });
-  }
-  return out;
-}
-
-function buildForecastSeriesPoints(hass, forecastEntityId, range, hist, plantState) {
-  if (nativeSolcastPvForecastEnabled(plantState)) {
-    const native = nativeSolcastForecastPoints(plantState, range);
-    if (native.length) return native;
-  }
-  const todayId = findSolcastTodayEntity(hass, forecastEntityId);
-  if (todayId) {
-    const detailed = solcastDetailedForecastAttribute(hass.states[todayId]?.attributes);
-    const pts = detailedForecastToChartPoints(detailed, range);
-    if (pts.length) return pts;
-  }
-  const raw = historyToPoints(historyRowsForEntity(hist, forecastEntityId)).map((p) => ({
-    t: p.t,
-    v: entityValueToKw(hass, forecastEntityId, p.v),
-  }));
-  if (!raw.length) return [];
-  const chartEnd = forecastChartEndMs(range, raw);
-  return forwardFillResamplePoints(raw, STATISTICS_PERIOD_MS, range.tMin, chartEnd);
+/** PV forecast overlay from Fox Plant native Solcast state only (no third-party HA integration). */
+function buildForecastSeriesPoints(plantState, range) {
+  if (!nativeSolcastPvForecastEnabled(plantState)) return [];
+  return nativeSolcastForecastPoints(plantState, range);
 }
 
 async function fetchStatisticsChartSeries(hass, plant, plantState) {
@@ -1652,21 +1567,13 @@ async function fetchStatisticsChartSeries(hass, plant, plantState) {
     return { empty: "Map power entities in FoxESS Modbus, then reload FoxESS Plant." };
   }
   const useNativeForecast = nativeSolcastPvForecastEnabled(plantState);
-  const forecastId = useNativeForecast
-    ? null
-    : plantState?.panel_display?.forecast_entity_id || null;
   const entityIds = specs.map((s) => s.entity_id);
   const now = new Date();
   const start = startOfLocalDay(now);
   const range = getStatisticsDayRange(now);
   const [statsMap, hist] = await Promise.all([
     fetchStatisticsDuring(hass, entityIds, start, now),
-    fetchHistoryDuring(
-      hass,
-      forecastId ? [...entityIds, forecastId] : entityIds,
-      start,
-      now
-    ),
+    fetchHistoryDuring(hass, entityIds, start, now),
   ]);
   const series = specs.map((spec) => ({
     id: spec.key,
@@ -1680,8 +1587,8 @@ async function fetchStatisticsChartSeries(hass, plant, plantState) {
     lineWidth: spec.lineWidth,
     points: buildStatisticsSeriesPoints(hass, spec.entity_id, spec, range, statsMap, hist),
   }));
-  if (useNativeForecast || forecastId) {
-    const fPoints = buildForecastSeriesPoints(hass, forecastId, range, hist, plantState);
+  if (useNativeForecast) {
+    const fPoints = buildForecastSeriesPoints(plantState, range);
     if (fPoints.length) {
       series.push({
         id: "forecast",
@@ -2738,12 +2645,6 @@ const STYLES = `
   width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; display: inline-block;
 }
 .statistics-tooltip-row strong { font-weight: 600; white-space: nowrap; flex-shrink: 0; }
-.charts-entity-select {
-  width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 10px;
-  border: 1px solid var(--divider-color); background: var(--card-background-color);
-  color: inherit; font-family: inherit; font-size: 14px; margin-bottom: 10px;
-}
-.charts-entity-hint { font-size: 12px; color: var(--secondary-text-color); line-height: 1.45; margin: 0 0 12px; }
 .chart-grid { stroke: rgba(127,127,127,0.15); stroke-width: 1; }
 .chart-axis { fill: var(--secondary-text-color); font-size: 9px; font-family: inherit; }
 .chart-legend {
@@ -3309,10 +3210,8 @@ class FoxessPlantPanel extends HTMLElement {
     this._flowScenePlantId = undefined;
     this._flowSceneKeyPending = undefined;
     this._flowSceneKeyPendingN = 0;
-    this._chartsDraft = null;
     this._pvDraft = null;
     this._solcastDraft = null;
-    this._forecastCandidates = null;
     this._headerHasSubTabs = undefined;
     this._renderRaf = 0;
     this._onSocMove = this._onSocMove.bind(this);
@@ -3790,13 +3689,6 @@ Reloading panel registration…
     void this._loadTriggerCandidates();
   }
 
-  _initChartsDraft() {
-    const pd = this._plantState?.panel_display ?? {};
-    this._chartsDraft = {
-      forecast_entity_id: pd.forecast_entity_id ?? null,
-    };
-  }
-
   _initPvDraft() {
     this._pvDraft = normalizePvConfig(this._plantState?.pv_config);
   }
@@ -3838,34 +3730,12 @@ Reloading panel registration…
 
   _solcastSettingsSubtitle() {
     const sc = this._plantState?.solcast;
-    if (!solcastEnabledFromLive(sc)) return "Off — PV charts use manual forecast entity";
+    if (!solcastEnabledFromLive(sc)) return "Off — enable for native PV forecast on charts";
     if (!sc.api_key_set) return "API key required";
     if (!sc.coordinates_configured) return "Solcast site latitude/longitude required";
     if (!sc.hobbyist_sites_resolved) return "Linking to Solcast Home PV site(s)… save settings";
     const rem = sc.api_remaining ?? "—";
     return `PV forecast · ${sc.api_used_today ?? 0}/${sc.api_limit ?? 10} API calls today · ${rem} left`;
-  }
-
-  _enterChartsSettings() {
-    this._initChartsDraft();
-    void this._loadForecastCandidates();
-  }
-
-  async _loadForecastCandidates() {
-    if (!this._hass) return;
-    try {
-      const res = await this._hass.connection.sendMessagePromise({
-        type: "foxess_plant/forecast_entity_candidates",
-      });
-      this._forecastCandidates = res?.entities ?? [];
-      if (this._settingsView === "charts" && this._chartsDraft && !this._chartsDraft.forecast_entity_id) {
-        const suggested = this._forecastCandidates.find((e) => e.suggested);
-        if (suggested) this._chartsDraft.forecast_entity_id = suggested.entity_id;
-      }
-      if (this._settingsView === "charts") this._scheduleRender();
-    } catch {
-      this._forecastCandidates = [];
-    }
   }
 
   async _saveSolcastSettings() {
@@ -3995,33 +3865,6 @@ Reloading panel registration…
     }
   }
 
-  async _saveChartsSettings() {
-    const plant = this._getPlant();
-    if (!plant || !this._chartsDraft) return;
-    this._busy = true;
-    this._render();
-    try {
-      const state = await this._hass.connection.sendMessagePromise({
-        type: "foxess_plant/update_panel_display",
-        plant_id: plant.entry_id,
-        forecast_entity_id: this._chartsDraft.forecast_entity_id || null,
-      });
-      if (state) this._plantState = state;
-      this._statisticsChart = null;
-      this._statisticsChartPlantId = undefined;
-      this._energyChart = null;
-      this._energyChartPlantId = undefined;
-      await this._loadStatisticsChart();
-      if (this._view === "energy" && this._energyPeriod === "day") await this._loadEnergyCharts();
-      this._showToast("Chart settings saved");
-    } catch (err) {
-      this._showToast(err?.message || "Save failed", "err");
-    } finally {
-      this._busy = false;
-      this._render();
-    }
-  }
-
   async _loadTriggerCandidates() {
     if (!this._hass) return;
     try {
@@ -4119,7 +3962,6 @@ Reloading panel registration…
       if (btn.dataset.sub === "quick") this._initSocDraft();
       if (btn.dataset.sub === "workmode") this._initWorkModeDraft();
       if (btn.dataset.sub === "storm") this._enterStormSettings();
-      if (btn.dataset.sub === "charts") this._enterChartsSettings();
       if (btn.dataset.sub === "pv") this._enterPvSettings();
       if (btn.dataset.sub === "solcast") this._enterSolcastSettings();
       this._render();
@@ -4133,7 +3975,6 @@ Reloading panel registration…
       if (btn.dataset.sub === "quick") this._initSocDraft();
       if (btn.dataset.sub === "workmode") this._initWorkModeDraft();
       if (btn.dataset.sub === "storm") this._enterStormSettings();
-      if (btn.dataset.sub === "charts") this._enterChartsSettings();
       if (btn.dataset.sub === "pv") this._enterPvSettings();
       if (btn.dataset.sub === "solcast") this._enterSolcastSettings();
       this._render();
@@ -4149,10 +3990,6 @@ Reloading panel registration…
     }
     if (action === "test-solcast") {
       await this._testSolcastConnection();
-      return;
-    }
-    if (action === "save-charts-settings") {
-      await this._saveChartsSettings();
       return;
     }
     if (action === "pick-work-mode") {
@@ -4310,12 +4147,6 @@ Reloading panel registration…
 
   _handleInput(e) {
     const el = e.target;
-    if (el?.dataset?.action === "pick-forecast-entity") {
-      if (!this._chartsDraft) return;
-      this._chartsDraft.forecast_entity_id = el.value || null;
-      this._scheduleRender();
-      return;
-    }
     if (el?.dataset?.action === "pick-google-weather-entry") {
       if (!this._stormDraft) return;
       this._applyGoogleWeatherEntry(el.value || null);
@@ -5819,22 +5650,7 @@ ${renderListButton({ action: "settings-sub", sub: "workmode" }, "Work mode", Str
 ${renderListButton({ action: "settings-sub", sub: "pv" }, "PV Configuration", pvConfigSummary(this._plantState?.pv_config))}
 ${renderListButton({ action: "settings-sub", sub: "solcast" }, "Solcast", this._solcastSettingsSubtitle())}
 ${renderListButton({ action: "settings-sub", sub: "storm" }, "StormSafe", stormSub)}
-${renderListButton({ action: "settings-sub", sub: "charts" }, "Charts", this._forecastEntityLabel())}
 ${renderListButton({ action: "settings-sub", sub: "control" }, "Plant control", this._plantState?.control_active ? "Fox Plant manages periods" : "Released to manual")}`;
-  }
-
-  _forecastEntityLabel() {
-    if (nativeSolcastPvForecastEnabled(this._plantState)) {
-      const periods = this._plantState?.solcast?.pv_forecast_periods ?? 0;
-      return periods
-        ? `Native Solcast PV (${periods} periods)`
-        : "Native Solcast PV (awaiting fetch)";
-    }
-    const id = this._plantState?.panel_display?.forecast_entity_id;
-    if (!id) return "No forecast overlay";
-    const st = this._hass?.states?.[id];
-    const name = st?.attributes?.friendly_name || id.split(".")[1] || id;
-    return name;
   }
 
   _renderSettingsQuick() {
@@ -6004,7 +5820,7 @@ ${this._renderPvTiltAzimuthFields(which)}
     if (!this._pvDraft) this._initPvDraft();
     return `<header class="header"><h1>${esc(title)}</h1>${subtitle ? `<p>${esc(subtitle)}</p>` : ""}</header>
 <section class="card" style="margin-bottom:12px"><p class="card-title">PV Configuration</p>
-<p class="field-hint" style="margin:0">Panel count, wattage, efficiency, tilt, and azimuth drive the native Solcast rooftop PV forecast (replaces a separate Solcast HA integration for charts).</p>
+<p class="field-hint" style="margin:0">Panel count, wattage, efficiency, tilt, and azimuth drive the native Solcast rooftop PV forecast on Overview and Energy charts.</p>
 </section>
 ${this._renderPvStringBlock("pv1")}
 ${this._renderPvStringBlock("pv2")}
@@ -6133,51 +5949,6 @@ ${this._renderPvTiltAzimuthFields("pv2", { allowWhenDisabled: true })}
 </div>`;
   }
 
-  _renderSettingsCharts() {
-    if (!this._chartsDraft) this._initChartsDraft();
-    const nativeOn = nativeSolcastPvForecastEnabled(this._plantState);
-    if (nativeOn) {
-      const sc = this._plantState?.solcast ?? {};
-      const periods = sc.pv_forecast_periods ?? 0;
-      const remaining = sc.pv_energy_remaining_kwh;
-      const remainingTxt =
-        remaining != null ? `${Number(remaining).toFixed(1)} kWh remaining today` : "energy estimate pending";
-      return `<header class="header"><h1>Charts</h1><p>Statistics graph and Energy → Day overlay</p></header>
-<div class="card">
-<p class="card-title">PV forecast line</p>
-<p class="charts-entity-hint">Native <strong>Solcast rooftop PV</strong> is active — the dashed forecast on power charts comes from Fox Plant (not a separate Solcast integration). Configure arrays under <strong>PV Configuration</strong> and API options under <strong>Solcast</strong>.</p>
-<p class="charts-entity-hint">Status: <strong>${esc(String(periods))}</strong> half-hour periods loaded · ${esc(remainingTxt)}</p>
-<p class="charts-entity-hint">You can disable <strong>Fetch PV forecast</strong> in Solcast settings to fall back to a manual entity below.</p>
-</div>`;
-    }
-    const selected = this._chartsDraft.forecast_entity_id || "";
-    const candidates = this._forecastCandidates ?? [];
-    const options = [
-      `<option value="">— None —</option>`,
-      ...candidates.map((e) => {
-        const unit = e.unit ? ` (${e.unit})` : "";
-        const mark = e.native ? " (Fox Plant)" : e.suggested ? " ★" : "";
-        return `<option value="${esc(e.entity_id)}" ${e.entity_id === selected ? "selected" : ""}>${esc(e.name)}${esc(unit)}${mark}</option>`;
-      }),
-    ];
-    const current = selected
-      ? stateString(this._hass, selected) + entityUnit(this._hass, selected)
-      : "—";
-    const solcastHint = this._plantState?.solcast?.enabled
-      ? `<p class="charts-entity-hint">Tip: enable Solcast with an API key and <strong>Fetch PV forecast</strong> to replace third-party Solcast sensors.</p>`
-      : "";
-    return `<header class="header"><h1>Charts</h1><p>Statistics graph and Energy → Day overlay</p></header>
-<div class="card">
-<p class="card-title">PV forecast line</p>
-<p class="charts-entity-hint">Choose a power forecast sensor (legacy path). Values in <strong>W</strong> are converted to kW automatically; sensors already in <strong>kW</strong> are used as-is.</p>
-${solcastHint}
-<label class="charts-entity-hint" for="fp-forecast-entity">Forecast entity</label>
-<select id="fp-forecast-entity" class="charts-entity-select" data-action="pick-forecast-entity" aria-label="Forecast entity">${options.join("")}</select>
-<p class="charts-entity-hint">Current reading: <strong>${esc(current)}</strong></p>
-<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-charts-settings" ${this._busy ? "disabled" : ""}>Save</button></div>
-</div>`;
-  }
-
   _renderSettingsControl() {
     const active = this._plantState?.control_active;
     return `<header class="header"><h1>Plant control</h1></header>
@@ -6205,8 +5976,6 @@ ${active
         return this._renderSettingsSolcast();
       case "storm":
         return this._renderSettingsStorm();
-      case "charts":
-        return this._renderSettingsCharts();
       case "control":
         return this._renderSettingsControl();
       default:

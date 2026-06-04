@@ -201,6 +201,18 @@ def solcast_status_dict(
             out["pv_power_now_kw"] = pv_parsed.get("power_now_kw")
             out["pv_energy_remaining_kwh"] = pv_parsed.get("energy_remaining_kwh")
             out["pv_forecast_periods"] = pv_parsed.get("period_count", 0)
+            skip = frozenset(
+                {
+                    "detailed_forecast",
+                    "detailed_forecast_by_site",
+                    "period_count",
+                    "forecast_metrics",
+                    "detailed_forecast_ha",
+                }
+            )
+            for key, value in pv_parsed.items():
+                if key not in skip and key not in out:
+                    out[key] = value
     return out
 
 
@@ -249,7 +261,7 @@ async def _fetch_rooftop_pv_forecasts(
             _LOGGER.warning("Solcast hobbyist forecast failed for %s: %s", req.label, err)
     if not payloads:
         return None, errors
-    return parse_detailed_forecast(payloads), errors
+    return parse_detailed_forecast(payloads, hass), errors
 
 
 async def async_refresh_solcast(
