@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, UnitOfEnergy
+from homeassistant.const import PERCENTAGE, UnitOfEnergy, UnitOfPower
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -13,6 +13,21 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .entity import plant_device_info
 from .const import DOMAIN
 from .coordinator import FoxessPlantCoordinator
+
+SOLCAST_SENSORS = (
+    (
+        "solcast_pv_power_now",
+        UnitOfPower.KILO_WATT,
+        "Solcast PV power now",
+        "mdi:solar-power",
+    ),
+    (
+        "solcast_pv_forecast_remaining",
+        UnitOfEnergy.KILO_WATT_HOUR,
+        "Solcast PV forecast remaining today",
+        "mdi:solar-power-clock",
+    ),
+)
 
 ANALYTICS_SENSORS = (
     ("self_consumption_percent_today", PERCENTAGE, "Self-consumption today", "mdi:solar-power"),
@@ -33,6 +48,8 @@ async def async_setup_entry(
     entities: list[SensorEntity] = [FoxessPlantModeSensor(coordinator, entry)]
     for key, unit, name, icon in ANALYTICS_SENSORS:
         entities.append(FoxessPlantAnalyticsSensor(coordinator, entry, key, unit, name, icon))
+    for key, unit, name, icon in SOLCAST_SENSORS:
+        entities.append(FoxessPlantSolcastSensor(coordinator, entry, key, unit, name, icon))
     async_add_entities(entities)
 
 
@@ -108,3 +125,68 @@ class FoxessPlantAnalyticsSensor(CoordinatorEntity[FoxessPlantCoordinator], Sens
         analytics = (self.coordinator.data or {}).get("analytics") or {}
         value = analytics.get(self._key)
         return float(value) if value is not None else None
+
+
+class FoxessPlantSolcastSensor(CoordinatorEntity[FoxessPlantCoordinator], SensorEntity):
+    """Solcast native PV forecast sensors (replaces external Solcast integration for charts)."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        coordinator: FoxessPlantCoordinator,
+        entry: ConfigEntry,
+        key: str,
+        unit: str,
+        name: str,
+        icon: str,
+    ) -> None:
+        super().__init__(coordinator)
+        self._key = key
+        self._attr_device_info = plant_device_info(entry)
+        self._attr_unique_id = f"{entry.entry_id}_{key}"
+        self._attr_name = f"{entry.title} {name}"
+        self._attr_native_unit_of_measurement = unit
+        self._attr_icon = icon
+        if unit == UnitOfPower.KILO_WATT:
+            self._attr_state_class = SensorStateClass.MEASUREMENT
+            self._attr_device_class = SensorDeviceClass.POWER
+        else:
+            self._attr_state_class = SensorStateClass.TOTAL
+            self._attr_device_class = SensorDeviceClass.ENERGY
+
+    def _solcast(self) -> dict:
+        return (self.coordinator.data or {}).get("solcast") or {}
+
+    @property
+    def available(self) -> bool:
+        sc = self._solcast()
+        if not sc.get("enabled") or not sc.get("api_key_set"):
+            return False
+        if self._key == "solcast_pv_power_now":
+            return sc.get("pv_power_now_kw") is not None
+        return sc.get("pv_energy_remaining_kwh") is not None
+
+    @property
+    def native_value(self) -> float | None:
+        sc = self._solcast()
+        if self._key == "solcast_pv_power_now":
+            raw = sc.get("pv_power_now_kw")
+        else:
+            raw = sc.get("pv_energy_remaining_kwh")
+        return float(raw) if raw is not None else None
+
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        if self._key != "solcast_pv_forecast_remaining":
+            return None
+        sc = self._solcast()
+        attrs: dict = {
+            "detailed_forecast": sc.get("detailed_forecast") or [],
+            "pv_requests": sc.get("pv_requests") or [],
+            "source": "foxess_plant_solcast",
+        }
+        by_site = sc.get("detailed_forecast_by_site") or {}
+        if isinstance(by_site, dict):
+            attrs.update(by_site)
+        return attrs

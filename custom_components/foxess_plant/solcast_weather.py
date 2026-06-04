@@ -190,12 +190,50 @@ def is_storm_solcast_live(cache: dict[str, Any] | None) -> bool:
     return bool(row and is_storm_solcast_row(row))
 
 
-def resolve_coordinates(hass: HomeAssistant, solcast: Any) -> tuple[float, float]:
+def normalize_solcast_coordinate(value: float | int | str) -> float:
+    from .const import SOLCAST_COORDINATE_DECIMALS
+
+    return round(float(value), SOLCAST_COORDINATE_DECIMALS)
+
+
+def parse_solcast_coordinates(
+    latitude: Any,
+    longitude: Any,
+) -> tuple[float, float] | None:
+    """Parse lat/lon entered to match a Solcast hobbyist site listing."""
+    if latitude is None or longitude is None:
+        return None
+    try:
+        lat = normalize_solcast_coordinate(latitude)
+        lon = normalize_solcast_coordinate(longitude)
+    except (TypeError, ValueError):
+        return None
+    if not -90.0 <= lat <= 90.0 or not -180.0 <= lon <= 180.0:
+        return None
+    return lat, lon
+
+
+def solcast_coordinates_configured(solcast: Any) -> bool:
     lat = getattr(solcast, "latitude", None)
     lon = getattr(solcast, "longitude", None)
-    if lat is not None and lon is not None:
-        return float(lat), float(lon)
-    return float(hass.config.latitude), float(hass.config.longitude)
+    return parse_solcast_coordinates(lat, lon) is not None
+
+
+def resolve_coordinates(_hass: HomeAssistant | None, solcast: Any) -> tuple[float, float]:
+    """Lat/lon must match one of the user's registered Solcast hobbyist locations."""
+    from .solcast_api import SolcastApiError
+
+    parsed = parse_solcast_coordinates(
+        getattr(solcast, "latitude", None),
+        getattr(solcast, "longitude", None),
+    )
+    if parsed is None:
+        raise SolcastApiError(
+            "Set latitude and longitude in Fox Plant Solcast settings to match "
+            "one of your two registered locations on the Solcast website "
+            "(do not use Home Assistant home coordinates)."
+        )
+    return parsed
 
 
 def _parse_period_end(value: Any) -> datetime | None:

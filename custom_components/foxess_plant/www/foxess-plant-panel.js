@@ -28,6 +28,8 @@ const DEFAULT_PV_STRING = {
   panel_count: 6,
   watts_per_panel: 450,
   efficiency_factor: 100,
+  tilt: 25,
+  azimuth: 180,
 };
 
 const DEFAULT_PV_CONFIG = {
@@ -38,6 +40,8 @@ const DEFAULT_PV_CONFIG = {
 const PV_EFFICIENCY_FACTOR_URL = "https://kb.solcast.com.au/what-is-the-efficiency-factor";
 const SOLCAST_API_DOCS_URL = "https://docs.solcast.com.au/";
 const SOLCAST_HOBBYIST_URL = "https://solcast.com/free-rooftop-solar-forecasting";
+const SOLCAST_ACCOUNT_LOCATIONS_URL = "https://toolkit.solcast.com.au/account/locations";
+const SOLCAST_COORD_DECIMALS = 4;
 
 /** Fox hub-and-spoke flow (viewBox 0 0 1024 1017). Anchors sync with tools/compose_flow_layers.py */
 /** Hub on side/front wall corner — user-tuned v0.8.104 (was y=726). */
@@ -402,11 +406,19 @@ function normalizePvString(raw, defaults) {
   let eff = parseFloat(src.efficiency_factor);
   if (!Number.isFinite(eff)) eff = base.efficiency_factor;
   eff = Math.max(1, Math.min(100, eff));
+  let tilt = parseInt(src.tilt, 10);
+  if (!Number.isFinite(tilt)) tilt = base.tilt ?? 25;
+  tilt = Math.max(0, Math.min(90, tilt));
+  let azimuth = parseInt(src.azimuth, 10);
+  if (!Number.isFinite(azimuth)) azimuth = base.azimuth ?? 180;
+  azimuth = Math.max(0, Math.min(359, azimuth));
   return {
     enabled: Boolean(src.enabled ?? base.enabled),
     panel_count: panelCount,
     watts_per_panel: watts,
     efficiency_factor: eff,
+    tilt,
+    azimuth,
   };
 }
 
@@ -421,7 +433,76 @@ function normalizePvConfig(raw) {
 function pvStringSummary(cfg) {
   if (!cfg?.enabled) return "Off";
   const kw = (cfg.panel_count * cfg.watts_per_panel) / 1000;
-  return `${cfg.panel_count} panels · ${cfg.watts_per_panel} W · ${kw.toFixed(2)} kW DC`;
+  return `${cfg.panel_count} panels · ${cfg.watts_per_panel} W · ${kw.toFixed(2)} kW · ${cfg.tilt}°/${cfg.azimuth}°`;
+}
+
+function parseSolcastCoordinateInput(raw) {
+  const v = parseFloat(String(raw ?? "").trim());
+  return Number.isFinite(v) ? v : null;
+}
+
+function normalizeSolcastCoordinateInput(raw) {
+  const v = parseSolcastCoordinateInput(raw);
+  if (v == null) return null;
+  const factor = 10 ** SOLCAST_COORD_DECIMALS;
+  return Math.round(v * factor) / factor;
+}
+
+function validateSolcastDraft(draft) {
+  if (!draft?.enabled) return null;
+  const lat = normalizeSolcastCoordinateInput(draft.latitude);
+  const lon = normalizeSolcastCoordinateInput(draft.longitude);
+  if (lat == null || lon == null) {
+    return "Latitude and longitude are required. Copy them exactly from one of your two registered Solcast hobbyist locations (not Home Assistant coordinates).";
+  }
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+    return "Latitude must be between -90 and 90; longitude between -180 and 180.";
+  }
+  return null;
+}
+
+function nativeSolcastPvForecastEnabled(plantState) {
+  const sc = plantState?.solcast;
+  return Boolean(
+    sc?.enabled &&
+    sc?.api_key_set &&
+    sc?.coordinates_configured &&
+    sc?.fetch_pv_forecast !== false
+  );
+}
+
+function forecastChartEndMs(range, rawPoints) {
+  if (rawPoints?.length) {
+    const lastT = rawPoints[rawPoints.length - 1].t;
+    return Math.min(range.tMax, lastT + STATISTICS_PERIOD_MS);
+  }
+  return range.tMax;
+}
+
+function detailedForecastToChartPoints(rows, range) {
+  if (!Array.isArray(rows) || rows.length < 2) return [];
+  const raw = rows
+    .map((row) => {
+      const t = new Date(row.period_start).getTime();
+      let v = Number(row.pv_estimate);
+      if (!Number.isFinite(t) || !Number.isFinite(v)) return null;
+      if (v > 50) v /= 1000;
+      return { t, v };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.t - b.t);
+  if (raw.length < 2) return [];
+  const chartEnd = forecastChartEndMs(range, raw);
+  return interpolatePointsToPeriod(
+    raw.filter((p) => p.t >= range.tMin && p.t <= chartEnd),
+    STATISTICS_PERIOD_MS,
+    range.tMin,
+    chartEnd
+  );
+}
+
+function nativeSolcastForecastPoints(plantState, range) {
+  return detailedForecastToChartPoints(plantState?.solcast?.detailed_forecast, range);
 }
 
 function pvConfigSummary(pv) {
@@ -1362,6 +1443,9 @@ function findSolcastTodayEntity(hass, forecastEntityId) {
 
 function solcastDetailedForecastAttribute(attrs) {
   if (!attrs) return null;
+  if (Array.isArray(attrs.detailed_forecast) && attrs.detailed_forecast.length) {
+    return attrs.detailed_forecast;
+  }
   if (Array.isArray(attrs.detailedForecast) && attrs.detailedForecast.length) {
     return attrs.detailedForecast;
   }
@@ -1427,37 +1511,24 @@ function forwardFillResamplePoints(points, periodMs, originMs, endMs) {
   return out;
 }
 
-function buildForecastSeriesPoints(hass, forecastEntityId, range, hist) {
+function buildForecastSeriesPoints(hass, forecastEntityId, range, hist, plantState) {
+  if (nativeSolcastPvForecastEnabled(plantState)) {
+    const native = nativeSolcastForecastPoints(plantState, range);
+    if (native.length) return native;
+  }
   const todayId = findSolcastTodayEntity(hass, forecastEntityId);
   if (todayId) {
     const detailed = solcastDetailedForecastAttribute(hass.states[todayId]?.attributes);
-    if (detailed?.length) {
-      const raw = detailed
-        .map((row) => {
-          const t = new Date(row.period_start).getTime();
-          let v = Number(row.pv_estimate);
-          if (!Number.isFinite(t) || !Number.isFinite(v)) return null;
-          if (v > 50) v /= 1000;
-          return { t, v };
-        })
-        .filter(Boolean)
-        .sort((a, b) => a.t - b.t);
-      if (raw.length >= 2) {
-        return interpolatePointsToPeriod(
-          raw.filter((p) => p.t >= range.tMin && p.t <= range.nowMs),
-          STATISTICS_PERIOD_MS,
-          range.tMin,
-          range.nowMs
-        );
-      }
-    }
+    const pts = detailedForecastToChartPoints(detailed, range);
+    if (pts.length) return pts;
   }
   const raw = historyToPoints(historyRowsForEntity(hist, forecastEntityId)).map((p) => ({
     t: p.t,
     v: entityValueToKw(hass, forecastEntityId, p.v),
   }));
   if (!raw.length) return [];
-  return forwardFillResamplePoints(raw, STATISTICS_PERIOD_MS, range.tMin, range.nowMs);
+  const chartEnd = forecastChartEndMs(range, raw);
+  return forwardFillResamplePoints(raw, STATISTICS_PERIOD_MS, range.tMin, chartEnd);
 }
 
 async function fetchStatisticsChartSeries(hass, plant, plantState) {
@@ -1468,7 +1539,10 @@ async function fetchStatisticsChartSeries(hass, plant, plantState) {
   if (!specs.length) {
     return { empty: "Map power entities in FoxESS Modbus, then reload FoxESS Plant." };
   }
-  const forecastId = plantState?.panel_display?.forecast_entity_id || null;
+  const useNativeForecast = nativeSolcastPvForecastEnabled(plantState);
+  const forecastId = useNativeForecast
+    ? null
+    : plantState?.panel_display?.forecast_entity_id || null;
   const entityIds = specs.map((s) => s.entity_id);
   const now = new Date();
   const start = startOfLocalDay(now);
@@ -1494,8 +1568,8 @@ async function fetchStatisticsChartSeries(hass, plant, plantState) {
     lineWidth: spec.lineWidth,
     points: buildStatisticsSeriesPoints(hass, spec.entity_id, spec, range, statsMap, hist),
   }));
-  if (forecastId) {
-    const fPoints = buildForecastSeriesPoints(hass, forecastId, range, hist);
+  if (useNativeForecast || forecastId) {
+    const fPoints = buildForecastSeriesPoints(hass, forecastId, range, hist, plantState);
     if (fPoints.length) {
       series.push({
         id: "forecast",
@@ -1708,13 +1782,33 @@ function renderStatisticsChartHtml(series, range) {
   const xTicks = Array.from({ length: xTickCount }, (_, i) => tMin + i * xTickHours * 60 * 60 * 1000);
 
   const plotSeries = visible.map((s) => {
-    const clipped = s.points.filter((p) => p.t >= tMin && p.t <= nowMs);
-    const segmentPoints = s.connectGaps ? [clipped] : splitStatisticsSegments(clipped);
-    const segments = segmentPoints.map((seg) => ({
-      timePts: seg,
-      pixelPts: seg.map((p) => ({ x: xScale(p.t), y: yScale(p.v), t: p.t, v: p.v })),
+    const isForecast = s.id === "forecast" || s.legendGroup === "forecast";
+    const clipEnd = isForecast ? tMax : nowMs;
+    const clipped = s.points.filter((p) => p.t >= tMin && p.t <= clipEnd);
+    let segmentGroups;
+    if (isForecast && clipped.length >= 2) {
+      const past = clipped.filter((p) => p.t <= nowMs);
+      const future = clipped.filter((p) => p.t >= nowMs);
+      segmentGroups = [];
+      if (past.length >= 2) segmentGroups.push({ pts: past, dash: "" });
+      if (future.length >= 2) {
+        const futurePts =
+          past.length && past[past.length - 1].t < nowMs
+            ? [past[past.length - 1], ...future.filter((p) => p.t > past[past.length - 1].t)]
+            : future;
+        if (futurePts.length >= 2) segmentGroups.push({ pts: futurePts, dash: "5 4" });
+      }
+      if (!segmentGroups.length) segmentGroups.push({ pts: clipped, dash: "" });
+    } else {
+      const segmentPoints = s.connectGaps ? [clipped] : splitStatisticsSegments(clipped);
+      segmentGroups = segmentPoints.map((pts) => ({ pts, dash: "" }));
+    }
+    const segments = segmentGroups.map(({ pts, dash }) => ({
+      timePts: pts,
+      pixelPts: pts.map((p) => ({ x: xScale(p.t), y: yScale(p.v), t: p.t, v: p.v })),
+      dash,
     }));
-    return { ...s, segments };
+    return { ...s, segments, isForecast };
   });
 
   const grid = yTicks
@@ -1755,7 +1849,7 @@ function renderStatisticsChartHtml(series, range) {
         .filter((seg) => seg.pixelPts.length >= 2)
         .map(
           (seg) =>
-            `<path class="statistics-line" data-series-id="${esc(s.id)}" data-legend-group="${esc(s.legendGroup || "")}" d="${statisticsLinePath(seg.pixelPts, seg.timePts)}" fill="none" stroke="${s.color}" stroke-width="${s.lineWidth || 1.2}" stroke-linecap="round" stroke-linejoin="round"/>`
+            `<path class="statistics-line${seg.dash ? " statistics-line-forecast-future" : ""}" data-series-id="${esc(s.id)}" data-legend-group="${esc(s.legendGroup || "")}" d="${statisticsLinePath(seg.pixelPts, seg.timePts)}" fill="none" stroke="${s.color}" stroke-width="${s.lineWidth || 1.2}" stroke-linecap="round" stroke-linejoin="round"${seg.dash ? ` stroke-dasharray="${seg.dash}"` : ""}/>`
         )
     )
     .join("");
@@ -1839,7 +1933,7 @@ function bindStatisticsChart(root, seriesMeta) {
   });
 
   const showHover = (clientX) => {
-    const t = Math.min(statisticsClientToTime(svg, clientX, padL, plotW, tMin, daySpan), nowMs);
+    const t = Math.min(statisticsClientToTime(svg, clientX, padL, plotW, tMin, daySpan), tMax);
     const rect = svg.getBoundingClientRect();
     const { scale, offsetX, offsetY } = statisticsPointerScale(svg);
     const xPx = padL + ((t - tMin) / daySpan) * plotW;
@@ -3472,6 +3566,7 @@ Reloading panel registration…
       api_key_set: Boolean(sc.api_key_set),
       api_limit: sc.api_limit ?? 10,
       auto_update: sc.auto_update === "all_day" ? "all_day" : "daylight",
+      fetch_pv_forecast: sc.fetch_pv_forecast !== false,
       latitude: sc.latitude ?? sc.coordinates?.latitude ?? "",
       longitude: sc.longitude ?? sc.coordinates?.longitude ?? "",
       period: sc.period ?? "PT30M",
@@ -3484,10 +3579,11 @@ Reloading panel registration…
 
   _solcastSettingsSubtitle() {
     const sc = this._plantState?.solcast;
-    if (!sc?.enabled) return "Off — using Google Weather if configured";
+    if (!sc?.enabled) return "Off — PV charts use manual forecast entity";
     if (!sc.api_key_set) return "API key required";
+    if (!sc.coordinates_configured) return "Solcast site latitude/longitude required";
     const rem = sc.api_remaining ?? "—";
-    return `On · ${sc.api_used_today ?? 0}/${sc.api_limit ?? 10} API calls today · ${rem} left`;
+    return `PV forecast · ${sc.api_used_today ?? 0}/${sc.api_limit ?? 10} API calls today · ${rem} left`;
   }
 
   _enterChartsSettings() {
@@ -3519,13 +3615,21 @@ Reloading panel registration…
     this._render();
     try {
       const draft = this._solcastDraft;
+      const validationErr = validateSolcastDraft(draft);
+      if (validationErr) {
+        this._showToast(validationErr, "err");
+        return;
+      }
+      const lat = normalizeSolcastCoordinateInput(draft.latitude);
+      const lon = normalizeSolcastCoordinateInput(draft.longitude);
       const payload = {
         enabled: Boolean(draft.enabled),
         api_limit: Math.max(1, Math.min(50, parseInt(draft.api_limit, 10) || 10)),
         auto_update: draft.auto_update === "all_day" ? "all_day" : "daylight",
+        fetch_pv_forecast: Boolean(draft.fetch_pv_forecast),
         period: draft.period || "PT30M",
-        latitude: draft.latitude === "" ? null : parseFloat(draft.latitude),
-        longitude: draft.longitude === "" ? null : parseFloat(draft.longitude),
+        latitude: lat,
+        longitude: lon,
       };
       const key = String(draft.api_key || "").trim();
       if (key) payload.api_key = key;
@@ -3558,6 +3662,7 @@ Reloading panel registration…
           enabled: Boolean(draft.enabled),
           api_limit: Math.max(1, Math.min(50, parseInt(draft.api_limit, 10) || 10)),
           auto_update: draft.auto_update === "all_day" ? "all_day" : "daylight",
+          fetch_pv_forecast: Boolean(draft.fetch_pv_forecast),
           period: draft.period || "PT30M",
           latitude: draft.latitude === "" ? null : parseFloat(draft.latitude),
           longitude: draft.longitude === "" ? null : parseFloat(draft.longitude),
@@ -3978,6 +4083,11 @@ Reloading panel registration…
         this._scheduleRender();
         return;
       }
+      if (field === "fetch_pv_forecast") {
+        this._solcastDraft.fetch_pv_forecast = el.checked;
+        this._scheduleRender();
+        return;
+      }
       if (field === "auto_update") {
         this._solcastDraft.auto_update = el.value === "all_day" ? "all_day" : "daylight";
         return;
@@ -4020,6 +4130,10 @@ Reloading panel registration…
         cfg.efficiency_factor = Math.max(1, Math.min(100, v));
         if (e.type === "change") this._scheduleRender();
         return;
+      } else if (field === "tilt") {
+        cfg.tilt = Math.max(0, Math.min(90, parseInt(el.value, 10) || 25));
+      } else if (field === "azimuth") {
+        cfg.azimuth = Math.max(0, Math.min(359, parseInt(el.value, 10) || 180));
       }
       this._scheduleRender();
       return;
@@ -5405,6 +5519,12 @@ ${renderListButton({ action: "settings-sub", sub: "control" }, "Plant control", 
   }
 
   _forecastEntityLabel() {
+    if (nativeSolcastPvForecastEnabled(this._plantState)) {
+      const periods = this._plantState?.solcast?.pv_forecast_periods ?? 0;
+      return periods
+        ? `Native Solcast PV (${periods} periods)`
+        : "Native Solcast PV (awaiting fetch)";
+    }
     const id = this._plantState?.panel_display?.forecast_entity_id;
     if (!id) return "No forecast overlay";
     const st = this._hass?.states?.[id];
@@ -5465,7 +5585,7 @@ ${this._renderPeriodCard(1, this._chargeDraft[1])}
     const activeTriggers = this._plantState?.active_storm_triggers ?? [];
     const maxSocVal = draft.target_max_soc == null ? "" : String(draft.target_max_soc);
     return `${this._renderStormHero(armed)}
-<header class="header storm-settings-header"><h1>StormSafe</h1><p>Pre-charge before severe weather — configured here, no blueprints required${this._plantState?.solcast?.enabled && this._plantState?.solcast?.api_key_set ? " · <strong>Weather source: Solcast</strong>" : ""}</p></header>
+<header class="header storm-settings-header"><h1>StormSafe</h1><p>Pre-charge before severe weather — uses <strong>Google Weather</strong> for conditions and hourly forecast lead time</p></header>
 <div class="card">
 <p class="card-title">Status</p>
 <p style="margin:0 0 10px;font-size:14px">${armed ? "Storm prep is <strong>active</strong> — storm charge schedule applied." : "No storm triggers active right now."}</p>
@@ -5542,6 +5662,22 @@ ${this._renderPeriodCard(1, draft.charge_periods[1], "storm-period", "Storm peri
 <p class="field-hint"><a class="field-link" href="${esc(PV_EFFICIENCY_FACTOR_URL)}" target="_blank" rel="noopener noreferrer">What is the efficiency factor?</a></p>
 <input type="number" class="pv-eff-input" min="1" max="100" step="1" data-field="pv:${which}:efficiency_factor" value="${esc(String(cfg.efficiency_factor))}" ${disabled ? "disabled" : ""} aria-label="Efficiency factor percent"> <span style="font-size:14px">%</span>
 </div>
+<div class="field">
+<label>Tilt (°)</label>
+<p class="field-hint">Panel angle from horizontal — sent to Solcast rooftop PV API</p>
+<div class="pv-range-row">
+<input type="range" min="0" max="90" step="1" data-field="pv:${which}:tilt" value="${esc(String(cfg.tilt))}" ${disabled ? "disabled" : ""}>
+<span class="pv-range-value">${esc(String(cfg.tilt))}°</span>
+</div>
+</div>
+<div class="field">
+<label>Azimuth (°)</label>
+<p class="field-hint">0° = north, 90° = east, 180° = south (typical in AU)</p>
+<div class="pv-range-row">
+<input type="range" min="0" max="359" step="1" data-field="pv:${which}:azimuth" value="${esc(String(cfg.azimuth))}" ${disabled ? "disabled" : ""}>
+<span class="pv-range-value">${esc(String(cfg.azimuth))}°</span>
+</div>
+</div>
 <p class="field-hint" style="margin-top:4px">Nameplate ${esc(nameplateKw)} kW DC · Effective ${esc(effectiveKw)} kW (after efficiency)</p>
 </div>
 </div>`;
@@ -5551,7 +5687,7 @@ ${this._renderPeriodCard(1, draft.charge_periods[1], "storm-period", "Storm peri
     if (!this._pvDraft) this._initPvDraft();
     return `<header class="header"><h1>${esc(title)}</h1>${subtitle ? `<p>${esc(subtitle)}</p>` : ""}</header>
 <section class="card" style="margin-bottom:12px"><p class="card-title">PV Configuration</p>
-<p class="field-hint" style="margin:0">Panel count, wattage, and efficiency are stored for future analysis charts and yield calculations.</p>
+<p class="field-hint" style="margin:0">Panel count, wattage, efficiency, tilt, and azimuth drive the native Solcast rooftop PV forecast (replaces a separate Solcast HA integration for charts).</p>
 </section>
 ${this._renderPvStringBlock("pv1")}
 ${this._renderPvStringBlock("pv2")}
@@ -5569,19 +5705,44 @@ ${this._renderPvStringBlock("pv2")}
     if (!this._solcastDraft) this._initSolcastDraft();
     const draft = this._solcastDraft;
     const live = this._plantState?.solcast ?? {};
-    const haLat = this._hass?.config?.latitude;
-    const haLon = this._hass?.config?.longitude;
     const keyPlaceholder = draft.api_key_set ? "••••••••  (leave blank to keep)" : "Paste Solcast API key";
+    const coordConfigured = Boolean(live.coordinates_configured);
+    const coordDisplay =
+      live.coordinates?.latitude != null && live.coordinates?.longitude != null
+        ? `${Number(live.coordinates.latitude).toFixed(SOLCAST_COORD_DECIMALS)}, ${Number(live.coordinates.longitude).toFixed(SOLCAST_COORD_DECIMALS)}`
+        : "Not set";
     const lastFetch = live.last_fetch_at ? esc(String(live.last_fetch_at)) : "—";
     const lastErr = live.last_error ? esc(String(live.last_error)) : "None";
-    const liveSummary = live.live_summary
-      ? `${esc(live.live_summary.temperature_display || "")} ${esc(live.live_summary.condition_label || "")}`.trim()
-      : "—";
-    return `<header class="header"><h1>Solcast</h1><p>Direct <a class="field-link" href="${esc(SOLCAST_API_DOCS_URL)}" target="_blank" rel="noopener noreferrer">Solcast API</a> (hobbyist) — weather, storms, and PV forecasts without a separate integration</p></header>
+    const pvReqs = live.pv_requests ?? [];
+    const pvReqLines = pvReqs.length
+      ? pvReqs
+          .map(
+            (r) =>
+              `${esc(r.label)}: ${esc(String(r.capacity_kw))} kW · ${esc(String(r.tilt))}° tilt · ${esc(String(r.azimuth))}° az · loss ${esc(String(r.loss_factor))}`
+          )
+          .join("<br>")
+      : "Enable PV strings in PV Configuration to request rooftop forecasts.";
+    const pvStatus = live.pv_forecast_available
+      ? `${live.pv_forecast_periods ?? 0} forecast periods · ${live.pv_power_now_kw != null ? `${Number(live.pv_power_now_kw).toFixed(2)} kW now` : "power pending"}`
+      : draft.fetch_pv_forecast && draft.enabled
+        ? "Awaiting PV forecast fetch"
+        : "PV forecast off";
+    const sched = live.poll_schedule;
+    let scheduleHint = "";
+    if (sched && draft.auto_update === "daylight") {
+      const interval = sched.interval_minutes ?? "—";
+      const hours = sched.window_hours ?? "—";
+      const until = sched.poll_until ? new Date(sched.poll_until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—";
+      const inWin = sched.in_window ? "active now" : "outside window (before sunrise or within 1h of sunset)";
+      scheduleHint = `<p class="field-hint">Daylight schedule: <strong>${esc(String(hours))}</strong> h between sunrise and 1 h before sunset · about <strong>${esc(String(interval))}</strong> min between refreshes (spread across your ${esc(String(draft.api_limit))}/day API limit) · polls until <strong>${esc(until)}</strong> · ${esc(inWin)}</p>`;
+    } else if (sched && draft.auto_update === "all_day") {
+      scheduleHint = `<p class="field-hint">24 h mode: about <strong>${esc(String(sched.interval_minutes ?? "—"))}</strong> min between refreshes.</p>`;
+    }
+    return `<header class="header"><h1>Solcast</h1><p><a class="field-link" href="${esc(SOLCAST_API_DOCS_URL)}" target="_blank" rel="noopener noreferrer">Solcast hobbyist API</a> for <strong>rooftop PV forecast</strong> only — overview weather and StormSafe stay on Google Weather.</p></header>
 <div class="card">
 <p class="card-title">Account</p>
-<p class="field-hint">Register a free <a class="field-link" href="${esc(SOLCAST_HOBBYIST_URL)}" target="_blank" rel="noopener noreferrer">Home PV System</a> account (10 API requests/day). Keys are stored in your Fox Plant config entry.</p>
-<div class="toggle-row"><span><strong>Enable Solcast</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">When on, overview weather and StormSafe use Solcast instead of Google Weather</span></span>
+<p class="field-hint">Register a free <a class="field-link" href="${esc(SOLCAST_HOBBYIST_URL)}" target="_blank" rel="noopener noreferrer">Home PV System</a> account (10 API requests/day). All quota goes to PV forecasts — no weather calls.</p>
+<div class="toggle-row"><span><strong>Enable Solcast PV forecast</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Replaces a third-party Solcast integration for chart PV lines</span></span>
 <input type="checkbox" data-field="solcast:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 <div class="field"><label>API key</label>
 <input type="password" autocomplete="off" data-field="solcast:api_key" placeholder="${esc(keyPlaceholder)}" ${this._busy ? "disabled" : ""}></div>
@@ -5596,15 +5757,19 @@ ${this._renderPvStringBlock("pv2")}
 <option value="daylight" ${draft.auto_update === "daylight" ? "selected" : ""}>Automatic update of forecasts from sunrise to sunset</option>
 <option value="all_day" ${draft.auto_update === "all_day" ? "selected" : ""}>Automatic update over 24 hours</option>
 </select></div>
-<p class="field-hint">Poll interval is spread across the day to stay within your API limit. Each live refresh uses 1 request; StormSafe forecast lead may use 1 more.</p>
+${scheduleHint}
+<p class="field-hint">Each refresh uses <strong>1 request per unique tilt/azimuth group</strong> (see PV Configuration). In daylight mode, your ${esc(String(draft.api_limit))} daily calls are spread from <strong>sunrise</strong> until <strong>1 hour before sunset</strong> (from Home Assistant <code>sun.sun</code>).</p>
+<div class="toggle-row" style="margin-top:12px"><span><strong>Fetch PV forecast</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Calls Solcast <code>rooftop_pv_power</code> using PV1/PV2 capacity, tilt, azimuth, and efficiency</span></span>
+<input type="checkbox" data-field="solcast:fetch_pv_forecast" ${draft.fetch_pv_forecast ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 </div>
 <div class="card">
-<p class="card-title">Location</p>
-<p class="field-hint">Leave blank to use Home Assistant home coordinates (${esc(String(haLat ?? "—"))}, ${esc(String(haLon ?? "—"))}).</p>
-<div class="field"><label>Latitude (optional)</label>
-<input type="number" step="any" data-field="solcast:latitude" value="${esc(String(draft.latitude))}" placeholder="${esc(String(haLat ?? ""))}" ${this._busy ? "disabled" : ""}></div>
-<div class="field"><label>Longitude (optional)</label>
-<input type="number" step="any" data-field="solcast:longitude" value="${esc(String(draft.longitude))}" placeholder="${esc(String(haLon ?? ""))}" ${this._busy ? "disabled" : ""}></div>
+<p class="card-title">Solcast site location</p>
+<p class="field-hint">Hobbyist accounts may register <strong>two</strong> rooftop sites on <a class="field-link" href="${esc(SOLCAST_ACCOUNT_LOCATIONS_URL)}" target="_blank" rel="noopener noreferrer">Solcast → Locations</a>. Enter the <strong>latitude and longitude exactly as shown there</strong> for the site you use. Do <strong>not</strong> copy Home Assistant home coordinates — extra decimal places will not match Solcast and API calls can fail or return the wrong site.</p>
+<div class="field"><label>Latitude <span class="field-required">*</span></label>
+<input type="number" step="0.0001" inputmode="decimal" data-field="solcast:latitude" value="${esc(String(draft.latitude))}" placeholder="e.g. -33.8568" ${this._busy ? "disabled" : ""} required></div>
+<div class="field"><label>Longitude <span class="field-required">*</span></label>
+<input type="number" step="0.0001" inputmode="decimal" data-field="solcast:longitude" value="${esc(String(draft.longitude))}" placeholder="e.g. 151.2153" ${this._busy ? "disabled" : ""} required></div>
+<p class="field-hint">Saved as ${SOLCAST_COORD_DECIMALS} decimal places to match typical Solcast listings. Saved site: <strong>${esc(coordDisplay)}</strong>${coordConfigured ? "" : " — required when Solcast is enabled"}</p>
 <div class="field"><label>Data period</label>
 <p class="field-hint">PT30M = 30-minute resolution (recommended for hobbyist quota).</p>
 <input type="text" data-field="solcast:period" value="${esc(String(draft.period))}" readonly></div>
@@ -5616,8 +5781,10 @@ ${this._renderPvStringBlock("pv2")}
 <div class="entity-row"><span class="entity-name">Remaining today</span><span class="entity-value">${esc(String(live.api_remaining ?? "—"))}</span></div>
 <div class="entity-row"><span class="entity-name">Last fetch</span><span class="entity-value">${lastFetch}</span></div>
 <div class="entity-row"><span class="entity-name">Last error</span><span class="entity-value">${lastErr}</span></div>
-<div class="entity-row"><span class="entity-name">Live summary</span><span class="entity-value">${liveSummary || "—"}</span></div>
+<div class="entity-row"><span class="entity-name">PV forecast</span><span class="entity-value">${esc(pvStatus)}</span></div>
 </div>
+<p class="field-hint" style="margin-top:8px"><strong>API groups</strong> (from PV config):<br>${pvReqLines}</p>
+<p class="field-hint">Diagnostic sensors expose <code>detailed_forecast</code> for automations — charts use plant state directly.</p>
 </div>
 <div class="btn-row">
 <button type="button" class="btn btn-primary" data-action="save-solcast-settings" ${this._busy ? "disabled" : ""}>Save</button>
@@ -5628,23 +5795,42 @@ ${this._renderPvStringBlock("pv2")}
 
   _renderSettingsCharts() {
     if (!this._chartsDraft) this._initChartsDraft();
+    const nativeOn = nativeSolcastPvForecastEnabled(this._plantState);
+    if (nativeOn) {
+      const sc = this._plantState?.solcast ?? {};
+      const periods = sc.pv_forecast_periods ?? 0;
+      const remaining = sc.pv_energy_remaining_kwh;
+      const remainingTxt =
+        remaining != null ? `${Number(remaining).toFixed(1)} kWh remaining today` : "energy estimate pending";
+      return `<header class="header"><h1>Charts</h1><p>Statistics graph and Energy → Day overlay</p></header>
+<div class="card">
+<p class="card-title">PV forecast line</p>
+<p class="charts-entity-hint">Native <strong>Solcast rooftop PV</strong> is active — the dashed forecast on power charts comes from Fox Plant (not a separate Solcast integration). Configure arrays under <strong>PV Configuration</strong> and API options under <strong>Solcast</strong>.</p>
+<p class="charts-entity-hint">Status: <strong>${esc(String(periods))}</strong> half-hour periods loaded · ${esc(remainingTxt)}</p>
+<p class="charts-entity-hint">You can disable <strong>Fetch PV forecast</strong> in Solcast settings to fall back to a manual entity below.</p>
+</div>`;
+    }
     const selected = this._chartsDraft.forecast_entity_id || "";
     const candidates = this._forecastCandidates ?? [];
     const options = [
       `<option value="">— None —</option>`,
       ...candidates.map((e) => {
         const unit = e.unit ? ` (${e.unit})` : "";
-        const mark = e.suggested ? " ★" : "";
+        const mark = e.native ? " (Fox Plant)" : e.suggested ? " ★" : "";
         return `<option value="${esc(e.entity_id)}" ${e.entity_id === selected ? "selected" : ""}>${esc(e.name)}${esc(unit)}${mark}</option>`;
       }),
     ];
     const current = selected
       ? stateString(this._hass, selected) + entityUnit(this._hass, selected)
       : "—";
+    const solcastHint = this._plantState?.solcast?.enabled
+      ? `<p class="charts-entity-hint">Tip: enable Solcast with an API key and <strong>Fetch PV forecast</strong> to replace third-party Solcast sensors.</p>`
+      : "";
     return `<header class="header"><h1>Charts</h1><p>Statistics graph and Energy → Day overlay</p></header>
 <div class="card">
 <p class="card-title">PV forecast line</p>
-<p class="charts-entity-hint">Choose a power forecast sensor (e.g. Solcast). Values in <strong>W</strong> are converted to kW automatically; sensors already in <strong>kW</strong> are used as-is.</p>
+<p class="charts-entity-hint">Choose a power forecast sensor (legacy path). Values in <strong>W</strong> are converted to kW automatically; sensors already in <strong>kW</strong> are used as-is.</p>
+${solcastHint}
 <label class="charts-entity-hint" for="fp-forecast-entity">Forecast entity</label>
 <select id="fp-forecast-entity" class="charts-entity-select" data-action="pick-forecast-entity" aria-label="Forecast entity">${options.join("")}</select>
 <p class="charts-entity-hint">Current reading: <strong>${esc(current)}</strong></p>

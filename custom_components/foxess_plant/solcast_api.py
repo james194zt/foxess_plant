@@ -14,6 +14,7 @@ _LOGGER = logging.getLogger(__name__)
 
 SOLCAST_BASE_URL = "https://api.solcast.com.au"
 LIVE_RADIATION_WEATHER = "/data/live/radiation_and_weather"
+LIVE_ROOFTOP_PV = "/data/live/rooftop_pv_power"
 FORECAST_RADIATION_WEATHER = "/data/forecast/radiation_and_weather"
 FORECAST_ROOFTOP_PV = "/data/forecast/rooftop_pv_power"
 
@@ -129,6 +130,33 @@ class SolcastApiClient:
                 "format": "json",
             },
             fallback_output=tuple(p for p in DEFAULT_FORECAST_OUTPUT if p != "weather_type"),
+        )
+
+    async def live_rooftop_pv_power(
+        self,
+        *,
+        latitude: float,
+        longitude: float,
+        capacity_kw: float,
+        tilt: int = 25,
+        azimuth: int = 180,
+        loss_factor: float = 0.9,
+        period: str = "PT30M",
+    ) -> dict[str, Any]:
+        """Live/nowcast rooftop PV power (1 API request)."""
+        return await self._request(
+            LIVE_ROOFTOP_PV,
+            {
+                "latitude": latitude,
+                "longitude": longitude,
+                "capacity": capacity_kw,
+                "tilt": tilt,
+                "azimuth": azimuth,
+                "loss_factor": loss_factor,
+                "period": period,
+                "output_parameters": "pv_power_rooftop",
+                "format": "json",
+            },
         )
 
     async def forecast_rooftop_pv_power(

@@ -41,3 +41,15 @@ Fox Plant will:
 - Use **alert binaries** too if Google provides them in your region
 
 See [STORMSAFE_GOOGLE_WEATHER.md](STORMSAFE_GOOGLE_WEATHER.md) for technical detail.
+
+## Optional: Solcast (rooftop PV forecast only)
+
+Fox Plant uses **Google Weather** for overview conditions and **StormSafe**. Solcast is used only for **rooftop PV power forecasts** (chart overlay and diagnostic sensors), so your 10/day hobbyist quota is not spent on weather.
+
+1. Register a free Solcast **Home PV System** account (10 API requests/day).
+2. Fox Plant → **Settings** → **Solcast** → enable, paste API key, enter **latitude and longitude** copied from one of your **two registered sites** on the [Solcast Locations](https://toolkit.solcast.com.au/account/locations) page (not Home Assistant home coordinates), turn on **Fetch PV forecast**, save.
+3. **Settings** → **PV Configuration** — panel count, wattage, **efficiency** (loss factor), **tilt**, and **azimuth** for each enabled PV string (one API call per unique tilt/azimuth group).
+4. Power charts use the native PV forecast automatically; you can remove a third-party Solcast HA integration and clear **Charts** → forecast entity if you no longer need a fallback.
+5. Diagnostic sensors (e.g. *Solcast PV forecast remaining today*) expose `detailed_forecast` in attributes for automations.
+
+**API budget (typical):** 1–2 calls per refresh (PV1/PV2 with different orientation = 2). In **daylight** mode, Fox Plant reads HA sunrise/sunset, stops polling **1 hour before sunset**, and spaces refreshes evenly across that window (e.g. 10 hours of sun and limit 10 → about one refresh per hour if each refresh uses one API call).

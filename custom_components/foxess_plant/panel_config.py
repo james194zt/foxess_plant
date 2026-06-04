@@ -346,7 +346,11 @@ def list_forecast_entity_candidates(hass: HomeAssistant) -> list[dict[str, Any]]
             continue
         name = state.attributes.get("friendly_name") or state.entity_id
         unit = state.attributes.get("unit_of_measurement")
-        suggested = "solcast" in state.entity_id.lower() or "forecast" in state.entity_id.lower()
+        native = state.attributes.get("source") == "foxess_plant_solcast"
+        if native:
+            suggested = True
+        else:
+            suggested = "solcast" in state.entity_id.lower() or "forecast" in state.entity_id.lower()
         rows.append(
             {
                 "entity_id": state.entity_id,
@@ -354,7 +358,8 @@ def list_forecast_entity_candidates(hass: HomeAssistant) -> list[dict[str, Any]]
                 "state": state.state,
                 "unit": str(unit) if unit else "",
                 "suggested": suggested,
+                "native": native,
             }
         )
-    rows.sort(key=lambda r: (not r["suggested"], r["name"].lower()))
+    rows.sort(key=lambda r: (not r["native"], not r["suggested"], r["name"].lower()))
     return rows

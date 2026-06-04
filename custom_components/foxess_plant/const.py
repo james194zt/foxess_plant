@@ -1,5 +1,7 @@
 """Constants for foxess_plant."""
 
+from datetime import timedelta
+
 DOMAIN = "foxess_plant"
 PLATFORMS = ["sensor", "binary_sensor", "button"]
 
@@ -165,6 +167,12 @@ SOLCAST_AUTO_UPDATE_DAYLIGHT = "daylight"
 SOLCAST_AUTO_UPDATE_ALL_DAY = "all_day"
 
 DEFAULT_SOLCAST_API_LIMIT = 10
+# Match precision shown on Solcast hobbyist site locations (avoid HA extra decimals).
+SOLCAST_COORDINATE_DECIMALS = 4
+SOLCAST_ACCOUNT_LOCATIONS_URL = "https://toolkit.solcast.com.au/account/locations"
+# Stop Solcast PV polls this long before sunset (no useful yield after).
+SOLCAST_POLL_END_BEFORE_SUNSET = timedelta(hours=1)
+SOLCAST_MIN_POLL_INTERVAL = timedelta(minutes=15)
 DEFAULT_STORM_SOLCAST_CAPE_THRESHOLD = 800.0
 DEFAULT_STORM_SOLCAST_PRECIP_MM_H = 2.0
 DEFAULT_STORM_SOLCAST_WEATHER_KEYWORDS: frozenset[str] = frozenset(
@@ -266,6 +274,8 @@ DEFAULT_PV_STRING = {
     "panel_count": 6,
     "watts_per_panel": 450,
     "efficiency_factor": 100.0,
+    "tilt": 25,
+    "azimuth": 180,
 }
 
 DEFAULT_SOLCAST = {
@@ -273,6 +283,7 @@ DEFAULT_SOLCAST = {
     "api_key": None,
     "api_limit": DEFAULT_SOLCAST_API_LIMIT,
     "auto_update": SOLCAST_AUTO_UPDATE_DAYLIGHT,
+    "fetch_pv_forecast": True,
     "latitude": None,
     "longitude": None,
     "period": "PT30M",
@@ -289,6 +300,8 @@ DEFAULT_PV_CONFIG = {
         "panel_count": 1,
         "watts_per_panel": 450,
         "efficiency_factor": 100.0,
+        "tilt": 25,
+        "azimuth": 180,
     },
 }
 

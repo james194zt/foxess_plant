@@ -44,6 +44,8 @@ PV_STRING_SCHEMA = vol.Schema(
         vol.Required("panel_count"): vol.All(vol.Coerce(int), vol.Range(min=1, max=12)),
         vol.Required("watts_per_panel"): vol.All(vol.Coerce(int), vol.Range(min=100, max=1000)),
         vol.Required("efficiency_factor"): vol.All(vol.Coerce(float), vol.Range(min=1, max=100)),
+        vol.Required("tilt"): vol.All(vol.Coerce(int), vol.Range(min=0, max=90)),
+        vol.Required("azimuth"): vol.All(vol.Coerce(int), vol.Range(min=0, max=359)),
     }
 )
 
@@ -63,6 +65,7 @@ SOLCAST_SCHEMA = vol.Schema(
         vol.Optional("latitude"): vol.Any(vol.Coerce(float), None),
         vol.Optional("longitude"): vol.Any(vol.Coerce(float), None),
         vol.Optional("period", default="PT30M"): str,
+        vol.Optional("fetch_pv_forecast", default=True): cv.boolean,
         vol.Optional("fetch_now", default=True): cv.boolean,
     }
 )

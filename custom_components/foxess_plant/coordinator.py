@@ -98,6 +98,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._setup_solcast_timer()
         try:
             await self._async_refresh_storm_weather()
+            await self._async_refresh_solcast_pv()
             await self._sync_automation_policy()
         except Exception as err:
             _LOGGER.warning("Initial automation policy sync failed: %s", err)
@@ -126,9 +127,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if getattr(self, "_unsub_storm_forecast", None):
             self._unsub_storm_forecast()
             self._unsub_storm_forecast = None
-        if getattr(self, "_unsub_solcast", None):
-            self._unsub_solcast()
-            self._unsub_solcast = None
         self._unsub_storm_forecast = async_track_time_interval(
             self.hass,
             self._storm_forecast_timer_callback,
@@ -146,38 +144,36 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._unsub_solcast = async_track_time_interval(
             self.hass,
             self._solcast_timer_callback,
-            timedelta(minutes=30),
+            timedelta(minutes=5),
         )
 
     @callback
     def _solcast_timer_callback(self, _now) -> None:
-        self.hass.async_create_task(self._async_refresh_storm_weather())
+        self.hass.async_create_task(self._async_refresh_solcast_pv())
 
-    def _solcast_active(self) -> bool:
+    def _solcast_pv_active(self) -> bool:
         sc = self.plant.solcast
-        return bool(sc.enabled and sc.api_key_configured())
+        return bool(
+            sc.enabled
+            and sc.api_key_configured()
+            and sc.fetch_pv_forecast
+            and sc.coordinates_configured()
+        )
+
+    async def _async_refresh_solcast_pv(self, *, force: bool = False) -> None:
+        """Poll Solcast rooftop PV forecast (Google Weather handles storms/overview)."""
+        if not self._solcast_pv_active():
+            return
+        from .solcast_poll import async_refresh_solcast
+
+        self._solcast_cache = await async_refresh_solcast(
+            self.hass, self.plant, self._solcast_cache, force=force
+        )
+        self._persist_solcast_usage()
+        await self.async_request_refresh()
 
     async def _async_refresh_storm_weather(self) -> None:
-        """Re-evaluate weather for StormSafe (Solcast or Google Weather fallback)."""
-        if self._solcast_active():
-            from .solcast_poll import async_refresh_solcast, evaluate_solcast_storm_forecast
-
-            self._solcast_cache = await async_refresh_solcast(
-                self.hass, self.plant, self._solcast_cache
-            )
-            cfg = self.plant.storm_prep
-            if cfg.enabled and cfg.use_forecast_lead:
-                active, detail = evaluate_solcast_storm_forecast(self.plant, self._solcast_cache)
-                self._storm_forecast_active = active
-                self._storm_forecast_detail = detail
-            else:
-                self._storm_forecast_active = False
-                self._storm_forecast_detail = {}
-            self._persist_solcast_usage()
-            self._sync_trigger_membership()
-            await self._sync_automation_policy()
-            return
-
+        """Re-evaluate StormSafe using Google Weather (hourly forecast + condition sensors)."""
         from .storm_forecast import async_storm_in_forecast_window
 
         cfg = self.plant.storm_prep
@@ -235,22 +231,16 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _sync_storm_condition_trigger(self) -> None:
         cfg = self.plant.storm_prep
-        watch = {cfg.condition_entity_id, cfg.weather_entity_id, "solcast_live_weather"} - {None}
+        watch = {cfg.condition_entity_id, cfg.weather_entity_id} - {None}
         for eid in list(self._active_storm_triggers):
             if eid in watch:
                 self._active_storm_triggers.discard(eid)
         if self._is_storm_condition_active():
-            if self._solcast_active():
-                self._active_storm_triggers.add("solcast_live_weather")
-            else:
-                entity_id = cfg.condition_entity_id or cfg.weather_entity_id
-                if entity_id:
-                    self._active_storm_triggers.add(entity_id)
-        if self._storm_forecast_active:
-            if self._solcast_active():
-                self._active_storm_triggers.add("solcast_forecast_weather")
-            elif cfg.weather_entity_id:
-                self._active_storm_triggers.add(cfg.weather_entity_id)
+            entity_id = cfg.condition_entity_id or cfg.weather_entity_id
+            if entity_id:
+                self._active_storm_triggers.add(entity_id)
+        if self._storm_forecast_active and cfg.weather_entity_id:
+            self._active_storm_triggers.add(cfg.weather_entity_id)
 
     def _is_binary_trigger_active(self, entity_id: str) -> bool:
         state = self.hass.states.get(entity_id)
@@ -259,11 +249,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return state.state.lower() in TRIGGER_ON_STATES
 
     def _is_storm_condition_active(self) -> bool:
-        if self._solcast_active():
-            from .solcast_poll import evaluate_solcast_storm_live
-
-            return evaluate_solcast_storm_live(self._solcast_cache)
-
         from .storm_weather import is_storm_weather_active
 
         cfg = self.plant.storm_prep
@@ -464,44 +449,19 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         from .storm_weather import read_condition_snapshot
 
         out = self.plant.storm_prep.to_dict()
-        if self._solcast_active():
-            from .solcast_weather import parse_live_overview
-
-            live = parse_live_overview(self._solcast_cache.get("live"))
-            out["weather_provider"] = "solcast"
-            out["current_condition"] = (
-                {
-                    "source": "solcast_live",
-                    "text": live.get("condition_label") if live else "—",
-                    "type": live.get("condition_type") if live else None,
-                    "is_storm": self._is_storm_condition_active(),
-                    "label": live.get("condition_label") if live else "Solcast",
-                }
-                if live
-                else None
-            )
-        else:
-            out["weather_provider"] = "google_weather"
-            snap = read_condition_snapshot(
-                self.hass,
-                self.plant.storm_prep.condition_entity_id,
-                self.plant.storm_prep.weather_entity_id,
-                storm_types=self.plant.storm_prep.storm_google_types,
-            )
-            out["current_condition"] = snap
+        out["weather_provider"] = "google_weather"
+        out["current_condition"] = read_condition_snapshot(
+            self.hass,
+            self.plant.storm_prep.condition_entity_id,
+            self.plant.storm_prep.weather_entity_id,
+            storm_types=self.plant.storm_prep.storm_google_types,
+        )
         out["condition_active"] = self._is_storm_condition_active()
         out["forecast_active"] = self._storm_forecast_active
         out["forecast_detail"] = self._storm_forecast_detail
         return out
 
     def _overview_weather_state(self) -> dict[str, Any] | None:
-        if self._solcast_active():
-            from .solcast_weather import read_overview_from_solcast_cache
-
-            overview = read_overview_from_solcast_cache(self._solcast_cache)
-            if overview:
-                return overview
-
         from .storm_weather import read_overview_weather
 
         return read_overview_weather(self.hass, self.plant.storm_prep)
@@ -509,7 +469,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _solcast_state(self) -> dict[str, Any]:
         from .solcast_poll import solcast_status_dict
 
-        return solcast_status_dict(self.plant.solcast, self._solcast_cache)
+        return solcast_status_dict(
+            self.plant.solcast, self._solcast_cache, plant=self.plant, hass=self.hass
+        )
 
     def get_plant_state(self) -> dict[str, Any]:
         from .panel import get_panel_disk_info
@@ -834,13 +796,26 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         data[CONF_PV_CONFIG] = PvSystemConfig.from_dict(pv_config).to_dict()
         self.hass.config_entries.async_update_entry(self.config_entry, data=data)
         self.update_plant_config(PlantConfig.from_entry_data(data))
+        if self._solcast_pv_active():
+            await self._async_refresh_solcast_pv(force=True)
         await self.async_request_refresh()
 
     async def async_save_solcast(self, *, solcast: dict[str, Any], fetch_now: bool = True) -> None:
         """Persist Solcast API settings from the panel."""
+        from .solcast_weather import parse_solcast_coordinates
+
         fetch_now = bool(solcast.pop("fetch_now", fetch_now))
         current = self.plant.solcast.to_dict()
         merged = {**current, **solcast}
+        if merged.get("enabled"):
+            coords = parse_solcast_coordinates(merged.get("latitude"), merged.get("longitude"))
+            if coords is None:
+                raise HomeAssistantError(
+                    "Solcast latitude and longitude are required when enabled. "
+                    "Copy the values exactly from one of your two registered locations "
+                    "on the Solcast website (not Home Assistant home coordinates)."
+                )
+            merged["latitude"], merged["longitude"] = coords
         if "api_key" in solcast:
             raw_key = solcast.get("api_key")
             if raw_key and str(raw_key).strip() and str(raw_key) not in ("********", "••••••••"):
@@ -851,8 +826,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         data[CONF_SOLCAST] = SolcastConfig.from_dict(merged).to_dict()
         self.hass.config_entries.async_update_entry(self.config_entry, data=data)
         self.update_plant_config(PlantConfig.from_entry_data(data))
-        if fetch_now and self.plant.solcast.enabled:
-            await self._async_refresh_storm_weather()
+        if fetch_now and self._solcast_pv_active():
+            await self._async_refresh_solcast_pv(force=True)
         await self.async_request_refresh()
 
     async def async_test_solcast(self) -> dict[str, Any]:
@@ -862,7 +837,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self.plant.solcast.api_key_configured():
             raise HomeAssistantError("Solcast API key is not configured")
         test_result = await async_test_solcast_connection(self.hass, self.plant.solcast)
-        status = solcast_status_dict(self.plant.solcast, self._solcast_cache)
+        status = solcast_status_dict(
+            self.plant.solcast, self._solcast_cache, plant=self.plant, hass=self.hass
+        )
         status.update(test_result)
         if not test_result.get("test_ok"):
             raise HomeAssistantError(test_result.get("error") or "Solcast test failed")

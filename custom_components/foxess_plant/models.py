@@ -240,6 +240,8 @@ class PvStringConfig:
     panel_count: int = 6
     watts_per_panel: int = 450
     efficiency_factor: float = 100.0
+    tilt: int = 25
+    azimuth: int = 180
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], *, defaults: dict[str, Any] | None = None) -> PvStringConfig:
@@ -262,11 +264,23 @@ class PvStringConfig:
         panel_count = max(1, min(12, panel_count))
         watts_per_panel = max(100, min(1000, watts_per_panel))
         efficiency_factor = max(1.0, min(100.0, efficiency_factor))
+        try:
+            tilt = int(data.get("tilt", base.get("tilt", 25)))
+        except (TypeError, ValueError):
+            tilt = 25
+        try:
+            azimuth = int(data.get("azimuth", base.get("azimuth", 180)))
+        except (TypeError, ValueError):
+            azimuth = 180
+        tilt = max(0, min(90, tilt))
+        azimuth = max(0, min(359, azimuth))
         return cls(
             enabled=bool(data.get("enabled", base.get("enabled", True))),
             panel_count=panel_count,
             watts_per_panel=watts_per_panel,
             efficiency_factor=efficiency_factor,
+            tilt=tilt,
+            azimuth=azimuth,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -275,6 +289,8 @@ class PvStringConfig:
             "panel_count": self.panel_count,
             "watts_per_panel": self.watts_per_panel,
             "efficiency_factor": self.efficiency_factor,
+            "tilt": self.tilt,
+            "azimuth": self.azimuth,
         }
 
     @property
@@ -297,6 +313,7 @@ class SolcastConfig:
     latitude: float | None = None
     longitude: float | None = None
     period: str = "PT30M"
+    fetch_pv_forecast: bool = True
     api_used_today: int = 0
     api_used_date: str | None = None
     last_fetch_at: str | None = None
@@ -316,16 +333,19 @@ class SolcastConfig:
         auto = str(data.get("auto_update", base.get("auto_update", SOLCAST_AUTO_UPDATE_DAYLIGHT)))
         if auto not in ("daylight", "all_day"):
             auto = SOLCAST_AUTO_UPDATE_DAYLIGHT
-        lat = data.get("latitude")
-        lon = data.get("longitude")
+        from .solcast_weather import parse_solcast_coordinates
+
+        coords = parse_solcast_coordinates(data.get("latitude"), data.get("longitude"))
+        lat, lon = coords if coords else (None, None)
         return cls(
             enabled=bool(data.get("enabled", base.get("enabled", False))),
             api_key=str(data["api_key"]) if data.get("api_key") else None,
             api_limit=api_limit,
             auto_update=auto,
-            latitude=float(lat) if lat is not None else None,
-            longitude=float(lon) if lon is not None else None,
+            latitude=lat,
+            longitude=lon,
             period=str(data.get("period", base.get("period", "PT30M"))),
+            fetch_pv_forecast=bool(data.get("fetch_pv_forecast", base.get("fetch_pv_forecast", True))),
             api_used_today=int(data.get("api_used_today", 0) or 0),
             api_used_date=data.get("api_used_date"),
             last_fetch_at=data.get("last_fetch_at"),
@@ -340,6 +360,7 @@ class SolcastConfig:
             "latitude": self.latitude,
             "longitude": self.longitude,
             "period": self.period,
+            "fetch_pv_forecast": self.fetch_pv_forecast,
             "api_used_today": self.api_used_today,
             "api_used_date": self.api_used_date,
             "last_fetch_at": self.last_fetch_at,
@@ -349,10 +370,16 @@ class SolcastConfig:
             out["api_key"] = self.api_key
         else:
             out["api_key_set"] = bool(self.api_key)
+        out["coordinates_configured"] = self.coordinates_configured()
         return out
 
     def api_key_configured(self) -> bool:
         return bool(self.api_key and str(self.api_key).strip())
+
+    def coordinates_configured(self) -> bool:
+        from .solcast_weather import parse_solcast_coordinates
+
+        return parse_solcast_coordinates(self.latitude, self.longitude) is not None
 
 
 @dataclass
