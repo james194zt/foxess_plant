@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.15
+ * @version 0.9.17
  */
 
 const NAV = [
@@ -443,6 +443,21 @@ function pvStringSummary(cfg) {
   return `${cfg.panel_count} panels · ${cfg.watts_per_panel} W · ${kw.toFixed(2)} kW · ${cfg.tilt}°/${cfg.azimuth}°`;
 }
 
+/** Effective DC kW cap from PV configuration (panels × W × efficiency). */
+function pvStringEffectiveMaxKw(cfg) {
+  if (!cfg?.enabled) return 0;
+  const dcW = cfg.panel_count * cfg.watts_per_panel * (cfg.efficiency_factor / 100);
+  return Math.max(0.01, dcW / 1000);
+}
+
+function enabledPvStrings(pvConfig) {
+  const cfg = normalizePvConfig(pvConfig);
+  const out = [];
+  if (cfg.pv1?.enabled) out.push({ key: "pv1", label: "PV1", cfg: cfg.pv1 });
+  if (cfg.pv2?.enabled) out.push({ key: "pv2", label: "PV2", cfg: cfg.pv2 });
+  return out;
+}
+
 function parseSolcastCoordinateInput(raw) {
   const v = parseFloat(String(raw ?? "").trim());
   return Number.isFinite(v) ? v : null;
@@ -628,8 +643,8 @@ function deviceBatteryToneClass(status) {
   return "is-idle";
 }
 
-/** 270° arc gauge (gap at bottom), Fox app PV style. */
-function renderPvThreeQuarterGauge(pvKw, maxKw, valueText, labelText) {
+/** 270° arc gauge (gap at bottom), Fox app PV style. Fill = live kW ÷ configured effective max kW. */
+function renderPvThreeQuarterGauge(pvKw, maxKw, valueText, labelText, pctOfMax) {
   const r = 42;
   const cx = 50;
   const cy = 52;
@@ -639,15 +654,65 @@ function renderPvThreeQuarterGauge(pvKw, maxKw, valueText, labelText) {
   const rot = 135;
   const pct = maxKw > 0 ? Math.min(1, Math.max(0, pvKw / maxKw)) : 0;
   const fillLen = arcLen * pct;
+  const pctLabel =
+    pctOfMax != null && Number.isFinite(pctOfMax)
+      ? `${Math.round(pctOfMax)}% of ${maxKw < 10 ? maxKw.toFixed(2) : maxKw.toFixed(1)} kW`
+      : maxKw > 0
+        ? `${Math.round(pct * 100)}% of ${maxKw < 10 ? maxKw.toFixed(2) : maxKw.toFixed(1)} kW`
+        : "";
   const track = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--divider-color)" stroke-width="9" stroke-linecap="round" stroke-dasharray="${arcLen} ${gapLen}" transform="rotate(${rot} ${cx} ${cy})"/>`;
   const fill =
     fillLen > 0.5
       ? `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--fp-accent)" stroke-width="9" stroke-linecap="round" stroke-dasharray="${fillLen} ${circ - fillLen}" transform="rotate(${rot} ${cx} ${cy})"/>`
       : "";
-  return `<div class="device-pv-wrap" role="img" aria-label="${esc(labelText)} ${esc(valueText)}">
+  const sub = pctLabel ? `<div class="device-pv-cap">${esc(pctLabel)}</div>` : "";
+  return `<div class="device-pv-wrap" role="img" aria-label="${esc(labelText)} ${esc(valueText)} ${esc(pctLabel)}">
 <div class="device-pv-gauge"><svg viewBox="0 0 100 104" aria-hidden="true">${track}${fill}</svg></div>
-<div class="device-pv-readout"><div class="device-pv-value">${esc(valueText)}</div><div class="device-pv-label">${esc(labelText)}</div></div>
+<div class="device-pv-readout"><div class="device-pv-value">${esc(valueText)}</div><div class="device-pv-label">${esc(labelText)}</div>${sub}</div>
 </div>`;
+}
+
+function resolvePvStringPowerEntity(hass, map, which) {
+  const key = which === "pv2" ? "pv2_power" : "pv1_power";
+  const suffix = which === "pv2" ? "pv2_power" : "pv1_power";
+  if (map[key] && hass?.states?.[map[key]]) return map[key];
+  if (!hass?.states) return map[key] || null;
+  const ids = Object.keys(hass.states);
+  const hit = ids.find((id) => entityIdMatchesSuffix(id, suffix));
+  return hit || (which === "pv1" ? map.pv_power : null) || null;
+}
+
+function renderDevicePvGaugeInner(hass, map, { key, label, cfg }) {
+  const entityId = resolvePvStringPowerEntity(hass, map, key);
+  const watts = entityId ? statePowerWatts(hass, entityId) : 0;
+  const liveKw = watts / 1000;
+  const maxKw = pvStringEffectiveMaxKw(cfg);
+  const pct = maxKw > 0 ? Math.min(100, (liveKw / maxKw) * 100) : 0;
+  return renderPvThreeQuarterGauge(liveKw, maxKw, formatDevicePowerKw(watts), label, pct);
+}
+
+/** One PV card (left column): 1 centred gauge or 2 side-by-side; battery stays in the right column. */
+function renderDevicePvCard(hass, plant, plantState) {
+  const map = resolveEntityMap(hass, plant, plantState);
+  const strings = enabledPvStrings(plantState?.pv_config);
+  if (!strings.length) {
+    const flows = readEnergyFlows(hass, plant, plantState);
+    const cfg = normalizePvConfig(plantState?.pv_config).pv1;
+    const maxKw = pvStringEffectiveMaxKw(cfg);
+    const liveKw = flows.pvW / 1000;
+    const pct = maxKw > 0 ? Math.min(100, (liveKw / maxKw) * 100) : 0;
+    const gauge = renderPvThreeQuarterGauge(
+      liveKw,
+      maxKw,
+      formatDevicePowerKw(flows.pvW),
+      "PV1",
+      pct
+    );
+    return `<div class="device-card device-card--pv"><div class="device-pv-gauges device-pv-gauges--single">${gauge}</div></div>`;
+  }
+  const layoutClass = strings.length > 1 ? "device-pv-gauges--dual" : "device-pv-gauges--single";
+  const gauges = strings.map((s) => renderDevicePvGaugeInner(hass, map, s)).join("");
+  return `<div class="device-card device-card--pv"><div class="device-pv-gauges ${layoutClass}">${gauges}</div></div>`;
 }
 
 function renderDeviceBatteryIcon(socPct) {
@@ -917,6 +982,8 @@ function endOfLocalDay(d) {
 
 /** Merge plant config map with live WS state and hass.states fallbacks (matches Lovelace entity ids). */
 const CHART_ENTITY_FALLBACKS = {
+  pv1_power: ["pv1_power"],
+  pv2_power: ["pv2_power"],
   pv_power: ["pv1_power", "pv_power", "pv_power_total", "pv_power_evo_10", "pv_power_now"],
   battery_charge: ["battery_charge_1", "battery_charge"],
   battery_discharge: ["battery_discharge_1", "battery_discharge"],
@@ -2276,8 +2343,6 @@ function impactIconUrl(icon) {
   const path = IMPACT_ICON_PATHS[icon];
   return path ? `${path}?v=${IMPACT_ICON_ASSET_VER}` : "";
 }
-const DEVICE_PV_GAUGE_MAX_KW = 5;
-
 let _brandsAccessToken;
 
 async function ensureBrandsAccessToken(hass) {
@@ -2926,14 +2991,31 @@ const STYLES = `
   border: 1px solid var(--divider-color, rgba(127,127,127,0.28));
   min-height: 0; display: flex; flex-direction: column; box-sizing: border-box;
 }
-.device-card--gauge { align-items: center; justify-content: flex-start; }
+.device-card--pv { align-items: stretch; justify-content: center; min-height: 100%; }
 .device-card--battery { align-items: stretch; justify-content: flex-start; }
+.device-pv-gauges {
+  width: 100%; display: flex; flex-wrap: nowrap; align-items: flex-start;
+  box-sizing: border-box;
+}
+.device-pv-gauges--single { justify-content: center; }
+.device-pv-gauges--single .device-pv-wrap { flex: 0 1 auto; width: 100%; max-width: 160px; }
+.device-pv-gauges--dual {
+  justify-content: center; gap: 4px 8px; padding: 0 2px;
+}
+.device-pv-gauges--dual .device-pv-wrap {
+  flex: 1 1 0; min-width: 0; max-width: 50%;
+}
+.device-pv-gauges--dual .device-pv-gauge { max-width: 108px; }
+.device-pv-gauges--dual .device-pv-value { font-size: 17px; }
+.device-pv-gauges--dual .device-pv-label { font-size: 12px; margin-top: 6px; }
+.device-pv-gauges--dual .device-pv-cap { font-size: 10px; line-height: 1.25; }
 .device-pv-wrap { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .device-pv-gauge { width: 100%; max-width: 140px; aspect-ratio: 100 / 104; flex-shrink: 0; }
 .device-pv-gauge svg { width: 100%; height: 100%; display: block; }
-.device-pv-readout { text-align: center; width: 100%; }
+.device-pv-readout { text-align: center; width: 100%; min-width: 0; }
 .device-pv-value { font-size: 22px; font-weight: 700; line-height: 1.25; letter-spacing: -0.02em; margin: 0; }
 .device-pv-label { font-size: 13px; color: var(--secondary-text-color); font-weight: 500; line-height: 1.4; margin: 8px 0 0; }
+.device-pv-cap { font-size: 11px; color: var(--secondary-text-color); line-height: 1.35; margin: 4px 0 0; opacity: 0.9; }
 .device-battery-card { width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 0; }
 .device-battery-top {
   display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
@@ -3163,7 +3245,9 @@ const STYLES = `
 }
 @media (max-width: 720px) {
   .device-grid { grid-template-columns: 1fr; gap: 12px; }
-  .device-card--gauge, .device-card--battery { padding: 20px 20px 22px; }
+  .device-card--pv, .device-card--battery { padding: 20px 20px 22px; }
+  .device-pv-gauges--dual .device-pv-gauge { max-width: 120px; }
+  .device-pv-gauges--dual .device-pv-value { font-size: 18px; }
   .device-pv-gauge { max-width: 160px; }
   .device-pv-value { font-size: 24px; }
   .device-battery-pct { font-size: 32px; }
@@ -5103,7 +5187,7 @@ ${this._renderOverviewAfterHero(plant)}`;
       })}`;
     }
     const flows = readEnergyFlows(this._hass, plant, this._plantState);
-    const pvKw = flows.pvW / 1000;
+    const pvCard = renderDevicePvCard(this._hass, plant, this._plantState);
     const map = resolveEntityMap(this._hass, plant, this._plantState);
     const tempRaw = stateString(this._hass, map.bms_temp_low);
     const tempDisplay = tempRaw !== "—" ? `${tempRaw}℃` : "—";
@@ -5122,7 +5206,7 @@ ${this._renderOverviewAfterHero(plant)}`;
 ${statusPill}
 <div class="device-hero"><img class="device-hero-img" src="${esc(DEVICE_EVO_IMAGE_STATIC)}" alt="${esc(modelLine !== "—" ? modelLine : "Inverter")}" loading="lazy" />${serialRow}</div>
 <div class="device-grid">
-<div class="device-card device-card--gauge">${renderPvThreeQuarterGauge(pvKw, DEVICE_PV_GAUGE_MAX_KW, formatDevicePowerKw(flows.pvW), "PV Power")}</div>
+${pvCard}
 <div class="device-card device-card--battery">${renderDeviceBatteryCard(flows, tempDisplay)}</div>
 </div>
 ${renderListButton({ action: "device-sub", sub: "parameters" }, "Detailed parameters", "Live Modbus values")}

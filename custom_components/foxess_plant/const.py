@@ -80,6 +80,8 @@ IDENTITY_ENTITY_SUFFIXES: dict[str, tuple[str, ...]] = {
 }
 
 PANEL_ENTITY_SUFFIXES: dict[str, tuple[str, ...]] = {
+    "pv1_power": ("pv1_power",),
+    "pv2_power": ("pv2_power",),
     "pv_power": ("pv1_power", "pv_power", "pv_power_total", "pv_power_evo_10"),
     "load_power": ("load_power", "load_power_total"),
     "grid_import": ("grid_consumption",),
