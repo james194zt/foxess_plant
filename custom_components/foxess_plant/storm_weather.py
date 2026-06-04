@@ -175,45 +175,90 @@ def storm_type_catalog() -> list[dict[str, str]]:
     ]
 
 
-def _weather_icon_key(condition_type: str | None, *, source: str) -> str:
-    if not condition_type:
-        return "unknown"
-    if source == "google_type":
-        token = condition_type.upper()
-        if any(k in token for k in ("THUNDER", "TORNADO", "HURRICANE", "TROPICAL")):
-            return "storm"
-        if any(k in token for k in ("RAIN", "DRIZZLE", "SHOWER")):
-            return "rain"
-        if any(k in token for k in ("SNOW", "BLIZZARD", "SLEET", "ICE")):
-            return "snow"
-        if any(k in token for k in ("FOG", "MIST", "HAZE", "SMOG")):
-            return "fog"
-        if any(k in token for k in ("WIND", "GALE", "BREEZE")):
-            return "wind"
-        if "PARTLY" in token or "INTERMITTENT" in token:
-            return "partly-cloudy"
-        if any(k in token for k in ("CLOUD", "OVERCAST")):
-            return "cloudy"
-        if any(k in token for k in ("CLEAR", "SUNNY", "FAIR")):
-            return "sunny"
-        return "unknown"
-    token = condition_type.lower()
-    if token in {"lightning", "lightning-rainy", "exceptional"}:
+def _weather_icon_key_from_text(text: str | None) -> str | None:
+    """Infer icon from localized condition text (Google sensor state)."""
+    if not text:
+        return None
+    normalized = text.strip().lower().replace("-", " ").replace("_", " ")
+    if any(
+        phrase in normalized
+        for phrase in (
+            "thunder",
+            "tornado",
+            "hurricane",
+            "tropical storm",
+            "severe",
+        )
+    ):
         return "storm"
-    if token in {"rainy", "pouring"}:
+    if any(phrase in normalized for phrase in ("rain", "drizzle", "shower", "precipitation")):
         return "rain"
-    if token in {"snowy", "snowy-rainy"}:
+    if any(phrase in normalized for phrase in ("snow", "blizzard", "sleet", "ice", "hail")):
         return "snow"
-    if token == "fog":
+    if any(phrase in normalized for phrase in ("fog", "mist", "haze", "smog")):
         return "fog"
-    if token in {"windy", "windy-variant", "hail"}:
+    if "wind" in normalized or "gale" in normalized or "breeze" in normalized:
         return "wind"
-    if token == "partlycloudy":
+    if "mostly cloudy" in normalized or "overcast" in normalized:
         return "partly-cloudy"
-    if token == "cloudy":
+    if "partly" in normalized or "intermittent" in normalized:
+        return "partly-cloudy"
+    if "cloud" in normalized:
         return "cloudy"
-    if token == "sunny":
+    if any(phrase in normalized for phrase in ("clear", "sunny", "fair")):
         return "sunny"
+    return None
+
+
+def _weather_icon_key(
+    condition_type: str | None,
+    *,
+    source: str,
+    text: str | None = None,
+) -> str:
+    if condition_type:
+        if source == "google_type":
+            token = condition_type.upper()
+            if any(k in token for k in ("THUNDER", "TORNADO", "HURRICANE", "TROPICAL")):
+                return "storm"
+            if any(k in token for k in ("RAIN", "DRIZZLE", "SHOWER")):
+                return "rain"
+            if any(k in token for k in ("SNOW", "BLIZZARD", "SLEET", "ICE")):
+                return "snow"
+            if any(k in token for k in ("FOG", "MIST", "HAZE", "SMOG")):
+                return "fog"
+            if any(k in token for k in ("WIND", "GALE", "BREEZE")):
+                return "wind"
+            if "MOSTLY" in token and "CLOUD" in token:
+                return "partly-cloudy"
+            if "PARTLY" in token or "INTERMITTENT" in token:
+                return "partly-cloudy"
+            if any(k in token for k in ("CLOUD", "OVERCAST")):
+                return "cloudy"
+            if any(k in token for k in ("CLEAR", "SUNNY", "FAIR")):
+                return "sunny"
+        else:
+            token = condition_type.lower()
+            if token in {"lightning", "lightning-rainy", "exceptional", "hurricane"}:
+                return "storm"
+            if token in {"rainy", "pouring"}:
+                return "rain"
+            if token in {"snowy", "snowy-rainy"}:
+                return "snow"
+            if token == "fog":
+                return "fog"
+            if token in {"windy", "windy-variant", "hail"}:
+                return "wind"
+            if token in {"partlycloudy", "partly-cloudy"}:
+                return "partly-cloudy"
+            if token == "cloudy":
+                return "cloudy"
+            if token in {"sunny", "clear-night"}:
+                return "sunny"
+
+    from_text = _weather_icon_key_from_text(text)
+    if from_text:
+        return from_text
     return "unknown"
 
 
@@ -299,7 +344,16 @@ def read_overview_weather(hass: HomeAssistant, storm_prep: Any) -> dict[str, Any
 
     source = (snap or {}).get("source") or "ha_condition"
     condition_type = (snap or {}).get("type")
-    icon_key = _weather_icon_key(condition_type, source=source)
+    condition_text = (snap or {}).get("text")
+    icon_key = _weather_icon_key(condition_type, source=source, text=condition_text)
+    if icon_key == "unknown" and weather_entity_id:
+        weather_state = hass.states.get(weather_entity_id)
+        if weather_state and weather_state.state not in ("unknown", "unavailable"):
+            icon_key = _weather_icon_key(
+                weather_state.state,
+                source="ha_condition",
+                text=condition_text,
+            )
     return {
         "temperature": temperature,
         "temperature_unit": temperature_unit,

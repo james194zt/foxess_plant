@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.156
+ * @version 0.8.157
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.8.156";
+const PANEL_VERSION = "0.8.157";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -395,7 +395,10 @@ function overviewWeatherIconSvg(iconKey) {
   if (key === "wind") {
     return `<svg class="overview-weather-icon" viewBox="0 0 24 24" aria-hidden="true"><g stroke="#8ea0b4" stroke-width="1.8" stroke-linecap="round" fill="none"><path d="M4 8h11a3 3 0 1 0-3-3M4 13h13a2.5 2.5 0 1 1 0 5H4M4 18h9"/></g></svg>`;
   }
-  return `<svg class="overview-weather-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="#f5bc00"/><g stroke="#f5bc00" stroke-width="2" stroke-linecap="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></g></svg>`;
+  if (key === "sunny") {
+    return `<svg class="overview-weather-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="#f5bc00"/><g stroke="#f5bc00" stroke-width="2" stroke-linecap="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></g></svg>`;
+  }
+  return `<svg class="overview-weather-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18h11a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6-1.2A3.8 3.8 0 0 0 7 18z" fill="#b0b8c4"/></svg>`;
 }
 
 function entityUnit(hass, entityId) {
