@@ -530,6 +530,24 @@ function nativeSolcastPvForecastEnabled(plantState) {
   );
 }
 
+/** Chart overlay: use persisted detailed_forecast even before hobbyist bindings re-resolve. */
+function statisticsSolcastForecastEnabled(plantState) {
+  const sc = plantState?.solcast;
+  if (!solcastEnabledFromLive(sc) || sc?.fetch_pv_forecast === false) return false;
+  const rows = sc?.detailed_forecast;
+  if (Array.isArray(rows) && rows.length >= 2) return true;
+  return nativeSolcastPvForecastEnabled(plantState);
+}
+
+function solcastForecastChartKey(sc) {
+  if (!sc) return "";
+  const df = sc.detailed_forecast;
+  const n = Array.isArray(df) ? df.length : 0;
+  const first = n ? String(df[0]?.period_start ?? "") : "";
+  const last = n ? String(df[n - 1]?.period_start ?? "") : "";
+  return `${Boolean(sc.forecast_persisted)}|${sc.pv_forecast_periods ?? 0}|${n}|${first}|${last}`;
+}
+
 function forecastChartEndMs(range, rawPoints) {
   if (rawPoints?.length) {
     const lastT = rawPoints[rawPoints.length - 1].t;
@@ -1574,7 +1592,7 @@ function interpolatePointsToPeriod(points, periodMs, originMs, endMs) {
 
 /** PV forecast overlay from Fox Plant native Solcast state only (no third-party HA integration). */
 function buildForecastSeriesPoints(plantState, range) {
-  if (!nativeSolcastPvForecastEnabled(plantState)) return [];
+  if (!statisticsSolcastForecastEnabled(plantState)) return [];
   return nativeSolcastForecastPoints(plantState, range);
 }
 
@@ -1586,7 +1604,7 @@ async function fetchStatisticsChartSeries(hass, plant, plantState) {
   if (!specs.length) {
     return { empty: "Map power entities in FoxESS Modbus, then reload FoxESS Plant." };
   }
-  const useNativeForecast = nativeSolcastPvForecastEnabled(plantState);
+  const useNativeForecast = statisticsSolcastForecastEnabled(plantState);
   const entityIds = specs.map((s) => s.entity_id);
   const now = new Date();
   const start = startOfLocalDay(now);
@@ -3227,7 +3245,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._statisticsChart = null;
     this._statisticsChartLoading = false;
     this._statisticsChartPlantId = undefined;
-    this._statisticsSolcastPeriods = undefined;
+    this._statisticsSolcastKey = undefined;
     this._overviewDaily = null;
     this._overviewDailyLoading = false;
     this._overviewDailyPlantId = undefined;
@@ -3534,20 +3552,26 @@ Reloading panel registration…
     else if (field.endsWith(":watts_per_panel")) label.textContent = `${el.value} W`;
   }
 
+  _statisticsChartVisible() {
+    return (
+      this._view === "overview" ||
+      (this._view === "energy" && this._energyPeriod === "day")
+    );
+  }
+
   _invalidateStatisticsChartForSolcast() {
-    const periods = this._plantState?.solcast?.pv_forecast_periods ?? 0;
-    if (this._statisticsSolcastPeriods === periods) return;
-    this._statisticsSolcastPeriods = periods;
-    if (this._view !== "overview") return;
+    const key = solcastForecastChartKey(this._plantState?.solcast);
+    if (this._statisticsSolcastKey === key) return;
+    this._statisticsSolcastKey = key;
     this._statisticsChart = null;
     this._statisticsChartPlantId = undefined;
   }
 
-  _reloadStatisticsChartIfOverview() {
-    if (this._view !== "overview") return;
+  _reloadStatisticsChartWhenVisible() {
+    if (!this._statisticsChartVisible()) return;
     this._statisticsChart = null;
     this._statisticsChartPlantId = undefined;
-    this._statisticsSolcastPeriods = undefined;
+    this._statisticsSolcastKey = undefined;
     void this._loadStatisticsChart();
   }
 
@@ -3810,7 +3834,7 @@ Reloading panel registration…
       }
       this._initSolcastDraft();
       this._showToast("Solcast settings saved");
-      this._reloadStatisticsChartIfOverview();
+      this._reloadStatisticsChartWhenVisible();
     } catch (err) {
       this._showToast(err?.message || "Save failed", "err");
     } finally {
@@ -3853,7 +3877,7 @@ Reloading panel registration…
       });
       if (res?.plant_state) this._plantState = res.plant_state;
       this._initSolcastDraft();
-      this._reloadStatisticsChartIfOverview();
+      this._reloadStatisticsChartWhenVisible();
       const sc = res?.solcast ?? {};
       const summary = sc.live_summary;
       const match = sc.test_match_note || summary?.match_note;
@@ -5130,7 +5154,7 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     this._statisticsChartPlantId = plantId;
     this._scheduleRender();
     try {
-      if (!this._plantState) await this._refreshPlantState();
+      await this._refreshPlantState();
       const chart = await this._fetchStatisticsChartData(plant);
       this._statisticsChart = chart;
     } catch (err) {
