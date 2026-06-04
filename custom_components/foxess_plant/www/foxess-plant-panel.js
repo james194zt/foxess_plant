@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.1
+ * @version 0.9.2
  */
 
 const NAV = [
@@ -54,7 +54,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.1";
+const PANEL_VERSION = "0.9.2";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -2708,18 +2708,18 @@ const STYLES = `
   letter-spacing: -0.01em;
 }
 .fox-flow-badge-solar { left: 50%; top: 1%; transform: translateX(-50%); }
-.fox-flow-scene--light-sky .fox-flow-badge-solar .fox-flow-badge-label {
-  color: rgba(0, 0, 0, 0.58);
+/* Day sky is light — solar label sits on the backdrop, not the dark house stage */
+.fox-flow-scene--day .fox-flow-badge-solar .fox-flow-badge-label {
+  color: rgba(30, 30, 30, 0.72);
 }
-.fox-flow-scene--light-sky .fox-flow-badge-solar .fox-flow-badge-value {
-  color: #141414;
+.fox-flow-scene--day .fox-flow-badge-solar .fox-flow-badge-value {
+  color: #1a1a1a;
 }
-.fox-flow-scene--ha-light.fox-flow-scene--day .fox-flow-badge-label,
-.fox-flow-scene--ha-light.fox-flow-scene--day .fox-flow-badge-value {
-  color: #141414;
+.fox-flow-scene--night .fox-flow-badge-solar .fox-flow-badge-label {
+  color: rgba(255, 255, 255, 0.62);
 }
-.fox-flow-scene--ha-light.fox-flow-scene--day .fox-flow-badge-label {
-  color: rgba(0, 0, 0, 0.58);
+.fox-flow-scene--night .fox-flow-badge-solar .fox-flow-badge-value {
+  color: #fff;
 }
 .fox-flow-badge-grid { left: 4%; bottom: 6%; align-items: flex-start; }
 .fox-flow-badge-battery { left: 50%; bottom: 6%; transform: translateX(-50%); }
