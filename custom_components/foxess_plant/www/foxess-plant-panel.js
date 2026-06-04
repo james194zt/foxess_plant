@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.13
+ * @version 0.9.14
  */
 
 const NAV = [
@@ -3213,6 +3213,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._statisticsChart = null;
     this._statisticsChartLoading = false;
     this._statisticsChartPlantId = undefined;
+    this._statisticsSolcastPeriods = undefined;
     this._overviewDaily = null;
     this._overviewDailyLoading = false;
     this._overviewDailyPlantId = undefined;
@@ -3453,6 +3454,7 @@ Reloading panel registration…
         this._solcastDraft.api_key_set = Boolean(sc.api_key_set);
       }
       this._panelStale = this._panelIsStale();
+      this._invalidateStatisticsChartForSolcast();
       if (!this._socDrag) this._scheduleRender();
       void this._syncPanelIfStale();
     } catch {
@@ -3518,6 +3520,23 @@ Reloading panel registration…
     else if (field.endsWith(":azimuth")) label.textContent = `${el.value}°`;
     else if (field.endsWith(":panel_count")) label.textContent = String(el.value);
     else if (field.endsWith(":watts_per_panel")) label.textContent = `${el.value} W`;
+  }
+
+  _invalidateStatisticsChartForSolcast() {
+    const periods = this._plantState?.solcast?.pv_forecast_periods ?? 0;
+    if (this._statisticsSolcastPeriods === periods) return;
+    this._statisticsSolcastPeriods = periods;
+    if (this._view !== "overview") return;
+    this._statisticsChart = null;
+    this._statisticsChartPlantId = undefined;
+  }
+
+  _reloadStatisticsChartIfOverview() {
+    if (this._view !== "overview") return;
+    this._statisticsChart = null;
+    this._statisticsChartPlantId = undefined;
+    this._statisticsSolcastPeriods = undefined;
+    void this._loadStatisticsChart();
   }
 
   _scheduleRender(force = false) {
@@ -3807,6 +3826,7 @@ Reloading panel registration…
       }
       this._initSolcastDraft();
       this._showToast("Solcast settings saved");
+      this._reloadStatisticsChartIfOverview();
     } catch (err) {
       this._showToast(err?.message || "Save failed", "err");
     } finally {
@@ -3849,6 +3869,7 @@ Reloading panel registration…
       });
       if (res?.plant_state) this._plantState = res.plant_state;
       this._initSolcastDraft();
+      this._reloadStatisticsChartIfOverview();
       const sc = res?.solcast ?? {};
       const summary = sc.live_summary;
       const place = sc.test_location ? ` (${sc.test_location}, unmetered)` : " (unmetered test site)";

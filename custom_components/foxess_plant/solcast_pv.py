@@ -93,7 +93,7 @@ def forecast_hours_until_local_midnight(hass: HomeAssistant, *, buffer_hours: in
 def _series_rows(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
     if not payload:
         return []
-    for key in ("forecasts", "estimated_actuals"):
+    for key in ("forecasts", "estimated_actuals", "data"):
         block = payload.get(key)
         if isinstance(block, list):
             return [row for row in block if isinstance(row, dict)]
@@ -109,7 +109,7 @@ def _period_key(row: dict[str, Any]) -> str | None:
 
 
 def _power_kw(row: dict[str, Any]) -> float | None:
-    for field in ("pv_power_rooftop", "power", "pv_power"):
+    for field in ("pv_estimate", "pv_power_rooftop", "power", "pv_power"):
         raw = row.get(field)
         if raw is None:
             continue

@@ -212,13 +212,14 @@ async def _fetch_rooftop_pv_forecasts(
     *,
     lat: float,
     lon: float,
-) -> dict[str, Any] | None:
+) -> tuple[dict[str, Any] | None, list[str]]:
     requests = build_rooftop_pv_requests(plant.pv_config)
     if not requests:
-        return None
+        return None, ["No enabled PV strings in PV Configuration"]
     hours = forecast_hours_until_local_midnight(hass)
     period = plant.solcast.period
     payloads: list[tuple[str, dict[str, Any]]] = []
+    errors: list[str] = []
     for req in requests:
         try:
             data = await client.forecast_rooftop_pv_power(
@@ -233,10 +234,12 @@ async def _fetch_rooftop_pv_forecasts(
             )
             payloads.append((req.label, data))
         except SolcastApiError as err:
+            msg = f"{req.label}: {err}"
+            errors.append(msg)
             _LOGGER.warning("Solcast PV forecast failed for %s: %s", req.label, err)
     if not payloads:
-        return None
-    return parse_detailed_forecast(payloads)
+        return None, errors
+    return parse_detailed_forecast(payloads), errors
 
 
 async def async_refresh_solcast(
@@ -280,21 +283,28 @@ async def async_refresh_solcast(
     lat, lon = resolve_coordinates(hass, solcast)
     client = SolcastApiClient(hass, api_key=solcast.api_key or "")
     try:
-        parsed = await _fetch_rooftop_pv_forecasts(hass, plant, client, lat=lat, lon=lon)
+        parsed, fetch_errors = await _fetch_rooftop_pv_forecasts(hass, plant, client, lat=lat, lon=lon)
     except SolcastApiError as err:
         solcast.last_error = str(err)
         _LOGGER.warning("Solcast PV forecast fetch failed: %s", err)
         return cache
 
-    if parsed:
+    period_count = int(parsed.get("period_count", 0) or 0) if parsed else 0
+    if parsed and period_count > 0:
         record_api_use(solcast, pv_calls)
         cache["pv_forecast_parsed"] = parsed
         cache["pv_forecast_fetched_at"] = dt_util.utcnow().isoformat()
         cache["coordinates"] = {"latitude": lat, "longitude": lon}
+        cache["updated_at"] = dt_util.utcnow().isoformat()
+        solcast.last_fetch_at = cache["updated_at"]
         solcast.last_error = None
-
-    cache["updated_at"] = dt_util.utcnow().isoformat()
-    solcast.last_fetch_at = cache["updated_at"]
+    elif fetch_errors:
+        solcast.last_error = fetch_errors[0] if len(fetch_errors) == 1 else "; ".join(fetch_errors[:2])
+    elif parsed is not None:
+        solcast.last_error = (
+            "Solcast returned no PV forecast periods — check site coordinates, "
+            "capacity, and that PV1 is enabled under PV Configuration"
+        )
     return cache
 
 
