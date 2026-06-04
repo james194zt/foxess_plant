@@ -104,9 +104,30 @@ def remove_black_matte_only(im: Image.Image, lum: int = MATTE_LUM) -> Image.Imag
     return im
 
 
-def remove_black_matte(im: Image.Image, lum: int = MATTE_LUM) -> Image.Image:
-    """Sprites (pv/aio): full luminance matte."""
-    return luminance_matte(im, black_cut=lum)
+def strip_aio_reflection(sprite: Image.Image) -> Image.Image:
+    """Drop floor reflection below the cabinet (Fox art includes it; duplicates on dark stage)."""
+    from flow_scene_place import AIO_OPAQUE_FRAC
+
+    im = sprite.convert("RGBA")
+    _, _, _, oy1 = AIO_OPAQUE_FRAC
+    sh = im.height
+    cut = min(sh, int(sh * oy1) + 2)
+    px = im.load()
+    w = im.width
+    for y in range(cut, sh):
+        for x in range(w):
+            px[x, y] = (0, 0, 0, 0)
+    return im
+
+
+def process_pv_sprite(sprite: Image.Image) -> Image.Image:
+    """PV on roof: key black only so panel edges stay crisp (no grey halo)."""
+    return remove_black_matte_only(sprite)
+
+
+def process_aio_sprite(sprite: Image.Image) -> Image.Image:
+    """Wall AIO: cabinet only — no ground reflection under the unit."""
+    return remove_black_matte_only(strip_aio_reflection(sprite))
 
 
 def process_home_layer(home: Image.Image) -> Image.Image:

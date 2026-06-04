@@ -16,7 +16,7 @@ from flow_scene_place import (
     render_aio_layer,
     render_pv_layer,
 )
-from key_flow_home_sky import remove_black_matte
+from key_flow_home_sky import process_aio_sprite, process_pv_sprite
 
 ROOT = Path(__file__).resolve().parents[1]
 WWW = ROOT / "custom_components" / "foxess_plant" / "www"
@@ -44,9 +44,11 @@ def load_sprite(layer: str, theme: str) -> Image.Image:
     elif not sprite.is_file():
         Image.open(src).save(sprite)
     im = Image.open(sprite)
-    if im.size != (0, 0):
-        return remove_black_matte(im.convert("RGBA"))
-    raise RuntimeError(f"empty or missing sprite: {sprite}")
+    if im.size == (0, 0):
+        raise RuntimeError(f"empty or missing sprite: {sprite}")
+    if layer == "pv":
+        return process_pv_sprite(im.convert("RGBA"))
+    return process_aio_sprite(im.convert("RGBA"))
 
 
 def bake_pv(theme: str, placement: PvPlacement | None = None) -> None:

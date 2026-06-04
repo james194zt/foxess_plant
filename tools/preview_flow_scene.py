@@ -40,7 +40,7 @@ from flow_scene_place import (
     render_aio_layer,
     render_pv_layer,
 )
-from key_flow_home_sky import build_panel_scene, remove_black_matte
+from key_flow_home_sky import build_panel_scene, process_aio_sprite, process_pv_sprite
 
 ROOT = Path(__file__).resolve().parents[1]
 WWW = ROOT / "custom_components" / "foxess_plant" / "www"
@@ -69,7 +69,9 @@ def load_sprite(layer: str, theme: str) -> Image.Image:
     im = Image.open(sprite)
     if im.size == (0, 0):
         raise RuntimeError(f"empty or missing sprite: {sprite}")
-    return remove_black_matte(im.convert("RGBA"))
+    if layer == "pv":
+        return process_pv_sprite(im.convert("RGBA"))
+    return process_aio_sprite(im.convert("RGBA"))
 
 
 def load_baked_layer(kind: str, theme: str) -> Image.Image:
