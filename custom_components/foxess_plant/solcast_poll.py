@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 from typing import Any
 
 from homeassistant.const import SUN_EVENT_SUNRISE, SUN_EVENT_SUNSET
@@ -175,6 +175,63 @@ def min_poll_interval(
     return timedelta(minutes=minutes)
 
 
+def _next_sunrise_local(hass: HomeAssistant, after: datetime) -> datetime | None:
+    """Next sunrise at or after ``after`` (local time)."""
+    probe = dt_util.as_local(after)
+    for day_offset in range(0, 3):
+        when = probe + timedelta(days=day_offset)
+        try:
+            sunrise = get_astral_event_date(hass, SUN_EVENT_SUNRISE, when)
+        except (TypeError, ValueError, KeyError):
+            return None
+        if sunrise is None:
+            continue
+        sunrise_local = dt_util.as_local(sunrise)
+        if sunrise_local >= probe:
+            return sunrise_local
+    return None
+
+
+def solcast_next_fetch(
+    hass: HomeAssistant,
+    solcast: SolcastConfig,
+    cache: dict[str, Any],
+    *,
+    pv_calls: int = 1,
+) -> dict[str, Any] | None:
+    """Estimate when the next automatic PV poll may run (UTC ISO + status hint)."""
+    if not solcast.enabled or not solcast.api_key_configured() or not solcast.fetch_pv_forecast:
+        return {"at": None, "status": "disabled"}
+    if not can_consume_api(solcast, pv_calls):
+        tomorrow = dt_util.utcnow().date() + timedelta(days=1)
+        reset_at = datetime.combine(tomorrow, time.min, tzinfo=dt_util.UTC)
+        return {"at": reset_at.isoformat(), "status": "quota_exhausted"}
+
+    schedule = solcast_poll_schedule(hass, solcast, pv_calls=pv_calls)
+    if not schedule.get("in_window", True):
+        now_local = dt_util.now()
+        window = get_today_poll_window(hass)
+        if window and solcast.auto_update != SOLCAST_AUTO_UPDATE_ALL_DAY:
+            sunrise, poll_end = window
+            if now_local < sunrise:
+                at = dt_util.as_utc(sunrise)
+                return {"at": at.isoformat(), "status": "before_sunrise"}
+            if now_local >= poll_end:
+                next_sun = _next_sunrise_local(hass, now_local + timedelta(minutes=1))
+                if next_sun:
+                    at = dt_util.as_utc(next_sun)
+                    return {"at": at.isoformat(), "status": "after_sunset"}
+        return {"at": None, "status": "outside_window"}
+
+    interval = min_poll_interval(hass, solcast, pv_calls=pv_calls)
+    last = last_poll_timestamp(solcast, cache)
+    now = dt_util.utcnow()
+    if last is None or last + interval <= now:
+        return {"at": now.isoformat(), "status": "due_now"}
+    due = last + interval
+    return {"at": due.isoformat(), "status": "scheduled"}
+
+
 def solcast_poll_schedule(
     hass: HomeAssistant,
     solcast: SolcastConfig,
@@ -237,6 +294,10 @@ def solcast_status_dict(
         if hass is not None:
             pv_calls = max(1, len(build_rooftop_pv_requests(plant.pv_config)) or 1)
             out["poll_schedule"] = solcast_poll_schedule(hass, solcast, pv_calls=pv_calls)
+            next_fetch = solcast_next_fetch(hass, solcast, cache or {}, pv_calls=pv_calls)
+            if next_fetch:
+                out["next_fetch_at"] = next_fetch.get("at")
+                out["next_fetch_status"] = next_fetch.get("status")
     if cache:
         out["cache_updated_at"] = cache.get("updated_at")
         pv_parsed = cache.get("pv_forecast_parsed")

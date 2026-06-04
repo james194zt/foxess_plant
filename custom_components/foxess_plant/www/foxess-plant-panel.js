@@ -519,6 +519,28 @@ function solcastEnabledFromLive(sc) {
   return v === true || v === 1 || v === "1" || v === "true";
 }
 
+function formatSolcastTimestamp(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium" });
+}
+
+function formatSolcastNextFetch(sc) {
+  const status = sc?.next_fetch_status;
+  if (status === "disabled") return "Off";
+  if (!sc?.next_fetch_at) {
+    if (status === "outside_window") return "Outside poll window";
+    return "—";
+  }
+  const when = formatSolcastTimestamp(sc.next_fetch_at);
+  if (status === "due_now") return `${when} (due now)`;
+  if (status === "quota_exhausted") return `${when} (quota resets)`;
+  if (status === "before_sunrise") return `${when} (at sunrise)`;
+  if (status === "after_sunset") return `${when} (next sunrise)`;
+  return when;
+}
+
 function nativeSolcastPvForecastEnabled(plantState) {
   const sc = plantState?.solcast;
   return Boolean(
@@ -974,6 +996,21 @@ const STATISTICS_CHART_LAYOUT = {
 /** Matches dashboard plotly-graph defaults: statistic mean, period 5minute. */
 const STATISTICS_PERIOD_MS = 5 * 60 * 1000;
 
+const BATTERY_SOC_POWER_THRESHOLD_KW = 0.04;
+const BATTERY_SOC_COLORS = {
+  charging: { line: "#3DDC84", fill: "rgba(61,220,132,0.2)" },
+  discharging: { line: "#5B9BD5", fill: "rgba(91,155,213,0.2)" },
+  idle: { line: "#8DB6FF", fill: "rgba(141,182,255,0.1)" },
+};
+const BATTERY_SOC_CHART_LAYOUT = {
+  width: 1000,
+  height: 300,
+  pad: { l: 44, r: 8, t: 8, b: 40 },
+  xTickHours: 3,
+  xTickCount: 8,
+  yTicks: [0, 50, 100],
+};
+
 const ENERGY_CHART_BAR = {
   pv: { suffix: "solar_energy_today", label: "PV", color: FOX_ENERGY.pv },
   load: { suffix: "load_energy_today", label: "Load", color: FOX_ENERGY.load, computed: true },
@@ -1004,6 +1041,7 @@ const CHART_ENTITY_FALLBACKS = {
   pv1_power: ["pv1_power"],
   pv2_power: ["pv2_power"],
   pv_power: ["pv1_power", "pv_power", "pv_power_total", "pv_power_evo_10", "pv_power_now"],
+  battery_soc: ["battery_soc_1", "battery_soc"],
   battery_charge: ["battery_charge_1", "battery_charge"],
   battery_discharge: ["battery_discharge_1", "battery_discharge"],
   grid_import: ["grid_consumption", "grid_import"],
@@ -1594,6 +1632,313 @@ function interpolatePointsToPeriod(points, periodMs, originMs, endMs) {
 function buildForecastSeriesPoints(plantState, range) {
   if (!statisticsSolcastForecastEnabled(plantState)) return [];
   return nativeSolcastForecastPoints(plantState, range);
+}
+
+function clampSocPercent(v) {
+  if (!Number.isFinite(v)) return null;
+  return Math.min(100, Math.max(0, Number(v)));
+}
+
+function buildSocHistoryPoints(hass, entityId, range, statsMap, hist) {
+  const statRows = statsMap?.[entityId];
+  let rawPoints;
+  if (statRows?.length) {
+    rawPoints = recorderStatsToPoints(statRows, range);
+  } else {
+    rawPoints = statisticsChartPoints(historyToPoints(historyRowsForEntity(hist, entityId)), range);
+  }
+  return rawPoints
+    .map((p) => ({ t: p.t, v: clampSocPercent(p.v) }))
+    .filter((p) => p.v != null);
+}
+
+function buildSocPowerPoints(hass, entityId, range, statsMap, hist) {
+  const spec = { toKw: true };
+  const statRows = statsMap?.[entityId];
+  let rawPoints;
+  if (statRows?.length) {
+    rawPoints = recorderStatsToPoints(statRows, range).map((p) => ({
+      t: p.t,
+      v: transformHistoryPoint(hass, entityId, p.v, spec),
+    }));
+  } else {
+    rawPoints = statisticsChartPoints(historyToPoints(historyRowsForEntity(hist, entityId)), range).map(
+      (p) => ({ t: p.t, v: transformHistoryPoint(hass, entityId, p.v, spec) })
+    );
+  }
+  return rawPoints
+    .map((p) => ({ t: p.t, v: Math.abs(p.v) }))
+    .filter((p) => Number.isFinite(p.v));
+}
+
+function batteryFlowModeAt(t, chargePts, dischargePts) {
+  const ch = Math.abs(interpolateSeriesAt(chargePts, t) ?? 0);
+  const dis = Math.abs(interpolateSeriesAt(dischargePts, t) ?? 0);
+  if (ch > BATTERY_SOC_POWER_THRESHOLD_KW) return "charging";
+  if (dis > BATTERY_SOC_POWER_THRESHOLD_KW) return "discharging";
+  return "idle";
+}
+
+function splitSocSegmentsByMode(socPts, chargePts, dischargePts) {
+  if (socPts.length < 2) return socPts.length ? [{ mode: "idle", pts: socPts }] : [];
+  const segments = [];
+  let mode = batteryFlowModeAt(socPts[0].t, chargePts, dischargePts);
+  let pts = [socPts[0]];
+  for (let i = 1; i < socPts.length; i++) {
+    const p = socPts[i];
+    const nextMode = batteryFlowModeAt(p.t, chargePts, dischargePts);
+    if (nextMode !== mode) {
+      if (pts.length >= 2) segments.push({ mode, pts });
+      mode = nextMode;
+      pts = [socPts[i - 1], p];
+    } else {
+      pts.push(p);
+    }
+  }
+  if (pts.length >= 2) segments.push({ mode, pts });
+  return segments;
+}
+
+function buildSocActivityBars(chargePts, dischargePts, range) {
+  const bars = [];
+  for (let t = range.tMin; t <= range.nowMs; t += STATISTICS_PERIOD_MS) {
+    const ch = interpolateSeriesAt(chargePts, t) ?? 0;
+    const dis = interpolateSeriesAt(dischargePts, t) ?? 0;
+    if (ch > BATTERY_SOC_POWER_THRESHOLD_KW) {
+      bars.push({ t, mode: "charging", intensity: Math.min(1, ch / 4) });
+    } else if (dis > BATTERY_SOC_POWER_THRESHOLD_KW) {
+      bars.push({ t, mode: "discharging", intensity: Math.min(1, dis / 4) });
+    }
+  }
+  return bars;
+}
+
+function formatSocPercent(v) {
+  return Number.isFinite(v) ? `${Math.round(v)}%` : "—";
+}
+
+function fillSocAreaPath(pts, yBase) {
+  if (pts.length < 2) return "";
+  const line = statisticsLinePath(pts, pts.map((p) => ({ t: p.t })));
+  if (!line) return "";
+  const last = pts[pts.length - 1];
+  const first = pts[0];
+  return `${line} L${last.x.toFixed(2)},${yBase.toFixed(2)} L${first.x.toFixed(2)},${yBase.toFixed(2)} Z`;
+}
+
+async function fetchBatterySocChartSeries(hass, plant, plantState) {
+  const map = resolveEntityMap(hass, plant, plantState);
+  const socId = map.battery_soc;
+  const chargeId = map.battery_charge;
+  const dischargeId = map.battery_discharge;
+  if (!socId) {
+    return { empty: "Map battery SOC in FoxESS Modbus, then reload FoxESS Plant." };
+  }
+  const now = new Date();
+  const start = startOfLocalDay(now);
+  const range = getStatisticsDayRange(now);
+  const entityIds = [socId, chargeId, dischargeId].filter(Boolean);
+  const [statsMap, hist] = await Promise.all([
+    fetchStatisticsDuring(hass, entityIds, start, now),
+    fetchHistoryDuring(hass, entityIds, start, now),
+  ]);
+  const socPts = buildSocHistoryPoints(hass, socId, range, statsMap, hist);
+  if (!socPts.length) {
+    return {
+      empty: `No SOC history for ${socId}. Enable the Recorder for battery_soc (5-minute statistics or state history).`,
+    };
+  }
+  const chargePts = chargeId ? buildSocPowerPoints(hass, chargeId, range, statsMap, hist) : [];
+  const dischargePts = dischargeId ? buildSocPowerPoints(hass, dischargeId, range, statsMap, hist) : [];
+  const liveSoc = clampSocPercent(stateNumber(hass, socId));
+  return {
+    range,
+    socPts,
+    chargePts,
+    dischargePts,
+    liveSoc,
+    segments: splitSocSegmentsByMode(socPts, chargePts, dischargePts),
+    activityBars: buildSocActivityBars(chargePts, dischargePts, range),
+  };
+}
+
+function renderBatterySocChartHtml(chart, liveSocPct) {
+  const { socPts, segments, activityBars, range } = chart;
+  if (!socPts?.length) {
+    return `<p class="placeholder chart-empty">No battery SOC history for today yet.</p>`;
+  }
+  const { width, height, pad, xTickHours, xTickCount, yTicks } = BATTERY_SOC_CHART_LAYOUT;
+  const w = width - pad.l - pad.r;
+  const h = height - pad.t - pad.b;
+  const { tMin, tMax, nowMs } = range;
+  const daySpan = tMax - tMin;
+  const xScale = (t) => pad.l + ((t - tMin) / daySpan) * w;
+  const yScale = (v) => pad.t + h - (v / 100) * h;
+  const yBase = yScale(0);
+  const displaySoc =
+    liveSocPct != null ? liveSocPct : clampSocPercent(socPts[socPts.length - 1]?.v);
+  const slotW = (w / (Math.ceil((range.nowMs - range.tMin) / STATISTICS_PERIOD_MS) || 1)) * 0.85;
+
+  const grid = yTicks
+    .map((yv) => {
+      const y = yScale(yv);
+      return `<line x1="${pad.l}" y1="${y.toFixed(1)}" x2="${pad.l + w}" y2="${y.toFixed(1)}" class="soc-chart-grid"/>`;
+    })
+    .join("");
+
+  const yLabels = yTicks
+    .map((yv) => {
+      const y = yScale(yv);
+      return `<text x="${(pad.l - 8).toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="end" class="soc-chart-axis-y">${yv}%</text>`;
+    })
+    .join("");
+
+  const xTickSet = new Set(
+    Array.from({ length: xTickCount }, (_, i) => tMin + i * xTickHours * 60 * 60 * 1000)
+  );
+  const xLabels = [];
+  for (const xt of xTickSet) {
+    const x = xScale(xt);
+    xLabels.push(
+      `<text x="${x.toFixed(1)}" y="${height - pad.b + 18}" text-anchor="middle" class="soc-chart-axis-x">${esc(formatChartTimeLabel(xt))}</text>`
+    );
+  }
+  const nowX = xScale(nowMs);
+  if (![...xTickSet].some((xt) => Math.abs(xt - nowMs) < 20 * 60 * 1000)) {
+    xLabels.push(
+      `<text x="${nowX.toFixed(1)}" y="${height - pad.b + 18}" text-anchor="middle" class="soc-chart-axis-x soc-chart-now-label">Now</text>`
+    );
+  }
+  xLabels.push(
+    `<line x1="${nowX.toFixed(1)}" y1="${pad.t}" x2="${nowX.toFixed(1)}" y2="${pad.t + h}" class="soc-chart-now-line"/>`
+  );
+
+  const activityRects = (activityBars || [])
+    .map((bar) => {
+      const cx = xScale(bar.t + STATISTICS_PERIOD_MS / 2);
+      const barH = 8 + bar.intensity * 22;
+      const fill =
+        bar.mode === "charging"
+          ? "rgba(61,220,132,0.12)"
+          : "rgba(91,155,213,0.12)";
+      return `<rect x="${(cx - slotW / 2).toFixed(2)}" y="${(yBase - barH).toFixed(2)}" width="${slotW.toFixed(2)}" height="${barH.toFixed(2)}" fill="${fill}" rx="1"/>`;
+    })
+    .join("");
+
+  const fills = (segments || [])
+    .map((seg) => {
+      const colors = BATTERY_SOC_COLORS[seg.mode] || BATTERY_SOC_COLORS.idle;
+      const pixelPts = seg.pts.map((p) => ({
+        x: xScale(p.t),
+        y: yScale(p.v),
+        t: p.t,
+        v: p.v,
+      }));
+      if (pixelPts.length < 2) return "";
+      return `<path class="soc-chart-fill" d="${fillSocAreaPath(pixelPts, yBase)}" fill="${colors.fill}" stroke="none"/>`;
+    })
+    .join("");
+
+  const lines = (segments || [])
+    .map((seg) => {
+      const colors = BATTERY_SOC_COLORS[seg.mode] || BATTERY_SOC_COLORS.idle;
+      const pixelPts = seg.pts.map((p) => ({
+        x: xScale(p.t),
+        y: yScale(p.v),
+        t: p.t,
+        v: p.v,
+      }));
+      if (pixelPts.length < 2) return "";
+      return `<path class="soc-chart-line" d="${statisticsLinePath(pixelPts, seg.pts)}" fill="none" stroke="${colors.line}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`;
+    })
+    .join("");
+
+  return `<div class="soc-chart-wrap" data-soc-chart="1">
+<div class="soc-chart-head">
+<div class="soc-chart-value">${esc(formatSocPercent(displaySoc))}</div>
+<div class="soc-chart-legend" aria-hidden="true">
+<span class="soc-chart-legend-item"><i style="background:${BATTERY_SOC_COLORS.charging.line}"></i>Charging</span>
+<span class="soc-chart-legend-item"><i style="background:${BATTERY_SOC_COLORS.discharging.line}"></i>Discharging</span>
+</div>
+</div>
+<div class="soc-chart-plot" data-pad-l="${pad.l}" data-pad-t="${pad.t}" data-pad-b="${pad.b}" data-plot-w="${w}" data-plot-h="${h}" data-t-min="${tMin}" data-t-max="${tMax}" data-now-ms="${nowMs}">
+<svg class="soc-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Battery state of charge chart">
+${grid}
+${yLabels}
+${activityRects}
+${fills}
+${lines}
+${xLabels.join("")}
+</svg>
+<div class="soc-chart-hit" aria-hidden="true"></div>
+<div class="soc-chart-crosshair" hidden><div class="soc-chart-spike"></div></div>
+<div class="soc-chart-tooltip" hidden role="tooltip"></div>
+</div>
+</div>`;
+}
+
+function bindBatterySocChart(root, chart) {
+  const wrap = root?.querySelector?.("[data-soc-chart]");
+  if (!wrap || wrap.dataset.bound || !chart?.socPts?.length) return;
+  const plot = wrap.querySelector(".soc-chart-plot");
+  if (!plot) return;
+  wrap.dataset.bound = "1";
+
+  const padL = Number(plot.dataset.padL);
+  const padT = Number(plot.dataset.padT);
+  const padB = Number(plot.dataset.padB);
+  const plotW = Number(plot.dataset.plotW);
+  const tMin = Number(plot.dataset.tMin);
+  const tMax = Number(plot.dataset.tMax);
+  const daySpan = tMax - tMin;
+  const svg = plot.querySelector(".soc-chart-svg");
+  const hit = plot.querySelector(".soc-chart-hit");
+  const crosshair = plot.querySelector(".soc-chart-crosshair");
+  const tooltip = plot.querySelector(".soc-chart-tooltip");
+
+  const showHover = (clientX) => {
+    const t = Math.min(statisticsClientToTime(svg, clientX, padL, plotW, tMin, daySpan), tMax);
+    const { scale, offsetX, offsetY } = statisticsPointerScale(svg);
+    const xPx = padL + ((t - tMin) / daySpan) * plotW;
+    const screenX = offsetX + xPx * scale;
+    crosshair.hidden = false;
+    crosshair.style.left = `${screenX}px`;
+    crosshair.style.top = `${offsetY + padT * scale}px`;
+    crosshair.style.bottom = `${offsetY + padB * scale}px`;
+
+    const soc = clampSocPercent(interpolateSeriesAt(chart.socPts, t));
+    const mode = batteryFlowModeAt(t, chart.chargePts, chart.dischargePts);
+    const modeLabel =
+      mode === "charging" ? "Charging" : mode === "discharging" ? "Discharging" : "Idle";
+    const modeColor = (BATTERY_SOC_COLORS[mode] || BATTERY_SOC_COLORS.idle).line;
+    tooltip.hidden = false;
+    tooltip.innerHTML = `<div class="soc-chart-tooltip-time">${esc(formatStatisticsHoverTime(t))}</div>
+<div class="soc-chart-tooltip-row"><span class="soc-chart-tooltip-label"><i class="soc-chart-tooltip-swatch" style="background:${modeColor}"></i>${esc(modeLabel)}</span><strong>${esc(formatSocPercent(soc))}</strong></div>`;
+    const plotRect = plot.getBoundingClientRect();
+    let left = screenX + 12;
+    if (left + 180 > plotRect.width) left = screenX - 192;
+    tooltip.style.left = `${Math.max(8, left)}px`;
+    tooltip.style.top = "8px";
+  };
+
+  const hideHover = () => {
+    crosshair.hidden = true;
+    tooltip.hidden = true;
+  };
+
+  hit?.addEventListener("mousemove", (ev) => showHover(ev.clientX));
+  hit?.addEventListener("mouseleave", hideHover);
+  plot.addEventListener(
+    "touchmove",
+    (ev) => {
+      if (ev.touches[0]) {
+        ev.preventDefault();
+        showHover(ev.touches[0].clientX);
+      }
+    },
+    { passive: false }
+  );
+  plot.addEventListener("touchend", hideHover);
 }
 
 async function fetchStatisticsChartSeries(hass, plant, plantState) {
@@ -2564,6 +2909,64 @@ const STYLES = `
 .breakdown-card { margin-top: 14px; padding-bottom: 8px; }
 .statistics-card { padding-bottom: 16px; }
 .statistics-card .card-title { margin-bottom: 12px; }
+.soc-chart-card { padding-bottom: 16px; }
+.soc-chart-card .card-title { margin-bottom: 8px; }
+.soc-chart-wrap {
+  position: relative; width: 100%; font-family: "Segoe UI", Arial, sans-serif;
+}
+.soc-chart-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  margin-bottom: 6px; flex-wrap: wrap;
+}
+.soc-chart-value {
+  font-size: 28px; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em;
+}
+.soc-chart-legend {
+  display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center;
+  font-size: 11px; color: var(--secondary-text-color); margin-top: 6px;
+}
+.soc-chart-legend-item {
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.soc-chart-legend-item i {
+  width: 14px; height: 3px; border-radius: 1px; display: inline-block;
+}
+.soc-chart-plot { position: relative; width: 100%; }
+.soc-chart-svg { width: 100%; height: 300px; display: block; }
+.soc-chart-grid { stroke: rgba(127,127,127,0.12); stroke-width: 1; }
+.soc-chart-axis-x, .soc-chart-axis-y {
+  fill: var(--secondary-text-color); font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.soc-chart-now-label { font-weight: 600; fill: var(--primary-text-color); }
+.soc-chart-now-line { stroke: rgba(127,127,127,0.28); stroke-width: 1; stroke-dasharray: 3 3; }
+.soc-chart-hit { position: absolute; inset: 0; cursor: crosshair; }
+.soc-chart-crosshair {
+  position: absolute; top: 0; bottom: 40px; width: 1px; pointer-events: none;
+  transform: translateX(-0.5px);
+}
+.soc-chart-spike {
+  width: 1px; height: 100%; background: rgba(127,127,127,0.35);
+}
+.soc-chart-tooltip {
+  position: absolute; z-index: 4; min-width: 160px; padding: 8px 10px; border-radius: 8px;
+  pointer-events: none; background: var(--card-background-color, #1c1c1c);
+  border: 1px solid rgba(127,127,127,0.35);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.28);
+  font-size: 12px; color: var(--primary-text-color);
+}
+.soc-chart-tooltip-time {
+  font-size: 11px; color: var(--secondary-text-color); margin-bottom: 6px;
+}
+.soc-chart-tooltip-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 10px;
+}
+.soc-chart-tooltip-label {
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.soc-chart-tooltip-swatch {
+  width: 10px; height: 10px; border-radius: 2px; display: inline-block;
+}
 .fox-energy-panel {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -3246,6 +3649,9 @@ class FoxessPlantPanel extends HTMLElement {
     this._statisticsChartLoading = false;
     this._statisticsChartPlantId = undefined;
     this._statisticsSolcastKey = undefined;
+    this._batterySocChart = null;
+    this._batterySocChartLoading = false;
+    this._batterySocChartPlantId = undefined;
     this._overviewDaily = null;
     this._overviewDailyLoading = false;
     this._overviewDailyPlantId = undefined;
@@ -4214,6 +4620,8 @@ Reloading panel registration…
       this._energyChartPlantId = undefined;
       this._statisticsChart = null;
       this._statisticsChartPlantId = undefined;
+      this._batterySocChart = null;
+      this._batterySocChartPlantId = undefined;
       this._settingsView = "main";
       this._deviceSub = "main";
       this._view = "overview";
@@ -4778,6 +5186,10 @@ ${this._stat("PV today", a.pv_production_kwh_today, a.pv_production_kwh_today !=
 <p class="card-title">Statistics</p>
 ${this._renderStatisticsChartBody()}
 </div>
+<div class="card soc-chart-card" style="margin-top:14px">
+<p class="card-title">Battery SOC</p>
+${this._renderBatterySocChartBody(plant)}
+</div>
 ${this._renderImpactPanel()}`;
   }
 
@@ -5192,6 +5604,53 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
   _bindStatisticsChart() {
     if (!this._statisticsChart?.series) return;
     bindStatisticsChart(this._root, this._statisticsChart.series);
+  }
+
+  async _loadBatterySocChart() {
+    const plant = this._getPlant();
+    if (!plant || !this._hass) return;
+    const plantId = plant.entry_id;
+    this._batterySocChartLoading = true;
+    this._batterySocChart = null;
+    this._batterySocChartPlantId = plantId;
+    this._scheduleRender();
+    try {
+      await this._refreshPlantState();
+      this._batterySocChart = await fetchBatterySocChartSeries(this._hass, plant, this._plantState);
+    } catch (err) {
+      this._batterySocChart = {
+        error:
+          err?.message ||
+          "Could not load battery SOC history. Enable the Home Assistant recorder for battery_soc.",
+      };
+    } finally {
+      this._batterySocChartLoading = false;
+      if (this._getPlant()?.entry_id === plantId) this._scheduleRender();
+    }
+  }
+
+  _renderBatterySocChartBody(plant) {
+    if (this._batterySocChartLoading) {
+      return `<p class="chart-loading">Loading battery SOC…</p>`;
+    }
+    if (this._batterySocChart?.error) {
+      return `<p class="placeholder chart-empty">${esc(this._batterySocChart.error)}</p>`;
+    }
+    if (this._batterySocChart?.empty) {
+      return `<p class="placeholder chart-empty">${esc(this._batterySocChart.empty)}</p>`;
+    }
+    if (this._batterySocChart?.socPts?.length) {
+      const live =
+        this._batterySocChart.liveSoc ??
+        stateNumber(this._hass, resolveEntityMap(this._hass, plant, this._plantState).battery_soc);
+      return renderBatterySocChartHtml(this._batterySocChart, live);
+    }
+    return `<p class="placeholder chart-empty">Waiting for battery SOC history…</p>`;
+  }
+
+  _bindBatterySocChart() {
+    if (!this._batterySocChart?.socPts?.length) return;
+    bindBatterySocChart(this._root, this._batterySocChart);
   }
 
   async _fetchPeriodEnergyBarChart(plant, period) {
@@ -5900,7 +6359,8 @@ ${this._renderPvStringBlock("pv2")}
       ? esc(String(live.installation_date))
       : "Not set";
     const installMax = solcastInstallationDateMax();
-    const lastFetch = live.last_fetch_at ? esc(String(live.last_fetch_at)) : "—";
+    const lastFetch = esc(formatSolcastTimestamp(live.last_fetch_at));
+    const nextFetch = esc(formatSolcastNextFetch(live));
     const lastErr = live.last_error ? esc(String(live.last_error)) : "None";
     const pvReqs = live.pv_requests ?? [];
     const pvReqLines = pvReqs.length
@@ -5980,6 +6440,7 @@ ${this._renderPvTiltAzimuthFields("pv2", { allowWhenDisabled: true })}
 <div class="entity-row"><span class="entity-name">API used today</span><span class="entity-value">${esc(String(live.api_used_today ?? 0))} / ${esc(String(live.api_limit ?? draft.api_limit))}</span></div>
 <div class="entity-row"><span class="entity-name">Remaining today</span><span class="entity-value">${esc(String(live.api_remaining ?? "—"))}</span></div>
 <div class="entity-row"><span class="entity-name">Last fetch</span><span class="entity-value">${lastFetch}</span></div>
+<div class="entity-row"><span class="entity-name">Next fetch</span><span class="entity-value">${nextFetch}</span></div>
 <div class="entity-row"><span class="entity-name">Last error</span><span class="entity-value">${lastErr}</span></div>
 <div class="entity-row"><span class="entity-name">PV forecast</span><span class="entity-value">${esc(pvStatus)}</span></div>
 <div class="entity-row"><span class="entity-name">Installation date</span><span class="entity-value">${installDisplay}</span></div>
@@ -6120,6 +6581,9 @@ ${active
     }
     if (this._view === "overview") {
       bindOverviewDailyCharts(this._root);
+      if (this._batterySocChart?.socPts?.length) {
+        this._bindBatterySocChart();
+      }
     }
     if (this._view === "energy") {
       const plant = this._getPlant();
@@ -6146,6 +6610,13 @@ ${active
         (this._statisticsChartPlantId !== plant.entry_id || !this._statisticsChart)
       ) {
         this._loadStatisticsChart();
+      }
+      if (
+        plant &&
+        !this._batterySocChartLoading &&
+        (this._batterySocChartPlantId !== plant.entry_id || !this._batterySocChart)
+      ) {
+        this._loadBatterySocChart();
       }
       if (
         plant &&
