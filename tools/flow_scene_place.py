@@ -15,10 +15,11 @@ BOXES = {
 
 # Defaults used when baking to www/ (override via preview CLI without writing).
 DEFAULT_PV = {
-    "scale_inset": 1.04,
-    "at_box_origin": True,
-    "dx": 0,
-    "dy": 18,
+    "scale_inset": 1.10,
+    "at_box_origin": False,
+    "anchor": "center",
+    "dx": 8,  # h_center_dy6_back4
+    "dy": 6,
 }
 
 # Flow-path tap on the AIO right face toward hub (sync FOX_FLOW_PATHS aio-hub / hub-aio).
@@ -99,10 +100,34 @@ DEFAULT_AIO = {
 }
 
 
+def _pv_paste_xy(
+    left: int,
+    top: int,
+    bw: int,
+    bh: int,
+    nw: int,
+    nh: int,
+    placement: "PvPlacement",
+) -> tuple[int, int]:
+    anchor = placement.anchor
+    if placement.at_box_origin and anchor == "tl":
+        anchor = "tl"
+    elif not placement.at_box_origin:
+        anchor = "center"
+    if anchor == "bl":
+        return left + placement.dx, top + bh - nh + placement.dy
+    if anchor == "br":
+        return left + bw - nw + placement.dx, top + bh - nh + placement.dy
+    if anchor == "center":
+        return left + (bw - nw) // 2 + placement.dx, top + (bh - nh) // 2 + placement.dy
+    return left + placement.dx, top + placement.dy
+
+
 @dataclass
 class PvPlacement:
     scale_inset: float = DEFAULT_PV["scale_inset"]
     at_box_origin: bool = DEFAULT_PV["at_box_origin"]
+    anchor: str = "tl"
     dx: int = 0
     dy: int = 0
 
@@ -132,13 +157,7 @@ def render_pv_layer(sprite: Image.Image, placement: PvPlacement | None = None) -
     scale = min(bw / sw, bh / sh) * placement.scale_inset
     nw, nh = max(1, int(sw * scale)), max(1, int(sh * scale))
     scaled = sprite.resize((nw, nh), Image.Resampling.LANCZOS)
-    if placement.at_box_origin:
-        px, py = left, top
-    else:
-        px = left + (bw - nw) // 2
-        py = top + (bh - nh) // 2
-    px += placement.dx
-    py += placement.dy
+    px, py = _pv_paste_xy(left, top, bw, bh, nw, nh, placement)
     canvas = Image.new("RGBA", CANVAS, (0, 0, 0, 0))
     canvas.paste(scaled, (px, py), scaled)
     return canvas
@@ -172,17 +191,11 @@ def pv_placement_summary(placement: PvPlacement, sprite: Image.Image) -> str:
     sw, sh = sprite.size
     scale = min(bw / sw, bh / sh) * placement.scale_inset
     nw, nh = max(1, int(sw * scale)), max(1, int(sh * scale))
-    if placement.at_box_origin:
-        px, py = left, top
-    else:
-        px = left + (bw - nw) // 2
-        py = top + (bh - nh) // 2
-    px += placement.dx
-    py += placement.dy
+    px, py = _pv_paste_xy(left, top, bw, bh, nw, nh, placement)
+    anchor = "center" if not placement.at_box_origin else placement.anchor
     return (
         f"pv {nw}x{nh} @ ({px},{py}) "
-        f"scale_inset={placement.scale_inset} "
-        f"origin={'box-tl' if placement.at_box_origin else 'centered'} "
+        f"scale_inset={placement.scale_inset} anchor={anchor} "
         f"offset=({placement.dx},{placement.dy})"
     )
 

@@ -74,7 +74,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     _storm_forecast_detail: dict[str, Any]
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
-        self.config_entry = entry
         self.plant = PlantConfig.from_entry_data(entry.data)
         self._active_storm_triggers = set()
         self._active_outage_triggers = set()
@@ -85,6 +84,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         super().__init__(
             hass,
             _LOGGER,
+            config_entry=entry,
             name=f"FoxESS Plant {entry.title}",
             update_interval=UPDATE_INTERVAL,
         )

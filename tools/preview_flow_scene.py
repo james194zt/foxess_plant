@@ -165,6 +165,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--pv-dx", type=int, default=None, help="Extra paste offset X (px); default from flow_scene_place")
     p.add_argument("--pv-dy", type=int, default=None, help="Extra paste offset Y (px); default from flow_scene_place")
     p.add_argument("--pv-center", action="store_true", help="Center in box instead of box top-left origin")
+    p.add_argument(
+        "--pv-anchor",
+        choices=("tl", "bl", "br", "center"),
+        default=None,
+        help="Paste anchor in PV box (default tl when --pv-center off)",
+    )
     p.add_argument("--aio-scale", type=float, default=None, metavar="F", help="AIO uniform scale inset (default bake value)")
     p.add_argument("--aio-dx", type=int, default=None, help="AIO paste offset X (px)")
     p.add_argument("--aio-dy", type=int, default=None, help="AIO paste offset Y (px)")
@@ -178,6 +184,7 @@ def main(argv: list[str] | None = None) -> int:
     placement = PvPlacement(
         scale_inset=args.pv_scale if args.pv_scale is not None else DEFAULT_PV["scale_inset"],
         at_box_origin=not args.pv_center,
+        anchor=args.pv_anchor or DEFAULT_PV.get("anchor", "tl"),
         dx=args.pv_dx if args.pv_dx is not None else DEFAULT_PV["dx"],
         dy=args.pv_dy if args.pv_dy is not None else DEFAULT_PV["dy"],
     )

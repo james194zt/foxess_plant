@@ -8,7 +8,7 @@ from typing import Any
 
 from homeassistant.const import SUN_EVENT_SUNRISE, SUN_EVENT_SUNSET
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.sun import get_astral_event_date, get_astral_location
+from homeassistant.helpers.sun import get_astral_event_date
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -67,10 +67,9 @@ def is_daylight(hass: HomeAssistant) -> bool:
 def get_today_poll_window(hass: HomeAssistant) -> tuple[datetime, datetime] | None:
     """Today's sunrise and last scheduled poll (sunset minus buffer), in local time."""
     try:
-        location = get_astral_location(hass)
         now = dt_util.now()
-        sunrise = get_astral_event_date(location, SUN_EVENT_SUNRISE, now)
-        sunset = get_astral_event_date(location, SUN_EVENT_SUNSET, now)
+        sunrise = get_astral_event_date(hass, SUN_EVENT_SUNRISE, now)
+        sunset = get_astral_event_date(hass, SUN_EVENT_SUNSET, now)
     except (TypeError, ValueError, KeyError):
         return None
     if sunrise is None or sunset is None:
