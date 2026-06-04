@@ -16,11 +16,10 @@ _LOGGER = logging.getLogger(__name__)
 
 _EVO_CHARGE_PERIOD_HINT = (
     "This error comes from the **FoxESS Modbus** integration (not Fox Plant). "
-    "EVO/H3 time-group charge periods need register **48000=1** before **48010–48019**, "
-    "then period start/end/mode. "
-    "Disable **Mode Scheduler** in the Fox app/cloud (foxesscloud.com) — it locks these registers. "
-    "Check `sensor.*time_period_1_start` exists (wrong model if missing). "
-    "Test `foxess_modbus.update_all_charge_periods` in Developer Tools."
+    "Charge-period entities are **read-only sensors** — changing them in Developer Tools → Set state "
+    "does not write to the inverter. Use `foxess_modbus.update_all_charge_periods` instead. "
+    "On EVO 10-H, writes use registers **48010–48012** (48000/48013 may not exist on your firmware). "
+    "Disable **Mode Scheduler** in the Fox app/cloud if writes still fail."
 )
 
 
