@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
-import math
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -19,6 +19,13 @@ _ILLEGAL_VALUE_HINT = (
     "Try the same values on the FoxESS Modbus **number** entities in Developer Tools. "
     "If those fail too, confirm the inverter model in FoxESS Modbus is EVO and that the "
     "Fox app is not locking settings."
+)
+
+_VERIFY_FAIL_HINT = (
+    "SOC limits did not read back from the inverter after save. "
+    "Home Assistant may have reported success without the inverter accepting the values. "
+    "Check the FoxESS Modbus number entities in Developer Tools — if those differ from "
+    "the Fox app, the app may be showing cloud settings or locking changes."
 )
 
 
@@ -58,7 +65,6 @@ def validate_soc_limits_for_write(
     min_soc_on_grid: int,
     max_soc: int,
     *,
-    live_soc: float | None = None,
     soc_min_pct: int = 10,
 ) -> dict[str, int]:
     """Validate user SOC limits before Modbus writes; return clamped target or raise."""
@@ -84,17 +90,6 @@ def validate_soc_limits_for_write(
         errors.append(
             f"System min ({raw_mid}%) must be less than or equal to system max ({raw_max}%)."
         )
-
-    if live_soc is not None:
-        try:
-            live = int(math.ceil(float(live_soc)))
-        except (TypeError, ValueError):
-            live = None
-        if live is not None and 0 < live <= 100 and target["max_soc"] < live:
-            errors.append(
-                f"System max ({target['max_soc']}%) cannot be below the current battery level "
-                f"({live}%). Wait for SOC to drop or discharge before lowering the max."
-            )
 
     if errors:
         raise HomeAssistantError(" ".join(errors))
@@ -144,6 +139,59 @@ def compute_soc_write_sequence(
     return seq
 
 
+def force_soc_write_sequence(target: dict[str, int]) -> list[tuple[str, int]]:
+    """Always write all three SOC registers in inverter-safe order (explicit save)."""
+    t = clamp_soc_values(target["min_soc"], target["min_soc_on_grid"], target["max_soc"])
+    return [(key, t[key]) for key in ("max_soc", "min_soc_on_grid", "min_soc")]
+
+
+async def _refresh_soc_entities(hass: HomeAssistant, entity_map: dict[str, str]) -> None:
+    for key in SOC_KEYS:
+        entity_id = entity_map.get(key)
+        if entity_id:
+            await hass.services.async_call(
+                "homeassistant",
+                "update_entity",
+                {"entity_id": entity_id},
+                blocking=True,
+            )
+
+
+def read_soc_current(hass: HomeAssistant, entity_map: dict[str, str]) -> dict[str, int]:
+    current: dict[str, int] = {}
+    for key in SOC_KEYS:
+        entity_id = entity_map.get(key)
+        if not entity_id:
+            continue
+        state = hass.states.get(entity_id)
+        parsed = _coerce_soc(state.state if state else None)
+        if parsed is not None:
+            current[key] = parsed
+    return current
+
+
+async def verify_soc_limits(
+    hass: HomeAssistant,
+    entity_map: dict[str, str],
+    target: dict[str, int],
+) -> None:
+    """Re-read number entities and confirm the inverter holds the requested limits."""
+    await _refresh_soc_entities(hass, entity_map)
+    await asyncio.sleep(0.35)
+    current = read_soc_current(hass, entity_map)
+    mismatches: list[str] = []
+    for key in SOC_KEYS:
+        want = target[key]
+        got = current.get(key)
+        if got is None:
+            mismatches.append(f"{key}: no read-back")
+        elif got != want:
+            label = key.replace("_", " ")
+            mismatches.append(f"{label} expected {want}% but inverter reports {got}%")
+    if mismatches:
+        raise HomeAssistantError(f"{_VERIFY_FAIL_HINT} {'; '.join(mismatches)}.")
+
+
 def _raise_soc_error(err: BaseException) -> None:
     message = str(err)
     if "IllegalValue" in message or "46609" in message or "46610" in message or "46611" in message:
@@ -159,11 +207,26 @@ async def apply_soc_limits(
     min_soc_on_grid: int,
     max_soc: int,
     current: dict[str, Any] | None = None,
-    live_soc: float | None = None,
+    force_write: bool = False,
+    verify: bool = False,
 ) -> None:
     """Write min / on-grid / max SOC through foxess_modbus number entities."""
-    target = validate_soc_limits_for_write(min_soc, min_soc_on_grid, max_soc, live_soc=live_soc)
-    sequence = compute_soc_write_sequence(target, current or {})
+    target = validate_soc_limits_for_write(min_soc, min_soc_on_grid, max_soc)
+
+    if force_write or current is None:
+        await _refresh_soc_entities(hass, entity_map)
+        live_current = read_soc_current(hass, entity_map)
+    else:
+        live_current = {
+            key: parsed
+            for key in SOC_KEYS
+            if (parsed := _coerce_soc(current.get(key))) is not None
+        }
+
+    if force_write:
+        sequence = force_soc_write_sequence(target)
+    else:
+        sequence = compute_soc_write_sequence(target, live_current)
 
     for key, value in sequence:
         entity_id = entity_map.get(key)
@@ -186,4 +249,8 @@ async def apply_soc_limits(
             )
         except Exception as err:
             _raise_soc_error(err)
+
+    if verify:
+        await verify_soc_limits(hass, entity_map, target)
+
     _LOGGER.debug("Applied SOC limits %s (%d writes)", target, len(sequence))

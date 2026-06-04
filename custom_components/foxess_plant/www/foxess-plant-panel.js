@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.37
+ * @version 0.9.39
  */
 
 const NAV = [
@@ -64,7 +64,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.37";
+const PANEL_VERSION = "0.9.39";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -2750,38 +2750,52 @@ function tripleSocBatteryFillMarkup(liveSoc) {
 }
 
 function validateSocLimits(draft, liveSoc) {
-  const issues = [];
-  if (!draft) return ["SOC limits unavailable."];
+  const errors = [];
+  const warnings = [];
+  if (!draft) return { errors: ["SOC limits unavailable."], warnings: [] };
   const min = Math.round(Number(draft.min_soc));
   const mid = Math.round(Number(draft.min_soc_on_grid));
   const max = Math.round(Number(draft.max_soc));
   if (![min, mid, max].every((v) => Number.isFinite(v))) {
-    return ["Enter a whole-number percentage for each SOC limit."];
+    return { errors: ["Enter a whole-number percentage for each SOC limit."], warnings: [] };
   }
   if (min < SOC_MIN_PCT || mid < SOC_MIN_PCT || max < SOC_MIN_PCT) {
-    issues.push(`All SOC limits must be at least ${SOC_MIN_PCT}%.`);
+    errors.push(`All SOC limits must be at least ${SOC_MIN_PCT}%.`);
   }
   if (min > 100 || mid > 100 || max > 100) {
-    issues.push("SOC limits cannot exceed 100%.");
+    errors.push("SOC limits cannot exceed 100%.");
   }
   if (min > mid) {
-    issues.push(`Off-grid min (${min}%) must be ≤ system min (${mid}%).`);
+    errors.push(`Off-grid min (${min}%) must be ≤ system min (${mid}%).`);
   }
   if (mid > max) {
-    issues.push(`System min (${mid}%) must be ≤ system max (${max}%).`);
+    errors.push(`System min (${mid}%) must be ≤ system max (${max}%).`);
   }
   const live = Math.ceil(Number(liveSoc));
   if (Number.isFinite(live) && live > 0 && max < live) {
-    issues.push(
-      `System max (${max}%) cannot be below the current battery level (${live}%). Wait for SOC to drop before lowering the max.`
+    warnings.push(
+      `System max (${max}%) is below the current battery level (${live}%). The inverter may reject this — Save will show the error if it does.`
     );
   }
-  return issues;
+  return { errors, warnings };
 }
 
-function renderSocValidationHtml(issues) {
-  if (!issues?.length) return "";
-  return `<div class="soc-validation" role="alert">${issues.map((msg) => `<p>${esc(msg)}</p>`).join("")}</div>`;
+function renderSocFeedbackHtml(validation, saveError) {
+  const parts = [];
+  if (validation?.errors?.length) {
+    parts.push(
+      `<div class="soc-validation" role="alert">${validation.errors.map((msg) => `<p>${esc(msg)}</p>`).join("")}</div>`
+    );
+  }
+  if (validation?.warnings?.length) {
+    parts.push(
+      `<div class="soc-validation warn" role="status">${validation.warnings.map((msg) => `<p>${esc(msg)}</p>`).join("")}</div>`
+    );
+  }
+  if (saveError) {
+    parts.push(`<div class="soc-validation" role="alert"><p>${esc(saveError)}</p></div>`);
+  }
+  return parts.join("");
 }
 
 /** Map pointer X on the track to an SOC % (track left/right = 0/100 visually). */
@@ -3617,6 +3631,10 @@ const STYLES = `
 }
 .soc-validation p { margin: 0; }
 .soc-validation p + p { margin-top: 6px; }
+.soc-validation.warn {
+  background: color-mix(in srgb, var(--fp-amber) 18%, var(--card-background-color));
+  border-color: color-mix(in srgb, var(--fp-amber) 45%, transparent);
+}
 .mode-grid { display: grid; gap: 8px; }
 .mode-option {
   display: block; width: 100%; text-align: left; padding: 14px 16px;
@@ -3749,6 +3767,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._toastTimer = undefined;
     this._chargeDraft = null;
     this._socDraft = null;
+    this._socSaveError = null;
     this._workModeDraft = null;
     this._stormDraft = null;
     this._triggerMeta = null;
@@ -4885,6 +4904,7 @@ Reloading panel registration…
       const v = parseFloat(raw);
       if (Number.isNaN(v)) return;
       if (e.type === "change" || (v >= SOC_MIN_PCT && v <= 100)) {
+        this._socSaveError = null;
         applySocDrag(this._socDraft, field, v);
         this._updateTripleSocDom();
       }
@@ -4901,6 +4921,7 @@ Reloading panel registration…
 
   _onSocMove(e) {
     if (!this._socDrag || !this._socDraft) return;
+    this._socSaveError = null;
     const rect = this._socDrag.track.getBoundingClientRect();
     const pct = socPctFromTrackPointer(e.clientX, rect, this._socDrag.grabOffset ?? 0);
     applySocDrag(this._socDraft, this._socDrag.thumb, pct);
@@ -4924,19 +4945,14 @@ Reloading panel registration…
   }
 
   _syncSocValidationUi() {
-    const issues = this._socValidationIssues();
+    const validation = this._socValidationIssues();
     const wrap = this._root.querySelector(".triple-soc");
     if (!wrap) return;
-    const html = renderSocValidationHtml(issues);
-    let valEl = wrap.querySelector(".soc-validation");
-    if (html) {
-      if (valEl) valEl.outerHTML = html;
-      else wrap.querySelector(".soc-numeric")?.insertAdjacentHTML("afterend", html);
-    } else if (valEl) {
-      valEl.remove();
-    }
+    const html = renderSocFeedbackHtml(validation, this._socSaveError);
+    wrap.querySelectorAll(".soc-validation").forEach((el) => el.remove());
+    if (html) wrap.querySelector(".soc-numeric")?.insertAdjacentHTML("afterend", html);
     const saveBtn = this._root.querySelector('[data-action="save-soc"]');
-    if (saveBtn) saveBtn.disabled = Boolean(this._busy || issues.length);
+    if (saveBtn) saveBtn.disabled = Boolean(this._busy || validation.errors.length);
   }
 
   _bindTripleSoc() {
@@ -4946,6 +4962,7 @@ Reloading panel registration…
       thumb.addEventListener("pointerdown", (e) => {
         if (this._busy) return;
         e.preventDefault();
+        this._socSaveError = null;
         track.querySelectorAll(".triple-soc-thumb").forEach((t) => t.classList.remove("is-dragging"));
         thumb.classList.add("is-dragging");
         thumb.setPointerCapture(e.pointerId);
@@ -5056,8 +5073,8 @@ ${thumbsHtml}
 <span><i style="background:var(--fp-accent)"></i> Charge headroom</span>
 </div>
 <div class="soc-numeric">${numericHtml}</div>
-${renderSocValidationHtml(validateSocLimits(clamped, live))}
-<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. The inverter rejects <strong>system max below the current battery level</strong> — wait for SOC to drop before lowering max.</p>
+${renderSocFeedbackHtml(validateSocLimits(clamped, live), this._socSaveError)}
+<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. The inverter may reject limits that conflict with the current battery level — Save will show the error if it does.</p>
 </div>`;
   }
 
@@ -5109,13 +5126,14 @@ ${renderSocValidationHtml(validateSocLimits(clamped, live))}
     const plant = this._getPlant();
     if (!plant || !this._socDraft) return;
     const clamped = clampSocDraft({ ...this._socDraft });
-    const issues = validateSocLimits(clamped, this._liveBatterySoc(plant));
-    if (issues.length) {
-      this._showToast(issues[0], "err");
+    const validation = validateSocLimits(clamped, this._liveBatterySoc(plant));
+    if (validation.errors.length) {
+      this._showToast(validation.errors[0], "err");
       return;
     }
     const { min_soc, min_soc_on_grid, max_soc } = clamped;
     this._socDraft = clamped;
+    this._socSaveError = null;
     this._busy = true;
     this._render();
     try {
@@ -5128,9 +5146,11 @@ ${renderSocValidationHtml(validateSocLimits(clamped, live))}
       });
       if (state) this._plantState = state;
       await this._refreshPlantState();
+      this._socSaveError = null;
       this._showToast("SOC limits saved");
     } catch (err) {
-      this._showToast(err?.message || "SOC save failed", "err");
+      this._socSaveError = err?.message || "SOC save failed";
+      this._render();
     } finally {
       this._busy = false;
       this._render();
@@ -6349,12 +6369,12 @@ ${renderListButton({ action: "settings-sub", sub: "control" }, "Plant control", 
     if (!this._socDraft) this._initSocDraft();
     const plant = this._getPlant();
     const liveSoc = this._liveBatterySoc(plant) ?? 0;
-    const socIssues = validateSocLimits(this._socDraft, liveSoc);
+    const validation = validateSocLimits(this._socDraft, liveSoc);
     return `<header class="header"><h1>Quick Settings</h1><p>Drag the three handles — off-grid min, system min, system max</p></header>
 <div class="card">
 <p class="card-title">SOC limits</p>
 ${this._renderTripleSoc(plant, this._socDraft, liveSoc)}
-<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-soc" ${this._busy || socIssues.length ? "disabled" : ""}>Save to inverter</button></div>
+<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-soc" ${this._busy || validation.errors.length ? "disabled" : ""}>Save to inverter</button></div>
 </div>`;
   }
 
