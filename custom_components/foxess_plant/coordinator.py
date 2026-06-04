@@ -490,9 +490,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await apply_soc_limits(
             self.hass,
             self.plant.entity_map,
-            min_soc=target["min_soc"],
-            min_soc_on_grid=target["min_soc_on_grid"],
-            max_soc=target["max_soc"],
+            min_soc=min_soc,
+            min_soc_on_grid=min_soc_on_grid,
+            max_soc=max_soc,
             current=current,
             live_soc=live_soc,
         )

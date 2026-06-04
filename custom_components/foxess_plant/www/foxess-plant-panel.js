@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.36
+ * @version 0.9.37
  */
 
 const NAV = [
@@ -64,7 +64,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.36";
+const PANEL_VERSION = "0.9.37";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -2784,6 +2784,13 @@ function renderSocValidationHtml(issues) {
   return `<div class="soc-validation" role="alert">${issues.map((msg) => `<p>${esc(msg)}</p>`).join("")}</div>`;
 }
 
+/** Map pointer X on the track to an SOC % (track left/right = 0/100 visually). */
+function socPctFromTrackPointer(clientX, trackRect, grabOffset = 0) {
+  if (!trackRect?.width) return SOC_MIN_PCT;
+  const pointerPct = ((clientX - trackRect.left) / trackRect.width) * 100;
+  return Math.round(Math.max(SOC_MIN_PCT, Math.min(100, pointerPct + grabOffset)));
+}
+
 /** Apply drag to the active thumb first, then push siblings (Fox-app style). */
 function applySocDrag(d, thumb, pct) {
   const p = Math.max(SOC_MIN_PCT, Math.min(100, Math.round(pct)));
@@ -3582,7 +3589,7 @@ const STYLES = `
 .triple-soc-thumb[data-soc-thumb="min_soc"] { z-index: 3; }
 .triple-soc-thumb[data-soc-thumb="min_soc_on_grid"] { z-index: 4; }
 .triple-soc-thumb[data-soc-thumb="max_soc"] { z-index: 5; }
-.triple-soc-thumb.is-dragging { z-index: 10; transform: scale(1.1); }
+.triple-soc-thumb.is-dragging { z-index: 10; transform: scale(1.1); transition: transform 0.1s; }
 .triple-soc-thumb:active { cursor: grabbing; }
 .triple-soc-scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--secondary-text-color); margin-top: 10px; padding: 0 4px; }
 .soc-legend { display: flex; flex-wrap: wrap; gap: 12px 16px; margin-top: 16px; font-size: 12px; color: var(--secondary-text-color); }
@@ -4895,9 +4902,7 @@ Reloading panel registration…
   _onSocMove(e) {
     if (!this._socDrag || !this._socDraft) return;
     const rect = this._socDrag.track.getBoundingClientRect();
-    if (!rect.width) return;
-    const t = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const pct = Math.round(SOC_MIN_PCT + t * (100 - SOC_MIN_PCT));
+    const pct = socPctFromTrackPointer(e.clientX, rect, this._socDrag.grabOffset ?? 0);
     applySocDrag(this._socDraft, this._socDrag.thumb, pct);
     this._updateTripleSocDom();
   }
@@ -4944,7 +4949,16 @@ Reloading panel registration…
         track.querySelectorAll(".triple-soc-thumb").forEach((t) => t.classList.remove("is-dragging"));
         thumb.classList.add("is-dragging");
         thumb.setPointerCapture(e.pointerId);
-        this._socDrag = { thumb: thumb.dataset.socThumb, thumbEl: thumb, track };
+        const rect = track.getBoundingClientRect();
+        const thumbKey = thumb.dataset.socThumb;
+        const currentVal = clampSocDraft(this._socDraft)[thumbKey];
+        const pointerPct = rect.width ? ((e.clientX - rect.left) / rect.width) * 100 : currentVal;
+        this._socDrag = {
+          thumb: thumbKey,
+          thumbEl: thumb,
+          track,
+          grabOffset: currentVal - pointerPct,
+        };
         window.addEventListener("pointermove", this._onSocMove);
         window.addEventListener("pointerup", this._onSocEnd);
         window.addEventListener("pointercancel", this._onSocEnd);
