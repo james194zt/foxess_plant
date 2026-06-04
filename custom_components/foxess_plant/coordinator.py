@@ -686,7 +686,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             await apply_charge_periods(
                 self.hass,
-                self.plant.device_id,
+                self.plant.inverter_target,
                 periods,
                 entity_map=self.plant.entity_map,
             )
