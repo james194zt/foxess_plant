@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -50,6 +51,54 @@ def clamp_soc_values(
         "min_soc_on_grid": mid_v,
         "max_soc": max_v,
     }
+
+
+def validate_soc_limits_for_write(
+    min_soc: int,
+    min_soc_on_grid: int,
+    max_soc: int,
+    *,
+    live_soc: float | None = None,
+    soc_min_pct: int = 10,
+) -> dict[str, int]:
+    """Validate user SOC limits before Modbus writes; return clamped target or raise."""
+    target = clamp_soc_values(min_soc, min_soc_on_grid, max_soc, soc_min_pct=soc_min_pct)
+    errors: list[str] = []
+
+    try:
+        raw_min = int(min_soc)
+        raw_mid = int(min_soc_on_grid)
+        raw_max = int(max_soc)
+    except (TypeError, ValueError):
+        raise HomeAssistantError("SOC limits must be whole-number percentages.") from None
+
+    if raw_min < soc_min_pct or raw_mid < soc_min_pct or raw_max < soc_min_pct:
+        errors.append(f"All SOC limits must be at least {soc_min_pct}%.")
+    if raw_min > 100 or raw_mid > 100 or raw_max > 100:
+        errors.append("SOC limits cannot exceed 100%.")
+    if raw_min > raw_mid:
+        errors.append(
+            f"Off-grid min ({raw_min}%) must be less than or equal to system min ({raw_mid}%)."
+        )
+    if raw_mid > raw_max:
+        errors.append(
+            f"System min ({raw_mid}%) must be less than or equal to system max ({raw_max}%)."
+        )
+
+    if live_soc is not None:
+        try:
+            live = int(math.ceil(float(live_soc)))
+        except (TypeError, ValueError):
+            live = None
+        if live is not None and 0 < live <= 100 and target["max_soc"] < live:
+            errors.append(
+                f"System max ({target['max_soc']}%) cannot be below the current battery level "
+                f"({live}%). Wait for SOC to drop or discharge before lowering the max."
+            )
+
+    if errors:
+        raise HomeAssistantError(" ".join(errors))
+    return target
 
 
 def compute_soc_write_sequence(
@@ -110,9 +159,10 @@ async def apply_soc_limits(
     min_soc_on_grid: int,
     max_soc: int,
     current: dict[str, Any] | None = None,
+    live_soc: float | None = None,
 ) -> None:
     """Write min / on-grid / max SOC through foxess_modbus number entities."""
-    target = clamp_soc_values(min_soc, min_soc_on_grid, max_soc)
+    target = validate_soc_limits_for_write(min_soc, min_soc_on_grid, max_soc, live_soc=live_soc)
     sequence = compute_soc_write_sequence(target, current or {})
 
     for key, value in sequence:

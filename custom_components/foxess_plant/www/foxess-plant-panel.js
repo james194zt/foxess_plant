@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.35
+ * @version 0.9.36
  */
 
 const NAV = [
@@ -64,7 +64,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.35";
+const PANEL_VERSION = "0.9.36";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -2749,6 +2749,41 @@ function tripleSocBatteryFillMarkup(liveSoc) {
   return `<div class="triple-soc-battery-fill" style="height:max(4px,calc((100% - 8px) * ${h} / 100))"></div>`;
 }
 
+function validateSocLimits(draft, liveSoc) {
+  const issues = [];
+  if (!draft) return ["SOC limits unavailable."];
+  const min = Math.round(Number(draft.min_soc));
+  const mid = Math.round(Number(draft.min_soc_on_grid));
+  const max = Math.round(Number(draft.max_soc));
+  if (![min, mid, max].every((v) => Number.isFinite(v))) {
+    return ["Enter a whole-number percentage for each SOC limit."];
+  }
+  if (min < SOC_MIN_PCT || mid < SOC_MIN_PCT || max < SOC_MIN_PCT) {
+    issues.push(`All SOC limits must be at least ${SOC_MIN_PCT}%.`);
+  }
+  if (min > 100 || mid > 100 || max > 100) {
+    issues.push("SOC limits cannot exceed 100%.");
+  }
+  if (min > mid) {
+    issues.push(`Off-grid min (${min}%) must be ≤ system min (${mid}%).`);
+  }
+  if (mid > max) {
+    issues.push(`System min (${mid}%) must be ≤ system max (${max}%).`);
+  }
+  const live = Math.ceil(Number(liveSoc));
+  if (Number.isFinite(live) && live > 0 && max < live) {
+    issues.push(
+      `System max (${max}%) cannot be below the current battery level (${live}%). Wait for SOC to drop before lowering the max.`
+    );
+  }
+  return issues;
+}
+
+function renderSocValidationHtml(issues) {
+  if (!issues?.length) return "";
+  return `<div class="soc-validation" role="alert">${issues.map((msg) => `<p>${esc(msg)}</p>`).join("")}</div>`;
+}
+
 /** Apply drag to the active thumb first, then push siblings (Fox-app style). */
 function applySocDrag(d, thumb, pct) {
   const p = Math.max(SOC_MIN_PCT, Math.min(100, Math.round(pct)));
@@ -3567,6 +3602,14 @@ const STYLES = `
   border-radius: 10px; border-left: 3px solid var(--fp-amber);
 }
 .soc-limit-note strong { color: var(--primary-text-color); font-weight: 600; }
+.soc-validation {
+  margin-top: 14px; padding: 10px 12px; border-radius: 8px;
+  background: color-mix(in srgb, #e53935 18%, var(--card-background-color));
+  border: 1px solid color-mix(in srgb, #e53935 45%, transparent);
+  color: var(--primary-text-color); font-size: 13px; line-height: 1.45;
+}
+.soc-validation p { margin: 0; }
+.soc-validation p + p { margin-top: 6px; }
 .mode-grid { display: grid; gap: 8px; }
 .mode-option {
   display: block; width: 100%; text-align: left; padding: 14px 16px;
@@ -4865,6 +4908,32 @@ Reloading panel registration…
     this._endSocDrag();
   }
 
+  _liveBatterySoc(plant) {
+    if (!plant || !this._hass) return null;
+    const v = stateNumber(this._hass, plant.entity_map?.battery_soc);
+    return Number.isFinite(v) ? v : null;
+  }
+
+  _socValidationIssues() {
+    return validateSocLimits(this._socDraft, this._liveBatterySoc(this._getPlant()));
+  }
+
+  _syncSocValidationUi() {
+    const issues = this._socValidationIssues();
+    const wrap = this._root.querySelector(".triple-soc");
+    if (!wrap) return;
+    const html = renderSocValidationHtml(issues);
+    let valEl = wrap.querySelector(".soc-validation");
+    if (html) {
+      if (valEl) valEl.outerHTML = html;
+      else wrap.querySelector(".soc-numeric")?.insertAdjacentHTML("afterend", html);
+    } else if (valEl) {
+      valEl.remove();
+    }
+    const saveBtn = this._root.querySelector('[data-action="save-soc"]');
+    if (saveBtn) saveBtn.disabled = Boolean(this._busy || issues.length);
+  }
+
   _bindTripleSoc() {
     const track = this._root.querySelector(".triple-soc-track");
     if (!track) return;
@@ -4917,6 +4986,7 @@ Reloading panel registration…
           ? `<strong>Reserve from</strong> ${min}%<br><strong>Usable to</strong> ${max}% · <strong>Now</strong> ${live}%`
           : `<strong>Reserve band</strong> ${min}% – ${mid}%<br><strong>Usable to</strong> ${max}% · <strong>Now</strong> ${live}%`;
     }
+    this._syncSocValidationUi();
   }
 
   _renderTripleSoc(plant, d, liveSoc) {
@@ -4972,7 +5042,8 @@ ${thumbsHtml}
 <span><i style="background:var(--fp-accent)"></i> Charge headroom</span>
 </div>
 <div class="soc-numeric">${numericHtml}</div>
-<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. The inverter rejects lower values over Modbus; the Fox app may allow 5% but behaviour is inconsistent.</p>
+${renderSocValidationHtml(validateSocLimits(clamped, live))}
+<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. The inverter rejects <strong>system max below the current battery level</strong> — wait for SOC to drop before lowering max.</p>
 </div>`;
   }
 
@@ -5024,6 +5095,11 @@ ${thumbsHtml}
     const plant = this._getPlant();
     if (!plant || !this._socDraft) return;
     const clamped = clampSocDraft({ ...this._socDraft });
+    const issues = validateSocLimits(clamped, this._liveBatterySoc(plant));
+    if (issues.length) {
+      this._showToast(issues[0], "err");
+      return;
+    }
     const { min_soc, min_soc_on_grid, max_soc } = clamped;
     this._socDraft = clamped;
     this._busy = true;
@@ -6258,12 +6334,13 @@ ${renderListButton({ action: "settings-sub", sub: "control" }, "Plant control", 
   _renderSettingsQuick() {
     if (!this._socDraft) this._initSocDraft();
     const plant = this._getPlant();
-    const liveSoc = plant ? stateNumber(this._hass, plant.entity_map?.battery_soc) : 0;
+    const liveSoc = this._liveBatterySoc(plant) ?? 0;
+    const socIssues = validateSocLimits(this._socDraft, liveSoc);
     return `<header class="header"><h1>Quick Settings</h1><p>Drag the three handles — off-grid min, system min, system max</p></header>
 <div class="card">
 <p class="card-title">SOC limits</p>
 ${this._renderTripleSoc(plant, this._socDraft, liveSoc)}
-<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-soc" ${this._busy ? "disabled" : ""}>Save to inverter</button></div>
+<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-soc" ${this._busy || socIssues.length ? "disabled" : ""}>Save to inverter</button></div>
 </div>`;
   }
 

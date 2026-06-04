@@ -471,6 +471,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             min_soc_on_grid=target["min_soc_on_grid"],
             max_soc=target["max_soc"],
             current=current,
+            live_soc=self._entity_float("battery_soc"),
         )
 
     async def async_set_soc_limits(
@@ -485,7 +486,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "min_soc_on_grid": self._entity_float("min_soc_on_grid"),
             "max_soc": self._entity_float("max_soc"),
         }
-        target = clamp_soc_values(min_soc, min_soc_on_grid, max_soc)
+        live_soc = self._entity_float("battery_soc")
         await apply_soc_limits(
             self.hass,
             self.plant.entity_map,
@@ -493,6 +494,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             min_soc_on_grid=target["min_soc_on_grid"],
             max_soc=target["max_soc"],
             current=current,
+            live_soc=live_soc,
         )
 
     async def _persist(self) -> None:
