@@ -29,6 +29,13 @@ Assets on disk: `res/mipmap-nodpi-v4/flow_home_day_light.webp` (+ `_bg_`, `_pv_`
 
 ### Fox `_light` vs `_dark` suffix
 
-In the Fox Android app, **`light` / `dark` is the app UI theme**, not time of day. The app uses **`flow_*_day_dark`** while the sun is up and **`flow_*_night_dark`** at night (on the dark-themed UI most users see).
+In the Fox Android app, **`light` / `dark` is the app UI theme**, not time of day.
 
-HA panel maps `sun.sun` `above_horizon` → `day_dark`, else `night_dark`. Do not use `day_light` / `night_light` for the flow scene.
+**HA panel (v0.8.155+):**
+- Detect HA UI mode via `hass.themes.darkMode` (fallback: `--primary-background-color` luminance).
+- Sun `above_horizon` + HA **dark** UI → `day_dark` on `#000` stage.
+- Sun below horizon + HA **dark** UI → `night_dark` on `#000` stage.
+- Sun up + HA **light** UI → `day_light` on `#fff` stage.
+- Sun down + HA **light** UI → `night_light` on `#fff` stage.
+
+Backdrop/overlays use the same variant; flow SVG paths stay on 1024×1017.

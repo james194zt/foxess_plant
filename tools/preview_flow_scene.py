@@ -46,12 +46,12 @@ ROOT = Path(__file__).resolve().parents[1]
 WWW = ROOT / "custom_components" / "foxess_plant" / "www"
 OUT_DIR = Path(__file__).resolve().parent / "flow_scene_preview"
 
-OVERLAY_THEMES = ("day_dark", "night_dark")
-BG_THEMES = ("day_dark", "night_dark")
+OVERLAY_THEMES = ("day_light", "day_dark", "night_light", "night_dark")
+BG_THEMES = OVERLAY_THEMES
 
 
 def overlay_theme_for_bg(bg_theme: str) -> str:
-    return "night_dark" if bg_theme == "night_dark" else "day_dark"
+    return bg_theme
 
 
 def is_webp(path: Path) -> bool:

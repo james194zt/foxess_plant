@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.8.154
+ * @version 0.8.155
  */
 
 const NAV = [
@@ -36,7 +36,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.8.154";
+const PANEL_VERSION = "0.8.155";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -94,11 +94,16 @@ const FLOW_COMET = {
   durSolar: 1.55,
 };
 const FLOW_SCENE_PV_THRESHOLD_W = 40;
-/** Dark stage behind transparent Fox flow layers (matches Fox app canvas, not white). */
-const FLOW_SCENE_CANVAS_BG = "#000000";
-const FLOW_SCENE_ASSET_VER = 46;
+const FLOW_SCENE_CANVAS_BG_DARK = "#000000";
+const FLOW_SCENE_CANVAS_BG_LIGHT = "#ffffff";
+const FLOW_SCENE_ASSET_VER = 47;
 
-const FLOW_SCENE_BG_THEMES = new Set(["day_dark", "night_dark"]);
+const FLOW_SCENE_BG_THEMES = new Set([
+  "day_light",
+  "day_dark",
+  "night_light",
+  "night_dark",
+]);
 
 function flowPipeStroke(isNight) {
   return isNight ? FLOW_PIPE_STROKE.night : FLOW_PIPE_STROKE.day;
@@ -173,12 +178,12 @@ function renderFlowScenePaths({ lines, activeIds, gridExporting, isNight }) {
 }
 
 /** Stable key — only changes when which pipes are active or scene theme changes (not power W). */
-function flowSceneStructureKey(lines, gridExporting, isNight, bgTheme) {
+function flowSceneStructureKey(lines, gridExporting, isNight, bgTheme, haUiDark) {
   const active = lines
     .map((l) => `${l.id}${l.reverse ? ":r" : ""}`)
     .sort()
     .join(",");
-  return `${bgTheme}|${isNight ? "n" : "d"}|${gridExporting ? "x" : "i"}|${active}`;
+  return `${bgTheme}|${haUiDark ? "haD" : "haL"}|${isNight ? "n" : "d"}|${gridExporting ? "x" : "i"}|${active}`;
 }
 
 function renderFlowSceneSvgInner({ lines, activeIds, gridExporting, isNight }) {
@@ -1921,29 +1926,80 @@ function sunNextEvent(hass, key, now) {
   return now >= pair.nxt ? new Date(pair.nxt.getTime() + 86_400_000) : pair.nxt;
 }
 
-function resolveFlowSceneBgThemeFromSun(hass) {
+function resolveFlowScenePeriodFromSun(hass) {
   const sun = hass?.states?.["sun.sun"];
   if (!sun?.state || sun.state === "unknown" || sun.state === "unavailable") return null;
-  return sun.state === "above_horizon" ? "day_dark" : "night_dark";
+  return sun.state === "above_horizon" ? "day" : "night";
+}
+
+/** Parse CSS color to relative luminance (0–1); higher = lighter background. */
+function cssColorLuminance(color) {
+  const raw = String(color || "").trim();
+  if (!raw) return null;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  const hex = raw.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  if (hex) {
+    const h = hex[1].length === 3
+      ? hex[1].split("").map((c) => c + c).join("")
+      : hex[1];
+    r = parseInt(h.slice(0, 2), 16);
+    g = parseInt(h.slice(2, 4), 16);
+    b = parseInt(h.slice(4, 6), 16);
+  } else {
+    const rgb = raw.match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i);
+    if (!rgb) return null;
+    r = Number(rgb[1]);
+    g = Number(rgb[2]);
+    b = Number(rgb[3]);
+  }
+  const lin = (c) => {
+    const v = c / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+/** True when Home Assistant UI is in dark mode (Fox _dark art + black stage). */
+function resolveHaUiDark(hass) {
+  if (typeof hass?.themes?.darkMode === "boolean") {
+    return hass.themes.darkMode;
+  }
+  try {
+    const root = document.documentElement;
+    const bg = getComputedStyle(root).getPropertyValue("--primary-background-color").trim();
+    const lum = cssColorLuminance(bg);
+    if (lum != null) return lum < 0.45;
+  } catch (_) {
+    /* panel may run before theme vars are ready */
+  }
+  return window.matchMedia("(prefers-color-scheme: dark)").matches;
 }
 
 function normalizeFlowSceneTheme(theme) {
   if (!theme || typeof theme !== "string") return null;
-  if (theme === "day_dark" || theme === "night_dark") return theme;
+  if (FLOW_SCENE_BG_THEMES.has(theme)) return theme;
   if (theme.startsWith("day_")) return "day_dark";
   if (theme.startsWith("night_")) return "night_dark";
   return null;
 }
 
 function resolveFlowSceneBgTheme(hass, plantState) {
-  return resolveFlowSceneBgThemeFromSun(hass)
-    || normalizeFlowSceneTheme(plantState?.flow_scene_theme)
-    || "day_dark";
+  const period = resolveFlowScenePeriodFromSun(hass)
+    || (() => {
+      const t = normalizeFlowSceneTheme(plantState?.flow_scene_theme);
+      if (!t) return null;
+      return t.startsWith("day_") ? "day" : "night";
+    })()
+    || "day";
+  const suffix = resolveHaUiDark(hass) ? "dark" : "light";
+  return `${period}_${suffix}`;
 }
 
-/** Backdrop and overlays share the same Fox dark-theme variant. */
+/** Backdrop and overlays share the same Fox UI-theme + sun variant. */
 function flowSceneOverlayTheme(bgTheme) {
-  return bgTheme === "night_dark" ? "night_dark" : "day_dark";
+  return bgTheme;
 }
 
 /** Baked sky+house at 1024×1017 — PV/AIO scene layers unchanged (tuned paths). */
@@ -2537,11 +2593,21 @@ const STYLES = `
 }
 .fox-flow-scene {
   display: block; width: 100%;
-  background: ${FLOW_SCENE_CANVAS_BG};
+}
+.fox-flow-scene--ha-dark {
+  background: ${FLOW_SCENE_CANVAS_BG_DARK};
+}
+.fox-flow-scene--ha-light {
+  background: ${FLOW_SCENE_CANVAS_BG_LIGHT};
 }
 .fox-flow-stage {
   position: relative; width: 100%;
-  background: ${FLOW_SCENE_CANVAS_BG};
+}
+.fox-flow-scene--ha-dark .fox-flow-stage {
+  background: ${FLOW_SCENE_CANVAS_BG_DARK};
+}
+.fox-flow-scene--ha-light .fox-flow-stage {
+  background: ${FLOW_SCENE_CANVAS_BG_LIGHT};
 }
 .fox-flow-stage::before {
   content: ""; display: block; width: 100%; padding-top: 99.31640625%;
@@ -2587,6 +2653,13 @@ const STYLES = `
 }
 .fox-flow-scene--light-sky .fox-flow-badge-solar .fox-flow-badge-value {
   color: #141414;
+}
+.fox-flow-scene--ha-light.fox-flow-scene--day .fox-flow-badge-label,
+.fox-flow-scene--ha-light.fox-flow-scene--day .fox-flow-badge-value {
+  color: #141414;
+}
+.fox-flow-scene--ha-light.fox-flow-scene--day .fox-flow-badge-label {
+  color: rgba(0, 0, 0, 0.58);
 }
 .fox-flow-badge-grid { left: 4%; bottom: 6%; align-items: flex-start; }
 .fox-flow-badge-battery { left: 50%; bottom: 6%; transform: translateX(-50%); }
@@ -4005,8 +4078,10 @@ ${this._modeBannerExtra()}
       gridExporting: ctx.gridExporting,
       isNight: ctx.isNight,
     });
+    const haClass = ctx.haUiDark ? "fox-flow-scene--ha-dark" : "fox-flow-scene--ha-light";
+    const skyClass = ctx.bgTheme === "day_light" ? " fox-flow-scene--light-sky" : "";
     return `<div class="scene-card scene-card--fox-flow">
-<div class="fox-flow-scene ${ctx.isNight ? "fox-flow-scene--night" : "fox-flow-scene--day"}" role="img" aria-label="Live energy flow" data-panel-build="${esc(this._panelBuild())}">
+<div class="fox-flow-scene ${ctx.isNight ? "fox-flow-scene--night" : "fox-flow-scene--day"} ${haClass}${skyClass}" role="img" aria-label="Live energy flow" data-panel-build="${esc(this._panelBuild())}">
 <div class="fox-flow-stage">
 ${this._renderFlowBackdropMarkup(ctx)}
 <img class="fox-flow-layer fox-flow-layer-pv" src="${esc(flowSceneLayerUrl("pv", ctx.bgTheme, ctx.overlayTheme))}" alt="" loading="lazy" decoding="async" />
@@ -4042,6 +4117,7 @@ ${pathsHtml}
     const activeIds = new Set(lines.map((l) => l.id));
     const bgTheme = resolveFlowSceneBgTheme(this._hass, this._plantState);
     const overlayTheme = flowSceneOverlayTheme(bgTheme);
+    const haUiDark = resolveHaUiDark(this._hass);
     const isNight = !bgTheme.startsWith("day_");
     const soc = Math.min(100, Math.max(0, flows.batterySoc));
     const gridExporting =
@@ -4052,6 +4128,7 @@ ${pathsHtml}
       activeIds,
       bgTheme,
       overlayTheme,
+      haUiDark,
       isNight,
       soc,
       gridExporting,
@@ -4060,7 +4137,7 @@ ${pathsHtml}
       batteryStatus: String(flows.batteryStatus || "Idle").toUpperCase(),
       batteryPower: Math.abs(flows.batteryW),
       hubActive: lines.some((l) => l.id.includes("hub")),
-      key: flowSceneStructureKey(lines, gridExporting, isNight, bgTheme),
+      key: flowSceneStructureKey(lines, gridExporting, isNight, bgTheme, haUiDark),
     };
   }
 

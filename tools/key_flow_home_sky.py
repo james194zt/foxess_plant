@@ -180,6 +180,13 @@ def build_panel_scene(bg_theme: str, pv: Image.Image, aio: Image.Image) -> Image
     return out
 
 
+def canvas_bg_for_theme(theme: str) -> tuple[int, int, int, int]:
+    """Fox _light art targets a white stage; _dark art targets black (matches HA UI theme)."""
+    if theme.endswith("_light"):
+        return (255, 255, 255, 255)
+    return (0, 0, 0, 255)
+
+
 def bake_bg_scene(theme: str, home: Image.Image | None = None) -> None:
     """Bake flow_home_bg + black-matte house → flow_home_bg_scene (matches bake_flow_home_scenes.ps1)."""
     src = Image.open(WWW / f"flow_home_bg_{theme}.png").convert("RGBA")
@@ -193,7 +200,7 @@ def bake_bg_scene(theme: str, home: Image.Image | None = None) -> None:
     bg = src.resize((nw, nh), Image.Resampling.LANCZOS)
     x = (CANVAS[0] - nw) // 2
     y = CANVAS[1] - nh
-    canvas = Image.new("RGBA", CANVAS, (0, 0, 0, 255))
+    canvas = Image.new("RGBA", CANVAS, canvas_bg_for_theme(theme))
     canvas.paste(bg, (x, y), bg)
     canvas.alpha_composite(home.convert("RGBA"))
     out = WWW / f"flow_home_bg_scene_{theme}.png"

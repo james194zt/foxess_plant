@@ -10,8 +10,8 @@ APK_RES = Path(
     "/mnt/c/Users/James/Downloads/foxcloud2-0-2-2-12/com.fox.foxapp.two/res/mipmap-nodpi-v4"
 )
 WWW = Path(__file__).resolve().parents[1] / "custom_components/foxess_plant/www"
-# Fox panel uses dark UI theme art only; map sun → day_dark | night_dark.
-FLOW_SCENE_THEMES = ("day_dark", "night_dark")
+# Overlay sprites for all four Fox variants.
+FLOW_OVERLAY_THEMES = ("day_light", "day_dark", "night_light", "night_dark")
 IMPORT_THEMES = ("day_light", "day_dark", "night_light", "night_dark")
 
 
@@ -46,7 +46,7 @@ def main() -> int:
             size, alpha, pct = verify_rgba(dst)
             print(f"  {dst.name}: {size[0]}x{size[1]} alpha={alpha[0]}-{alpha[1]} transparent={pct:.1f}%")
 
-    for theme in FLOW_SCENE_THEMES:
+    for theme in FLOW_OVERLAY_THEMES:
         for base, prefix in (("flow_pv", "flow_pv"), ("flow_aio_812", "flow_aio_812")):
             src = APK_RES / f"{prefix}_{theme}.webp"
             dst = WWW / f"{base}_{theme}.png"
