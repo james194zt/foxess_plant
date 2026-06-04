@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.0
+ * @version 0.9.1
  */
 
 const NAV = [
@@ -54,7 +54,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.0";
+const PANEL_VERSION = "0.9.1";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -3552,32 +3552,37 @@ Reloading panel registration…
     this._render();
     try {
       const draft = this._solcastDraft;
-      const payload = {
-        enabled: Boolean(draft.enabled),
-        api_limit: Math.max(1, Math.min(50, parseInt(draft.api_limit, 10) || 10)),
-        auto_update: draft.auto_update === "all_day" ? "all_day" : "daylight",
-        period: draft.period || "PT30M",
-        latitude: draft.latitude === "" ? null : parseFloat(draft.latitude),
-        longitude: draft.longitude === "" ? null : parseFloat(draft.longitude),
-      };
       const key = String(draft.api_key || "").trim();
-      if (key) payload.api_key = key;
-      let state = await this._hass.connection.sendMessagePromise({
-        type: "foxess_plant/update_solcast",
-        plant_id: plant.entry_id,
-        solcast: payload,
-      });
-      if (state) this._plantState = state;
+      if (key || !draft.api_key_set) {
+        const payload = {
+          enabled: Boolean(draft.enabled),
+          api_limit: Math.max(1, Math.min(50, parseInt(draft.api_limit, 10) || 10)),
+          auto_update: draft.auto_update === "all_day" ? "all_day" : "daylight",
+          period: draft.period || "PT30M",
+          latitude: draft.latitude === "" ? null : parseFloat(draft.latitude),
+          longitude: draft.longitude === "" ? null : parseFloat(draft.longitude),
+          fetch_now: false,
+        };
+        if (key) payload.api_key = key;
+        const state = await this._hass.connection.sendMessagePromise({
+          type: "foxess_plant/update_solcast",
+          plant_id: plant.entry_id,
+          solcast: payload,
+        });
+        if (state) this._plantState = state;
+      }
       const res = await this._hass.connection.sendMessagePromise({
         type: "foxess_plant/test_solcast",
         plant_id: plant.entry_id,
       });
       if (res?.plant_state) this._plantState = res.plant_state;
       this._initSolcastDraft();
-      const summary = res?.solcast?.live_summary;
+      const sc = res?.solcast ?? {};
+      const summary = sc.live_summary;
+      const place = sc.test_location ? ` (${sc.test_location}, unmetered)` : " (unmetered test site)";
       const msg = summary?.condition_label
-        ? `Solcast OK — ${summary.temperature_display || ""} ${summary.condition_label}`.trim()
-        : "Solcast connection OK";
+        ? `Solcast OK${place} — ${summary.temperature_display || ""} ${summary.condition_label}`.trim()
+        : `Solcast connection OK${place}`;
       this._showToast(msg);
     } catch (err) {
       this._showToast(err?.message || "Solcast test failed", "err");
@@ -5617,6 +5622,7 @@ ${this._renderPvStringBlock("pv2")}
 <div class="btn-row">
 <button type="button" class="btn btn-primary" data-action="save-solcast-settings" ${this._busy ? "disabled" : ""}>Save</button>
 <button type="button" class="btn btn-secondary" data-action="test-solcast" ${this._busy ? "disabled" : ""}>Test connection</button>
+<p class="field-hint" style="margin-top:10px">Test uses a Solcast <a class="field-link" href="https://docs.solcast.com.au/#00577cf8-b43b-4349-b4b5-a5f063916f5a" target="_blank" rel="noopener noreferrer">unmetered location</a> (default: Sydney Opera House) so your daily API limit is not used.</p>
 </div>`;
   }
 

@@ -63,6 +63,7 @@ SOLCAST_SCHEMA = vol.Schema(
         vol.Optional("latitude"): vol.Any(vol.Coerce(float), None),
         vol.Optional("longitude"): vol.Any(vol.Coerce(float), None),
         vol.Optional("period", default="PT30M"): str,
+        vol.Optional("fetch_now", default=True): cv.boolean,
     }
 )
 
@@ -379,7 +380,9 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
         if coordinator is None:
             connection.send_error(msg["id"], err_code, err_msg)
             return
-        await coordinator.async_save_solcast(solcast=msg["solcast"])
+        payload = dict(msg["solcast"])
+        fetch_now = bool(payload.pop("fetch_now", True))
+        await coordinator.async_save_solcast(solcast=payload, fetch_now=fetch_now)
         connection.send_result(msg["id"], coordinator.get_plant_state())
 
     @websocket_api.websocket_command(

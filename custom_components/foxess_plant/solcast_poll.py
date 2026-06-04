@@ -12,6 +12,7 @@ from homeassistant.util import dt as dt_util
 from .const import SOLCAST_AUTO_UPDATE_ALL_DAY, SOLCAST_AUTO_UPDATE_DAYLIGHT
 from .models import PlantConfig, PvSystemConfig, SolcastConfig
 from .solcast_api import SolcastApiClient, SolcastApiError
+from .solcast_unmetered import DEFAULT_UNMETERED_TEST_LOCATION, resolve_unmetered_location
 from .solcast_weather import (
     is_storm_solcast_live,
     parse_live_overview,
@@ -168,6 +169,54 @@ async def async_refresh_solcast(
     cache["updated_at"] = dt_util.utcnow().isoformat()
     solcast.last_fetch_at = cache["updated_at"]
     return cache
+
+
+async def async_test_solcast_connection(
+    hass: HomeAssistant,
+    solcast: SolcastConfig,
+    *,
+    unmetered_name: str | None = None,
+) -> dict[str, Any]:
+    """Verify API key using a Solcast unmetered location (does not use daily quota)."""
+    if not solcast.api_key_configured():
+        return {"test_ok": False, "error": "Solcast API key is not configured"}
+
+    label, lat, lon = resolve_unmetered_location(unmetered_name or DEFAULT_UNMETERED_TEST_LOCATION)
+    client = SolcastApiClient(hass, api_key=solcast.api_key or "")
+    try:
+        live = await client.live_radiation_and_weather(
+            latitude=lat,
+            longitude=lon,
+            period=solcast.period,
+        )
+    except SolcastApiError as err:
+        solcast.last_error = str(err)
+        return {
+            "test_ok": False,
+            "error": str(err),
+            "test_location": label,
+            "test_unmetered": True,
+            "quota_charged": False,
+        }
+
+    overview = parse_live_overview(live)
+    solcast.last_error = None
+    return {
+        "test_ok": True,
+        "test_location": label,
+        "test_unmetered": True,
+        "quota_charged": False,
+        "test_coordinates": {"latitude": lat, "longitude": lon},
+        "live_summary": (
+            {
+                "condition_label": overview.get("condition_label"),
+                "temperature_display": overview.get("temperature_display"),
+                "icon_key": overview.get("icon_key"),
+            }
+            if overview
+            else None
+        ),
+    }
 
 
 def evaluate_solcast_storm_forecast(

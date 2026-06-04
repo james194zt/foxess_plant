@@ -836,8 +836,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.update_plant_config(PlantConfig.from_entry_data(data))
         await self.async_request_refresh()
 
-    async def async_save_solcast(self, *, solcast: dict[str, Any]) -> None:
+    async def async_save_solcast(self, *, solcast: dict[str, Any], fetch_now: bool = True) -> None:
         """Persist Solcast API settings from the panel."""
+        fetch_now = bool(solcast.pop("fetch_now", fetch_now))
         current = self.plant.solcast.to_dict()
         merged = {**current, **solcast}
         if "api_key" in solcast:
@@ -850,22 +851,21 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         data[CONF_SOLCAST] = SolcastConfig.from_dict(merged).to_dict()
         self.hass.config_entries.async_update_entry(self.config_entry, data=data)
         self.update_plant_config(PlantConfig.from_entry_data(data))
-        await self._async_refresh_storm_weather()
+        if fetch_now and self.plant.solcast.enabled:
+            await self._async_refresh_storm_weather()
         await self.async_request_refresh()
 
     async def async_test_solcast(self) -> dict[str, Any]:
-        """One-shot Solcast live fetch (uses 1 API call if within quota)."""
-        from .solcast_poll import async_refresh_solcast, solcast_status_dict
+        """Verify Solcast API key via an unmetered test location (no quota use)."""
+        from .solcast_poll import async_test_solcast_connection, solcast_status_dict
 
         if not self.plant.solcast.api_key_configured():
             raise HomeAssistantError("Solcast API key is not configured")
-        self._solcast_cache = await async_refresh_solcast(
-            self.hass, self.plant, self._solcast_cache, force=True
-        )
-        self._persist_solcast_usage()
+        test_result = await async_test_solcast_connection(self.hass, self.plant.solcast)
         status = solcast_status_dict(self.plant.solcast, self._solcast_cache)
-        if self.plant.solcast.last_error:
-            raise HomeAssistantError(self.plant.solcast.last_error)
+        status.update(test_result)
+        if not test_result.get("test_ok"):
+            raise HomeAssistantError(test_result.get("error") or "Solcast test failed")
         return status
 
     async def async_set_tariff_mode(self, mode_name: str) -> None:
