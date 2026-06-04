@@ -20,17 +20,44 @@ def _storage_key(entry_id: str) -> str:
     return f"{DOMAIN}.solcast_forecasts.{entry_id}"
 
 
+def _normalize_cache_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
+    cache = deepcopy(snapshot)
+    if cache.get("updated_at") and not cache.get("pv_forecast_fetched_at"):
+        cache["pv_forecast_fetched_at"] = cache["updated_at"]
+    return cache
+
+
+def _snapshot_has_forecast(snapshot: dict[str, Any] | None) -> bool:
+    if not isinstance(snapshot, dict):
+        return False
+    parsed = snapshot.get("pv_forecast_parsed")
+    if not isinstance(parsed, dict):
+        return False
+    rows = parsed.get("detailed_forecast")
+    return isinstance(rows, list) and len(rows) >= 2
+
+
 def cache_from_storage(data: dict[str, Any] | None) -> dict[str, Any]:
     """Rebuild coordinator in-memory cache from stored document."""
     if not data:
         return {}
     current = data.get("current")
-    if not isinstance(current, dict):
-        return {}
-    cache = deepcopy(current)
-    if cache.get("updated_at") and not cache.get("pv_forecast_fetched_at"):
-        cache["pv_forecast_fetched_at"] = cache["updated_at"]
-    return cache
+    if _snapshot_has_forecast(current):
+        return _normalize_cache_snapshot(current)
+
+    history = data.get("history")
+    if isinstance(history, list):
+        for item in reversed(history):
+            if not isinstance(item, dict):
+                continue
+            snap = item.get("cache")
+            if _snapshot_has_forecast(snap):
+                _LOGGER.info("Restored Solcast forecast from storage history fallback")
+                return _normalize_cache_snapshot(snap)
+
+    if isinstance(current, dict) and current.get("pv_forecast_parsed"):
+        return _normalize_cache_snapshot(current)
+    return {}
 
 
 class SolcastForecastStore:
@@ -48,7 +75,7 @@ class SolcastForecastStore:
 
     async def async_record_poll(self, cache: dict[str, Any]) -> int:
         """Save latest poll as current and append to bounded history. Returns history length."""
-        if not cache.get("pv_forecast_parsed"):
+        if not _snapshot_has_forecast(cache):
             return SolcastForecastStore.history_count(await self.async_load())
         snapshot = deepcopy(cache)
         fetched_at = snapshot.get("updated_at") or snapshot.get("pv_forecast_fetched_at")

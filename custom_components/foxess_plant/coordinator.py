@@ -99,11 +99,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         stored = await self._solcast_store.async_load()
         self._solcast_cache = cache_from_storage(stored)
         self._solcast_history_count = SolcastForecastStore.history_count(stored)
-        if self._solcast_cache.get("pv_forecast_parsed"):
+        if self._solcast_detailed_forecast_rows():
             _LOGGER.debug(
                 "Restored Solcast forecast from storage (%s history snapshots)",
                 self._solcast_history_count,
             )
+            await self._maybe_repair_solcast_storage(stored)
 
     def _solcast_detailed_forecast_rows(self) -> list[dict[str, Any]]:
         parsed = self._solcast_cache.get("pv_forecast_parsed")
@@ -111,6 +112,18 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return []
         rows = parsed.get("detailed_forecast")
         return rows if isinstance(rows, list) else []
+
+    async def _maybe_repair_solcast_storage(self, stored: dict[str, Any]) -> None:
+        """Rewrite .storage current when forecast was recovered from history only."""
+        if not self._solcast_store or not self._solcast_cache.get("pv_forecast_parsed"):
+            return
+        current = stored.get("current")
+        if isinstance(current, dict) and current.get("pv_forecast_parsed"):
+            return
+        self._solcast_history_count = await self._solcast_store.async_record_poll(
+            self._solcast_cache
+        )
+        _LOGGER.info("Repaired Solcast forecast storage from history snapshot")
 
     async def async_ensure_solcast_cache(self) -> None:
         """Load persisted forecast if memory is empty or missing detailed rows (e.g. early panel open)."""
@@ -196,17 +209,21 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         from .solcast_poll import async_refresh_solcast
 
-        cache_before = self._solcast_cache
+        cache_before_updated = self._solcast_cache.get("updated_at")
         self._solcast_cache = await async_refresh_solcast(
             self.hass, self.plant, self._solcast_cache, force=force
         )
         if (
             self._solcast_store
             and self._solcast_cache.get("pv_forecast_parsed")
-            and self._solcast_cache.get("updated_at") != cache_before.get("updated_at")
+            and self._solcast_cache.get("updated_at") != cache_before_updated
         ):
             self._solcast_history_count = await self._solcast_store.async_record_poll(
                 self._solcast_cache
+            )
+            _LOGGER.debug(
+                "Persisted Solcast forecast to storage (%s periods)",
+                (self._solcast_cache.get("pv_forecast_parsed") or {}).get("period_count"),
             )
         self._persist_solcast_usage()
         await self.async_request_refresh()

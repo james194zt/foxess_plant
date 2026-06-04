@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.33
+ * @version 0.9.34
  */
 
 const NAV = [
@@ -64,7 +64,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.33";
+const PANEL_VERSION = "0.9.34";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -6435,7 +6435,7 @@ ${this._renderPvStringBlock("pv2")}
       ? esc(String(live.installation_date))
       : "Not set";
     const installMax = solcastInstallationDateMax();
-    const lastFetch = esc(formatSolcastTimestamp(live.last_fetch_at));
+    const lastFetch = esc(formatSolcastTimestamp(live.cache_updated_at || live.last_fetch_at));
     const nextFetch = esc(formatSolcastNextFetch(live));
     const lastErr = live.last_error ? esc(String(live.last_error)) : "None";
     const pvReqs = live.pv_requests ?? [];
@@ -6449,10 +6449,12 @@ ${this._renderPvStringBlock("pv2")}
       : "Enable PV strings in PV Configuration to request rooftop forecasts.";
     const solcastLiveOn = solcastEnabledFromLive(live) && live.fetch_pv_forecast !== false;
     const pvStatus = live.pv_forecast_available
-      ? `${live.pv_forecast_periods ?? 0} forecast periods · ${live.pv_power_now_kw != null ? `${Number(live.pv_power_now_kw).toFixed(2)} kW now` : "power pending"}`
-      : solcastLiveOn
-        ? "Awaiting PV forecast fetch"
-        : "PV forecast off";
+      ? `${live.pv_forecast_periods ?? 0} forecast periods · ${live.pv_power_now_kw != null ? `${Number(live.pv_power_now_kw).toFixed(2)} kW now` : "power pending"}${live.forecast_persisted ? " · cached" : ""}`
+      : live.forecast_persisted
+        ? `${live.pv_forecast_periods ?? 0} cached periods — awaiting chart reload`
+        : solcastLiveOn
+          ? "Awaiting PV forecast fetch"
+          : "PV forecast off";
     const sched = live.poll_schedule;
     let scheduleHint = "";
     if (sched && draft.auto_update === "daylight") {
