@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.10
+ * @version 0.9.12
  */
 
 const NAV = [
@@ -3198,6 +3198,9 @@ class FoxessPlantPanel extends HTMLElement {
     this._brandIconFallback = DEFAULT_BRAND_ICON_STATIC;
     this._brandIconStatic = DEFAULT_BRAND_ICON_STATIC;
     this._socDrag = null;
+    this._rangeDrag = false;
+    this._settingsFieldFocused = false;
+    this._renderPending = false;
     this._energyPeriod = "day";
     this._energyChart = null;
     this._energyChartLoading = false;
@@ -3233,12 +3236,23 @@ class FoxessPlantPanel extends HTMLElement {
     this._onClick = this._handleClick.bind(this);
     this._onInput = this._handleInput.bind(this);
     this._onChange = this._handleChange.bind(this);
+    this._onPointerDown = this._onPointerDown.bind(this);
+    this._onPointerUp = this._onPointerUp.bind(this);
+    this._onFocusIn = this._onFocusIn.bind(this);
+    this._onFocusOut = this._onFocusOut.bind(this);
+    this._onPaste = this._onPaste.bind(this);
   }
 
   connectedCallback() {
     this._root.addEventListener("click", this._onClick);
     this._root.addEventListener("input", this._onInput);
     this._root.addEventListener("change", this._onChange);
+    this._root.addEventListener("pointerdown", this._onPointerDown);
+    this._root.addEventListener("pointerup", this._onPointerUp);
+    this._root.addEventListener("pointercancel", this._onPointerUp);
+    this._root.addEventListener("focusin", this._onFocusIn, true);
+    this._root.addEventListener("focusout", this._onFocusOut, true);
+    this._root.addEventListener("paste", this._onPaste, true);
     void this._initBrandIcons();
     void this._refreshPlantState();
     this._timer = window.setInterval(() => void this._refreshPlantState(), 30000);
@@ -3249,6 +3263,12 @@ class FoxessPlantPanel extends HTMLElement {
     this._root.removeEventListener("click", this._onClick);
     this._root.removeEventListener("input", this._onInput);
     this._root.removeEventListener("change", this._onChange);
+    this._root.removeEventListener("pointerdown", this._onPointerDown);
+    this._root.removeEventListener("pointerup", this._onPointerUp);
+    this._root.removeEventListener("pointercancel", this._onPointerUp);
+    this._root.removeEventListener("focusin", this._onFocusIn, true);
+    this._root.removeEventListener("focusout", this._onFocusOut, true);
+    this._root.removeEventListener("paste", this._onPaste, true);
     if (this._triggerFilterTimer) window.clearTimeout(this._triggerFilterTimer);
     this._endSocDrag();
     if (this._timer) window.clearInterval(this._timer);
@@ -3276,7 +3296,7 @@ class FoxessPlantPanel extends HTMLElement {
     const plants = v?.config?.plants ?? [];
     if (!this._selectedPlantId && plants.length) this._selectedPlantId = plants[0].entry_id;
     void this._refreshPlantState();
-    this._render();
+    this._scheduleRender();
   }
   get panel() {
     return this._panel;
@@ -3424,7 +3444,72 @@ Reloading panel registration…
     }
   }
 
-  _scheduleRender() {
+  _settingsFieldBlocksRender() {
+    if (this._view !== "settings") return false;
+    if (this._settingsFieldFocused) return true;
+    const el = this.shadowRoot?.activeElement || document.activeElement;
+    if (!el || !this._root.contains(el)) return false;
+    const tag = el.tagName;
+    if (tag === "SELECT" || tag === "TEXTAREA") return true;
+    if (tag !== "INPUT") return false;
+    const type = (el.type || "text").toLowerCase();
+    return ["range", "date", "number", "text", "password"].includes(type);
+  }
+
+  _onFocusIn(e) {
+    if (this._view !== "settings" || !this._root.contains(e.target)) return;
+    if (e.target.matches?.("input, select, textarea")) this._settingsFieldFocused = true;
+  }
+
+  _onFocusOut() {
+    if (this._view !== "settings") return;
+    window.requestAnimationFrame(() => {
+      const active = this.shadowRoot?.activeElement || document.activeElement;
+      if (active && this._root.contains(active) && active.matches?.("input, select, textarea")) return;
+      this._settingsFieldFocused = false;
+      if (this._renderPending) {
+        this._renderPending = false;
+        this._scheduleRender();
+      }
+    });
+  }
+
+  _onPaste(e) {
+    const el = e.target;
+    if (!el?.dataset?.field || this._busy) return;
+    const parts = el.dataset.field.split(":");
+    if (parts[0] !== "solcast" || parts[1] !== "api_key" || !this._solcastDraft) return;
+    const text = e.clipboardData?.getData("text/plain") ?? "";
+    if (text) this._solcastDraft.api_key = text;
+  }
+
+  _onPointerDown(e) {
+    const t = e.target;
+    if (t?.matches?.('input[type="range"][data-field^="pv:"]')) this._rangeDrag = true;
+  }
+
+  _onPointerUp() {
+    this._rangeDrag = false;
+  }
+
+  _updatePvRangeLabel(el) {
+    const row = el?.closest?.(".pv-range-row");
+    if (!row) return;
+    const label = row.querySelector(".pv-range-value");
+    if (!label) return;
+    const field = el.dataset?.field || "";
+    if (field.endsWith(":tilt")) label.textContent = `${el.value}°`;
+    else if (field.endsWith(":azimuth")) label.textContent = `${el.value}°`;
+    else if (field.endsWith(":panel_count")) label.textContent = String(el.value);
+    else if (field.endsWith(":watts_per_panel")) label.textContent = `${el.value} W`;
+  }
+
+  _scheduleRender(force = false) {
+    if (!force && (this._socDrag || this._rangeDrag || this._settingsFieldBlocksRender())) {
+      this._renderPending = true;
+      return;
+    }
+    this._renderPending = false;
     if (this._renderRaf) return;
     this._renderRaf = requestAnimationFrame(() => {
       this._renderRaf = 0;
@@ -4042,7 +4127,16 @@ Reloading panel registration…
 
   _handleChange(e) {
     const el = e.target;
-    if (!el?.dataset?.action || this._busy) return;
+    if (this._busy) return;
+    if (el?.dataset?.field) {
+      const parts = el.dataset.field.split(":");
+      if (parts[0] === "pv" && ["tilt", "azimuth", "panel_count", "watts_per_panel"].includes(parts[2])) {
+        this._rangeDrag = false;
+        this._scheduleRender(true);
+        return;
+      }
+    }
+    if (!el?.dataset?.action) return;
     if (el.dataset.action === "toggle-storm-trigger") {
       if (!this._stormDraft) return;
       const entityId = el.dataset.entity;
@@ -4149,7 +4243,6 @@ Reloading panel registration…
       if (field === "api_limit") {
         const n = parseInt(String(el.value).trim(), 10);
         this._solcastDraft.api_limit = Math.max(1, Math.min(50, Number.isFinite(n) ? n : 10));
-        this._scheduleRender();
         return;
       }
       if (field === "api_key") {
@@ -4192,8 +4285,10 @@ Reloading panel registration…
         cfg.tilt = Math.max(0, Math.min(90, parseInt(el.value, 10) || 25));
       } else if (field === "azimuth") {
         cfg.azimuth = Math.max(0, Math.min(359, parseInt(el.value, 10) || 180));
+      } else {
+        return;
       }
-      this._scheduleRender();
+      this._updatePvRangeLabel(el);
       return;
     }
     if (kind === "period" && this._chargeDraft) {
@@ -5819,7 +5914,7 @@ ${this._renderPvStringBlock("pv2")}
 <div class="toggle-row"><span><strong>Enable Solcast PV forecast</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Replaces a third-party Solcast integration for chart PV lines</span></span>
 <input type="checkbox" data-field="solcast:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 <div class="field"><label>API key</label>
-<input type="password" autocomplete="off" data-field="solcast:api_key" placeholder="${esc(keyPlaceholder)}" ${this._busy ? "disabled" : ""}></div>
+<input type="password" autocomplete="off" data-field="solcast:api_key" value="${esc(String(draft.api_key || ""))}" placeholder="${esc(keyPlaceholder)}" ${this._busy ? "disabled" : ""}></div>
 <div class="field"><label>API limit (requests per day)</label>
 <p class="field-hint">Hobbyist plans are typically 10/day — used to spread automatic polling.</p>
 <input type="number" min="1" max="50" step="1" data-field="solcast:api_limit" value="${esc(String(draft.api_limit))}" ${this._busy ? "disabled" : ""}></div>
