@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.18
+ * @version 0.9.20
  */
 
 const NAV = [
@@ -666,8 +666,9 @@ function renderPvThreeQuarterGauge(pvKw, maxKw, valueText, labelText, pctOfMax) 
       : "";
   const sub = pctLabel ? `<div class="device-pv-cap">${esc(pctLabel)}</div>` : "";
   return `<div class="device-pv-wrap" role="img" aria-label="${esc(labelText)} ${esc(valueText)} ${esc(pctLabel)}">
-<div class="device-pv-gauge"><svg viewBox="0 0 100 104" aria-hidden="true">${track}${fill}</svg></div>
+<div class="device-pv-gauge"><svg viewBox="0 0 100 104" aria-hidden="true">${track}${fill}</svg>
 <div class="device-pv-readout"><div class="device-pv-value">${esc(valueText)}</div><div class="device-pv-label">${esc(labelText)}</div>${sub}</div>
+</div>
 </div>`;
 }
 
@@ -2909,14 +2910,19 @@ const STYLES = `
 .device-pv-gauges--dual .device-pv-gauge { max-width: 108px; }
 .device-pv-gauges--dual .device-pv-value { font-size: 17px; }
 .device-pv-gauges--dual .device-pv-label { font-size: 12px; margin-top: 6px; }
-.device-pv-gauges--dual .device-pv-cap { font-size: 10px; line-height: 1.25; }
-.device-pv-wrap { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 10px; }
-.device-pv-gauge { width: 100%; max-width: 140px; aspect-ratio: 100 / 104; flex-shrink: 0; }
+.device-pv-gauges--dual .device-pv-cap { font-size: 9px; line-height: 1.2; }
+.device-pv-wrap { width: 100%; display: flex; flex-direction: column; align-items: center; }
+.device-pv-gauge {
+  position: relative; width: 100%; max-width: 140px; aspect-ratio: 100 / 104; flex-shrink: 0;
+}
 .device-pv-gauge svg { width: 100%; height: 100%; display: block; }
-.device-pv-readout { text-align: center; width: 100%; min-width: 0; }
-.device-pv-value { font-size: 22px; font-weight: 700; line-height: 1.25; letter-spacing: -0.02em; margin: 0; }
-.device-pv-label { font-size: 13px; color: var(--secondary-text-color); font-weight: 500; line-height: 1.4; margin: 8px 0 0; }
-.device-pv-cap { font-size: 11px; color: var(--secondary-text-color); line-height: 1.35; margin: 4px 0 0; opacity: 0.9; }
+.device-pv-readout {
+  position: absolute; left: 0; right: 0; top: 40%; transform: translateY(-50%);
+  text-align: center; min-width: 0; padding: 0 10px; box-sizing: border-box; pointer-events: none;
+}
+.device-pv-value { font-size: 20px; font-weight: 700; line-height: 1.2; letter-spacing: -0.02em; margin: 0; }
+.device-pv-label { font-size: 12px; color: var(--secondary-text-color); font-weight: 500; line-height: 1.3; margin: 3px 0 0; }
+.device-pv-cap { font-size: 10px; color: var(--secondary-text-color); line-height: 1.25; margin: 2px 0 0; opacity: 0.9; }
 .device-battery-card { width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 0; }
 .device-battery-top {
   display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
@@ -3148,9 +3154,10 @@ const STYLES = `
   .device-grid { grid-template-columns: 1fr; gap: 12px; }
   .device-card--pv, .device-card--battery { padding: 20px 20px 22px; }
   .device-pv-gauges--dual .device-pv-gauge { max-width: 120px; }
-  .device-pv-gauges--dual .device-pv-value { font-size: 18px; }
+  .device-pv-gauges--dual .device-pv-value { font-size: 16px; }
+  .device-pv-gauges--dual .device-pv-readout { padding: 0 6px; }
   .device-pv-gauge { max-width: 160px; }
-  .device-pv-value { font-size: 24px; }
+  .device-pv-value { font-size: 22px; }
   .device-battery-pct { font-size: 32px; }
 }
 @media (max-width: 600px) {
