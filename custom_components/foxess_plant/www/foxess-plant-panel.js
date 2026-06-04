@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.26
+ * @version 0.9.31
  */
 
 const NAV = [
@@ -64,7 +64,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.2";
+const PANEL_VERSION = "0.9.31";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -555,10 +555,30 @@ function nativeSolcastPvForecastEnabled(plantState) {
 /** Chart overlay: use persisted detailed_forecast even before hobbyist bindings re-resolve. */
 function statisticsSolcastForecastEnabled(plantState) {
   const sc = plantState?.solcast;
-  if (!solcastEnabledFromLive(sc) || sc?.fetch_pv_forecast === false) return false;
+  if (!sc || sc?.fetch_pv_forecast === false) return false;
   const rows = sc?.detailed_forecast;
-  if (Array.isArray(rows) && rows.length >= 2) return true;
+  if (Array.isArray(rows) && rows.length >= 2) {
+    return solcastEnabledFromLive(sc) || Boolean(sc.forecast_persisted);
+  }
+  if (sc.forecast_persisted && (sc.pv_forecast_periods ?? 0) >= 2) {
+    return solcastEnabledFromLive(sc) || Boolean(sc.api_key_set);
+  }
   return nativeSolcastPvForecastEnabled(plantState);
+}
+
+function statisticsChartHasForecast(series) {
+  return Boolean(series?.some((s) => s.id === "forecast" && (s.points?.length ?? 0) >= 2));
+}
+
+function mergeStatisticsForecastSeries(series, range, plantState) {
+  if (!Array.isArray(series) || !range) return series;
+  const without = series.filter((s) => s.id !== "forecast");
+  const fPoints = buildForecastSeriesPoints(plantState, range);
+  if (!fPoints.length) return series;
+  return [
+    ...without,
+    { id: "forecast", ...FORECAST_CHART_STYLE, connectGaps: true, points: fPoints },
+  ];
 }
 
 function solcastForecastChartKey(sc) {
@@ -578,11 +598,22 @@ function forecastChartEndMs(range, rawPoints) {
   return range.tMax;
 }
 
+function parseSolcastPeriodMs(raw) {
+  if (raw == null || raw === "") return NaN;
+  if (typeof raw === "number") return raw > 1e12 ? raw : raw * 1000;
+  const text = String(raw).trim();
+  if (!text) return NaN;
+  let t = new Date(text).getTime();
+  if (Number.isFinite(t)) return t;
+  t = new Date(`${text.replace(" ", "T")}Z`).getTime();
+  return Number.isFinite(t) ? t : NaN;
+}
+
 function detailedForecastToChartPoints(rows, range) {
   if (!Array.isArray(rows) || rows.length < 2) return [];
   const raw = rows
     .map((row) => {
-      const t = new Date(row.period_start).getTime();
+      const t = parseSolcastPeriodMs(row.period_start ?? row.period_end);
       let v = Number(row.pv_estimate);
       if (!Number.isFinite(t) || !Number.isFinite(v)) return null;
       if (v > 50) v /= 1000;
@@ -592,12 +623,10 @@ function detailedForecastToChartPoints(rows, range) {
     .sort((a, b) => a.t - b.t);
   if (raw.length < 2) return [];
   const chartEnd = forecastChartEndMs(range, raw);
-  return interpolatePointsToPeriod(
-    raw.filter((p) => p.t >= range.tMin && p.t <= chartEnd),
-    STATISTICS_PERIOD_MS,
-    range.tMin,
-    chartEnd
-  );
+  const dayRows = raw.filter((p) => p.t >= range.tMin && p.t <= chartEnd);
+  const source = dayRows.length >= 2 ? dayRows : raw.filter((p) => p.t <= chartEnd);
+  if (source.length < 2) return [];
+  return interpolatePointsToPeriod(source, STATISTICS_PERIOD_MS, range.tMin, chartEnd);
 }
 
 function nativeSolcastForecastPoints(plantState, range) {
@@ -1717,6 +1746,26 @@ function formatSocPercent(v) {
   return Number.isFinite(v) ? `${Math.round(v)}%` : "—";
 }
 
+function readLiveBatterySoc(hass, plant, plantState) {
+  const entityId = resolveEntityMap(hass, plant, plantState).battery_soc;
+  if (!entityId || !hass?.states?.[entityId]) return null;
+  const st = hass.states[entityId];
+  if (st.state === "unavailable" || st.state === "unknown" || st.state === "") return null;
+  const n = parseFloat(st.state);
+  if (!Number.isFinite(n)) return null;
+  return clampSocPercent(n);
+}
+
+function resolveBatterySocDisplay(hass, plant, plantState, chart) {
+  const live = readLiveBatterySoc(hass, plant, plantState);
+  if (live != null) return live;
+  const { socPts, range } = chart || {};
+  if (!socPts?.length) return null;
+  const atNow = clampSocPercent(interpolateSeriesAt(socPts, range?.nowMs ?? Date.now()));
+  if (atNow != null) return atNow;
+  return clampSocPercent(socPts[socPts.length - 1]?.v);
+}
+
 function fillSocAreaPath(pts, yBase) {
   if (pts.length < 2) return "";
   const line = statisticsLinePath(pts, pts.map((p) => ({ t: p.t })));
@@ -1750,13 +1799,11 @@ async function fetchBatterySocChartSeries(hass, plant, plantState) {
   }
   const chargePts = chargeId ? buildSocPowerPoints(hass, chargeId, range, statsMap, hist) : [];
   const dischargePts = dischargeId ? buildSocPowerPoints(hass, dischargeId, range, statsMap, hist) : [];
-  const liveSoc = clampSocPercent(stateNumber(hass, socId));
   return {
     range,
     socPts,
     chargePts,
     dischargePts,
-    liveSoc,
     segments: splitSocSegmentsByMode(socPts, chargePts, dischargePts),
     activityBars: buildSocActivityBars(chargePts, dischargePts, range),
   };
@@ -1949,7 +1996,13 @@ async function fetchStatisticsChartSeries(hass, plant, plantState) {
   if (!specs.length) {
     return { empty: "Map power entities in FoxESS Modbus, then reload FoxESS Plant." };
   }
-  const useNativeForecast = statisticsSolcastForecastEnabled(plantState);
+  let forecastState = plantState;
+  try {
+    const fresh = await fetchPlantState(hass, plant.entry_id);
+    if (fresh) forecastState = fresh;
+  } catch {
+    /* plant_state optional */
+  }
   const entityIds = specs.map((s) => s.entity_id);
   const now = new Date();
   const start = startOfLocalDay(now);
@@ -1970,16 +2023,14 @@ async function fetchStatisticsChartSeries(hass, plant, plantState) {
     lineWidth: spec.lineWidth,
     points: buildStatisticsSeriesPoints(hass, spec.entity_id, spec, range, statsMap, hist),
   }));
-  if (useNativeForecast) {
-    const fPoints = buildForecastSeriesPoints(plantState, range);
-    if (fPoints.length) {
-      series.push({
-        id: "forecast",
-        ...FORECAST_CHART_STYLE,
-        connectGaps: true,
-        points: fPoints,
-      });
-    }
+  const fPoints = buildForecastSeriesPoints(forecastState, range);
+  if (fPoints.length) {
+    series.push({
+      id: "forecast",
+      ...FORECAST_CHART_STYLE,
+      connectGaps: true,
+      points: fPoints,
+    });
   }
   if (!series.some((s) => s.points.length)) {
     const listed = specs.map((s) => s.entity_id).join(", ");
@@ -1987,7 +2038,7 @@ async function fetchStatisticsChartSeries(hass, plant, plantState) {
       empty: `No statistics for: ${listed}. Confirm the Recorder stores 5-minute means for these entities (same as your Lovelace plotly-graph card).`,
     };
   }
-  return { series, range };
+  return { series, range, forecastState };
 }
 
 function buildDailyLabels(startDay, count) {
@@ -2916,10 +2967,10 @@ const STYLES = `
 }
 .soc-chart-head {
   display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
-  margin-bottom: 6px; flex-wrap: wrap;
+  margin-bottom: 10px; flex-wrap: wrap;
 }
 .soc-chart-value {
-  font-size: 28px; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em;
+  font-size: 22px; font-weight: 700; line-height: 1.15; letter-spacing: -0.02em;
 }
 .soc-chart-legend {
   display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center;
@@ -3967,10 +4018,22 @@ Reloading panel registration…
 
   _invalidateStatisticsChartForSolcast() {
     const key = solcastForecastChartKey(this._plantState?.solcast);
-    if (this._statisticsSolcastKey === key) return;
+    const forecastExpected = statisticsSolcastForecastEnabled(this._plantState);
+    const chartHasForecast = statisticsChartHasForecast(this._statisticsChart?.series);
+    const needsReload = forecastExpected && !chartHasForecast;
+    if (this._statisticsSolcastKey === key && !needsReload) return;
     this._statisticsSolcastKey = key;
     this._statisticsChart = null;
     this._statisticsChartPlantId = undefined;
+    if (needsReload && this._statisticsChartVisible() && !this._statisticsChartLoading) {
+      void this._loadStatisticsChart();
+    }
+  }
+
+  _statisticsSeriesForDisplay() {
+    if (!this._statisticsChart?.series || !this._statisticsChart?.range) return null;
+    const state = this._plantState ?? this._statisticsChart.forecastState;
+    return mergeStatisticsForecastSeries(this._statisticsChart.series, this._statisticsChart.range, state);
   }
 
   _reloadStatisticsChartWhenVisible() {
@@ -5595,15 +5658,17 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     if (this._statisticsChart?.empty) {
       return `<p class="placeholder chart-empty">${esc(this._statisticsChart.empty)}</p>`;
     }
-    if (this._statisticsChart?.series) {
-      return renderStatisticsChartHtml(this._statisticsChart.series, this._statisticsChart.range);
+    const series = this._statisticsSeriesForDisplay();
+    if (series?.length) {
+      return renderStatisticsChartHtml(series, this._statisticsChart.range);
     }
     return `<p class="placeholder chart-empty">Open Energy or wait for history to load.</p>`;
   }
 
   _bindStatisticsChart() {
-    if (!this._statisticsChart?.series) return;
-    bindStatisticsChart(this._root, this._statisticsChart.series);
+    const series = this._statisticsSeriesForDisplay();
+    if (!series?.length) return;
+    bindStatisticsChart(this._root, series);
   }
 
   async _loadBatterySocChart() {
@@ -5640,10 +5705,13 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
       return `<p class="placeholder chart-empty">${esc(this._batterySocChart.empty)}</p>`;
     }
     if (this._batterySocChart?.socPts?.length) {
-      const live =
-        this._batterySocChart.liveSoc ??
-        stateNumber(this._hass, resolveEntityMap(this._hass, plant, this._plantState).battery_soc);
-      return renderBatterySocChartHtml(this._batterySocChart, live);
+      const displaySoc = resolveBatterySocDisplay(
+        this._hass,
+        plant,
+        this._plantState,
+        this._batterySocChart
+      );
+      return renderBatterySocChartHtml(this._batterySocChart, displaySoc);
     }
     return `<p class="placeholder chart-empty">Waiting for battery SOC history…</p>`;
   }

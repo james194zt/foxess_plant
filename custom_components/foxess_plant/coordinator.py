@@ -105,6 +105,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._solcast_history_count,
             )
 
+    async def async_ensure_solcast_cache(self) -> None:
+        """Load persisted forecast if the in-memory cache is still empty (e.g. early panel open)."""
+        if self._solcast_cache.get("pv_forecast_parsed"):
+            return
+        await self._async_load_solcast_storage()
+
     async def async_config_entry_first_refresh(self) -> None:
         await self._async_load_solcast_storage()
         self._sync_trigger_membership()

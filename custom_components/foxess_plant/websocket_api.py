@@ -234,7 +234,8 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
         if coordinator is None:
             connection.send_error(msg["id"], err_code, err_msg)
             return
-        connection.send_result(msg["id"], _plant_summary(hass, coordinator.config_entry.entry_id))
+        await coordinator.async_ensure_solcast_cache()
+        connection.send_result(msg["id"], coordinator.get_plant_state())
 
     @websocket_api.websocket_command({vol.Required("type"): WS_TYPE_TRIGGER_CANDIDATES})
     @websocket_api.async_response
