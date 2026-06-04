@@ -81,6 +81,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._storm_forecast_active = False
         self._storm_forecast_detail = {}
         self._solcast_cache: dict[str, Any] = {}
+        self._solcast_store = None
+        self._solcast_history_count = 0
         super().__init__(
             hass,
             _LOGGER,
@@ -89,7 +91,22 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=UPDATE_INTERVAL,
         )
 
+    async def _async_load_solcast_storage(self) -> None:
+        """Restore forecast cache from HA .storage (parsed + raw API documents)."""
+        from .solcast_store import SolcastForecastStore, cache_from_storage
+
+        self._solcast_store = SolcastForecastStore(self.hass, self.config_entry.entry_id)
+        stored = await self._solcast_store.async_load()
+        self._solcast_cache = cache_from_storage(stored)
+        self._solcast_history_count = SolcastForecastStore.history_count(stored)
+        if self._solcast_cache.get("pv_forecast_parsed"):
+            _LOGGER.debug(
+                "Restored Solcast forecast from storage (%s history snapshots)",
+                self._solcast_history_count,
+            )
+
     async def async_config_entry_first_refresh(self) -> None:
+        await self._async_load_solcast_storage()
         self._sync_trigger_membership()
         self.setup_trigger_listeners()
         await super().async_config_entry_first_refresh()
@@ -166,9 +183,18 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         from .solcast_poll import async_refresh_solcast
 
+        cache_before = self._solcast_cache
         self._solcast_cache = await async_refresh_solcast(
             self.hass, self.plant, self._solcast_cache, force=force
         )
+        if (
+            self._solcast_store
+            and self._solcast_cache.get("pv_forecast_parsed")
+            and self._solcast_cache.get("updated_at") != cache_before.get("updated_at")
+        ):
+            self._solcast_history_count = await self._solcast_store.async_record_poll(
+                self._solcast_cache
+            )
         self._persist_solcast_usage()
         await self.async_request_refresh()
 
@@ -470,7 +496,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         from .solcast_poll import solcast_status_dict
 
         return solcast_status_dict(
-            self.plant.solcast, self._solcast_cache, plant=self.plant, hass=self.hass
+            self.plant.solcast,
+            self._solcast_cache,
+            plant=self.plant,
+            hass=self.hass,
+            forecast_history_snapshots=self._solcast_history_count,
         )
 
     def get_plant_state(self) -> dict[str, Any]:
@@ -863,7 +893,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.hass, self.plant.solcast, plant=self.plant
         )
         status = solcast_status_dict(
-            self.plant.solcast, self._solcast_cache, plant=self.plant, hass=self.hass
+            self.plant.solcast,
+            self._solcast_cache,
+            plant=self.plant,
+            hass=self.hass,
+            forecast_history_snapshots=self._solcast_history_count,
         )
         status.update(test_result)
         if not test_result.get("test_ok"):

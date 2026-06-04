@@ -111,6 +111,49 @@ def should_poll_now(hass: HomeAssistant, solcast: SolcastConfig) -> bool:
     return is_in_poll_window(hass, solcast)
 
 
+def last_poll_timestamp(
+    solcast: SolcastConfig,
+    cache: dict[str, Any],
+) -> datetime | None:
+    """Latest successful PV poll time (in-memory cache or persisted config entry)."""
+    raw_times: list[str] = []
+    for key in ("updated_at", "pv_forecast_fetched_at"):
+        value = cache.get(key)
+        if value:
+            raw_times.append(str(value))
+    if solcast.last_fetch_at:
+        raw_times.append(str(solcast.last_fetch_at))
+    latest: datetime | None = None
+    for raw in raw_times:
+        try:
+            parsed = dt_util.parse_datetime(raw)
+        except (TypeError, ValueError):
+            continue
+        if parsed is None:
+            continue
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=dt_util.UTC)
+        else:
+            parsed = dt_util.as_utc(parsed)
+        if latest is None or parsed > latest:
+            latest = parsed
+    return latest
+
+
+def poll_interval_elapsed(
+    hass: HomeAssistant,
+    solcast: SolcastConfig,
+    cache: dict[str, Any],
+    *,
+    pv_calls: int = 1,
+) -> bool:
+    """True when the configured spacing since the last poll has passed."""
+    last = last_poll_timestamp(solcast, cache)
+    if last is None:
+        return True
+    return dt_util.utcnow() - last >= min_poll_interval(hass, solcast, pv_calls=pv_calls)
+
+
 def min_poll_interval(
     hass: HomeAssistant,
     solcast: SolcastConfig,
@@ -176,10 +219,13 @@ def solcast_status_dict(
     *,
     plant: PlantConfig | None = None,
     hass: HomeAssistant | None = None,
+    forecast_history_snapshots: int = 0,
 ) -> dict[str, Any]:
     reset_api_quota_if_needed(solcast)
     out = solcast.to_dict(include_api_key=False)
     out["api_remaining"] = api_remaining(solcast)
+    out["forecast_history_snapshots"] = forecast_history_snapshots
+    out["forecast_persisted"] = bool(cache and cache.get("pv_forecast_parsed"))
     out["coordinates_configured"] = solcast.coordinates_configured()
     if solcast.latitude is not None and solcast.longitude is not None:
         out["coordinates"] = {
@@ -220,14 +266,14 @@ async def _fetch_rooftop_pv_forecasts(
     hass: HomeAssistant,
     plant: PlantConfig,
     client: SolcastApiClient,
-) -> tuple[dict[str, Any] | None, list[str]]:
+) -> tuple[dict[str, Any] | None, list[str], dict[str, dict[str, Any]]]:
     """Fetch forecasts via hobbyist GET /rooftop_sites/{resource_id}/forecasts."""
     from .solcast_hobbyist import async_resolve_rooftop_bindings
 
     solcast = plant.solcast
     requests = build_rooftop_pv_requests(plant.pv_config)
     if not requests:
-        return None, ["No enabled PV strings in PV Configuration"]
+        return None, ["No enabled PV strings in PV Configuration"], {}
 
     if not solcast.rooftop_site_bindings:
         await async_resolve_rooftop_bindings(hass, plant)
@@ -260,8 +306,8 @@ async def _fetch_rooftop_pv_forecasts(
             errors.append(msg)
             _LOGGER.warning("Solcast hobbyist forecast failed for %s: %s", req.label, err)
     if not payloads:
-        return None, errors
-    return parse_detailed_forecast(payloads, hass), errors
+        return None, errors, fetched_by_rid
+    return parse_detailed_forecast(payloads, hass), errors, fetched_by_rid
 
 
 async def async_refresh_solcast(
@@ -284,6 +330,21 @@ async def async_refresh_solcast(
     if not force and not should_poll_now(hass, solcast):
         return cache
 
+    # Use request count as an upper bound before bindings are resolved (same quota math).
+    pv_calls_estimate = max(1, len(requests))
+    if not force and not poll_interval_elapsed(
+        hass, solcast, cache, pv_calls=pv_calls_estimate
+    ):
+        _LOGGER.debug(
+            "Skipping Solcast PV poll (last fetch %s, interval %s min)",
+            last_poll_timestamp(solcast, cache),
+            int(
+                min_poll_interval(hass, solcast, pv_calls=pv_calls_estimate).total_seconds()
+                // 60
+            ),
+        )
+        return cache
+
     bindings = solcast.rooftop_site_bindings
     if not bindings:
         try:
@@ -297,18 +358,6 @@ async def async_refresh_solcast(
 
     unique_sites = {bindings[r.label] for r in requests if r.label in bindings}
     pv_calls = max(1, len(unique_sites))
-    last_at = cache.get("updated_at")
-    if last_at and not force:
-        try:
-            parsed = dt_util.parse_datetime(str(last_at))
-            if parsed is not None:
-                parsed = dt_util.as_utc(parsed) if parsed.tzinfo else parsed.replace(tzinfo=dt_util.UTC)
-                if dt_util.utcnow() - parsed < min_poll_interval(
-                    hass, solcast, pv_calls=pv_calls
-                ):
-                    return cache
-        except (TypeError, ValueError):
-            pass
 
     if not can_consume_api(solcast, pv_calls):
         solcast.last_error = "Daily API limit reached"
@@ -316,7 +365,9 @@ async def async_refresh_solcast(
 
     client = SolcastApiClient(hass, api_key=solcast.api_key or "")
     try:
-        parsed, fetch_errors = await _fetch_rooftop_pv_forecasts(hass, plant, client)
+        parsed, fetch_errors, raw_forecasts = await _fetch_rooftop_pv_forecasts(
+            hass, plant, client
+        )
     except SolcastApiError as err:
         solcast.last_error = str(err)
         _LOGGER.warning("Solcast PV forecast fetch failed: %s", err)
@@ -326,6 +377,7 @@ async def async_refresh_solcast(
     if parsed and period_count > 0:
         record_api_use(solcast, pv_calls)
         cache["pv_forecast_parsed"] = parsed
+        cache["raw_forecasts"] = raw_forecasts
         cache["pv_forecast_fetched_at"] = dt_util.utcnow().isoformat()
         lat, lon = resolve_coordinates(hass, solcast)
         cache["coordinates"] = {"latitude": lat, "longitude": lon}
