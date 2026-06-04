@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.32
+ * @version 0.9.33
  */
 
 const NAV = [
@@ -64,7 +64,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.32";
+const PANEL_VERSION = "0.9.33";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -553,23 +553,38 @@ function nativeSolcastPvForecastEnabled(plantState) {
 }
 
 /** Chart overlay: use persisted detailed_forecast even before hobbyist bindings re-resolve. */
-function statisticsSolcastForecastEnabled(plantState) {
+function statisticsSolcastForecastEnabled(plantState, hass) {
   const sc = plantState?.solcast;
   if (!sc || sc?.fetch_pv_forecast === false) return false;
-  const rows = sc?.detailed_forecast;
-  if (Array.isArray(rows) && rows.length >= 2) {
-    return solcastEnabledFromLive(sc) || Boolean(sc.forecast_persisted);
-  }
-  if (sc.forecast_persisted && (sc.pv_forecast_periods ?? 0) >= 2) {
-    return solcastEnabledFromLive(sc) || Boolean(sc.api_key_set);
-  }
+  const rows = resolveSolcastDetailedForecast(plantState, hass);
+  if (rows.length >= 2) return true;
+  if (sc.forecast_persisted && (sc.pv_forecast_periods ?? 0) >= 2) return true;
+  if (sc.pv_forecast_available) return true;
   return nativeSolcastPvForecastEnabled(plantState);
 }
 
-function mergeStatisticsForecastSeries(series, range, plantState) {
+function solcastDetailedForecastFromHass(hass, plantState) {
+  const sc = plantState?.solcast;
+  const rows = sc?.detailed_forecast;
+  if (Array.isArray(rows) && rows.length >= 2) return rows;
+  if (!hass?.states) return Array.isArray(rows) ? rows : [];
+  for (const st of Object.values(hass.states)) {
+    const attrs = st?.attributes;
+    if (!attrs || attrs.source !== "foxess_plant_solcast") continue;
+    const df = attrs.detailed_forecast ?? attrs.detailedForecast;
+    if (Array.isArray(df) && df.length >= 2) return df;
+  }
+  return Array.isArray(rows) ? rows : [];
+}
+
+function resolveSolcastDetailedForecast(plantState, hass) {
+  return solcastDetailedForecastFromHass(hass, plantState);
+}
+
+function mergeStatisticsForecastSeries(series, range, plantState, hass) {
   if (!Array.isArray(series) || !range) return series;
   const without = series.filter((s) => s.id !== "forecast");
-  const fPoints = buildForecastSeriesPoints(plantState, range);
+  const fPoints = buildForecastSeriesPoints(plantState, range, hass);
   if (!fPoints.length) return series;
   return [
     ...without,
@@ -577,47 +592,53 @@ function mergeStatisticsForecastSeries(series, range, plantState) {
   ];
 }
 
-function forecastChartEndMs(range, rawPoints) {
-  if (rawPoints?.length) {
-    const lastT = rawPoints[rawPoints.length - 1].t;
-    return Math.min(range.tMax, lastT + STATISTICS_PERIOD_MS);
-  }
-  return range.tMax;
-}
-
 function parseSolcastPeriodMs(raw) {
   if (raw == null || raw === "") return NaN;
   if (typeof raw === "number") return raw > 1e12 ? raw : raw * 1000;
   const text = String(raw).trim();
   if (!text) return NaN;
-  let t = new Date(text).getTime();
+  if (/^\d+(\.\d+)?$/.test(text)) {
+    const n = Number(text);
+    return n > 1e12 ? n : n * 1000;
+  }
+  let t = Date.parse(text);
   if (Number.isFinite(t)) return t;
-  t = new Date(`${text.replace(" ", "T")}Z`).getTime();
-  return Number.isFinite(t) ? t : NaN;
+  t = Date.parse(text.replace(" ", "T"));
+  if (Number.isFinite(t)) return t;
+  if (!/[zZ]|[+-]\d{2}:?\d{2}$/.test(text)) {
+    t = Date.parse(`${text.replace(" ", "T")}Z`);
+    if (Number.isFinite(t)) return t;
+  }
+  return NaN;
 }
 
 function detailedForecastToChartPoints(rows, range) {
   if (!Array.isArray(rows) || rows.length < 2) return [];
   const raw = rows
     .map((row) => {
-      const t = parseSolcastPeriodMs(row.period_start ?? row.period_end);
-      let v = Number(row.pv_estimate);
+      const t = parseSolcastPeriodMs(row.period_end ?? row.period_start ?? row.period);
+      let v = Number(row.pv_estimate ?? row.pv_power_rooftop ?? row.power ?? row.pv_power);
       if (!Number.isFinite(t) || !Number.isFinite(v)) return null;
-      if (v > 50) v /= 1000;
+      if (Math.abs(v) > 50) v /= 1000;
       return { t, v };
     })
     .filter(Boolean)
     .sort((a, b) => a.t - b.t);
   if (raw.length < 2) return [];
-  const chartEnd = forecastChartEndMs(range, raw);
-  const dayRows = raw.filter((p) => p.t >= range.tMin && p.t <= chartEnd);
-  const source = dayRows.length >= 2 ? dayRows : raw.filter((p) => p.t <= chartEnd);
-  if (source.length < 2) return [];
-  return interpolatePointsToPeriod(source, STATISTICS_PERIOD_MS, range.tMin, chartEnd);
+
+  const graceMs = 36e5;
+  let relevant = raw.filter((p) => p.t >= range.tMin - graceMs && p.t <= range.tMax);
+  if (relevant.length < 2) {
+    relevant = raw.filter((p) => p.t >= range.nowMs - STATISTICS_PERIOD_MS * 2 && p.t <= range.tMax);
+  }
+  if (relevant.length < 2) return [];
+
+  return interpolatePointsToPeriod(relevant, STATISTICS_PERIOD_MS, range.tMin, range.tMax);
 }
 
-function nativeSolcastForecastPoints(plantState, range) {
-  return detailedForecastToChartPoints(plantState?.solcast?.detailed_forecast, range);
+function nativeSolcastForecastPoints(plantState, range, hass) {
+  const rows = resolveSolcastDetailedForecast(plantState, hass);
+  return detailedForecastToChartPoints(rows, range);
 }
 
 function pvConfigSummary(pv) {
@@ -1645,9 +1666,9 @@ function interpolatePointsToPeriod(points, periodMs, originMs, endMs) {
 }
 
 /** PV forecast overlay from Fox Plant native Solcast state only (no third-party HA integration). */
-function buildForecastSeriesPoints(plantState, range) {
-  if (!statisticsSolcastForecastEnabled(plantState)) return [];
-  return nativeSolcastForecastPoints(plantState, range);
+function buildForecastSeriesPoints(plantState, range, hass) {
+  if (!statisticsSolcastForecastEnabled(plantState, hass)) return [];
+  return nativeSolcastForecastPoints(plantState, range, hass);
 }
 
 function clampSocPercent(v) {
@@ -2010,7 +2031,7 @@ async function fetchStatisticsChartSeries(hass, plant, plantState) {
     lineWidth: spec.lineWidth,
     points: buildStatisticsSeriesPoints(hass, spec.entity_id, spec, range, statsMap, hist),
   }));
-  const fPoints = buildForecastSeriesPoints(forecastState, range);
+  const fPoints = buildForecastSeriesPoints(forecastState, range, hass);
   if (fPoints.length) {
     series.push({
       id: "forecast",
@@ -4001,10 +4022,25 @@ Reloading panel registration…
     );
   }
 
+  _pickStatisticsForecastState() {
+    const live = this._plantState;
+    const cached = this._statisticsChart?.forecastState;
+    const liveRows = resolveSolcastDetailedForecast(live, this._hass);
+    if (liveRows.length >= 2) return live;
+    const cachedRows = resolveSolcastDetailedForecast(cached, this._hass);
+    if (cachedRows.length >= 2) return cached;
+    return live ?? cached;
+  }
+
   _statisticsSeriesForDisplay() {
     if (!this._statisticsChart?.series || !this._statisticsChart?.range) return null;
-    const state = this._plantState ?? this._statisticsChart.forecastState;
-    return mergeStatisticsForecastSeries(this._statisticsChart.series, this._statisticsChart.range, state);
+    const state = this._pickStatisticsForecastState();
+    return mergeStatisticsForecastSeries(
+      this._statisticsChart.series,
+      this._statisticsChart.range,
+      state,
+      this._hass
+    );
   }
 
   _reloadStatisticsChartWhenVisible() {
@@ -5599,6 +5635,9 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     this._statisticsChartPlantId = plantId;
     this._scheduleRender();
     try {
+      if (resolveSolcastDetailedForecast(this._plantState, this._hass).length < 2) {
+        await this._refreshPlantState();
+      }
       const chart = await this._fetchStatisticsChartData(plant);
       this._statisticsChart = chart;
     } catch (err) {

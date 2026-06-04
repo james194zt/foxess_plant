@@ -105,9 +105,16 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._solcast_history_count,
             )
 
+    def _solcast_detailed_forecast_rows(self) -> list[dict[str, Any]]:
+        parsed = self._solcast_cache.get("pv_forecast_parsed")
+        if not isinstance(parsed, dict):
+            return []
+        rows = parsed.get("detailed_forecast")
+        return rows if isinstance(rows, list) else []
+
     async def async_ensure_solcast_cache(self) -> None:
-        """Load persisted forecast if the in-memory cache is still empty (e.g. early panel open)."""
-        if self._solcast_cache.get("pv_forecast_parsed"):
+        """Load persisted forecast if memory is empty or missing detailed rows (e.g. early panel open)."""
+        if len(self._solcast_detailed_forecast_rows()) >= 2:
             return
         await self._async_load_solcast_storage()
 
@@ -577,6 +584,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         }
 
     async def _async_update_data(self) -> dict[str, Any]:
+        await self.async_ensure_solcast_cache()
         try:
             await self._evaluate_forecast_prep()
         except Exception as err:
