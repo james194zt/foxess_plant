@@ -19,6 +19,9 @@ def compute_analytics(entity_states: dict[str, str | None]) -> dict[str, Any]:
     """Mirror Solar Analysis calculations from the Fox-style dashboard."""
     pv = _float_state(entity_states, "solar_energy_today")
     to_grid = _float_state(entity_states, "feed_in_energy_today")
+    # Export (feed-in) cannot exceed PV generation for the same period.
+    if pv > 0:
+        to_grid = min(to_grid, pv)
     to_load_battery = max(0.0, pv - to_grid)
 
     base_load = _float_state(entity_states, "load_energy_today")
