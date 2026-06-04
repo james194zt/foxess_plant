@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.31
+ * @version 0.9.32
  */
 
 const NAV = [
@@ -64,7 +64,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.31";
+const PANEL_VERSION = "0.9.32";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -566,10 +566,6 @@ function statisticsSolcastForecastEnabled(plantState) {
   return nativeSolcastPvForecastEnabled(plantState);
 }
 
-function statisticsChartHasForecast(series) {
-  return Boolean(series?.some((s) => s.id === "forecast" && (s.points?.length ?? 0) >= 2));
-}
-
 function mergeStatisticsForecastSeries(series, range, plantState) {
   if (!Array.isArray(series) || !range) return series;
   const without = series.filter((s) => s.id !== "forecast");
@@ -579,15 +575,6 @@ function mergeStatisticsForecastSeries(series, range, plantState) {
     ...without,
     { id: "forecast", ...FORECAST_CHART_STYLE, connectGaps: true, points: fPoints },
   ];
-}
-
-function solcastForecastChartKey(sc) {
-  if (!sc) return "";
-  const df = sc.detailed_forecast;
-  const n = Array.isArray(df) ? df.length : 0;
-  const first = n ? String(df[0]?.period_start ?? "") : "";
-  const last = n ? String(df[n - 1]?.period_start ?? "") : "";
-  return `${Boolean(sc.forecast_persisted)}|${sc.pv_forecast_periods ?? 0}|${n}|${first}|${last}`;
 }
 
 function forecastChartEndMs(range, rawPoints) {
@@ -3699,7 +3686,6 @@ class FoxessPlantPanel extends HTMLElement {
     this._statisticsChart = null;
     this._statisticsChartLoading = false;
     this._statisticsChartPlantId = undefined;
-    this._statisticsSolcastKey = undefined;
     this._batterySocChart = null;
     this._batterySocChartLoading = false;
     this._batterySocChartPlantId = undefined;
@@ -3941,7 +3927,6 @@ Reloading panel registration…
         this._solcastDraft.api_key_set = Boolean(sc.api_key_set);
       }
       this._panelStale = this._panelIsStale();
-      this._invalidateStatisticsChartForSolcast();
       if (!this._socDrag) this._scheduleRender();
       void this._syncPanelIfStale();
     } catch {
@@ -4016,20 +4001,6 @@ Reloading panel registration…
     );
   }
 
-  _invalidateStatisticsChartForSolcast() {
-    const key = solcastForecastChartKey(this._plantState?.solcast);
-    const forecastExpected = statisticsSolcastForecastEnabled(this._plantState);
-    const chartHasForecast = statisticsChartHasForecast(this._statisticsChart?.series);
-    const needsReload = forecastExpected && !chartHasForecast;
-    if (this._statisticsSolcastKey === key && !needsReload) return;
-    this._statisticsSolcastKey = key;
-    this._statisticsChart = null;
-    this._statisticsChartPlantId = undefined;
-    if (needsReload && this._statisticsChartVisible() && !this._statisticsChartLoading) {
-      void this._loadStatisticsChart();
-    }
-  }
-
   _statisticsSeriesForDisplay() {
     if (!this._statisticsChart?.series || !this._statisticsChart?.range) return null;
     const state = this._plantState ?? this._statisticsChart.forecastState;
@@ -4040,7 +4011,6 @@ Reloading panel registration…
     if (!this._statisticsChartVisible()) return;
     this._statisticsChart = null;
     this._statisticsChartPlantId = undefined;
-    this._statisticsSolcastKey = undefined;
     void this._loadStatisticsChart();
   }
 
@@ -5629,7 +5599,6 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     this._statisticsChartPlantId = plantId;
     this._scheduleRender();
     try {
-      await this._refreshPlantState();
       const chart = await this._fetchStatisticsChartData(plant);
       this._statisticsChart = chart;
     } catch (err) {
