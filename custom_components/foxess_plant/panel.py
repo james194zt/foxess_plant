@@ -27,6 +27,28 @@ PANEL_JS_FILE = "foxess-plant-panel.js"
 WWW_DIR = Path(__file__).parent / "www"
 _STATIC_DATA_KEY = "_foxess_plant_static_registered"
 PANEL_FLOW_PATHS_VER = "flow-comet-v3"
+_PANEL_JS_MISSING_LOGGED = False
+
+
+def panel_js_path() -> Path:
+    return WWW_DIR / PANEL_JS_FILE
+
+
+def panel_js_available() -> bool:
+    return panel_js_path().is_file()
+
+
+def _log_panel_js_missing_once() -> None:
+    global _PANEL_JS_MISSING_LOGGED
+    if _PANEL_JS_MISSING_LOGGED:
+        return
+    _PANEL_JS_MISSING_LOGGED = True
+    _LOGGER.error(
+        "Fox Plant panel JS missing at %s — copy the full custom_components/foxess_plant "
+        "folder from the release (including www/%s), then restart Home Assistant",
+        panel_js_path(),
+        PANEL_JS_FILE,
+    )
 
 
 def _panel_component_name() -> str:
@@ -42,8 +64,11 @@ def _panel_js_version() -> str:
 
 def _panel_js_fingerprint() -> str:
     """Short hash of panel JS so module_url changes whenever the file changes."""
-    data = (WWW_DIR / PANEL_JS_FILE).read_bytes()
-    return hashlib.sha256(data).hexdigest()[:12]
+    path = panel_js_path()
+    if not path.is_file():
+        _log_panel_js_missing_once()
+        return "missing"
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
 
 
 def _panel_js_cache_name() -> str:
@@ -54,7 +79,9 @@ def _panel_js_cache_name() -> str:
 
 def _sync_versioned_panel_js() -> None:
     """Copy canonical panel JS to a unique filename whenever content changes."""
-    src = WWW_DIR / PANEL_JS_FILE
+    src = panel_js_path()
+    if not src.is_file():
+        return
     dest = WWW_DIR / _panel_js_cache_name()
     data = src.read_bytes()
     if not dest.is_file() or dest.read_bytes() != data:
@@ -77,12 +104,16 @@ def _panel_js_build() -> str:
 
 def get_panel_disk_info() -> dict[str, str]:
     """Manifest + JS build read from disk (for stale-panel detection in the UI)."""
-    return {
+    info: dict[str, str] = {
         "manifest_version": _panel_js_version(),
         "js_build": _panel_js_build(),
-        "module_url": _panel_js_module_url(),
+        "module_url": _panel_js_module_url() if panel_js_available() else "",
         "element": _panel_component_name(),
     }
+    if not panel_js_available():
+        info["panel_assets_missing"] = "true"
+        info["panel_assets_path"] = str(panel_js_path())
+    return info
 
 
 _REGISTERED_BUILD_KEY = "_foxess_plant_panel_registered_build"
@@ -146,8 +177,8 @@ async def _async_ensure_static_paths(hass: HomeAssistant) -> bool:
     if hass.data.get(_STATIC_DATA_KEY):
         return True
 
-    if not WWW_DIR.is_dir() or not (WWW_DIR / PANEL_JS_FILE).is_file():
-        _LOGGER.warning("Fox Plant panel assets missing at %s", WWW_DIR)
+    if not WWW_DIR.is_dir() or not panel_js_available():
+        _log_panel_js_missing_once()
         return False
 
     from homeassistant.components.http import StaticPathConfig
