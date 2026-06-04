@@ -19,7 +19,8 @@ _EVO_CHARGE_PERIOD_HINT = (
     "Charge-period entities are **read-only sensors** — changing them in Developer Tools → Set state "
     "does not write to the inverter. Use `foxess_modbus.update_all_charge_periods` instead. "
     "On EVO 10-H, writes use registers **48010–48012** (48000/48013 may not exist on your firmware). "
-    "Disable **Mode Scheduler** in the Fox app/cloud if writes still fail."
+    "If IllegalAddress persists after disabling Mode Scheduler, your EVO firmware may not expose "
+    "writable charge-period registers (mode @48013 unreadable is a common sign)."
 )
 
 
