@@ -16,13 +16,11 @@ _LOGGER = logging.getLogger(__name__)
 
 _EVO_CHARGE_PERIOD_HINT = (
     "This error comes from the **FoxESS Modbus** integration (not Fox Plant). "
-    "EVO charge periods use registers **48010–48023** only — not 41xxx. "
-    "If the error mentions **41001**, update FoxESS Modbus to the latest "
-    "github.com/james194zt/foxess_modbus_evo (41xxx fallback was removed). "
-    "Check Developer Tools for `sensor.*time_period_1_start` — if those are "
-    "unavailable, the inverter model in FoxESS Modbus may be wrong (EVO vs H3 Pro). "
-    "Clear Fox app/cloud charge schedules, then test "
-    "`foxess_modbus.update_all_charge_periods` in Developer Tools."
+    "EVO/H3 time-group charge periods need register **48000=1** before **48010–48019**, "
+    "then period start/end/mode. "
+    "Disable **Mode Scheduler** in the Fox app/cloud (foxesscloud.com) — it locks these registers. "
+    "Check `sensor.*time_period_1_start` exists (wrong model if missing). "
+    "Test `foxess_modbus.update_all_charge_periods` in Developer Tools."
 )
 
 
