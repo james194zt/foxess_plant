@@ -48,6 +48,7 @@ ANALYTICS_ENTITY_SUFFIXES = {
 }
 
 IMPACT_ENTITY_SUFFIXES = {
+    "total_yield_total": "total_yield_total",
     "solar_energy_total": "solar_energy_total",
     "feed_in_energy_total": "feed_in_energy_total",
     **{f"pv{i}_energy_total": f"pv{i}_energy_total" for i in range(1, 7)},
