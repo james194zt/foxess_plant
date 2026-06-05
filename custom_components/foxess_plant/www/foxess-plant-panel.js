@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.51
+ * @version 0.9.52
  */
 
 const NAV = [
@@ -1198,7 +1198,7 @@ const DEVICE_PARAMETER_SECTIONS = [
   },
   {
     id: "datalogger",
-    title: "Datalogger Information",
+    title: "System Information",
     kind: "datalogger",
   },
   {
@@ -3750,14 +3750,15 @@ const STYLES = `
   background: var(--card-background-color, rgba(127,127,127,0.06));
   overflow: hidden;
 }
-.device-param-section > summary {
-  list-style: none; cursor: pointer; padding: 14px 18px; font-weight: 600; font-size: 15px;
+.device-param-summary {
+  width: 100%; border: none; background: transparent; cursor: pointer;
+  padding: 14px 18px; font-weight: 600; font-size: 15px; text-align: left;
   display: flex; justify-content: space-between; align-items: center;
+  color: inherit; font-family: inherit;
 }
-.device-param-section > summary::-webkit-details-marker { display: none; }
-.device-param-section > summary::after { content: "›"; transform: rotate(90deg); opacity: 0.45; font-size: 18px; transition: transform 0.15s; }
-.device-param-section[open] > summary::after { transform: rotate(-90deg); }
-.device-param-section[open] > summary { border-bottom: 1px solid var(--divider-color); }
+.device-param-section.is-open > .device-param-summary { border-bottom: 1px solid var(--divider-color); }
+.device-param-summary::after { content: "›"; transform: rotate(90deg); opacity: 0.45; font-size: 18px; transition: transform 0.15s; }
+.device-param-section.is-open > .device-param-summary::after { transform: rotate(-90deg); }
 .device-param-section .entity-list { border: none; border-radius: 0; }
 .device-param-table-wrap { overflow-x: auto; }
 .device-param-table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -4010,6 +4011,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._view = "overview";
     this._settingsView = "main";
     this._deviceSub = "main";
+    this._deviceParamOpen = new Set();
     this._plantState = undefined;
     this._selectedPlantId = undefined;
     this._timer = undefined;
@@ -4810,12 +4812,22 @@ Reloading panel registration…
     }
     if (action === "device-sub") {
       this._deviceSub = btn.dataset.sub;
+      if (btn.dataset.sub === "parameters") this._deviceParamOpen = new Set();
       if (btn.dataset.sub === "pv-config") this._enterPvSettings();
       this._render();
       return;
     }
+    if (action === "device-param-toggle") {
+      const sectionId = btn.dataset.section;
+      if (!sectionId) return;
+      if (this._deviceParamOpen.has(sectionId)) this._deviceParamOpen.delete(sectionId);
+      else this._deviceParamOpen.add(sectionId);
+      this._scheduleRender();
+      return;
+    }
     if (action === "device-back") {
       this._deviceSub = "main";
+      this._deviceParamOpen = new Set();
       this._render();
       return;
     }
@@ -6091,10 +6103,11 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     const entityIds = deviceParamEntityIds(map, sections);
     const updated = deviceParamLastUpdated(this._hass, entityIds);
     const body = sections
-      .map(
-        (section) =>
-          `<details class="device-param-section" open><summary>${esc(section.title)}</summary>${this._renderDeviceParamSectionBody(section, plant, map)}</details>`
-      )
+      .map((section) => {
+        const isOpen = this._deviceParamOpen.has(section.id);
+        const sectionBody = isOpen ? this._renderDeviceParamSectionBody(section, plant, map) : "";
+        return `<div class="device-param-section${isOpen ? " is-open" : ""}"><button type="button" class="device-param-summary" data-action="device-param-toggle" data-section="${esc(section.id)}" aria-expanded="${isOpen}">${esc(section.title)}</button>${isOpen ? `<div class="device-param-body">${sectionBody}</div>` : ""}</div>`;
+      })
       .join("");
     const stamp = updated ? `<p class="device-param-updated">${esc(updated)}</p>` : "";
     return `<div class="device-param-sections">${body}</div>${stamp}`;
