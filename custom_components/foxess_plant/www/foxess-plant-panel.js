@@ -1047,10 +1047,11 @@ const STATISTICS_CHART_LAYOUT = {
 const STATISTICS_PERIOD_MS = 5 * 60 * 1000;
 
 const BATTERY_SOC_POWER_THRESHOLD_KW = 0.04;
+const BATTERY_SOC_FLAT_DELTA_PCT = 0.2;
 const BATTERY_SOC_COLORS = {
   charging: { line: "#3DDC84", fill: "rgba(61,220,132,0.2)" },
   discharging: { line: "#5B9BD5", fill: "rgba(91,155,213,0.2)" },
-  idle: { line: "#8DB6FF", fill: "rgba(141,182,255,0.1)" },
+  idle: { line: "#8A9199", fill: "rgba(138,145,153,0.14)" },
 };
 const BATTERY_SOC_CHART_LAYOUT = {
   width: 1000,
@@ -2165,7 +2166,19 @@ function buildSocPowerPoints(hass, entityId, range, statsMap, hist) {
     .filter((p) => Number.isFinite(p.v));
 }
 
-function batteryFlowModeAt(t, chargePts, dischargePts) {
+function batteryFlowModeAt(t, chargePts, dischargePts, socPts) {
+  if (socPts?.length >= 2) {
+    const dt = STATISTICS_PERIOD_MS;
+    const vBefore = interpolateSeriesAt(socPts, t - dt);
+    const vAfter = interpolateSeriesAt(socPts, t + dt);
+    if (
+      vBefore != null &&
+      vAfter != null &&
+      Math.abs(vAfter - vBefore) < BATTERY_SOC_FLAT_DELTA_PCT
+    ) {
+      return "idle";
+    }
+  }
   const ch = Math.abs(interpolateSeriesAt(chargePts, t) ?? 0);
   const dis = Math.abs(interpolateSeriesAt(dischargePts, t) ?? 0);
   if (ch > BATTERY_SOC_POWER_THRESHOLD_KW) return "charging";
@@ -2176,11 +2189,11 @@ function batteryFlowModeAt(t, chargePts, dischargePts) {
 function splitSocSegmentsByMode(socPts, chargePts, dischargePts) {
   if (socPts.length < 2) return socPts.length ? [{ mode: "idle", pts: socPts }] : [];
   const segments = [];
-  let mode = batteryFlowModeAt(socPts[0].t, chargePts, dischargePts);
+  let mode = batteryFlowModeAt(socPts[0].t, chargePts, dischargePts, socPts);
   let pts = [socPts[0]];
   for (let i = 1; i < socPts.length; i++) {
     const p = socPts[i];
-    const nextMode = batteryFlowModeAt(p.t, chargePts, dischargePts);
+    const nextMode = batteryFlowModeAt(p.t, chargePts, dischargePts, socPts);
     if (nextMode !== mode) {
       if (pts.length >= 2) segments.push({ mode, pts });
       mode = nextMode;
@@ -2419,13 +2432,17 @@ function bindBatterySocChart(root, chart) {
     crosshair.style.bottom = `${offsetY + padB * scale}px`;
 
     const soc = clampSocPercent(interpolateSeriesAt(chart.socPts, t));
-    const mode = batteryFlowModeAt(t, chart.chargePts, chart.dischargePts);
-    const modeLabel =
-      mode === "charging" ? "Charging" : mode === "discharging" ? "Discharging" : "Idle";
-    const modeColor = (BATTERY_SOC_COLORS[mode] || BATTERY_SOC_COLORS.idle).line;
+    const mode = batteryFlowModeAt(t, chart.chargePts, chart.dischargePts, chart.socPts);
     tooltip.hidden = false;
-    tooltip.innerHTML = `<div class="soc-chart-tooltip-time">${esc(formatStatisticsHoverTime(t))}</div>
+    if (mode === "idle") {
+      tooltip.innerHTML = `<div class="soc-chart-tooltip-time">${esc(formatStatisticsHoverTime(t))}</div>
+<div class="soc-chart-tooltip-row"><strong>${esc(formatSocPercent(soc))}</strong></div>`;
+    } else {
+      const modeLabel = mode === "charging" ? "Charging" : "Discharging";
+      const modeColor = (BATTERY_SOC_COLORS[mode] || BATTERY_SOC_COLORS.idle).line;
+      tooltip.innerHTML = `<div class="soc-chart-tooltip-time">${esc(formatStatisticsHoverTime(t))}</div>
 <div class="soc-chart-tooltip-row"><span class="soc-chart-tooltip-label"><i class="soc-chart-tooltip-swatch" style="background:${modeColor}"></i>${esc(modeLabel)}</span><strong>${esc(formatSocPercent(soc))}</strong></div>`;
+    }
     const plotRect = plot.getBoundingClientRect();
     let left = screenX + 12;
     if (left + 180 > plotRect.width) left = screenX - 192;
