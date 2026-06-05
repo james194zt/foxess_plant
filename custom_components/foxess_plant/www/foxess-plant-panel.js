@@ -4883,7 +4883,7 @@ Reloading panel registration…
       !this._socDrag &&
       !this._rangeDrag &&
       !this._settingsFieldBlocksRender() &&
-      this._patchDeviceMainLiveIfNeeded()
+      (this._patchDeviceMainLiveIfNeeded() || this._patchSettingsMainLiveIfNeeded())
     ) {
       this._renderPending = false;
       return;
@@ -7265,8 +7265,11 @@ ${detail}${quickBtn}</div>`;
     }
   }
 
-  _renderSettingsMain(plant) {
-    const s = this._plantState?.settings ?? {};
+  _isSettingsMainView() {
+    return this._view === "settings" && this._settingsView === "main";
+  }
+
+  _settingsStormSubtitle() {
     const storm = this._plantState?.storm_prep ?? {};
     const triggersArmed = Boolean(this._plantState?.active_storm_triggers?.length);
     const overrideArmed =
@@ -7275,20 +7278,54 @@ ${detail}${quickBtn}</div>`;
     const gwEntry = (this._getGoogleWeatherEntries() || []).find(
       (e) => e.entry_id === storm.google_weather_entry_id
     );
-    const stormSub = storm.enabled
-      ? gwEntry
-        ? `${gwEntry.title}${armed ? " · active" : ""}`
-        : `${(storm.trigger_entities ?? []).length} trigger(s)`
-      : "Off";
-    return `<header class="header"><h1>Settings</h1><p>Quick controls for your plant</p></header>
-${this._modeBanner()}
-${renderListButton({ action: "settings-sub", sub: "quick" }, "Quick Settings", `Max ${s.max_soc ?? "—"}% · Min ${s.min_soc ?? "—"}% · Off-grid ${s.min_soc_on_grid ?? "—"}%`)}
+    if (!storm.enabled) return "Off";
+    if (gwEntry) return `${gwEntry.title}${armed ? " · active" : ""}`;
+    return `${(storm.trigger_entities ?? []).length} trigger(s)`;
+  }
+
+  _settingsMainSubtitles() {
+    const s = this._plantState?.settings ?? {};
+    return {
+      quick: `Max ${s.max_soc ?? "—"}% · Min ${s.min_soc ?? "—"}% · Off-grid ${s.min_soc_on_grid ?? "—"}%`,
+      workmode: String(s.work_mode ?? "—"),
+      pv: pvConfigSummary(this._plantState?.pv_config),
+      solcast: this._solcastSettingsSubtitle(),
+      storm: this._settingsStormSubtitle(),
+      control: this._plantState?.control_active ? "Fox Plant manages periods" : "Released to manual",
+    };
+  }
+
+  _renderSettingsMainLiveHtml() {
+    return this._modeBanner();
+  }
+
+  _patchSettingsMainLiveIfNeeded() {
+    if (!this._isSettingsMainView() || !this._hass) return false;
+    const root = this._root.querySelector("[data-settings-main]");
+    const live = this._root.querySelector("[data-settings-live]");
+    if (!root || !live) return false;
+    live.innerHTML = this._renderSettingsMainLiveHtml();
+    const subs = this._settingsMainSubtitles();
+    for (const [sub, text] of Object.entries(subs)) {
+      const el = root.querySelector(`[data-action="settings-sub"][data-sub="${sub}"] .list-btn-sub`);
+      if (el) el.textContent = text;
+    }
+    return true;
+  }
+
+  _renderSettingsMain(plant) {
+    const subs = this._settingsMainSubtitles();
+    return `<div data-settings-main="1"><header class="header"><h1>Settings</h1><p>Quick controls for your plant</p></header>
+<div data-settings-live>${this._renderSettingsMainLiveHtml()}</div>
+<div data-settings-nav>
+${renderListButton({ action: "settings-sub", sub: "quick" }, "Quick Settings", subs.quick)}
 ${renderListButton({ action: "settings-sub", sub: "schedules" }, "Charge schedule", "Two charge windows (baseline)")}
-${renderListButton({ action: "settings-sub", sub: "workmode" }, "Work mode", String(s.work_mode ?? "—"))}
-${renderListButton({ action: "settings-sub", sub: "pv" }, "PV Configuration", pvConfigSummary(this._plantState?.pv_config))}
-${renderListButton({ action: "settings-sub", sub: "solcast" }, "Solcast", this._solcastSettingsSubtitle())}
-${renderListButton({ action: "settings-sub", sub: "storm" }, "StormSafe", stormSub)}
-${renderListButton({ action: "settings-sub", sub: "control" }, "Plant control", this._plantState?.control_active ? "Fox Plant manages periods" : "Released to manual")}`;
+${renderListButton({ action: "settings-sub", sub: "workmode" }, "Work mode", subs.workmode)}
+${renderListButton({ action: "settings-sub", sub: "pv" }, "PV Configuration", subs.pv)}
+${renderListButton({ action: "settings-sub", sub: "solcast" }, "Solcast", subs.solcast)}
+${renderListButton({ action: "settings-sub", sub: "storm" }, "StormSafe", subs.storm)}
+${renderListButton({ action: "settings-sub", sub: "control" }, "Plant control", subs.control)}
+</div></div>`;
   }
 
   _renderSettingsQuick() {
