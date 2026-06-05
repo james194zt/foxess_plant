@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.54
+ * @version 0.9.55
  */
 
 const NAV = [
@@ -1215,11 +1215,6 @@ const DEVICE_PARAMETER_SECTIONS = [
       ["grid_export", "Feed-in power"],
       ["grid_import", "Purchased power"],
     ],
-  },
-  {
-    id: "datalogger",
-    title: "System Information",
-    kind: "datalogger",
   },
   {
     id: "battery",
