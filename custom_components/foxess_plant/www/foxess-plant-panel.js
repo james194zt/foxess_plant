@@ -2457,16 +2457,12 @@ function bindBatterySocChart(root, chart) {
 
     const soc = clampSocPercent(interpolateSeriesAt(chart.socPts, t));
     const mode = batteryFlowModeAt(t, chart.chargePts, chart.dischargePts, chart.socPts);
+    const modeLabel =
+      mode === "charging" ? "Charging" : mode === "discharging" ? "Discharging" : "Idle";
+    const modeColor = (BATTERY_SOC_COLORS[mode] || BATTERY_SOC_COLORS.idle).line;
     tooltip.hidden = false;
-    if (mode === "idle") {
-      tooltip.innerHTML = `<div class="soc-chart-tooltip-time">${esc(formatStatisticsHoverTime(t))}</div>
-<div class="soc-chart-tooltip-row"><strong>${esc(formatSocPercent(soc))}</strong></div>`;
-    } else {
-      const modeLabel = mode === "charging" ? "Charging" : "Discharging";
-      const modeColor = (BATTERY_SOC_COLORS[mode] || BATTERY_SOC_COLORS.idle).line;
-      tooltip.innerHTML = `<div class="soc-chart-tooltip-time">${esc(formatStatisticsHoverTime(t))}</div>
+    tooltip.innerHTML = `<div class="soc-chart-tooltip-time">${esc(formatStatisticsHoverTime(t))}</div>
 <div class="soc-chart-tooltip-row"><span class="soc-chart-tooltip-label"><i class="soc-chart-tooltip-swatch" style="background:${modeColor}"></i>${esc(modeLabel)}</span><strong>${esc(formatSocPercent(soc))}</strong></div>`;
-    }
     const plotRect = plot.getBoundingClientRect();
     let left = screenX + 12;
     if (left + 180 > plotRect.width) left = screenX - 192;
@@ -6363,12 +6359,11 @@ ${this._renderImpactPanel()}`;
 </div>`;
       })
       .join("");
+    const basisKwh = imp.impact_basis_kwh ?? imp.solar_kwh_total;
     const basis =
-      imp.self_consumption_kwh_total != null
-        ? `<p class="impact-basis">Based on ${Number(imp.self_consumption_kwh_total).toFixed(1)} kWh lifetime self-consumption (solar − export)</p>`
-        : imp.solar_kwh_total != null
-          ? `<p class="impact-basis">Based on ${Number(imp.solar_kwh_total).toFixed(1)} kWh lifetime solar generation</p>`
-          : "";
+      basisKwh != null
+        ? `<p class="impact-basis">Based on ${Number(basisKwh).toFixed(1)} kWh lifetime solar generation</p>`
+        : "";
     return `<div class="card impact-card" style="margin-top:14px">
 <p class="card-title">Impact</p>
 <div class="impact-grid">${grid}</div>
