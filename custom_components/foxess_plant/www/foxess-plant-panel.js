@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.53
+ * @version 0.9.54
  */
 
 const NAV = [
@@ -1704,22 +1704,17 @@ function energyPeriodBounds(period, offset = 0, now = new Date()) {
   if (period === "week") {
     const start = startOfWeekMonday(now);
     start.setDate(start.getDate() - o * 7);
-    const weekEnd = new Date(start);
-    weekEnd.setDate(weekEnd.getDate() + 6);
-    weekEnd.setHours(23, 59, 59, 999);
-    const end = o === 0 ? now : weekEnd;
+    const end = endOfWeekSunday(start);
     return { start, end, canNext: o > 0, canPrev: true };
   }
   if (period === "month") {
     const start = new Date(now.getFullYear(), now.getMonth() - o, 1);
-    const monthEnd = new Date(start.getFullYear(), start.getMonth() + 1, 0, 23, 59, 59, 999);
-    const end = o === 0 ? now : monthEnd;
+    const end = new Date(start.getFullYear(), start.getMonth() + 1, 0, 23, 59, 59, 999);
     return { start, end, canNext: o > 0, canPrev: true };
   }
   if (period === "year") {
     const start = new Date(now.getFullYear() - o, 0, 1);
-    const yearEnd = new Date(start.getFullYear(), 11, 31, 23, 59, 59, 999);
-    const end = o === 0 ? now : yearEnd;
+    const end = new Date(start.getFullYear(), 11, 31, 23, 59, 59, 999);
     return { start, end, canNext: o > 0, canPrev: true };
   }
   return { start: new Date(2000, 0, 1), end: now, canNext: false, canPrev: false };
@@ -1755,6 +1750,8 @@ function computeEnergyBreakdown(points, dayLabels) {
   let pvToGrid = 0;
   let loadTotal = 0;
   let loadFromGrid = 0;
+  let batteryCharge = 0;
+  let batteryDischarge = 0;
   for (const day of dayLabels) {
     const ds = startOfLocalDay(day).getTime();
     const de = endOfLocalDay(day).getTime();
@@ -1762,6 +1759,8 @@ function computeEnergyBreakdown(points, dayLabels) {
     pvToGrid += dailyMaxInRange(points.feedIn, ds, de);
     loadTotal += dailyLoadKwhFromPoints(points, ds, de);
     loadFromGrid += dailyMaxInRange(points.grid, ds, de);
+    batteryCharge += dailyMaxInRange(points.charge, ds, de);
+    batteryDischarge += dailyMaxInRange(points.discharge, ds, de);
   }
   const pvToLoadBattery = Math.max(0, pvTotal - pvToGrid);
   const loadFromPvBattery = Math.max(0, loadTotal - loadFromGrid);
@@ -1774,6 +1773,8 @@ function computeEnergyBreakdown(points, dayLabels) {
     load_consumption_kwh: roundEnergyKwh(loadTotal),
     load_from_pv_battery_kwh: roundEnergyKwh(loadFromPvBattery),
     load_from_grid_kwh: roundEnergyKwh(loadFromGrid),
+    battery_charge_kwh: roundEnergyKwh(batteryCharge),
+    battery_discharge_kwh: roundEnergyKwh(batteryDischarge),
     self_consumption_percent: roundEnergyPct(selfConsumption),
     self_sufficiency_percent: roundEnergyPct(selfSufficiency),
   };
@@ -1787,12 +1788,42 @@ function analyticsFromBreakdown(b) {
     load_consumption_kwh_today: b.load_consumption_kwh,
     load_from_pv_battery_kwh_today: b.load_from_pv_battery_kwh,
     load_from_grid_kwh_today: b.load_from_grid_kwh,
+    battery_charge_kwh_today: b.battery_charge_kwh,
+    battery_discharge_kwh_today: b.battery_discharge_kwh,
     self_consumption_percent_today: b.self_consumption_percent,
     self_sufficiency_percent_today: b.self_sufficiency_percent,
   };
 }
 
-function energyBucketForDay(points, day) {
+function emptyEnergyBucket() {
+  return {
+    supply: { solar: 0, batteryDischarge: 0, gridImport: 0 },
+    usage: { load: 0, batteryCharge: 0, gridExport: 0 },
+  };
+}
+
+function endOfWeekSunday(mondayStart) {
+  const d = new Date(mondayStart);
+  d.setDate(d.getDate() + 6);
+  return endOfLocalDay(d);
+}
+
+function buildFullWeekDays(weekMonday) {
+  return buildDaysInRange(weekMonday, endOfWeekSunday(weekMonday));
+}
+
+function buildFullMonthDays(monthStart) {
+  const last = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
+  return buildDaysInRange(monthStart, last);
+}
+
+function daysUpToToday(days, now = new Date()) {
+  const cap = startOfLocalDay(now).getTime();
+  return days.filter((d) => startOfLocalDay(d).getTime() <= cap);
+}
+
+function energyBucketForDay(points, day, now = new Date()) {
+  if (startOfLocalDay(day).getTime() > startOfLocalDay(now).getTime()) return emptyEnergyBucket();
   const ds = startOfLocalDay(day).getTime();
   const de = endOfLocalDay(day).getTime();
   return {
@@ -2614,49 +2645,55 @@ async function fetchFoxMirroredBarChart(hass, plant, plantState, period, offset 
   const now = new Date();
   const bounds = energyPeriodBounds(period, offset, now);
   const { start, end } = bounds;
-  const { points, error } = await fetchEnergyHistoryPoints(hass, plant, plantState, start, end);
+  const fetchEnd = end > now ? now : end;
+  const { points, error } = await fetchEnergyHistoryPoints(hass, plant, plantState, start, fetchEnd);
   if (!points) return { title: energyPeriodNavLabel(period, offset, now), svg: `<p class="placeholder chart-empty">${esc(error)}</p>` };
 
   if (period === "week") {
-    const days = buildDaysInRange(start, end);
-    const buckets = days.map((day) => energyBucketForDay(points, day));
+    const days = buildFullWeekDays(start);
+    const buckets = days.map((day) => energyBucketForDay(points, day, now));
     const labels = days.map(formatWeekdayLabel);
+    const breakdownDays = daysUpToToday(days, now);
     return {
       title: energyPeriodNavLabel(period, offset, now),
-      breakdown: computeEnergyBreakdown(points, days),
-      svg: renderMirroredEnergyBarChart(buckets, labels),
+      breakdown: computeEnergyBreakdown(points, breakdownDays),
+      svg: renderMirroredEnergyBarChart(buckets, labels, { labelMode: "weekday" }),
     };
   }
 
   if (period === "month") {
-    const days = buildDaysInRange(start, end);
-    const buckets = days.map((day) => energyBucketForDay(points, day));
-    const labels = days;
+    const days = buildFullMonthDays(start);
+    const buckets = days.map((day) => energyBucketForDay(points, day, now));
+    const breakdownDays = daysUpToToday(days, now);
     return {
       title: energyPeriodNavLabel(period, offset, now),
-      breakdown: computeEnergyBreakdown(points, days),
-      svg: renderMirroredEnergyBarChart(buckets, labels),
+      breakdown: computeEnergyBreakdown(points, breakdownDays),
+      svg: renderMirroredEnergyBarChart(buckets, days, { labelMode: "month-day" }),
     };
   }
 
   if (period === "year") {
+    const year = start.getFullYear();
     const labels = [];
     const buckets = [];
+    const today = startOfLocalDay(now);
     for (let m = 0; m < 12; m++) {
-      const monthStart = new Date(start.getFullYear(), m, 1);
-      if (monthStart > end) break;
-      const monthEnd = new Date(start.getFullYear(), m + 1, 0, 23, 59, 59, 999);
-      const effectiveEnd = monthEnd > end ? end : monthEnd;
-      const days = buildDaysInRange(monthStart, effectiveEnd);
-      if (!days.length) continue;
+      const monthStart = new Date(year, m, 1);
+      const monthEnd = new Date(year, m + 1, 0, 23, 59, 59, 999);
       labels.push(formatMonthShortLabel(monthStart));
-      buckets.push(energyBucketSum(points, days));
+      if (offset === 0 && monthStart > today) {
+        buckets.push(emptyEnergyBucket());
+        continue;
+      }
+      const effectiveEnd = offset === 0 && monthEnd > now ? now : monthEnd;
+      const days = buildDaysInRange(monthStart, effectiveEnd);
+      buckets.push(days.length ? energyBucketSum(points, days) : emptyEnergyBucket());
     }
-    const allDays = buildDaysInRange(start, end);
+    const breakdownDays = daysUpToToday(buildDaysInRange(start, fetchEnd), now);
     return {
       title: energyPeriodNavLabel(period, offset, now),
-      breakdown: computeEnergyBreakdown(points, allDays),
-      svg: renderMirroredEnergyBarChart(buckets, labels),
+      breakdown: computeEnergyBreakdown(points, breakdownDays),
+      svg: renderMirroredEnergyBarChart(buckets, labels, { labelMode: "month-short" }),
     };
   }
 
@@ -2978,7 +3015,18 @@ function renderBarChartSvg(groups, labels, { height = 200 } = {}) {
   return `<div class="chart-wrap"><svg class="energy-bar-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">${rects.join("")}</svg><div class="chart-legend">${legend}</div></div>`;
 }
 
-function renderMirroredEnergyBarChart(buckets, labels, { height = 300 } = {}) {
+function mirrorChartAxisLabel(label, i, n, labelMode) {
+  if (labelMode === "month-day" && label instanceof Date) {
+    const day = label.getDate();
+    if (day % 2 === 1 || i === n - 1) return String(day);
+    return null;
+  }
+  if (labelMode === "weekday" || labelMode === "month-short") return String(label);
+  if (label instanceof Date) return formatChartDayLabel(label);
+  return String(label);
+}
+
+function renderMirroredEnergyBarChart(buckets, labels, { height = 300, labelMode = "auto" } = {}) {
   const n = buckets.length;
   if (!n) return `<p class="placeholder chart-empty">No energy history in this period.</p>`;
   const width = 1000;
@@ -3035,9 +3083,11 @@ function renderMirroredEnergyBarChart(buckets, labels, { height = 300 } = {}) {
       );
       y += bh;
     }
-    if (n <= 16 || i % Math.ceil(n / 10) === 0 || i === n - 1) {
-      const lbl = labels[i] instanceof Date ? formatChartDayLabel(labels[i]) : String(labels[i]);
-      parts.push(`<text x="${cx.toFixed(1)}" y="${height - 12}" text-anchor="middle" class="fox-energy-axis">${esc(lbl)}</text>`);
+    if (n <= 16 || i % Math.ceil(n / 10) === 0 || i === n - 1 || labelMode === "month-day") {
+      const lbl = mirrorChartAxisLabel(labels[i], i, n, labelMode);
+      if (lbl) {
+        parts.push(`<text x="${cx.toFixed(1)}" y="${height - 12}" text-anchor="middle" class="fox-energy-axis">${esc(lbl)}</text>`);
+      }
     }
   });
 
@@ -3779,7 +3829,7 @@ const STYLES = `
 }
 .energy-date-nav button:disabled { opacity: 0.35; cursor: default; }
 .energy-date-label { font-size: 15px; font-weight: 600; text-align: center; min-width: 180px; }
-.energy-analysis-card { margin-top: 0; padding: 14px 16px 10px; }
+.energy-analysis-card { margin-top: 14px; padding: 14px 16px 10px; }
 .breakdown-card { margin-top: 14px; }
 .energy-chart-card { margin-top: 14px; }
 .fox-energy-chart-wrap { width: 100%; }
@@ -6789,7 +6839,23 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
 
   _energyAnalyticsForView(plant) {
     if (this._energyBreakdown) return analyticsFromBreakdown(this._energyBreakdown);
-    return readLiveAnalytics(this._hass, plant, this._plantState, this._overviewDaily);
+    const live = readLiveAnalytics(this._hass, plant, this._plantState, this._overviewDaily);
+    return live;
+  }
+
+  _renderEnergySummaryCards(plant) {
+    const a = this._energyAnalyticsForView(plant);
+    return `<div class="stats-row">
+${this._stat("Load", a.load_consumption_kwh_today, " kWh")}
+${this._stat("From grid", a.load_from_grid_kwh_today, " kWh")}
+${this._stat("PV → grid", a.pv_to_grid_kwh_today, " kWh")}
+${this._stat("Self-use", a.self_consumption_percent_today, "%")}
+</div>
+<div class="card" style="margin-top:14px"><p class="card-title">Balance</p>
+<div class="stats-row">
+${this._stat("Battery charge", a.battery_charge_kwh_today, " kWh")}
+${this._stat("Battery discharge", a.battery_discharge_kwh_today, " kWh")}
+</div></div>`;
   }
 
   _renderEnergyBreakdownCard(plant) {
@@ -6877,6 +6943,7 @@ ${body}
 
   _renderEnergy(plant) {
     return `<header class="header"><h1>Energy</h1><p>Production and consumption analysis</p></header>
+${this._renderEnergySummaryCards(plant)}
 <div class="card energy-analysis-card">
 ${this._renderEnergyPeriodTabs()}
 ${this._renderEnergyDateNav()}
