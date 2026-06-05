@@ -6405,7 +6405,7 @@ ${this._renderImpactPanel()}`;
     const basisKwh = imp.impact_basis_kwh ?? imp.solar_kwh_total;
     const basis =
       basisKwh != null
-        ? `<p class="impact-basis">Based on ${Number(basisKwh).toFixed(1)} kWh lifetime solar generation</p>`
+        ? `<p class="impact-basis">Based on ${Number(basisKwh).toFixed(1)} kWh lifetime self-consumed solar</p>`
         : "";
     return `<div class="card impact-card" style="margin-top:14px">
 <p class="card-title">Impact</p>
