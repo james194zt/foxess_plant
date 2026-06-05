@@ -1047,7 +1047,10 @@ const STATISTICS_CHART_LAYOUT = {
 const STATISTICS_PERIOD_MS = 5 * 60 * 1000;
 
 const BATTERY_SOC_POWER_THRESHOLD_KW = 0.04;
-const BATTERY_SOC_FLAT_DELTA_PCT = 0.2;
+const BATTERY_SOC_POWER_SMOOTH_MS = STATISTICS_PERIOD_MS * 3;
+const BATTERY_SOC_SLOPE_WINDOW_MS = STATISTICS_PERIOD_MS * 6;
+const BATTERY_SOC_SLOPE_DELTA_PCT = 0.12;
+const BATTERY_SOC_FULL_PCT = 99.5;
 const BATTERY_SOC_COLORS = {
   charging: { line: "#3DDC84", fill: "rgba(61,220,132,0.2)" },
   discharging: { line: "#5B9BD5", fill: "rgba(91,155,213,0.2)" },
@@ -2166,23 +2169,44 @@ function buildSocPowerPoints(hass, entityId, range, statsMap, hist) {
     .filter((p) => Number.isFinite(p.v));
 }
 
+function peakBatteryPowerAt(t, pts, radiusMs = BATTERY_SOC_POWER_SMOOTH_MS) {
+  if (!pts?.length) return 0;
+  let peak = 0;
+  for (let dt = -radiusMs; dt <= radiusMs; dt += STATISTICS_PERIOD_MS) {
+    peak = Math.max(peak, Math.abs(interpolateSeriesAt(pts, t + dt) ?? 0));
+  }
+  return peak;
+}
+
+function socDeltaOverWindow(t, socPts, halfWindowMs = BATTERY_SOC_SLOPE_WINDOW_MS / 2) {
+  if (!socPts?.length) return null;
+  const v0 = interpolateSeriesAt(socPts, t - halfWindowMs);
+  const v1 = interpolateSeriesAt(socPts, t + halfWindowMs);
+  if (v0 == null || v1 == null) return null;
+  return v1 - v0;
+}
+
 function batteryFlowModeAt(t, chargePts, dischargePts, socPts) {
-  if (socPts?.length >= 2) {
-    const dt = STATISTICS_PERIOD_MS;
-    const vBefore = interpolateSeriesAt(socPts, t - dt);
-    const vAfter = interpolateSeriesAt(socPts, t + dt);
+  const ch = peakBatteryPowerAt(t, chargePts);
+  const dis = peakBatteryPowerAt(t, dischargePts);
+  if (ch > BATTERY_SOC_POWER_THRESHOLD_KW) return "charging";
+  if (dis > BATTERY_SOC_POWER_THRESHOLD_KW) {
+    const soc = interpolateSeriesAt(socPts, t);
+    const delta = socDeltaOverWindow(t, socPts);
     if (
-      vBefore != null &&
-      vAfter != null &&
-      Math.abs(vAfter - vBefore) < BATTERY_SOC_FLAT_DELTA_PCT
+      soc != null &&
+      soc >= BATTERY_SOC_FULL_PCT &&
+      delta != null &&
+      Math.abs(delta) < BATTERY_SOC_SLOPE_DELTA_PCT
     ) {
       return "idle";
     }
+    return "discharging";
   }
-  const ch = Math.abs(interpolateSeriesAt(chargePts, t) ?? 0);
-  const dis = Math.abs(interpolateSeriesAt(dischargePts, t) ?? 0);
-  if (ch > BATTERY_SOC_POWER_THRESHOLD_KW) return "charging";
-  if (dis > BATTERY_SOC_POWER_THRESHOLD_KW) return "discharging";
+  const delta = socDeltaOverWindow(t, socPts);
+  if (delta != null && Math.abs(delta) >= BATTERY_SOC_SLOPE_DELTA_PCT) {
+    return delta > 0 ? "charging" : "discharging";
+  }
   return "idle";
 }
 
@@ -2209,8 +2233,8 @@ function splitSocSegmentsByMode(socPts, chargePts, dischargePts) {
 function buildSocActivityBars(chargePts, dischargePts, range) {
   const bars = [];
   for (let t = range.tMin; t <= range.nowMs; t += STATISTICS_PERIOD_MS) {
-    const ch = interpolateSeriesAt(chargePts, t) ?? 0;
-    const dis = interpolateSeriesAt(dischargePts, t) ?? 0;
+    const ch = peakBatteryPowerAt(t, chargePts);
+    const dis = peakBatteryPowerAt(t, dischargePts);
     if (ch > BATTERY_SOC_POWER_THRESHOLD_KW) {
       bars.push({ t, mode: "charging", intensity: Math.min(1, ch / 4) });
     } else if (dis > BATTERY_SOC_POWER_THRESHOLD_KW) {
