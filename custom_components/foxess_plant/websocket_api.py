@@ -28,6 +28,7 @@ WS_TYPE_UPDATE_SOLCAST = "foxess_plant/update_solcast"
 WS_TYPE_TEST_SOLCAST = "foxess_plant/test_solcast"
 WS_TYPE_FETCH_HISTORY = "foxess_plant/fetch_history"
 WS_TYPE_FETCH_STATISTICS = "foxess_plant/fetch_statistics"
+WS_TYPE_SOLCAST_FORECAST_INTRADAY = "foxess_plant/solcast_forecast_intraday"
 
 PERIOD_SCHEMA = vol.Schema(
     {
@@ -490,6 +491,46 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
         )
         connection.send_result(msg["id"], result)
 
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): WS_TYPE_SOLCAST_FORECAST_INTRADAY,
+            vol.Required("plant_id"): str,
+            vol.Optional("day"): str,
+        }
+    )
+    @websocket_api.async_response
+    async def ws_solcast_forecast_intraday(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        day_raw = msg.get("day")
+        if day_raw:
+            target_day = dt_util.parse_date(str(day_raw))
+            if target_day is None:
+                connection.send_error(msg["id"], "invalid_day", "Invalid day (use YYYY-MM-DD)")
+                return
+        else:
+            target_day = dt_util.as_local(dt_util.utcnow()).date()
+        from .solcast_forecast_chart import build_forecast_intraday_chart_for_day
+
+        stored = {}
+        if coordinator._solcast_store:
+            stored = await coordinator._solcast_store.async_load()
+        points = await get_instance(hass).async_add_executor_job(
+            build_forecast_intraday_chart_for_day,
+            hass,
+            stored,
+            coordinator._solcast_cache,
+            target_day,
+            entry_id=coordinator.config_entry.entry_id,
+        )
+        connection.send_result(msg["id"], {"points": points, "day": target_day.isoformat()})
+
     websocket_api.async_register_command(hass, ws_plant_list)
     websocket_api.async_register_command(hass, ws_plant_state)
     websocket_api.async_register_command(hass, ws_trigger_candidates)
@@ -502,4 +543,5 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_test_solcast)
     websocket_api.async_register_command(hass, ws_fetch_history)
     websocket_api.async_register_command(hass, ws_fetch_statistics)
+    websocket_api.async_register_command(hass, ws_solcast_forecast_intraday)
     hass.data["_foxess_plant_ws_registered"] = True

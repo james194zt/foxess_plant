@@ -581,15 +581,46 @@ function resolveSolcastDetailedForecast(plantState, hass) {
   return solcastDetailedForecastFromHass(hass, plantState);
 }
 
-function mergeStatisticsForecastSeries(series, range, plantState, hass) {
+function mergeStatisticsForecastSeries(series, range, plantState, hass, { dayOffset = 0 } = {}) {
   if (!Array.isArray(series) || !range) return series;
   const without = series.filter((s) => s.id !== "forecast");
+  if (dayOffset > 0) {
+    const existing = series.find((s) => s.id === "forecast");
+    return existing?.points?.length >= 2 ? series : without;
+  }
   const fPoints = buildForecastSeriesPoints(plantState, range, hass);
   if (!fPoints.length) return series;
   return [
     ...without,
     { id: "forecast", ...FORECAST_CHART_STYLE, connectGaps: true, points: fPoints },
   ];
+}
+
+function formatLocalDayKey(dayDate) {
+  const y = dayDate.getFullYear();
+  const m = String(dayDate.getMonth() + 1).padStart(2, "0");
+  const d = String(dayDate.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+async function fetchHistoricalSolcastForecastPoints(hass, plant, dayOffset) {
+  if (!hass?.connection || !plant?.entry_id || dayOffset <= 0) return [];
+  const day = startOfLocalDay(new Date());
+  day.setDate(day.getDate() - dayOffset);
+  try {
+    const res = await hass.connection.sendMessagePromise({
+      type: "foxess_plant/solcast_forecast_intraday",
+      plant_id: plant.entry_id,
+      day: formatLocalDayKey(day),
+    });
+    if (!Array.isArray(res?.points) || res.points.length < 2) return [];
+    return res.points
+      .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v))
+      .map((p) => ({ t: p.t, v: p.v }))
+      .sort((a, b) => a.t - b.t);
+  } catch {
+    return [];
+  }
 }
 
 function parseSolcastPeriodMs(raw) {
@@ -2538,6 +2569,17 @@ async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset =
         ...FORECAST_CHART_STYLE,
         connectGaps: true,
         points: fPoints,
+      });
+    }
+  } else {
+    const fPoints = await fetchHistoricalSolcastForecastPoints(hass, plant, dayOffset);
+    const inRange = fPoints.filter((p) => p.t >= range.tMin && p.t <= range.tMax);
+    if (inRange.length >= 2) {
+      series.push({
+        id: "forecast",
+        ...FORECAST_CHART_STYLE,
+        connectGaps: true,
+        points: inRange,
       });
     }
   }
@@ -4902,7 +4944,8 @@ Reloading panel registration…
       this._statisticsChart.series,
       this._statisticsChart.range,
       state,
-      this._hass
+      this._hass,
+      { dayOffset: this._statisticsChart.dayOffset ?? 0 }
     );
   }
 
