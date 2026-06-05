@@ -19,6 +19,30 @@ apply_desired:
       selector:
         text:
 
+sync_schedule_from_inverter:
+  name: Sync schedule from inverter
+  description: >-
+    Read the inverter's current charge windows into Fox Plant baseline settings
+    (does not write to the inverter).
+  fields:
+    plant_id:
+      name: Plant
+      required: false
+      selector:
+        text:
+
+reapply_schedule:
+  name: Re-apply schedule to inverter
+  description: >-
+    Push Fox Plant's desired charge periods to the inverter. Enables plant control
+    if it was released.
+  fields:
+    plant_id:
+      name: Plant
+      required: false
+      selector:
+        text:
+
 set_charge_period:
   name: Set charge period
   description: Update one baseline charge period (1 or 2) and optionally apply immediately.

@@ -32,6 +32,7 @@ CHARGE_PERIOD_KEYS = (
 
 CONTROL_ENTITY_SUFFIXES = {
     "work_mode": "work_mode",
+    "remote_control": "remote_control",
     "max_soc": "max_soc",
     "min_soc": "min_soc",
     "min_soc_on_grid": "min_soc_on_grid",

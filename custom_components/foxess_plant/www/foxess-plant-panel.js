@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.39
+ * @version 0.9.48
  */
 
 const NAV = [
@@ -4641,6 +4641,14 @@ Reloading panel registration…
       await this._runPlantService("apply_baseline");
       return;
     }
+    if (action === "sync-schedule") {
+      await this._syncScheduleFromInverter();
+      return;
+    }
+    if (action === "reapply-schedule") {
+      await this._runPlantService("reapply_schedule", {}, "Schedule re-applied to inverter");
+      return;
+    }
     if (action === "take-control") {
       await this._runPlantService("take_control");
       return;
@@ -5078,7 +5086,7 @@ ${renderSocFeedbackHtml(validateSocLimits(clamped, live), this._socSaveError)}
 </div>`;
   }
 
-  async _runPlantService(service, extra = {}) {
+  async _runPlantService(service, extra = {}, toastMsg = "Updated") {
     const plant = this._getPlant();
     if (!plant) return;
     this._busy = true;
@@ -5089,9 +5097,29 @@ ${renderSocFeedbackHtml(validateSocLimits(clamped, live), this._socSaveError)}
         ...extra,
       });
       await this._refreshPlantState();
-      this._showToast("Updated");
+      this._showToast(toastMsg);
     } catch (err) {
       this._showToast(err?.message || "Action failed", "err");
+    } finally {
+      this._busy = false;
+      this._render();
+    }
+  }
+
+  async _syncScheduleFromInverter() {
+    const plant = this._getPlant();
+    if (!plant) return;
+    this._busy = true;
+    this._render();
+    try {
+      await callService(this._hass, "foxess_plant", "sync_schedule_from_inverter", {
+        plant_id: plant.entry_id,
+      });
+      await this._refreshPlantState();
+      this._initChargeDraft();
+      this._showToast("Synced schedule from inverter");
+    } catch (err) {
+      this._showToast(err?.message || "Sync failed", "err");
     } finally {
       this._busy = false;
       this._render();
@@ -5188,11 +5216,19 @@ ${renderSocFeedbackHtml(validateSocLimits(clamped, live), this._socSaveError)}
       .join("")}</nav>`;
   }
 
+  _scheduleSyncButtons() {
+    const dis = this._busy ? "disabled" : "";
+    return `<div class="btn-row schedule-sync-row">
+<button type="button" class="btn btn-secondary" data-action="sync-schedule" ${dis}>Sync from inverter</button>
+<button type="button" class="btn btn-primary" data-action="reapply-schedule" ${dis}>Re-apply to inverter</button>
+</div>`;
+  }
+
   _modeBannerExtra() {
     const st = this._plantState;
     if (!st) return "";
     if (st.drift) {
-      return `<div class="banner warn"><strong>Schedule drift</strong>Inverter charge windows differ from what Fox Plant expects. <div class="btn-row"><button type="button" class="btn btn-primary" data-action="apply-baseline" ${this._busy ? "disabled" : ""}>Re-apply schedule</button></div></div>`;
+      return `<div class="banner warn"><strong>Schedule drift</strong>Inverter charge windows differ from what Fox Plant expects. Sync copies the inverter into your app settings; re-apply pushes your app schedule to the inverter and enables plant control.${this._scheduleSyncButtons()}</div>`;
     }
     if (!st.control_active) {
       return `<div class="banner info"><strong>Manual control</strong>Fox Plant is not managing charge periods. Modbus or the Fox app may change settings freely.</div>`;
@@ -6380,12 +6416,17 @@ ${this._renderTripleSoc(plant, this._socDraft, liveSoc)}
 
   _renderSettingsSchedules() {
     if (!this._chargeDraft) this._initChargeDraft();
+    const driftHint = this._plantState?.drift
+      ? `<div class="banner warn" style="margin-bottom:12px"><strong>Schedule drift</strong> Inverter and app schedules differ.${this._scheduleSyncButtons()}</div>`
+      : "";
     return `<header class="header"><h1>Charge schedule</h1><p>Baseline periods — Fox Plant keeps the inverter in sync</p></header>
+${driftHint}
 ${this._renderPeriodCard(0, this._chargeDraft[0])}
 ${this._renderPeriodCard(1, this._chargeDraft[1])}
 <div class="btn-row">
 <button type="button" class="btn btn-primary" data-action="save-schedules" ${this._busy ? "disabled" : ""}>Save & apply</button>
-<button type="button" class="btn btn-secondary" data-action="apply-baseline" ${this._busy ? "disabled" : ""}>Re-apply only</button>
+<button type="button" class="btn btn-secondary" data-action="sync-schedule" ${this._busy ? "disabled" : ""}>Sync from inverter</button>
+<button type="button" class="btn btn-secondary" data-action="reapply-schedule" ${this._busy ? "disabled" : ""}>Re-apply to inverter</button>
 <button type="button" class="btn btn-secondary" data-action="copy-period" data-from="0" data-to="1" ${this._busy ? "disabled" : ""}>Copy period 1 → 2</button>
 <button type="button" class="btn btn-secondary" data-action="swap-periods" ${this._busy ? "disabled" : ""}>Swap 1 ↔ 2</button>
 </div>`;

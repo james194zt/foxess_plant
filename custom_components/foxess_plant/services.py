@@ -65,6 +65,12 @@ def register_services(hass: HomeAssistant) -> None:
     async def apply_desired(call: ServiceCall) -> None:
         await _get_coordinator(hass, call).async_apply_desired()
 
+    async def sync_schedule_from_inverter(call: ServiceCall) -> None:
+        await _get_coordinator(hass, call).async_sync_schedule_from_inverter()
+
+    async def reapply_schedule(call: ServiceCall) -> None:
+        await _get_coordinator(hass, call).async_reapply_schedule()
+
     async def set_charge_period(call: ServiceCall) -> None:
         coord = _get_coordinator(hass, call)
         period = ChargePeriodConfig(
@@ -140,6 +146,18 @@ def register_services(hass: HomeAssistant) -> None:
         DOMAIN,
         "apply_desired",
         apply_desired,
+        schema=vol.Schema({plant_id: cv.string}),
+    )
+    hass.services.async_register(
+        DOMAIN,
+        "sync_schedule_from_inverter",
+        sync_schedule_from_inverter,
+        schema=vol.Schema({plant_id: cv.string}),
+    )
+    hass.services.async_register(
+        DOMAIN,
+        "reapply_schedule",
+        reapply_schedule,
         schema=vol.Schema({plant_id: cv.string}),
     )
     hass.services.async_register(
