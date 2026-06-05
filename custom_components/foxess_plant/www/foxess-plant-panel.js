@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.55
+ * @version 0.9.56
  */
 
 const NAV = [
@@ -3985,13 +3985,24 @@ const STYLES = `
 .btn-danger { background: color-mix(in srgb, var(--fp-red) 85%, #000); color: #fff; }
 .list-btn {
   display: flex; justify-content: space-between; align-items: center; width: 100%;
-  padding: 16px 18px; border: none; border-radius: var(--fp-radius);
+  padding: 16px 18px; border-radius: var(--fp-radius);
   background: var(--card-background-color); color: inherit;
   cursor: pointer; text-align: left; font-family: inherit; margin-bottom: 10px;
   box-shadow: var(--ha-card-box-shadow, 0 1px 2px rgba(0,0,0,0.06));
   border: 1px solid var(--divider-color, transparent); gap: 12px;
+  position: relative; z-index: 0; touch-action: manipulation;
+  transition: border-color 0.15s ease;
 }
-.list-btn:hover { background: var(--secondary-background-color); }
+.list-btn::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; z-index: -1;
+  background: var(--secondary-background-color); opacity: 0;
+  transition: opacity 0.15s ease; pointer-events: none;
+}
+@media (hover: hover) {
+  .list-btn:hover::before { opacity: 1; }
+  .list-btn:hover { border-color: var(--divider-color, rgba(127,127,127,0.35)); }
+}
+.list-btn:focus-visible { outline: 2px solid var(--fp-accent); outline-offset: 2px; }
 .list-btn-body { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; flex: 1; min-width: 0; }
 .list-btn-title { display: block; font-size: 15px; font-weight: 600; line-height: 1.3; color: var(--primary-text-color); }
 .list-btn-sub { display: block; font-size: 13px; font-weight: 400; line-height: 1.35; color: var(--secondary-text-color); }
@@ -4134,8 +4145,17 @@ const STYLES = `
   padding: 8px 12px; border: none; background: transparent;
   color: var(--secondary-text-color); font: inherit; font-size: 13px;
   cursor: pointer; border-radius: 8px; width: 100%; max-width: 360px;
+  position: relative; z-index: 0; touch-action: manipulation;
 }
-.device-serial-btn:hover { background: var(--secondary-background-color, rgba(127,127,127,0.12)); color: var(--primary-text-color); }
+.device-serial-btn::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; z-index: -1;
+  background: var(--secondary-background-color, rgba(127,127,127,0.12)); opacity: 0;
+  transition: opacity 0.15s ease; pointer-events: none;
+}
+@media (hover: hover) {
+  .device-serial-btn:hover::before { opacity: 1; }
+  .device-serial-btn:hover { color: var(--primary-text-color); }
+}
 .device-serial { font-family: ui-monospace, monospace; letter-spacing: 0.03em; }
 .device-serial-muted { margin: 0; font-size: 13px; color: var(--secondary-text-color); text-align: center; }
 .device-grid {
@@ -4858,6 +4878,16 @@ Reloading panel registration…
   }
 
   _scheduleRender(force = false) {
+    if (
+      !force &&
+      !this._socDrag &&
+      !this._rangeDrag &&
+      !this._settingsFieldBlocksRender() &&
+      this._patchDeviceMainLiveIfNeeded()
+    ) {
+      this._renderPending = false;
+      return;
+    }
     if (!force && (this._socDrag || this._rangeDrag || this._settingsFieldBlocksRender())) {
       this._renderPending = true;
       return;
@@ -6463,32 +6493,51 @@ ${this._renderOverviewAfterHero(plant)}`;
         subtitle: "General solar panel settings for PV1 and PV2",
       })}`;
     }
+    const serial = plantDeviceSerial(this._hass, plant, this._plantState);
+    const modelLine = plantModelSubtitle(this._hass, plant, this._plantState);
+    const serialRow =
+      serial !== "—"
+        ? `<button type="button" class="device-serial-btn" data-action="device-sub" data-sub="system"><span class="device-serial">${esc(serial)}</span><span class="chev">›</span></button>`
+        : `<p class="device-serial device-serial-muted">Serial unavailable</p>`;
+    return `<div data-device-main="1"><header class="header device-header"><h1>${esc(plant.title)}</h1>${modelLine !== "—" ? `<p class="device-model">${esc(modelLine)}</p>` : ""}</header>
+<div class="device-hero"><img class="device-hero-img" src="${esc(DEVICE_EVO_IMAGE_STATIC)}" alt="${esc(modelLine !== "—" ? modelLine : "Inverter")}" loading="lazy" />${serialRow}</div>
+<div data-device-live>${this._renderDeviceLiveHtml(plant)}</div>
+<div data-device-nav>
+${renderListButton({ action: "device-sub", sub: "parameters" }, "Detailed parameters", "PV, AC, battery, grid — like Fox app")}
+${renderListButton({ action: "device-sub", sub: "system" }, "System info", "Firmware, BMS, grid status")}
+${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Configuration", pvConfigSummary(this._plantState?.pv_config))}
+</div></div>`;
+  }
+
+  _isDeviceMainView() {
+    return this._view === "device" && this._deviceSub === "main";
+  }
+
+  _renderDeviceLiveHtml(plant) {
     const flows = readEnergyFlows(this._hass, plant, this._plantState);
     const pvCard = renderDevicePvCard(this._hass, plant, this._plantState);
     const map = resolveEntityMap(this._hass, plant, this._plantState);
     const tempRaw = stateString(this._hass, map.bms_temp_low);
     const tempDisplay = tempRaw !== "—" ? `${tempRaw}℃` : "—";
-    const serial = plantDeviceSerial(this._hass, plant, this._plantState);
-    const modelLine = plantModelSubtitle(this._hass, plant, this._plantState);
     const systemStatus = foxInverterStateLabel(this._hass, plant, this._plantState);
     const statusPill =
       systemStatus !== "—"
         ? `<div class="device-fox-pill ${foxStatusToneClass(systemStatus)}">${esc(systemStatus)}</div>`
         : "";
-    const serialRow =
-      serial !== "—"
-        ? `<button type="button" class="device-serial-btn" data-action="device-sub" data-sub="system"><span class="device-serial">${esc(serial)}</span><span class="chev">›</span></button>`
-        : `<p class="device-serial device-serial-muted">Serial unavailable</p>`;
-    return `<header class="header device-header"><h1>${esc(plant.title)}</h1>${modelLine !== "—" ? `<p class="device-model">${esc(modelLine)}</p>` : ""}</header>
-${statusPill}
-<div class="device-hero"><img class="device-hero-img" src="${esc(DEVICE_EVO_IMAGE_STATIC)}" alt="${esc(modelLine !== "—" ? modelLine : "Inverter")}" loading="lazy" />${serialRow}</div>
-<div class="device-grid">
-${pvCard}
-<div class="device-card device-card--battery">${renderDeviceBatteryCard(flows, tempDisplay)}</div>
-</div>
-${renderListButton({ action: "device-sub", sub: "parameters" }, "Detailed parameters", "PV, AC, battery, grid — like Fox app")}
-${renderListButton({ action: "device-sub", sub: "system" }, "System info", "Firmware, BMS, grid status")}
-${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Configuration", pvConfigSummary(this._plantState?.pv_config))}`;
+    return `${statusPill}<div class="device-grid">${pvCard}<div class="device-card device-card--battery">${renderDeviceBatteryCard(flows, tempDisplay)}</div></div>`;
+  }
+
+  _patchDeviceMainLiveIfNeeded() {
+    if (!this._isDeviceMainView() || !this._hass) return false;
+    const root = this._root.querySelector("[data-device-main]");
+    const live = this._root.querySelector("[data-device-live]");
+    if (!root || !live) return false;
+    const plant = this._getPlant();
+    if (!plant) return false;
+    live.innerHTML = this._renderDeviceLiveHtml(plant);
+    const pvSub = root.querySelector('[data-action="device-sub"][data-sub="pv-config"] .list-btn-sub');
+    if (pvSub) pvSub.textContent = pvConfigSummary(this._plantState?.pv_config);
+    return true;
   }
 
   _entityList(rows) {
