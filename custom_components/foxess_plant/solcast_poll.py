@@ -277,11 +277,14 @@ def solcast_status_dict(
     plant: PlantConfig | None = None,
     hass: HomeAssistant | None = None,
     forecast_history_snapshots: int = 0,
+    forecast_intraday_points: list[dict[str, float]] | None = None,
 ) -> dict[str, Any]:
     reset_api_quota_if_needed(solcast)
     out = solcast.to_dict(include_api_key=False)
     out["api_remaining"] = api_remaining(solcast)
     out["forecast_history_snapshots"] = forecast_history_snapshots
+    if forecast_intraday_points:
+        out["forecast_intraday_points"] = forecast_intraday_points
     out["forecast_persisted"] = bool(cache and cache.get("pv_forecast_parsed"))
     out["coordinates_configured"] = solcast.coordinates_configured()
     if solcast.latitude is not None and solcast.longitude is not None:

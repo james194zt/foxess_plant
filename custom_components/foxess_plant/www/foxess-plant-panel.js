@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.48
+ * @version 0.9.49
  */
 
 const NAV = [
@@ -633,10 +633,23 @@ function detailedForecastToChartPoints(rows, range) {
   }
   if (relevant.length < 2) return [];
 
-  return interpolatePointsToPeriod(relevant, STATISTICS_PERIOD_MS, range.tMin, range.tMax);
+  return interpolatePointsToPeriod(relevant, STATISTICS_PERIOD_MS, range.tMin, range.tMax, {
+    allowBackfill: false,
+  });
+}
+
+function solcastIntradayForecastPoints(plantState, range) {
+  const rows = plantState?.solcast?.forecast_intraday_points;
+  if (!Array.isArray(rows) || rows.length < 2) return [];
+  return rows
+    .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.t >= range.tMin && p.t <= range.tMax)
+    .map((p) => ({ t: p.t, v: p.v }))
+    .sort((a, b) => a.t - b.t);
 }
 
 function nativeSolcastForecastPoints(plantState, range, hass) {
+  const intraday = solcastIntradayForecastPoints(plantState, range);
+  if (intraday.length >= 2) return intraday;
   const rows = resolveSolcastDetailedForecast(plantState, hass);
   return detailedForecastToChartPoints(rows, range);
 }
@@ -1500,9 +1513,9 @@ function statisticsChartPoints(points, range) {
   return resamplePointsMean(points, STATISTICS_PERIOD_MS, range.tMin, range.nowMs);
 }
 
-function interpolateSeriesAt(points, t) {
+function interpolateSeriesAt(points, t, { allowBackfill = true } = {}) {
   if (!points.length) return null;
-  if (t <= points[0].t) return points[0].v;
+  if (t <= points[0].t) return allowBackfill ? points[0].v : null;
   if (t >= points[points.length - 1].t) return points[points.length - 1].v;
   for (let i = 0; i < points.length - 1; i++) {
     const a = points[i];
@@ -1654,12 +1667,12 @@ function buildStatisticsSeriesPoints(hass, entityId, spec, range, statsMap, hist
   }));
 }
 
-function interpolatePointsToPeriod(points, periodMs, originMs, endMs) {
+function interpolatePointsToPeriod(points, periodMs, originMs, endMs, { allowBackfill = true } = {}) {
   if (!points.length) return [];
   const sorted = [...points].sort((a, b) => a.t - b.t);
   const out = [];
   for (let t = originMs; t <= endMs; t += periodMs) {
-    const v = interpolateSeriesAt(sorted, t);
+    const v = interpolateSeriesAt(sorted, t, { allowBackfill });
     if (v != null) out.push({ t, v });
   }
   return out;

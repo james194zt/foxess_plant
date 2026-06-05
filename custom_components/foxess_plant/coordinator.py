@@ -86,6 +86,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._solcast_cache: dict[str, Any] = {}
         self._solcast_store = None
         self._solcast_history_count = 0
+        self._solcast_forecast_chart_points: list[dict[str, float]] = []
         super().__init__(
             hass,
             _LOGGER,
@@ -108,6 +109,18 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._solcast_history_count,
             )
             await self._maybe_repair_solcast_storage(stored)
+        await self._rebuild_solcast_forecast_chart()
+
+    async def _rebuild_solcast_forecast_chart(self) -> None:
+        from .solcast_forecast_chart import build_forecast_intraday_chart
+
+        if not self._solcast_store:
+            self._solcast_forecast_chart_points = []
+            return
+        stored = await self._solcast_store.async_load()
+        self._solcast_forecast_chart_points = build_forecast_intraday_chart(
+            self.hass, stored, self._solcast_cache
+        )
 
     def _solcast_detailed_forecast_rows(self) -> list[dict[str, Any]]:
         parsed = self._solcast_cache.get("pv_forecast_parsed")
@@ -224,6 +237,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._solcast_history_count = await self._solcast_store.async_record_poll(
                 self._solcast_cache
             )
+            await self._rebuild_solcast_forecast_chart()
             _LOGGER.debug(
                 "Persisted Solcast forecast to storage (%s periods)",
                 (self._solcast_cache.get("pv_forecast_parsed") or {}).get("period_count"),
@@ -529,6 +543,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             plant=self.plant,
             hass=self.hass,
             forecast_history_snapshots=self._solcast_history_count,
+            forecast_intraday_points=self._solcast_forecast_chart_points,
         )
 
     def get_plant_state(self) -> dict[str, Any]:
@@ -1007,6 +1022,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             plant=self.plant,
             hass=self.hass,
             forecast_history_snapshots=self._solcast_history_count,
+            forecast_intraday_points=self._solcast_forecast_chart_points,
         )
         status.update(test_result)
         if not test_result.get("test_ok"):
