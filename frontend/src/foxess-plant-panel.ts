@@ -272,17 +272,18 @@ export class FoxessPlantPanel extends LitElement {
     if (this._deviceSub === "parameters") {
       return html`
         <button class="back-btn" @click=${() => (this._deviceSub = "main")}>← Device</button>
-        <header class="header"><h1>Detailed Parameters</h1></header>
+        <header class="header"><h1>Parameters</h1><p>Live Modbus values (Fox app layout)</p></header>
         <fox-entity-list
           .hass=${this.hass}
-          title="Live values"
           .rows=${this._rowsFromMap(plant, [
-            ["pv_power", "PV power"],
+            ["pv1_voltage", "PV1 voltage"],
+            ["pv1_current", "PV1 current"],
+            ["pv1_power", "PV1 power"],
+            ["grid_voltage_R", "Grid voltage"],
+            ["inv_power", "Inverter power"],
             ["load_power", "Load power"],
-            ["grid_import", "Grid import"],
-            ["grid_export", "Grid export"],
+            ["battery_soc", "SOC"],
             ["battery_power", "Battery power"],
-            ["battery_soc", "Battery SOC"],
           ])}
         ></fox-entity-list>
       `;
@@ -294,10 +295,20 @@ export class FoxessPlantPanel extends LitElement {
         <fox-entity-list
           .hass=${this.hass}
           .rows=${this._rowsFromMap(plant, [
+            ["bms_kwh_nominal", "Nominal energy"],
             ["battery_soc", "SOC"],
-            ["battery_power", "Battery power"],
+            ["battery_kwh_remaining", "Remaining energy"],
             ["battery_status", "Status"],
+            ["battery_power", "Battery power"],
+            ["bat_current_1", "Current"],
+            ["batvolt_1", "Voltage"],
             ["bms_temp_low", "Min. battery temperature"],
+            ["battery_discharge_today", "Daily discharged energy"],
+            ["battery_discharge_total", "Total discharged energy"],
+            ["battery_charge_today", "Daily charged energy"],
+            ["battery_charge_total", "Total charged energy"],
+            ["battery_soh", "SOH"],
+            ["battery_cycles", "Battery cycles"],
           ])}
         ></fox-entity-list>
       `;

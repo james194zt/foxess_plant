@@ -81,18 +81,70 @@ IDENTITY_ENTITY_SUFFIXES: dict[str, tuple[str, ...]] = {
 }
 
 PANEL_ENTITY_SUFFIXES: dict[str, tuple[str, ...]] = {
+    # PV strings
+    "pv1_voltage": ("pv1_voltage",),
+    "pv1_current": ("pv1_current",),
     "pv1_power": ("pv1_power",),
+    "pv2_voltage": ("pv2_voltage",),
+    "pv2_current": ("pv2_current",),
     "pv2_power": ("pv2_power",),
-    "pv_power": ("pv1_power", "pv_power", "pv_power_total", "pv_power_evo_10"),
+    "pv3_voltage": ("pv3_voltage",),
+    "pv3_current": ("pv3_current",),
+    "pv3_power": ("pv3_power",),
+    "pv4_voltage": ("pv4_voltage",),
+    "pv4_current": ("pv4_current",),
+    "pv4_power": ("pv4_power",),
+    "pv_power": ("pv_power_now", "pv1_power", "pv_power", "pv_power_total", "pv_power_evo_10"),
+    "solar_energy_today": ("solar_energy_today",),
+    "solar_energy_total": ("solar_energy_total",),
+    # AC / inverter
+    "grid_voltage_R": ("grid_voltage_R",),
+    "inv_current_R": ("inv_current_R",),
+    "inv_power": ("inv_power",),
+    "rfreq": ("rfreq",),
+    "invtemp": ("invtemp",),
+    # EPS
+    "eps_rvolt_R": ("eps_rvolt_R",),
+    "eps_rcurrent_R": ("eps_rcurrent_R",),
+    "eps_power_R": ("eps_power_R",),
+    "eps_frequency": ("eps_frequency",),
+    # Load
     "load_power": ("load_power", "load_power_total"),
+    "load_power_R": ("load_power_R",),
+    "load_energy_today": ("load_energy_today",),
+    "load_power_total": ("load_power_total",),
+    # Grid
+    "grid_status": ("grid_status",),
     "grid_import": ("grid_consumption",),
     "grid_export": ("feed_in", "grid_ct"),
+    "feed_in_energy_today": ("feed_in_energy_today",),
+    "feed_in_energy_total": ("feed_in_energy_total",),
+    "grid_consumption_energy_today": ("grid_consumption_energy_today",),
+    "grid_consumption_energy_total": ("grid_consumption_energy_total",),
+    # Battery / BMS
     "battery_soc": ("battery_soc_1", "battery_soc"),
     "battery_power": ("invbatpower_1", "invbatpower", "battery_power"),
     "battery_charge": ("battery_charge_1", "battery_charge"),
     "battery_discharge": ("battery_discharge_1", "battery_discharge"),
     "battery_status": ("battery_status",),
+    "battery_soh": ("battery_soh",),
+    "battery_cycles": ("battery_cycles",),
+    "battery_kwh_remaining": ("battery_kwh_remaining",),
+    "bms_kwh_nominal": ("bms_kwh_remaining_1",),
+    "batvolt_1": ("batvolt_1", "invbatvolt_1"),
+    "bat_current_1": ("bat_current_1", "invbatcurrent_1"),
+    "battery_charge_today": ("battery_charge_today",),
+    "battery_charge_total": ("battery_charge_total",),
+    "battery_discharge_today": ("battery_discharge_today",),
+    "battery_discharge_total": ("battery_discharge_total",),
     "bms_temp_low": ("bms_cell_temp_low_1", "bms_cell_temp_low"),
+    "bms_temp_high": ("bms_cell_temp_high_1", "bms_cell_temp_high"),
+    # Datalogger / identity (also in IDENTITY_ENTITY_SUFFIXES)
+    "bms_online": ("bms_online",),
+    "modbus_protocol_version": ("modbus_protocol_version",),
+    "master_version": ("master_version",),
+    "slave_version": ("slave_version",),
+    "manager_version": ("manager_version",),
 }
 
 PANEL_URL_PATH = "foxess-plant"

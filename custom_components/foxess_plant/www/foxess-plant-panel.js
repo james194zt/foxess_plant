@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.50
+ * @version 0.9.51
  */
 
 const NAV = [
@@ -1105,6 +1105,125 @@ const CHART_ENTITY_FALLBACKS = {
   grid_consumption_energy_today: ["grid_consumption_energy_today"],
 };
 
+/** Device → Parameters page (Fox app sections). Merged into resolveEntityMap at runtime. */
+const DEVICE_ENTITY_FALLBACKS = {
+  pv1_voltage: ["pv1_voltage"],
+  pv1_current: ["pv1_current"],
+  pv1_power: ["pv1_power"],
+  pv2_voltage: ["pv2_voltage"],
+  pv2_current: ["pv2_current"],
+  pv2_power: ["pv2_power"],
+  pv3_voltage: ["pv3_voltage"],
+  pv3_current: ["pv3_current"],
+  pv3_power: ["pv3_power"],
+  pv4_voltage: ["pv4_voltage"],
+  pv4_current: ["pv4_current"],
+  pv4_power: ["pv4_power"],
+  pv_power: ["pv_power_now", "pv1_power", "pv_power", "pv_power_total", "pv_power_evo_10"],
+  solar_energy_today: ["solar_energy_today"],
+  solar_energy_total: ["solar_energy_total"],
+  grid_voltage_R: ["grid_voltage_R"],
+  inv_current_R: ["inv_current_R"],
+  inv_power: ["inv_power"],
+  rfreq: ["rfreq"],
+  invtemp: ["invtemp"],
+  eps_rvolt_R: ["eps_rvolt_R"],
+  eps_rcurrent_R: ["eps_rcurrent_R"],
+  eps_power_R: ["eps_power_R"],
+  eps_frequency: ["eps_frequency"],
+  load_power_R: ["load_power_R"],
+  load_power_total: ["load_power_total"],
+  grid_status: ["grid_status"],
+  feed_in_energy_total: ["feed_in_energy_total"],
+  grid_consumption_energy_total: ["grid_consumption_energy_total"],
+  battery_soh: ["battery_soh"],
+  battery_cycles: ["battery_cycles"],
+  battery_kwh_remaining: ["battery_kwh_remaining"],
+  bms_kwh_nominal: ["bms_kwh_remaining_1"],
+  batvolt_1: ["batvolt_1", "invbatvolt_1"],
+  bat_current_1: ["bat_current_1", "invbatcurrent_1"],
+  battery_charge_total: ["battery_charge_total"],
+  battery_discharge_total: ["battery_discharge_total"],
+  bms_temp_high: ["bms_cell_temp_high_1", "bms_cell_temp_high"],
+  bms_online: ["bms_online"],
+  modbus_protocol_version: ["modbus_protocol_version"],
+  master_version: ["master_version"],
+  slave_version: ["slave_version"],
+  manager_version: ["manager_version"],
+};
+
+const DEVICE_PV_STRINGS = [1, 2, 3, 4];
+
+const DEVICE_PARAMETER_SECTIONS = [
+  { id: "pv", title: "PV Information", kind: "pv-table" },
+  {
+    id: "ac",
+    title: "AC Information",
+    kind: "metric-table",
+    keys: ["grid_voltage_R", "inv_current_R", "inv_power", "rfreq"],
+    headers: ["Voltage (V)", "Current (A)", "Power (kW)", "Frequency (Hz)"],
+  },
+  {
+    id: "eps",
+    title: "EPS Information",
+    kind: "metric-table",
+    keys: ["eps_rvolt_R", "eps_rcurrent_R", "eps_power_R", "eps_frequency"],
+    headers: ["Voltage (V)", "Current (A)", "Power (kW)", "Frequency (Hz)"],
+  },
+  {
+    id: "load",
+    title: "Load Information",
+    kind: "rows",
+    rows: [
+      ["load_energy_today", "Daily load consumption"],
+      ["load_power_total", "Total load consumption"],
+      ["load_power", "Total load power"],
+      ["load_power_R", "Grid load power"],
+      ["eps_power_R", "EPS load power"],
+    ],
+  },
+  {
+    id: "grid",
+    title: "Grid Information",
+    kind: "rows",
+    rows: [
+      ["grid_status", "Grid status"],
+      ["feed_in_energy_today", "Daily feed-in energy"],
+      ["feed_in_energy_total", "Total feed-in energy"],
+      ["grid_consumption_energy_today", "Daily purchased energy"],
+      ["grid_consumption_energy_total", "Total purchased energy"],
+      ["grid_export", "Feed-in power"],
+      ["grid_import", "Purchased power"],
+    ],
+  },
+  {
+    id: "datalogger",
+    title: "Datalogger Information",
+    kind: "datalogger",
+  },
+  {
+    id: "battery",
+    title: "Battery Information",
+    kind: "rows",
+    rows: [
+      ["bms_kwh_nominal", "Nominal energy"],
+      ["battery_soc", "SOC"],
+      ["battery_kwh_remaining", "Remaining energy"],
+      ["battery_status", "Status"],
+      ["battery_power", "Battery power"],
+      ["bat_current_1", "Current"],
+      ["batvolt_1", "Voltage"],
+      ["bms_temp_low", "Min. battery temperature"],
+      ["battery_discharge_today", "Daily discharged energy"],
+      ["battery_discharge_total", "Total discharged energy"],
+      ["battery_charge_today", "Daily charged energy"],
+      ["battery_charge_total", "Total charged energy"],
+      ["battery_soh", "SOH"],
+      ["battery_cycles", "Battery cycles"],
+    ],
+  },
+];
+
 const ANALYTICS_STATE_KEYS = [
   "solar_energy_today",
   "feed_in_energy_today",
@@ -1255,7 +1374,8 @@ function resolveEntityMap(hass, plant, plantState) {
   const map = { ...(plant?.entity_map || {}), ...(plantState?.entity_map || {}) };
   if (!hass?.states) return map;
   const ids = Object.keys(hass.states);
-  for (const [key, suffixes] of Object.entries(CHART_ENTITY_FALLBACKS)) {
+  const allFallbacks = { ...CHART_ENTITY_FALLBACKS, ...DEVICE_ENTITY_FALLBACKS };
+  for (const [key, suffixes] of Object.entries(allFallbacks)) {
     if (map[key] && hass.states[map[key]]) continue;
     for (const suffix of suffixes) {
       const hit = ids.find((id) => entityIdMatchesSuffix(id, suffix));
@@ -1266,6 +1386,72 @@ function resolveEntityMap(hass, plant, plantState) {
     }
   }
   return map;
+}
+
+function entityDisplayValue(hass, entityId) {
+  if (!entityId || !hass?.states?.[entityId]) return "—";
+  const st = stateString(hass, entityId);
+  if (st === "—") return "—";
+  return `${st}${entityUnit(hass, entityId)}`;
+}
+
+function entityMapRows(hass, plant, plantState, pairs) {
+  const map = resolveEntityMap(hass, plant, plantState);
+  return pairs
+    .map(([key, name]) => (map[key] ? { entity_id: map[key], name, key } : null))
+    .filter(Boolean);
+}
+
+function deviceParamEntityIds(map, sections) {
+  const ids = new Set();
+  for (const section of sections) {
+    if (section.kind === "pv-table") {
+      for (const n of DEVICE_PV_STRINGS) {
+        for (const suffix of ["voltage", "current", "power"]) {
+          const id = map[`pv${n}_${suffix}`];
+          if (id) ids.add(id);
+        }
+      }
+      if (map.pv_power) ids.add(map.pv_power);
+    } else if (section.kind === "metric-table") {
+      for (const key of section.keys) {
+        if (map[key]) ids.add(map[key]);
+      }
+    } else if (section.kind === "rows") {
+      for (const [key] of section.rows) {
+        if (map[key]) ids.add(map[key]);
+      }
+    } else if (section.kind === "datalogger") {
+      for (const key of ["bms_online", "manager_version", "master_version", "modbus_protocol_version"]) {
+        if (map[key]) ids.add(map[key]);
+      }
+    }
+  }
+  return ids;
+}
+
+function deviceParamLastUpdated(hass, entityIds) {
+  let latest = 0;
+  for (const entityId of entityIds) {
+    const ts = hass?.states?.[entityId]?.last_updated;
+    if (!ts) continue;
+    const ms = Date.parse(ts);
+    if (Number.isFinite(ms) && ms > latest) latest = ms;
+  }
+  if (!latest) return "";
+  try {
+    return new Date(latest).toLocaleString(undefined, {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+  } catch {
+    return new Date(latest).toISOString();
+  }
 }
 
 async function fetchStatisticsDuring(hass, entityIds, start, end) {
@@ -3557,6 +3743,30 @@ const STYLES = `
 .entity-row:last-child { border-bottom: none; }
 .entity-name { color: var(--secondary-text-color); }
 .entity-value { font-weight: 500; }
+.device-param-sections { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.device-param-section {
+  border-radius: var(--fp-radius);
+  border: 1px solid var(--divider-color, transparent);
+  background: var(--card-background-color, rgba(127,127,127,0.06));
+  overflow: hidden;
+}
+.device-param-section > summary {
+  list-style: none; cursor: pointer; padding: 14px 18px; font-weight: 600; font-size: 15px;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.device-param-section > summary::-webkit-details-marker { display: none; }
+.device-param-section > summary::after { content: "›"; transform: rotate(90deg); opacity: 0.45; font-size: 18px; transition: transform 0.15s; }
+.device-param-section[open] > summary::after { transform: rotate(-90deg); }
+.device-param-section[open] > summary { border-bottom: 1px solid var(--divider-color); }
+.device-param-section .entity-list { border: none; border-radius: 0; }
+.device-param-table-wrap { overflow-x: auto; }
+.device-param-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.device-param-table th, .device-param-table td { padding: 10px 14px; text-align: right; border-bottom: 1px solid var(--divider-color); white-space: nowrap; }
+.device-param-table th:first-child, .device-param-table td:first-child { text-align: left; }
+.device-param-table tr:last-child td { border-bottom: none; }
+.device-param-table th { color: var(--secondary-text-color); font-weight: 500; font-size: 12px; }
+.device-param-empty { padding: 14px 18px; font-size: 13px; color: var(--secondary-text-color); margin: 0; }
+.device-param-updated { text-align: center; font-size: 12px; color: var(--secondary-text-color); margin-top: 16px; }
 .period-card { border: 1px solid var(--divider-color); border-radius: var(--fp-radius); padding: 16px; margin-bottom: 12px; background: var(--secondary-background-color, rgba(127,127,127,0.06)); }
 .period-card h4 { margin: 0 0 12px; font-size: 15px; }
 .field { margin-bottom: 12px; }
@@ -5726,27 +5936,12 @@ ${this._renderOverviewAfterHero(plant)}`;
       return `<button type="button" class="back-btn" data-action="device-back">← Device</button><header class="header"><h1>System info</h1><p>From Modbus (matches Fox app where confirmed)</p></header>${this._identityValueList(this._identityRows(plant))}`;
     }
     if (this._deviceSub === "parameters") {
-      const rows = [
-        ["pv_power", "PV power"],
-        ["load_power", "Load"],
-        ["grid_import", "Grid import"],
-        ["grid_export", "Grid export"],
-        ["battery_power", "Battery"],
-        ["battery_soc", "SOC"],
-      ]
-        .map(([k, n]) => (plant.entity_map?.[k] ? { entity_id: plant.entity_map[k], name: n } : null))
-        .filter(Boolean);
-      return `<button type="button" class="back-btn" data-action="device-back">← Device</button><header class="header"><h1>Parameters</h1></header>${this._entityList(rows)}`;
+      return `<button type="button" class="back-btn" data-action="device-back">← Device</button><header class="header"><h1>Parameters</h1><p>Live Modbus values (Fox app layout)</p></header>${this._renderDeviceParameters(plant)}`;
     }
     if (this._deviceSub === "battery") {
-      const rows = [
-        ["battery_soc", "SOC"],
-        ["battery_power", "Power"],
-        ["battery_status", "Status"],
-        ["bms_temp_low", "Min temp"],
-      ]
-        .map(([k, n]) => (plant.entity_map?.[k] ? { entity_id: plant.entity_map[k], name: n } : null))
-        .filter(Boolean);
+      const map = resolveEntityMap(this._hass, plant, this._plantState);
+      const section = DEVICE_PARAMETER_SECTIONS.find((s) => s.id === "battery");
+      const rows = section ? entityMapRows(this._hass, plant, this._plantState, section.rows) : [];
       return `<button type="button" class="back-btn" data-action="device-back">← Device</button><header class="header"><h1>Battery</h1></header>${this._entityList(rows)}`;
     }
     if (this._deviceSub === "pv-config") {
@@ -5778,7 +5973,7 @@ ${statusPill}
 ${pvCard}
 <div class="device-card device-card--battery">${renderDeviceBatteryCard(flows, tempDisplay)}</div>
 </div>
-${renderListButton({ action: "device-sub", sub: "parameters" }, "Detailed parameters", "Live Modbus values")}
+${renderListButton({ action: "device-sub", sub: "parameters" }, "Detailed parameters", "PV, AC, battery, grid — like Fox app")}
 ${renderListButton({ action: "device-sub", sub: "system" }, "System info", "Firmware, BMS, grid status")}
 ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Configuration", pvConfigSummary(this._plantState?.pv_config))}`;
   }
@@ -5791,6 +5986,118 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
           `<div class="entity-row"><span class="entity-name">${esc(r.name)}</span><span class="entity-value">${esc(stateString(this._hass, r.entity_id))}${esc(entityUnit(this._hass, r.entity_id))}</span></div>`
       )
       .join("")}</div>`;
+  }
+
+  _entityMapRows(pairs) {
+    return entityMapRows(this._hass, this._getPlant(), this._plantState, pairs);
+  }
+
+  _renderDevicePvTable(map) {
+    const rows = DEVICE_PV_STRINGS.map((n) => {
+      const v = map[`pv${n}_voltage`];
+      const c = map[`pv${n}_current`];
+      const p = map[`pv${n}_power`];
+      if (!v && !c && !p) return null;
+      return `<tr><td>PV${n}</td><td>${esc(entityDisplayValue(this._hass, v))}</td><td>${esc(entityDisplayValue(this._hass, c))}</td><td>${esc(entityDisplayValue(this._hass, p))}</td></tr>`;
+    }).filter(Boolean);
+    if (!rows.length) return `<p class="device-param-empty">No PV string sensors discovered.</p>`;
+    const total =
+      map.pv_power && this._hass?.states?.[map.pv_power]
+        ? `<tr><td>PV</td><td>—</td><td>—</td><td>${esc(entityDisplayValue(this._hass, map.pv_power))}</td></tr>`
+        : "";
+    return `<div class="device-param-table-wrap"><table class="device-param-table"><thead><tr><th>PV</th><th>Voltage (V)</th><th>Current (A)</th><th>Power (kW)</th></tr></thead><tbody>${total}${rows.join("")}</tbody></table></div>`;
+  }
+
+  _renderDeviceMetricTable(map, keys, headers) {
+    const values = keys.map((key) => entityDisplayValue(this._hass, map[key]));
+    if (values.every((v) => v === "—")) {
+      return `<p class="device-param-empty">No sensors discovered for this section.</p>`;
+    }
+    return `<div class="device-param-table-wrap"><table class="device-param-table"><thead><tr>${headers
+      .map((h) => `<th>${esc(h)}</th>`)
+      .join("")}</tr></thead><tbody><tr>${values.map((v) => `<td>${esc(v)}</td>`).join("")}</tr></tbody></table></div>`;
+  }
+
+  _renderDeviceDataloggerRows(plant, map) {
+    const id = this._plantState?.identity ?? {};
+    const rows = [];
+    const bmsId = map.bms_online;
+    if (bmsId && this._hass?.states?.[bmsId]) {
+      const on = this._hass.states[bmsId].state === "on";
+      rows.push({ name: "Status", value: on ? "Online" : "Offline" });
+    } else if (id.bms_online != null && id.bms_online !== "") {
+      rows.push({ name: "Status", value: id.bms_online === true || id.bms_online === "on" ? "Online" : "Offline" });
+    }
+    const firmware =
+      entityDisplayValue(this._hass, map.manager_version) !== "—"
+        ? entityDisplayValue(this._hass, map.manager_version)
+        : entityDisplayValue(this._hass, map.master_version);
+    if (firmware !== "—") rows.push({ name: "Software version", value: firmware });
+    const proto = id.modbus_protocol_version || entityDisplayValue(this._hass, map.modbus_protocol_version);
+    if (proto && proto !== "—") rows.push({ name: "Modbus protocol", value: proto });
+    const master = id.master_version || entityDisplayValue(this._hass, map.master_version);
+    if (master && master !== "—") rows.push({ name: "Master firmware", value: master });
+    const slave = id.slave_version || entityDisplayValue(this._hass, map.slave_version);
+    if (slave && slave !== "—") rows.push({ name: "Slave firmware", value: slave });
+    if (!rows.length) {
+      return `<p class="device-param-empty">No datalogger sensors discovered yet.</p>`;
+    }
+    return `<div class="entity-list">${rows
+      .map(
+        (r) =>
+          `<div class="entity-row"><span class="entity-name">${esc(r.name)}</span><span class="entity-value">${esc(r.value)}</span></div>`
+      )
+      .join("")}</div>`;
+  }
+
+  _deviceParamSectionHasContent(section, map) {
+    if (section.kind === "pv-table") {
+      return DEVICE_PV_STRINGS.some((n) => map[`pv${n}_voltage`] || map[`pv${n}_current`] || map[`pv${n}_power`]) || map.pv_power;
+    }
+    if (section.kind === "metric-table") {
+      return section.keys.some((key) => map[key]);
+    }
+    if (section.kind === "datalogger") {
+      return Boolean(
+        map.bms_online ||
+          map.manager_version ||
+          map.master_version ||
+          map.modbus_protocol_version ||
+          this._plantState?.identity?.modbus_protocol_version
+      );
+    }
+    if (section.kind === "rows") {
+      return section.rows.some(([key]) => map[key]);
+    }
+    return false;
+  }
+
+  _renderDeviceParamSectionBody(section, plant, map) {
+    if (section.kind === "pv-table") return this._renderDevicePvTable(map);
+    if (section.kind === "metric-table") {
+      return this._renderDeviceMetricTable(map, section.keys, section.headers);
+    }
+    if (section.kind === "datalogger") return this._renderDeviceDataloggerRows(plant, map);
+    const rows = entityMapRows(this._hass, plant, this._plantState, section.rows);
+    return this._entityList(rows);
+  }
+
+  _renderDeviceParameters(plant) {
+    const map = resolveEntityMap(this._hass, plant, this._plantState);
+    const sections = DEVICE_PARAMETER_SECTIONS.filter((section) => this._deviceParamSectionHasContent(section, map));
+    if (!sections.length) {
+      return `<p class="placeholder">No Modbus sensors discovered. Reload foxess_modbus and this panel, or reconfigure the plant device link.</p>`;
+    }
+    const entityIds = deviceParamEntityIds(map, sections);
+    const updated = deviceParamLastUpdated(this._hass, entityIds);
+    const body = sections
+      .map(
+        (section) =>
+          `<details class="device-param-section" open><summary>${esc(section.title)}</summary>${this._renderDeviceParamSectionBody(section, plant, map)}</details>`
+      )
+      .join("");
+    const stamp = updated ? `<p class="device-param-updated">${esc(updated)}</p>` : "";
+    return `<div class="device-param-sections">${body}</div>${stamp}`;
   }
 
   _energyHistoryEntities(plant) {
