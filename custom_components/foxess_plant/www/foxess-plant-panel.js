@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.52
+ * @version 0.9.53
  */
 
 const NAV = [
@@ -1067,6 +1067,26 @@ const ENERGY_CHART_BAR = {
   grid: { suffix: "grid_consumption_energy_today", label: "From grid", color: "#FF6FAF" },
 };
 
+const ENERGY_PERIOD_TABS = [
+  { id: "day", label: "Day" },
+  { id: "week", label: "Week" },
+  { id: "month", label: "Month" },
+  { id: "year", label: "Year" },
+  { id: "total", label: "Total" },
+];
+
+const FOX_SUPPLY_SERIES = [
+  { key: "solar", label: "Solar", color: "#19D4DE" },
+  { key: "batteryDischarge", label: "Battery Discharge", color: "#8DB6FF" },
+  { key: "gridImport", label: "Grid Import", color: "#2F6BFF" },
+];
+
+const FOX_USAGE_SERIES = [
+  { key: "load", label: "Load", color: "#8A4DFF" },
+  { key: "batteryCharge", label: "Battery Charge", color: "#C4A3FF" },
+  { key: "gridExport", label: "Grid Export", color: "#FF6FAF" },
+];
+
 const OVERVIEW_DAILY_DAYS = 7;
 const OVERVIEW_DAILY_COLORS = {
   production: "#8A4DFF",
@@ -1636,6 +1656,191 @@ function getStatisticsDayRange(now = new Date()) {
   const start = startOfLocalDay(now);
   const tMin = start.getTime();
   return { tMin, tMax: tMin + 24 * 60 * 60 * 1000, nowMs: now.getTime() };
+}
+
+function getStatisticsDayRangeForDate(dayDate, { asOf = new Date() } = {}) {
+  const start = startOfLocalDay(dayDate);
+  const tMin = start.getTime();
+  const tMax = tMin + 24 * 60 * 60 * 1000;
+  const endCap = endOfLocalDay(dayDate).getTime();
+  const nowMs = Math.min(asOf.getTime(), endCap, tMax);
+  return { tMin, tMax, nowMs: Math.max(tMin, nowMs) };
+}
+
+function startOfWeekMonday(d) {
+  const x = startOfLocalDay(d);
+  const day = x.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  x.setDate(x.getDate() + diff);
+  return x;
+}
+
+function roundEnergyKwh(v) {
+  return Math.round(v * 100) / 100;
+}
+
+function roundEnergyPct(v) {
+  return Math.round(v * 10) / 10;
+}
+
+function formatEnergyDateLabel(d) {
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${mo}-${day}`;
+}
+
+function formatEnergyRangeLabel(start, end) {
+  return `${formatEnergyDateLabel(start)} ~ ${formatEnergyDateLabel(end)}`;
+}
+
+function energyPeriodBounds(period, offset = 0, now = new Date()) {
+  const o = Math.max(0, Number(offset) || 0);
+  if (period === "day") {
+    const d = startOfLocalDay(now);
+    d.setDate(d.getDate() - o);
+    return { start: startOfLocalDay(d), end: endOfLocalDay(d), canNext: o > 0, canPrev: true };
+  }
+  if (period === "week") {
+    const start = startOfWeekMonday(now);
+    start.setDate(start.getDate() - o * 7);
+    const weekEnd = new Date(start);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+    weekEnd.setHours(23, 59, 59, 999);
+    const end = o === 0 ? now : weekEnd;
+    return { start, end, canNext: o > 0, canPrev: true };
+  }
+  if (period === "month") {
+    const start = new Date(now.getFullYear(), now.getMonth() - o, 1);
+    const monthEnd = new Date(start.getFullYear(), start.getMonth() + 1, 0, 23, 59, 59, 999);
+    const end = o === 0 ? now : monthEnd;
+    return { start, end, canNext: o > 0, canPrev: true };
+  }
+  if (period === "year") {
+    const start = new Date(now.getFullYear() - o, 0, 1);
+    const yearEnd = new Date(start.getFullYear(), 11, 31, 23, 59, 59, 999);
+    const end = o === 0 ? now : yearEnd;
+    return { start, end, canNext: o > 0, canPrev: true };
+  }
+  return { start: new Date(2000, 0, 1), end: now, canNext: false, canPrev: false };
+}
+
+function energyPeriodNavLabel(period, offset = 0, now = new Date()) {
+  const { start, end } = energyPeriodBounds(period, offset, now);
+  if (period === "day") return formatEnergyDateLabel(start);
+  if (period === "week") return formatEnergyRangeLabel(start, end);
+  if (period === "month") {
+    return start.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  }
+  if (period === "year") return String(start.getFullYear());
+  return "Total";
+}
+
+function energyBreakdownTitle(period, offset = 0, now = new Date()) {
+  if (period === "day" && offset === 0) return "Today energy breakdown";
+  return `Energy breakdown · ${energyPeriodNavLabel(period, offset, now)}`;
+}
+
+function dailyLoadKwhFromPoints(points, dayStartMs, dayEndMs) {
+  const load =
+    dailyMaxInRange(points.load, dayStartMs, dayEndMs) -
+    dailyMaxInRange(points.discharge, dayStartMs, dayEndMs) +
+    dailyMaxInRange(points.charge, dayStartMs, dayEndMs) +
+    dailyMaxInRange(points.grid, dayStartMs, dayEndMs);
+  return Math.max(0, load);
+}
+
+function computeEnergyBreakdown(points, dayLabels) {
+  let pvTotal = 0;
+  let pvToGrid = 0;
+  let loadTotal = 0;
+  let loadFromGrid = 0;
+  for (const day of dayLabels) {
+    const ds = startOfLocalDay(day).getTime();
+    const de = endOfLocalDay(day).getTime();
+    pvTotal += dailyMaxInRange(points.pv, ds, de);
+    pvToGrid += dailyMaxInRange(points.feedIn, ds, de);
+    loadTotal += dailyLoadKwhFromPoints(points, ds, de);
+    loadFromGrid += dailyMaxInRange(points.grid, ds, de);
+  }
+  const pvToLoadBattery = Math.max(0, pvTotal - pvToGrid);
+  const loadFromPvBattery = Math.max(0, loadTotal - loadFromGrid);
+  const selfConsumption = pvTotal > 0 ? Math.min(100, (pvToLoadBattery / pvTotal) * 100) : 0;
+  const selfSufficiency = loadTotal > 0 ? Math.min(100, (loadFromPvBattery / loadTotal) * 100) : 0;
+  return {
+    pv_production_kwh: roundEnergyKwh(pvTotal),
+    pv_to_load_battery_kwh: roundEnergyKwh(pvToLoadBattery),
+    pv_to_grid_kwh: roundEnergyKwh(pvToGrid),
+    load_consumption_kwh: roundEnergyKwh(loadTotal),
+    load_from_pv_battery_kwh: roundEnergyKwh(loadFromPvBattery),
+    load_from_grid_kwh: roundEnergyKwh(loadFromGrid),
+    self_consumption_percent: roundEnergyPct(selfConsumption),
+    self_sufficiency_percent: roundEnergyPct(selfSufficiency),
+  };
+}
+
+function analyticsFromBreakdown(b) {
+  return {
+    pv_production_kwh_today: b.pv_production_kwh,
+    pv_to_load_battery_kwh_today: b.pv_to_load_battery_kwh,
+    pv_to_grid_kwh_today: b.pv_to_grid_kwh,
+    load_consumption_kwh_today: b.load_consumption_kwh,
+    load_from_pv_battery_kwh_today: b.load_from_pv_battery_kwh,
+    load_from_grid_kwh_today: b.load_from_grid_kwh,
+    self_consumption_percent_today: b.self_consumption_percent,
+    self_sufficiency_percent_today: b.self_sufficiency_percent,
+  };
+}
+
+function energyBucketForDay(points, day) {
+  const ds = startOfLocalDay(day).getTime();
+  const de = endOfLocalDay(day).getTime();
+  return {
+    supply: {
+      solar: roundEnergyKwh(dailyMaxInRange(points.pv, ds, de)),
+      batteryDischarge: roundEnergyKwh(dailyMaxInRange(points.discharge, ds, de)),
+      gridImport: roundEnergyKwh(dailyMaxInRange(points.grid, ds, de)),
+    },
+    usage: {
+      load: roundEnergyKwh(dailyLoadKwhFromPoints(points, ds, de)),
+      batteryCharge: roundEnergyKwh(dailyMaxInRange(points.charge, ds, de)),
+      gridExport: roundEnergyKwh(dailyMaxInRange(points.feedIn, ds, de)),
+    },
+  };
+}
+
+function energyBucketSum(points, days) {
+  const out = {
+    supply: { solar: 0, batteryDischarge: 0, gridImport: 0 },
+    usage: { load: 0, batteryCharge: 0, gridExport: 0 },
+  };
+  for (const day of days) {
+    const b = energyBucketForDay(points, day);
+    for (const k of Object.keys(out.supply)) out.supply[k] += b.supply[k];
+    for (const k of Object.keys(out.usage)) out.usage[k] += b.usage[k];
+  }
+  for (const k of Object.keys(out.supply)) out.supply[k] = roundEnergyKwh(out.supply[k]);
+  for (const k of Object.keys(out.usage)) out.usage[k] = roundEnergyKwh(out.usage[k]);
+  return out;
+}
+
+function buildDaysInRange(start, end) {
+  const days = [];
+  const cursor = startOfLocalDay(start);
+  const last = startOfLocalDay(end);
+  while (cursor <= last) {
+    days.push(new Date(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return days;
+}
+
+function formatWeekdayLabel(d) {
+  return d.toLocaleDateString(undefined, { weekday: "short" });
+}
+
+function formatMonthShortLabel(d) {
+  return d.toLocaleDateString(undefined, { month: "short" });
 }
 
 /** Bucket raw recorder points into fixed 5-minute intervals using mean (plotly-graph). */
@@ -2222,7 +2427,7 @@ function bindBatterySocChart(root, chart) {
   plot.addEventListener("touchend", hideHover);
 }
 
-async function fetchStatisticsChartSeries(hass, plant, plantState) {
+async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset = 0 } = {}) {
   const map = resolveEntityMap(hass, plant, plantState);
   const specs = STATISTICS_CHART_SERIES.map((s) => ({ ...s, entity_id: map[s.key] })).filter(
     (s) => s.entity_id
@@ -2231,19 +2436,24 @@ async function fetchStatisticsChartSeries(hass, plant, plantState) {
     return { empty: "Map power entities in FoxESS Modbus, then reload FoxESS Plant." };
   }
   let forecastState = plantState;
-  try {
-    const fresh = await fetchPlantState(hass, plant.entry_id);
-    if (fresh) forecastState = fresh;
-  } catch {
-    /* plant_state optional */
+  if (dayOffset === 0) {
+    try {
+      const fresh = await fetchPlantState(hass, plant.entry_id);
+      if (fresh) forecastState = fresh;
+    } catch {
+      /* plant_state optional */
+    }
   }
-  const entityIds = specs.map((s) => s.entity_id);
   const now = new Date();
-  const start = startOfLocalDay(now);
-  const range = getStatisticsDayRange(now);
+  const day = startOfLocalDay(now);
+  day.setDate(day.getDate() - Math.max(0, dayOffset));
+  const range = getStatisticsDayRangeForDate(day, { asOf: dayOffset === 0 ? now : endOfLocalDay(day) });
+  const fetchEnd = new Date(range.nowMs);
+  const start = new Date(range.tMin);
+  const entityIds = specs.map((s) => s.entity_id);
   const [statsMap, hist] = await Promise.all([
-    fetchStatisticsDuring(hass, entityIds, start, now),
-    fetchHistoryDuring(hass, entityIds, start, now),
+    fetchStatisticsDuring(hass, entityIds, start, fetchEnd),
+    fetchHistoryDuring(hass, entityIds, start, fetchEnd),
   ]);
   const series = specs.map((spec) => ({
     id: spec.key,
@@ -2257,14 +2467,16 @@ async function fetchStatisticsChartSeries(hass, plant, plantState) {
     lineWidth: spec.lineWidth,
     points: buildStatisticsSeriesPoints(hass, spec.entity_id, spec, range, statsMap, hist),
   }));
-  const fPoints = buildForecastSeriesPoints(forecastState, range, hass);
-  if (fPoints.length) {
-    series.push({
-      id: "forecast",
-      ...FORECAST_CHART_STYLE,
-      connectGaps: true,
-      points: fPoints,
-    });
+  if (dayOffset === 0) {
+    const fPoints = buildForecastSeriesPoints(forecastState, range, hass);
+    if (fPoints.length) {
+      series.push({
+        id: "forecast",
+        ...FORECAST_CHART_STYLE,
+        connectGaps: true,
+        points: fPoints,
+      });
+    }
   }
   if (!series.some((s) => s.points.length)) {
     const listed = specs.map((s) => s.entity_id).join(", ");
@@ -2272,7 +2484,7 @@ async function fetchStatisticsChartSeries(hass, plant, plantState) {
       empty: `No statistics for: ${listed}. Confirm the Recorder stores 5-minute means for these entities (same as your Lovelace plotly-graph card).`,
     };
   }
-  return { series, range, forecastState };
+  return { series, range, forecastState, dayOffset };
 }
 
 function buildDailyLabels(startDay, count) {
@@ -2396,6 +2608,76 @@ function bindOverviewDailyCharts(root) {
       if (ev.target.closest?.(".overview-daily-bar-hit")) ev.stopPropagation();
     });
   });
+}
+
+async function fetchFoxMirroredBarChart(hass, plant, plantState, period, offset = 0) {
+  const now = new Date();
+  const bounds = energyPeriodBounds(period, offset, now);
+  const { start, end } = bounds;
+  const { points, error } = await fetchEnergyHistoryPoints(hass, plant, plantState, start, end);
+  if (!points) return { title: energyPeriodNavLabel(period, offset, now), svg: `<p class="placeholder chart-empty">${esc(error)}</p>` };
+
+  if (period === "week") {
+    const days = buildDaysInRange(start, end);
+    const buckets = days.map((day) => energyBucketForDay(points, day));
+    const labels = days.map(formatWeekdayLabel);
+    return {
+      title: energyPeriodNavLabel(period, offset, now),
+      breakdown: computeEnergyBreakdown(points, days),
+      svg: renderMirroredEnergyBarChart(buckets, labels),
+    };
+  }
+
+  if (period === "month") {
+    const days = buildDaysInRange(start, end);
+    const buckets = days.map((day) => energyBucketForDay(points, day));
+    const labels = days;
+    return {
+      title: energyPeriodNavLabel(period, offset, now),
+      breakdown: computeEnergyBreakdown(points, days),
+      svg: renderMirroredEnergyBarChart(buckets, labels),
+    };
+  }
+
+  if (period === "year") {
+    const labels = [];
+    const buckets = [];
+    for (let m = 0; m < 12; m++) {
+      const monthStart = new Date(start.getFullYear(), m, 1);
+      if (monthStart > end) break;
+      const monthEnd = new Date(start.getFullYear(), m + 1, 0, 23, 59, 59, 999);
+      const effectiveEnd = monthEnd > end ? end : monthEnd;
+      const days = buildDaysInRange(monthStart, effectiveEnd);
+      if (!days.length) continue;
+      labels.push(formatMonthShortLabel(monthStart));
+      buckets.push(energyBucketSum(points, days));
+    }
+    const allDays = buildDaysInRange(start, end);
+    return {
+      title: energyPeriodNavLabel(period, offset, now),
+      breakdown: computeEnergyBreakdown(points, allDays),
+      svg: renderMirroredEnergyBarChart(buckets, labels),
+    };
+  }
+
+  const years = new Set();
+  for (const key of ["pv", "feedIn", "load", "discharge", "charge", "grid"]) {
+    for (const p of points[key] || []) years.add(new Date(p.t).getFullYear());
+  }
+  const yearList = Array.from(years).filter((y) => y >= 2000 && y <= now.getFullYear()).sort((a, b) => a - b);
+  if (!yearList.length) yearList.push(now.getFullYear());
+  const labels = yearList.map(String);
+  const buckets = yearList.map((year) => {
+    const yStart = new Date(year, 0, 1);
+    const yEnd = year === now.getFullYear() ? end : new Date(year, 11, 31, 23, 59, 59, 999);
+    return energyBucketSum(points, buildDaysInRange(yStart, yEnd));
+  });
+  const allDays = buildDaysInRange(start, end);
+  return {
+    title: "Total",
+    breakdown: computeEnergyBreakdown(points, allDays),
+    svg: renderMirroredEnergyBarChart(buckets, labels),
+  };
 }
 
 async function fetchOverviewDailyEnergy(hass, plant, plantState) {
@@ -2694,6 +2976,113 @@ function renderBarChartSvg(groups, labels, { height = 200 } = {}) {
     .map((g) => `<span class="chart-legend-item"><i style="background:${g.color}"></i>${esc(g.label)}</span>`)
     .join("");
   return `<div class="chart-wrap"><svg class="energy-bar-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">${rects.join("")}</svg><div class="chart-legend">${legend}</div></div>`;
+}
+
+function renderMirroredEnergyBarChart(buckets, labels, { height = 300 } = {}) {
+  const n = buckets.length;
+  if (!n) return `<p class="placeholder chart-empty">No energy history in this period.</p>`;
+  const width = 1000;
+  const pad = { l: 44, r: 12, t: 24, b: 42 };
+  const plotH = height - pad.t - pad.b;
+  const midY = pad.t + plotH / 2;
+  const halfH = plotH / 2 - 6;
+  const w = width - pad.l - pad.r;
+  let maxVal = 0.5;
+  for (const b of buckets) {
+    const supply = FOX_SUPPLY_SERIES.reduce((s, spec) => s + (b.supply?.[spec.key] || 0), 0);
+    const usage = FOX_USAGE_SERIES.reduce((s, spec) => s + (b.usage?.[spec.key] || 0), 0);
+    maxVal = Math.max(maxVal, supply, usage);
+  }
+  maxVal *= 1.12;
+  const yScale = (v) => (v / maxVal) * halfH;
+  const groupW = w / n;
+  const barW = Math.min(28, groupW * 0.62);
+  const parts = [];
+  for (const yv of [maxVal, maxVal / 2]) {
+    const up = midY - yScale(yv);
+    const down = midY + yScale(yv);
+    parts.push(`<line x1="${pad.l}" y1="${up.toFixed(1)}" x2="${pad.l + w}" y2="${up.toFixed(1)}" class="fox-energy-grid"/>`);
+    parts.push(`<line x1="${pad.l}" y1="${down.toFixed(1)}" x2="${pad.l + w}" y2="${down.toFixed(1)}" class="fox-energy-grid"/>`);
+    parts.push(
+      `<text x="${pad.l - 8}" y="${(up + 4).toFixed(1)}" text-anchor="end" class="fox-energy-axis">${esc(String(Math.round(yv)))}</text>`
+    );
+    parts.push(
+      `<text x="${pad.l - 8}" y="${(down + 4).toFixed(1)}" text-anchor="end" class="fox-energy-axis">${esc(String(Math.round(yv)))}</text>`
+    );
+  }
+  parts.push(`<text x="14" y="${(pad.t + plotH / 2).toFixed(1)}" class="fox-energy-y-label" transform="rotate(-90 14 ${(pad.t + plotH / 2).toFixed(1)})">kWh</text>`);
+  parts.push(`<line x1="${pad.l}" y1="${midY.toFixed(1)}" x2="${pad.l + w}" y2="${midY.toFixed(1)}" class="fox-energy-zero"/>`);
+
+  buckets.forEach((bucket, i) => {
+    const cx = pad.l + i * groupW + groupW / 2;
+    let y = midY;
+    for (const spec of FOX_SUPPLY_SERIES) {
+      const v = bucket.supply?.[spec.key] || 0;
+      if (v <= 0) continue;
+      const bh = yScale(v);
+      y -= bh;
+      parts.push(
+        `<rect x="${(cx - barW / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="${spec.color}" opacity="0.95"/>`
+      );
+    }
+    y = midY;
+    for (const spec of FOX_USAGE_SERIES) {
+      const v = bucket.usage?.[spec.key] || 0;
+      if (v <= 0) continue;
+      const bh = yScale(v);
+      parts.push(
+        `<rect x="${(cx - barW / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="${spec.color}" opacity="0.95"/>`
+      );
+      y += bh;
+    }
+    if (n <= 16 || i % Math.ceil(n / 10) === 0 || i === n - 1) {
+      const lbl = labels[i] instanceof Date ? formatChartDayLabel(labels[i]) : String(labels[i]);
+      parts.push(`<text x="${cx.toFixed(1)}" y="${height - 12}" text-anchor="middle" class="fox-energy-axis">${esc(lbl)}</text>`);
+    }
+  });
+
+  const supplyLegend = FOX_SUPPLY_SERIES.map(
+    (s) => `<span class="fox-energy-legend-item"><i style="background:${s.color}"></i>${esc(s.label)}</span>`
+  ).join("");
+  const usageLegend = FOX_USAGE_SERIES.map(
+    (s) => `<span class="fox-energy-legend-item"><i style="background:${s.color}"></i>${esc(s.label)}</span>`
+  ).join("");
+
+  return `<div class="fox-energy-chart-wrap" data-fox-energy-chart="1">
+<div class="fox-energy-legend">
+<div class="fox-energy-legend-row"><span class="fox-energy-legend-heading">SUPPLY</span>${supplyLegend}</div>
+<div class="fox-energy-legend-row"><span class="fox-energy-legend-heading">USAGE</span>${usageLegend}</div>
+</div>
+<svg class="fox-energy-mirror-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Energy supply and usage chart">${parts.join("")}</svg>
+</div>`;
+}
+
+function resolveEnergyHistoryEntities(map) {
+  return {
+    pv: map.solar_energy_today,
+    feedIn: map.feed_in_energy_today,
+    load: map.load_energy_today,
+    discharge: map.battery_discharge_today,
+    charge: map.battery_charge_today,
+    grid: map.grid_consumption_energy_today,
+  };
+}
+
+async function fetchEnergyHistoryPoints(hass, plant, plantState, rangeStart, rangeEnd) {
+  const map = resolveEntityMap(hass, plant, plantState);
+  const ent = resolveEnergyHistoryEntities(map);
+  const ids = [ent.pv, ent.feedIn, ent.load, ent.discharge, ent.charge, ent.grid].filter(Boolean);
+  if (!ids.length) return { ent, points: null, error: "Daily energy sensors not found. Reload FoxESS Plant." };
+  const hist = await fetchHistoryDuring(hass, ids, rangeStart, rangeEnd);
+  const points = {
+    pv: historyToPoints(historyRowsForEntity(hist, ent.pv)),
+    feedIn: historyToPoints(historyRowsForEntity(hist, ent.feedIn)),
+    load: historyToPoints(historyRowsForEntity(hist, ent.load)),
+    discharge: historyToPoints(historyRowsForEntity(hist, ent.discharge)),
+    charge: historyToPoints(historyRowsForEntity(hist, ent.charge)),
+    grid: historyToPoints(historyRowsForEntity(hist, ent.grid)),
+  };
+  return { ent, points };
 }
 
 function formatFoxPower(w) {
@@ -3363,17 +3752,47 @@ const STYLES = `
   font-size: 10px; font-weight: 500; color: var(--secondary-text-color);
   line-height: 1.3; margin: 0; max-width: 72px;
 }
-.energy-period-tabs { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.energy-period-tabs {
+  display: flex; gap: 4px; margin-bottom: 12px; flex-wrap: nowrap;
+  padding: 4px; border-radius: 12px;
+  background: var(--secondary-background-color, rgba(127,127,127,0.12));
+  border: 1px solid var(--divider-color, transparent);
+}
 .energy-period-tabs button {
-  flex: 1; min-width: 72px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--divider-color);
-  background: var(--card-background-color); color: var(--secondary-text-color); font-family: inherit;
-  font-size: 14px; font-weight: 600; cursor: pointer;
+  flex: 1; min-width: 0; padding: 10px 8px; border-radius: 10px; border: none;
+  background: transparent; color: var(--secondary-text-color); font-family: inherit;
+  font-size: 13px; font-weight: 600; cursor: pointer;
 }
 .energy-period-tabs button.active {
-  border-color: var(--fp-accent); color: var(--fp-accent);
-  background: color-mix(in srgb, var(--fp-accent) 12%, var(--card-background-color));
+  color: var(--primary-text-color);
+  background: var(--card-background-color);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.18);
 }
+.energy-date-nav {
+  display: flex; align-items: center; justify-content: center; gap: 16px;
+  margin: 0 0 14px; min-height: 40px;
+}
+.energy-date-nav button {
+  width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--divider-color);
+  background: var(--card-background-color); color: var(--primary-text-color);
+  font-size: 20px; line-height: 1; cursor: pointer; font-family: inherit;
+}
+.energy-date-nav button:disabled { opacity: 0.35; cursor: default; }
+.energy-date-label { font-size: 15px; font-weight: 600; text-align: center; min-width: 180px; }
+.energy-analysis-card { margin-top: 0; padding: 14px 16px 10px; }
+.breakdown-card { margin-top: 14px; }
 .energy-chart-card { margin-top: 14px; }
+.fox-energy-chart-wrap { width: 100%; }
+.fox-energy-mirror-chart { width: 100%; height: 300px; display: block; }
+.fox-energy-legend { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.fox-energy-legend-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 11px; }
+.fox-energy-legend-heading { font-weight: 700; font-size: 10px; letter-spacing: 0.04em; color: var(--secondary-text-color); margin-right: 4px; }
+.fox-energy-legend-item { display: inline-flex; align-items: center; gap: 5px; color: var(--primary-text-color); }
+.fox-energy-legend-item i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.fox-energy-grid { stroke: rgba(127,127,127,0.12); stroke-width: 1; stroke-dasharray: 3 4; }
+.fox-energy-zero { stroke: rgba(127,127,127,0.28); stroke-width: 1; }
+.fox-energy-axis { fill: var(--secondary-text-color); font-size: 11px; }
+.fox-energy-y-label { fill: var(--secondary-text-color); font-size: 12px; font-weight: 600; text-anchor: middle; }
 .energy-chart-card .card-title { margin-bottom: 10px; }
 .chart-wrap { position: relative; width: 100%; }
 .energy-bar-chart { width: 100%; height: 220px; display: block; }
@@ -4037,6 +4456,8 @@ class FoxessPlantPanel extends HTMLElement {
     this._settingsFieldFocused = false;
     this._renderPending = false;
     this._energyPeriod = "day";
+    this._energyPeriodOffset = 0;
+    this._energyBreakdown = null;
     this._energyChart = null;
     this._energyChartLoading = false;
     this._energyChartPlantId = undefined;
@@ -4387,7 +4808,8 @@ Reloading panel registration…
     if (!this._statisticsChartVisible()) return;
     this._statisticsChart = null;
     this._statisticsChartPlantId = undefined;
-    void this._loadStatisticsChart();
+    if (this._view === "overview") void this._loadOverviewStatisticsChart();
+    else void this._loadStatisticsChart();
   }
 
   _scheduleRender(force = false) {
@@ -4793,12 +5215,19 @@ Reloading panel registration…
     const action = btn.dataset.action;
 
     if (action === "nav") {
-      this._view = btn.dataset.view;
+      const nextView = btn.dataset.view;
+      if (this._view === "energy" && nextView !== "energy") {
+        this._energyPeriodOffset = 0;
+        this._energyBreakdown = null;
+        this._statisticsChart = null;
+        this._statisticsChartPlantId = undefined;
+      }
+      this._view = nextView;
       this._settingsView = "main";
       this._solcastDraft = null;
       this._deviceSub = "main";
       if (this._view === "energy") this._loadEnergyCharts();
-      if (this._view === "overview") this._loadStatisticsChart();
+      if (this._view === "overview") this._loadOverviewStatisticsChart();
       this._render();
       return;
     }
@@ -4806,8 +5235,33 @@ Reloading panel registration…
       const period = btn.dataset.period;
       if (!period || period === this._energyPeriod) return;
       this._energyPeriod = period;
+      this._energyPeriodOffset = 0;
+      this._energyBreakdown = null;
+      this._energyChart = null;
+      this._energyChartPlantId = undefined;
+      this._statisticsChart = null;
+      this._statisticsChartPlantId = undefined;
       this._loadEnergyCharts();
       this._render();
+      return;
+    }
+    if (action === "energy-nav") {
+      const dir = btn.dataset.dir;
+      const bounds = energyPeriodBounds(this._energyPeriod, this._energyPeriodOffset);
+      if (dir === "prev") {
+        this._energyPeriodOffset += 1;
+      } else if (dir === "next" && bounds.canNext) {
+        this._energyPeriodOffset = Math.max(0, this._energyPeriodOffset - 1);
+      } else {
+        return;
+      }
+      this._energyBreakdown = null;
+      this._energyChart = null;
+      this._energyChartPlantId = undefined;
+      this._statisticsChart = null;
+      this._statisticsChartPlantId = undefined;
+      this._loadEnergyCharts();
+      this._scheduleRender();
       return;
     }
     if (action === "device-sub") {
@@ -5047,6 +5501,8 @@ Reloading panel registration…
       this._energyChartPlantId = undefined;
       this._statisticsChart = null;
       this._statisticsChartPlantId = undefined;
+      this._energyPeriodOffset = 0;
+      this._energyBreakdown = null;
       this._batterySocChart = null;
       this._batterySocChartPlantId = undefined;
       this._settingsView = "main";
@@ -6115,30 +6571,37 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
 
   _energyHistoryEntities(plant) {
     const map = resolveEntityMap(this._hass, plant, this._plantState);
-    return {
-      pv: map.solar_energy_today,
-      load: map.load_energy_today,
-      discharge: map.battery_discharge_today,
-      charge: map.battery_charge_today,
-      grid: map.grid_consumption_energy_today,
-    };
+    return resolveEnergyHistoryEntities(map);
+  }
+
+  _energyChartCacheKey(plant) {
+    return `${plant.entry_id}:${this._energyPeriod}:${this._energyPeriodOffset}`;
   }
 
   async _loadEnergyCharts() {
     const plant = this._getPlant();
     if (!plant || !this._hass) return;
+    const cacheKey = this._energyChartCacheKey(plant);
     if (this._energyPeriod === "day") {
+      if (this._statisticsChartPlantId === cacheKey && this._statisticsChart) return;
       return this._loadStatisticsChart();
     }
+    if (this._energyChartPlantId === cacheKey && this._energyChart) return;
     if (!this._plantState) await this._refreshPlantState();
-    const plantId = plant.entry_id;
     this._energyChartLoading = true;
     this._energyChart = null;
-    this._energyChartPlantId = plantId;
+    this._energyChartPlantId = cacheKey;
     this._scheduleRender();
     try {
-      const bar = await this._fetchPeriodEnergyBarChart(plant, this._energyPeriod);
-      this._energyChart = { kind: "bar", svg: bar.svg, title: bar.title };
+      const bar = await fetchFoxMirroredBarChart(
+        this._hass,
+        plant,
+        this._plantState,
+        this._energyPeriod,
+        this._energyPeriodOffset
+      );
+      this._energyChart = { kind: "mirror", svg: bar.svg, title: bar.title };
+      if (bar.breakdown) this._energyBreakdown = bar.breakdown;
     } catch (err) {
       this._energyChart = {
         error:
@@ -6147,24 +6610,28 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
       };
     } finally {
       this._energyChartLoading = false;
-      if (this._getPlant()?.entry_id === plantId && this._view === "energy") this._scheduleRender();
+      if (this._energyChartCacheKey(this._getPlant()) === cacheKey && this._view === "energy") {
+        this._scheduleRender();
+      }
     }
   }
 
-  async _loadStatisticsChart() {
+  async _loadOverviewStatisticsChart() {
     const plant = this._getPlant();
     if (!plant || !this._hass) return;
-    const plantId = plant.entry_id;
+    const cacheKey = `${plant.entry_id}:overview`;
+    if (this._statisticsChartPlantId === cacheKey && this._statisticsChart) return;
     this._statisticsChartLoading = true;
     this._statisticsChart = null;
-    this._statisticsChartPlantId = plantId;
+    this._statisticsChartPlantId = cacheKey;
     this._scheduleRender();
     try {
       if (resolveSolcastDetailedForecast(this._plantState, this._hass).length < 2) {
         await this._refreshPlantState();
       }
-      const chart = await this._fetchStatisticsChartData(plant);
-      this._statisticsChart = chart;
+      this._statisticsChart = await fetchStatisticsChartSeries(this._hass, plant, this._plantState, {
+        dayOffset: 0,
+      });
     } catch (err) {
       this._statisticsChart = {
         error:
@@ -6173,12 +6640,59 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
       };
     } finally {
       this._statisticsChartLoading = false;
-      if (this._getPlant()?.entry_id === plantId) this._scheduleRender();
+      if (this._getPlant()?.entry_id === plant.entry_id && this._view === "overview") this._scheduleRender();
+    }
+  }
+
+  async _loadStatisticsChart() {
+    const plant = this._getPlant();
+    if (!plant || !this._hass) return;
+    const cacheKey = this._energyChartCacheKey(plant);
+    if (this._statisticsChartPlantId === cacheKey && this._statisticsChart) return;
+    this._statisticsChartLoading = true;
+    this._statisticsChart = null;
+    this._statisticsChartPlantId = cacheKey;
+    this._scheduleRender();
+    try {
+      if (
+        this._energyPeriodOffset === 0 &&
+        resolveSolcastDetailedForecast(this._plantState, this._hass).length < 2
+      ) {
+        await this._refreshPlantState();
+      }
+      const chart = await this._fetchStatisticsChartData(plant);
+      this._statisticsChart = chart;
+      if (this._energyPeriod === "day" && this._energyPeriodOffset > 0) {
+        const bounds = energyPeriodBounds("day", this._energyPeriodOffset);
+        const { points } = await fetchEnergyHistoryPoints(
+          this._hass,
+          plant,
+          this._plantState,
+          bounds.start,
+          bounds.end
+        );
+        if (points) {
+          this._energyBreakdown = computeEnergyBreakdown(points, buildDaysInRange(bounds.start, bounds.end));
+        }
+      } else if (this._energyPeriod === "day" && this._energyPeriodOffset === 0) {
+        this._energyBreakdown = null;
+      }
+    } catch (err) {
+      this._statisticsChart = {
+        error:
+          err?.message ||
+          "Could not load history. Enable the Home Assistant recorder and keep history for power sensors.",
+      };
+    } finally {
+      this._statisticsChartLoading = false;
+      if (this._energyChartCacheKey(this._getPlant()) === cacheKey) this._scheduleRender();
     }
   }
 
   async _fetchStatisticsChartData(plant) {
-    return fetchStatisticsChartSeries(this._hass, plant, this._plantState);
+    return fetchStatisticsChartSeries(this._hass, plant, this._plantState, {
+      dayOffset: this._energyPeriodOffset,
+    });
   }
 
   _renderStatisticsChartBody() {
@@ -6254,151 +6768,46 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     bindBatterySocChart(this._root, this._batterySocChart);
   }
 
-  async _fetchPeriodEnergyBarChart(plant, period) {
-    const ent = this._energyHistoryEntities(plant);
-    const ids = [ent.pv, ent.load, ent.discharge, ent.charge, ent.grid].filter(Boolean);
-    if (!ids.length) {
-      return {
-        title: period === "month" ? "This month" : "This year",
-        svg: `<p class="placeholder chart-empty">Daily energy sensors not found. Reload FoxESS Plant.</p>`,
-      };
-    }
-    const now = new Date();
-    let rangeStart;
-    let labels;
-    let title;
-    if (period === "month") {
-      rangeStart = new Date(now.getFullYear(), now.getMonth(), 1);
-      const dayCount = now.getDate();
-      labels = buildDailyLabels(rangeStart, dayCount);
-      title = now.toLocaleDateString(undefined, { month: "long", year: "numeric" });
-    } else {
-      rangeStart = new Date(now.getFullYear(), 0, 1);
-      labels = [];
-      for (let m = 0; m <= now.getMonth(); m++) labels.push(new Date(now.getFullYear(), m, 1));
-      title = String(now.getFullYear());
-    }
-    const hist = await fetchHistoryDuring(this._hass, ids, rangeStart, now);
-    const points = {
-      pv: historyToPoints(historyRowsForEntity(hist, ent.pv)),
-      load: historyToPoints(historyRowsForEntity(hist, ent.load)),
-      discharge: historyToPoints(historyRowsForEntity(hist, ent.discharge)),
-      charge: historyToPoints(historyRowsForEntity(hist, ent.charge)),
-      grid: historyToPoints(historyRowsForEntity(hist, ent.grid)),
-    };
-
-    const bucketDaily = (pSeries, lSeries, dSeries, cSeries, gSeries) => {
-      const vals = [];
-      for (const day of labels) {
-        const ds = startOfLocalDay(day).getTime();
-        const de = endOfLocalDay(day).getTime();
-        const load =
-          dailyMaxInRange(lSeries, ds, de) -
-          dailyMaxInRange(dSeries, ds, de) +
-          dailyMaxInRange(cSeries, ds, de) +
-          dailyMaxInRange(gSeries, ds, de);
-        vals.push(Math.max(0, Math.round(load * 100) / 100));
-      }
-      return vals;
-    };
-
-    if (period === "month") {
-      const groups = [
-        {
-          label: ENERGY_CHART_BAR.pv.label,
-          color: ENERGY_CHART_BAR.pv.color,
-          values: labels.map((day) => {
-            const ds = startOfLocalDay(day).getTime();
-            const de = endOfLocalDay(day).getTime();
-            return Math.round(dailyMaxInRange(points.pv, ds, de) * 100) / 100;
-          }),
-        },
-        {
-          label: ENERGY_CHART_BAR.load.label,
-          color: ENERGY_CHART_BAR.load.color,
-          values: bucketDaily(points.pv, points.load, points.discharge, points.charge, points.grid),
-        },
-        {
-          label: ENERGY_CHART_BAR.grid.label,
-          color: ENERGY_CHART_BAR.grid.color,
-          values: labels.map((day) => {
-            const ds = startOfLocalDay(day).getTime();
-            const de = endOfLocalDay(day).getTime();
-            return Math.round(dailyMaxInRange(points.grid, ds, de) * 100) / 100;
-          }),
-        },
-      ];
-      return { title, svg: renderBarChartSvg(groups, labels) };
-    }
-
-    const monthLabels = labels;
-    const monthGroups = [
-      { label: ENERGY_CHART_BAR.pv.label, color: ENERGY_CHART_BAR.pv.color, values: [] },
-      { label: ENERGY_CHART_BAR.load.label, color: ENERGY_CHART_BAR.load.color, values: [] },
-      { label: ENERGY_CHART_BAR.grid.label, color: ENERGY_CHART_BAR.grid.color, values: [] },
-    ];
-    for (const monthStart of monthLabels) {
-      const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
-      const end = monthStart.getMonth() === now.getMonth() ? now : endOfLocalDay(monthEnd);
-      const days = buildDailyLabels(monthStart, end.getDate());
-      let pvSum = 0;
-      let loadSum = 0;
-      let gridSum = 0;
-      for (const day of days) {
-        const ds = startOfLocalDay(day).getTime();
-        const de = endOfLocalDay(day).getTime();
-        pvSum += dailyMaxInRange(points.pv, ds, de);
-        gridSum += dailyMaxInRange(points.grid, ds, de);
-        const load =
-          dailyMaxInRange(points.load, ds, de) -
-          dailyMaxInRange(points.discharge, ds, de) +
-          dailyMaxInRange(points.charge, ds, de) +
-          dailyMaxInRange(points.grid, ds, de);
-        loadSum += Math.max(0, load);
-      }
-      monthGroups[0].values.push(Math.round(pvSum * 100) / 100);
-      monthGroups[1].values.push(Math.round(loadSum * 100) / 100);
-      monthGroups[2].values.push(Math.round(gridSum * 100) / 100);
-    }
-    return { title, svg: renderBarChartSvg(monthGroups, monthLabels.map(formatChartMonthLabel)) };
+  _renderEnergyPeriodTabs() {
+    const tabs = ENERGY_PERIOD_TABS.map(
+      (p) =>
+        `<button type="button" data-action="energy-period" data-period="${p.id}" class="${p.id === this._energyPeriod ? "active" : ""}">${p.label}</button>`
+    ).join("");
+    return `<div class="energy-period-tabs">${tabs}</div>`;
   }
 
-  _renderEnergyCharts() {
-    const periods = [
-      { id: "day", label: "Day" },
-      { id: "month", label: "Month" },
-      { id: "year", label: "Year" },
-    ];
-    const tabs = periods
-      .map(
-        (p) =>
-          `<button type="button" data-action="energy-period" data-period="${p.id}" class="${p.id === this._energyPeriod ? "active" : ""}">${p.label}</button>`
-      )
-      .join("");
-    let body;
-    if (this._energyPeriod === "day") {
-      body = this._renderStatisticsChartBody();
-    } else if (this._energyChartLoading) {
-      body = `<p class="chart-loading">Loading chart…</p>`;
-    } else if (this._energyChart?.error) {
-      body = `<p class="placeholder chart-empty">${esc(this._energyChart.error)}</p>`;
-    } else if (this._energyChart?.svg) {
-      body = this._energyChart.svg;
-    } else {
-      body = `<p class="chart-loading">Loading chart…</p>`;
-    }
-    const chartTitle =
-      this._energyPeriod === "day"
-        ? "Statistics"
-        : this._energyChart?.title || (this._energyPeriod === "month" ? "This month" : "This year");
-    return `<div class="card energy-chart-card">
-<p class="card-title">${esc(chartTitle)}</p>
-<div class="energy-period-tabs">${tabs}</div>
-${body}
+  _renderEnergyDateNav() {
+    if (this._energyPeriod === "total") return "";
+    const bounds = energyPeriodBounds(this._energyPeriod, this._energyPeriodOffset);
+    const label = energyPeriodNavLabel(this._energyPeriod, this._energyPeriodOffset);
+    return `<div class="energy-date-nav">
+<button type="button" data-action="energy-nav" data-dir="prev" aria-label="Previous period">‹</button>
+<span class="energy-date-label">${esc(label)}</span>
+<button type="button" data-action="energy-nav" data-dir="next" aria-label="Next period"${bounds.canNext ? "" : " disabled"}>›</button>
 </div>`;
   }
 
-  _renderEnergyTodayBreakdown(a) {
+  _energyAnalyticsForView(plant) {
+    if (this._energyBreakdown) return analyticsFromBreakdown(this._energyBreakdown);
+    return readLiveAnalytics(this._hass, plant, this._plantState, this._overviewDaily);
+  }
+
+  _renderEnergyBreakdownCard(plant) {
+    const a = this._energyAnalyticsForView(plant);
+    const has =
+      Number(a.pv_production_kwh_today ?? 0) > 0 ||
+      Number(a.load_consumption_kwh_today ?? 0) > 0 ||
+      this._energyPeriod !== "day" ||
+      this._energyPeriodOffset > 0;
+    if (!has && (this._energyChartLoading || this._statisticsChartLoading)) {
+      return `<div class="card breakdown-card"><p class="chart-loading">Loading breakdown…</p></div>`;
+    }
+    if (!has) return "";
+    const title = energyBreakdownTitle(this._energyPeriod, this._energyPeriodOffset);
+    return this._renderEnergyBreakdownRows(a, title);
+  }
+
+  _renderEnergyBreakdownRows(a, title) {
     const pvTotal = Number(a.pv_production_kwh_today ?? 0) || 0;
     const pvToLoadBattery = Number(a.pv_to_load_battery_kwh_today ?? 0) || 0;
     const pvToGrid = Number(a.pv_to_grid_kwh_today ?? 0) || 0;
@@ -6442,31 +6851,37 @@ ${body}
     });
 
     return `<div class="card breakdown-card">
-<p class="card-title">Today energy breakdown</p>
+<p class="card-title">${esc(title)}</p>
 <div class="fox-energy-panel">${pvRow}${loadRow}</div>
 </div>`;
   }
 
+  _renderEnergyCharts() {
+    let body;
+    if (this._energyPeriod === "day") {
+      body = this._renderStatisticsChartBody();
+    } else if (this._energyChartLoading) {
+      body = `<p class="chart-loading">Loading chart…</p>`;
+    } else if (this._energyChart?.error) {
+      body = `<p class="placeholder chart-empty">${esc(this._energyChart.error)}</p>`;
+    } else if (this._energyChart?.svg) {
+      body = this._energyChart.svg;
+    } else {
+      body = `<p class="chart-loading">Loading chart…</p>`;
+    }
+    return `<div class="card energy-chart-card">
+<p class="card-title">Statistics</p>
+${body}
+</div>`;
+  }
+
   _renderEnergy(plant) {
-    const a = readLiveAnalytics(this._hass, plant, this._plantState, this._overviewDaily);
-    const has = a.pv_production_kwh_today > 0 || a.load_consumption_kwh_today > 0;
-    return `<header class="header"><h1>Energy</h1><p>Daily production and consumption</p></header>
-${
-  has
-    ? `<div class="stats-row">
-${this._stat("Load", a.load_consumption_kwh_today, " kWh")}
-${this._stat("From grid", a.load_from_grid_kwh_today, " kWh")}
-${this._stat("PV → grid", a.pv_to_grid_kwh_today, " kWh")}
-${this._stat("Self-use", a.self_consumption_percent_today, "%")}
+    return `<header class="header"><h1>Energy</h1><p>Production and consumption analysis</p></header>
+<div class="card energy-analysis-card">
+${this._renderEnergyPeriodTabs()}
+${this._renderEnergyDateNav()}
 </div>
-<div class="card" style="margin-top:14px"><p class="card-title">Balance</p>
-<div class="stats-row">
-${this._stat("Battery charge", a.battery_charge_kwh_today, " kWh")}
-${this._stat("Battery discharge", a.battery_discharge_kwh_today, " kWh")}
-</div></div>`
-    : `<p class="placeholder">Analytics appear after the coordinator refreshes.</p>`
-}
-${has ? this._renderEnergyTodayBreakdown(a) : ""}
+${this._renderEnergyBreakdownCard(plant)}
 ${this._renderEnergyCharts()}`;
   }
 
@@ -7197,17 +7612,12 @@ ${active
     if (this._view === "energy") {
       const plant = this._getPlant();
       if (!plant) return;
+      const cacheKey = this._energyChartCacheKey(plant);
       if (this._energyPeriod === "day") {
-        if (
-          !this._statisticsChartLoading &&
-          (this._statisticsChartPlantId !== plant.entry_id || !this._statisticsChart)
-        ) {
+        if (!this._statisticsChartLoading && (this._statisticsChartPlantId !== cacheKey || !this._statisticsChart)) {
           this._loadStatisticsChart();
         }
-      } else if (
-        !this._energyChartLoading &&
-        (this._energyChartPlantId !== plant.entry_id || !this._energyChart)
-      ) {
+      } else if (!this._energyChartLoading && (this._energyChartPlantId !== cacheKey || !this._energyChart)) {
         this._loadEnergyCharts();
       }
     }
@@ -7216,9 +7626,9 @@ ${active
       if (
         plant &&
         !this._statisticsChartLoading &&
-        (this._statisticsChartPlantId !== plant.entry_id || !this._statisticsChart)
+        (this._statisticsChartPlantId !== `${plant.entry_id}:overview` || !this._statisticsChart)
       ) {
-        this._loadStatisticsChart();
+        this._loadOverviewStatisticsChart();
       }
       if (
         plant &&
