@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.49
+ * @version 0.9.50
  */
 
 const NAV = [
@@ -952,7 +952,7 @@ const STATISTICS_CHART_SERIES = [
     color: "#8DB6FF",
     fillColor: "rgba(141,182,255,0.14)",
     toKw: true,
-    negate: true,
+    splitSigned: "charge",
     fill: true,
     lineWidth: 1.2,
   },
@@ -964,6 +964,7 @@ const STATISTICS_CHART_SERIES = [
     color: "#8DB6FF",
     fillColor: "rgba(141,182,255,0.14)",
     toKw: true,
+    splitSigned: "discharge",
     fill: true,
     hideLegend: true,
     lineWidth: 1.2,
@@ -976,7 +977,7 @@ const STATISTICS_CHART_SERIES = [
     color: "#FF6FAF",
     fillColor: "rgba(255,111,175,0.14)",
     toKw: true,
-    abs: true,
+    splitSigned: "import",
     fill: true,
     lineWidth: 1.2,
   },
@@ -988,8 +989,7 @@ const STATISTICS_CHART_SERIES = [
     color: "#FF6FAF",
     fillColor: "rgba(255,111,175,0.14)",
     toKw: true,
-    abs: true,
-    negate: true,
+    splitSigned: "export",
     fill: true,
     hideLegend: true,
     lineWidth: 1.2,
@@ -1413,12 +1413,37 @@ function entityValueToKw(hass, entityId, value) {
   return value / 1000;
 }
 
+const STATISTICS_SIGNED_EPS_KW = 0.05;
+/** Drop isolated 5-minute spikes not seen in neighbours (recorder glitches). */
+const STATISTICS_SPIKE_MAX_DELTA_KW = 8;
+
 function transformHistoryPoint(hass, entityId, v, spec) {
   let x = v;
   if (spec.toKw) x = entityValueToKw(hass, entityId, x);
+  if (spec.splitSigned === "import") return x > STATISTICS_SIGNED_EPS_KW ? x : 0;
+  if (spec.splitSigned === "export") return x < -STATISTICS_SIGNED_EPS_KW ? x : 0;
+  if (spec.splitSigned === "charge") return x > STATISTICS_SIGNED_EPS_KW ? -Math.abs(x) : 0;
+  if (spec.splitSigned === "discharge") return x > STATISTICS_SIGNED_EPS_KW ? Math.abs(x) : 0;
   if (spec.abs) x = Math.abs(x);
   if (spec.negate) x = -x;
   return x;
+}
+
+function filterStatisticsSpikes(points) {
+  if (points.length < 3) return points;
+  const out = [];
+  for (let i = 0; i < points.length; i++) {
+    const prev = points[i - 1]?.v ?? points[i].v;
+    const next = points[i + 1]?.v ?? points[i].v;
+    const v = points[i].v;
+    const neighbour = (Math.abs(prev) + Math.abs(next)) / 2;
+    const delta = Math.abs(v - prev);
+    if (delta > STATISTICS_SPIKE_MAX_DELTA_KW && Math.abs(v) > neighbour * 2.5 && Math.abs(v) > 1) {
+      continue;
+    }
+    out.push(points[i]);
+  }
+  return out;
 }
 
 function getStatisticsDayRange(now = new Date()) {
@@ -1497,7 +1522,7 @@ function smoothLinePath(pts) {
 
 function statisticsLinePath(pixelPts, timePts) {
   if (pixelPts.length < 2) return "";
-  return isEvenlySpacedPoints(timePts || pixelPts) ? smoothLinePath(pixelPts) : polylinePath(pixelPts);
+  return polylinePath(pixelPts);
 }
 
 function polylinePath(pts) {
@@ -1637,7 +1662,7 @@ function statisticsTooltipRowsHtml(seriesMeta, t, hiddenGroups) {
       const g = s.legendGroup;
       if (g && hiddenGroups.has(g)) return "";
       const v = interpolateSeriesAt(s.points, t);
-      if (v == null) return "";
+      if (v == null || Math.abs(v) < 0.001) return "";
       const label = statisticsSeriesTooltipLabel(s);
       return `<div class="statistics-tooltip-row"><span class="statistics-tooltip-label"><i class="statistics-tooltip-swatch" style="background:${esc(s.color)}"></i>${esc(label)}</span><strong>${formatStatisticsKw(v)}</strong></div>`;
     })
@@ -1661,10 +1686,12 @@ function buildStatisticsSeriesPoints(hass, entityId, spec, range, statsMap, hist
   } else {
     rawPoints = statisticsChartPoints(historyToPoints(historyRowsForEntity(hist, entityId)), range);
   }
-  return rawPoints.map((p) => ({
-    t: p.t,
-    v: transformHistoryPoint(hass, entityId, p.v, spec),
-  }));
+  return filterStatisticsSpikes(
+    rawPoints.map((p) => ({
+      t: p.t,
+      v: transformHistoryPoint(hass, entityId, p.v, spec),
+    }))
+  );
 }
 
 function interpolatePointsToPeriod(points, periodMs, originMs, endMs, { allowBackfill = true } = {}) {
@@ -4122,6 +4149,10 @@ Reloading panel registration…
   _pickStatisticsForecastState() {
     const live = this._plantState;
     const cached = this._statisticsChart?.forecastState;
+    const liveIntraday = live?.solcast?.forecast_intraday_points;
+    if (Array.isArray(liveIntraday) && liveIntraday.length >= 2) return live;
+    const cachedIntraday = cached?.solcast?.forecast_intraday_points;
+    if (Array.isArray(cachedIntraday) && cachedIntraday.length >= 2) return cached;
     const liveRows = resolveSolcastDetailedForecast(live, this._hass);
     if (liveRows.length >= 2) return live;
     const cachedRows = resolveSolcastDetailedForecast(cached, this._hass);
