@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-# Fox Forest / Impact uses lifetime Yield Total from the inverter (FoxCloud "Yield"),
-# not Solar Generation Total or self-consumption. At ~260 kWh yield:
-#   CO₂ kg ≈ yield × 1.0, trees ≈ yield × 1.0, oil L ≈ yield × 0.123.
-CO2_KG_PER_KWH = 1.0
-OIL_LITRES_PER_KWH = 0.123
-TREES_PER_KWH = 1.0
+# Fox Forest / Impact (reverse-engineered vs FoxCloud app + foxess_modbus Yield Total):
+# - Trees and oil: lifetime Yield Total (total_yield_total) × 1.0 / × 0.123.
+# - CO₂: same yield × ~0.99693 (Fox shows ~0.8 kg less than trees at ~260 kWh).
+#   e.g. yield 260.6 → trees 260.6, CO₂ 259.8, oil 32.1 L.
+FOX_CO2_YIELD_RATIO = 259.8 / 260.6
+OIL_LITRES_PER_YIELD_KWH = 0.123
+TREES_PER_YIELD_KWH = 1.0
 
 PV_TOTAL_KEYS = tuple(f"pv{i}_energy_total" for i in range(1, 7))
 
@@ -35,40 +36,18 @@ def lifetime_yield_kwh(entity_states: dict[str, str | None]) -> float:
     return sum(_float_state(entity_states, key) for key in PV_TOTAL_KEYS)
 
 
-def lifetime_solar_kwh(entity_states: dict[str, str | None]) -> float:
-    """Total lifetime PV generation (kWh) for reference only."""
-    total = _float_state(entity_states, "solar_energy_total")
-    if total > 0:
-        return total
-    return sum(_float_state(entity_states, key) for key in PV_TOTAL_KEYS)
-
-
-def lifetime_self_consumed_kwh(entity_states: dict[str, str | None]) -> float:
-    """Lifetime PV used on-site: generation minus export (reference only)."""
-    generated = lifetime_solar_kwh(entity_states)
-    if generated <= 0:
-        return 0.0
-    exported = _float_state(entity_states, "feed_in_energy_total")
-    return max(0.0, generated - exported)
-
-
 def compute_impact(entity_states: dict[str, str | None]) -> dict[str, Any]:
     """Estimate CO₂, oil, and trees from lifetime yield (Fox Forest / Yield Total)."""
-    generated = lifetime_solar_kwh(entity_states)
-    exported = _float_state(entity_states, "feed_in_energy_total")
-    self_consumed = lifetime_self_consumed_kwh(entity_states)
-    kwh = lifetime_yield_kwh(entity_states)
-    if kwh <= 0:
+    yield_kwh = lifetime_yield_kwh(entity_states)
+    if yield_kwh <= 0:
         return {}
-    co2_kg = kwh * CO2_KG_PER_KWH
-    oil_l = kwh * OIL_LITRES_PER_KWH
-    trees = kwh * TREES_PER_KWH
+    co2_kg = yield_kwh * FOX_CO2_YIELD_RATIO
+    oil_l = yield_kwh * OIL_LITRES_PER_YIELD_KWH
+    trees = yield_kwh * TREES_PER_YIELD_KWH
     return {
-        "yield_kwh_total": round(kwh, 1),
-        "solar_kwh_total": round(generated, 1) if generated > 0 else None,
-        "export_kwh_total": round(exported, 1) if exported > 0 else None,
-        "self_consumption_kwh_total": round(self_consumed, 1) if self_consumed > 0 else None,
-        "impact_basis_kwh": round(kwh, 1),
+        "yield_kwh_total": round(yield_kwh, 1),
+        "impact_basis_kwh": round(yield_kwh, 1),
+        "co2_basis_kwh": round(yield_kwh * FOX_CO2_YIELD_RATIO, 1),
         "co2_kg": round(co2_kg, 1),
         "oil_litres": round(oil_l, 1),
         "trees_planted": round(trees, 1),
