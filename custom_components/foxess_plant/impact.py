@@ -5,11 +5,12 @@ from __future__ import annotations
 from typing import Any
 
 # Fox Forest / Impact (reverse-engineered from FoxCloud app vs inverter totals):
-# - Basis: lifetime PV self-consumption (generation − export), not gross generation.
-# - CO₂ kg ≈ self-consumed kWh × 1.0; trees ≈ same scale; oil L ≈ self-consumed kWh × 0.123.
+# - CO₂ and oil: lifetime self-consumption (generation − export).
+# - Trees: lifetime gross generation × ~0.804 (Fox uses a separate basis for trees).
 CO2_KG_PER_KWH = 1.0
 OIL_LITRES_PER_KWH = 0.123
-TREES_PER_KG_CO2 = 1.0
+# Fox app: trees ≈ solar_energy_total × 0.804 (e.g. 260.5 vs 259.7 kg CO₂ at 324.1 kWh gen).
+TREES_PER_GENERATION_KWH = 260.5 / 324.1
 
 PV_TOTAL_KEYS = tuple(f"pv{i}_energy_total" for i in range(1, 7))
 
@@ -50,7 +51,7 @@ def compute_impact(entity_states: dict[str, str | None]) -> dict[str, Any]:
         return {}
     co2_kg = kwh * CO2_KG_PER_KWH
     oil_l = kwh * OIL_LITRES_PER_KWH
-    trees = co2_kg * TREES_PER_KG_CO2
+    trees = generated * TREES_PER_GENERATION_KWH
     return {
         "solar_kwh_total": round(generated, 1),
         "export_kwh_total": round(exported, 1),
