@@ -13,7 +13,7 @@ from .const import (
     GOOGLE_WEATHER_DOMAIN,
     STORM_ALERT_PROVIDER_GOOGLE,
 )
-from .storm_weather import read_condition_snapshot, storm_type_catalog
+from .storm_weather import read_condition_snapshot, storm_type_catalog, storm_weather_category_catalog
 
 _OTHER_TRIGGER_HINTS = (
     "warning",
@@ -252,6 +252,7 @@ def discover_google_weather(hass: HomeAssistant) -> dict[str, Any]:
         "alerts_supported": bool(all_alert_ids),
         "condition_supported": any(entry.get("condition_supported") for entry in entries),
         "storm_condition_types": storm_type_catalog(),
+        "storm_weather_categories": storm_weather_category_catalog(),
         "setup_status": setup_status,
         "alert_entities": [
             row for entry in entries for row in entry["alert_entities"]

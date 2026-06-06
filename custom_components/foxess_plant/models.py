@@ -136,6 +136,7 @@ class PrepPolicyConfig:
     condition_entity_id: str | None = None
     weather_entity_id: str | None = None
     storm_google_types: list[str] | None = None
+    storm_weather_categories: list[str] | None = None
     trigger_entities: list[str] = field(default_factory=list)
     charge_periods: list[ChargePeriodConfig] = field(default_factory=list)
     target_max_soc: float | None = None
@@ -149,6 +150,15 @@ class PrepPolicyConfig:
         condition_entity = data.get("condition_entity_id")
         weather_entity = data.get("weather_entity_id")
         raw_types = data.get("storm_google_types")
+        raw_categories = data.get("storm_weather_categories")
+        if raw_categories is not None:
+            storm_weather_categories = list(raw_categories)
+        elif raw_types is not None:
+            from .storm_weather import categories_from_google_types
+
+            storm_weather_categories = categories_from_google_types(list(raw_types) if raw_types else [])
+        else:
+            storm_weather_categories = None
         return cls(
             enabled=bool(data.get("enabled", False)),
             alert_provider=str(provider) if provider else None,
@@ -159,6 +169,7 @@ class PrepPolicyConfig:
             condition_entity_id=str(condition_entity) if condition_entity else None,
             weather_entity_id=str(weather_entity) if weather_entity else None,
             storm_google_types=list(raw_types) if raw_types else None,
+            storm_weather_categories=storm_weather_categories,
             trigger_entities=list(data.get("trigger_entities", [])),
             charge_periods=[ChargePeriodConfig.from_dict(p) for p in periods_raw],
             target_max_soc=float(target) if target is not None else None,
@@ -193,6 +204,8 @@ class PrepPolicyConfig:
             out["weather_entity_id"] = self.weather_entity_id
         if self.storm_google_types:
             out["storm_google_types"] = self.storm_google_types
+        if self.storm_weather_categories is not None:
+            out["storm_weather_categories"] = self.storm_weather_categories
         return out
 
 

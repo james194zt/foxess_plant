@@ -278,6 +278,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.hass,
                 cfg.weather_entity_id,
                 cfg.forecast_lead_hours,
+                storm_types=cfg.storm_google_types,
             )
             self._storm_forecast_active = active
             self._storm_forecast_detail = detail
@@ -537,10 +538,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     def _storm_prep_state(self) -> dict[str, Any]:
-        from .storm_weather import read_condition_snapshot
+        from .storm_weather import read_condition_snapshot, storm_weather_category_catalog
 
         out = self.plant.storm_prep.to_dict()
         out["weather_provider"] = "google_weather"
+        out["storm_weather_category_catalog"] = storm_weather_category_catalog()
         out["current_condition"] = read_condition_snapshot(
             self.hass,
             self.plant.storm_prep.condition_entity_id,
@@ -909,9 +911,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         google_weather_entry_id: str | None = None,
         use_forecast_lead: bool | None = None,
         forecast_lead_hours: int | None = None,
+        storm_weather_categories: list[str] | None = None,
     ) -> None:
         """Persist storm prep from the Fox Plant panel."""
         from .panel_config import resolve_google_weather_entry
+        from .storm_weather import google_types_from_categories
 
         periods = [ChargePeriodConfig.from_dict(p) for p in charge_periods]
         triggers = list(trigger_entities)
@@ -947,6 +951,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             storm_data["condition_entity_id"] = condition_entity_id
         if weather_entity_id:
             storm_data["weather_entity_id"] = weather_entity_id
+        storm_google_types = google_types_from_categories(storm_weather_categories)
+        if storm_weather_categories is not None:
+            storm_data["storm_weather_categories"] = list(storm_weather_categories)
+        if storm_google_types is not None:
+            storm_data["storm_google_types"] = storm_google_types
         data[CONF_STORM_PREP] = storm_data
         self.hass.config_entries.async_update_entry(self.config_entry, data=data)
         self.update_plant_config(PlantConfig.from_entry_data(data))

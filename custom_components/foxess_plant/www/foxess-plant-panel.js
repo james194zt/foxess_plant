@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.98
+ * @version 0.9.99
  */
 
 const NAV = [
@@ -4816,6 +4816,22 @@ const DEFAULT_MODBUS_BRAND_DOMAIN = "foxess_modbus";
 const DEFAULT_BRAND_ICON_STATIC = "/foxess_plant_panel/icon.png";
 const DEVICE_EVO_IMAGE_STATIC = "/foxess_plant_panel/evo10.png?v=15";
 const STORM_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_storm_safe_charging.png?v=1";
+const STORM_WEATHER_ICON_VER = 1;
+const STORM_WEATHER_CATEGORY_FALLBACK = [
+  { id: "extreme_heat", label: "Extreme heat", icon: "storm_weather_extreme_heat.png" },
+  { id: "extreme_cold", label: "Extreme cold", icon: "storm_weather_extreme_cold.png" },
+  { id: "heavy_rain", label: "Heavy rain", icon: "storm_weather_heavy_rain.png" },
+  { id: "typhoons", label: "Typhoons", icon: "storm_weather_typhoons.png" },
+  { id: "dust_storm", label: "Dust storm", icon: "storm_weather_dust_storm.png" },
+  { id: "thunderstorms", label: "Thunderstorms", icon: "storm_weather_thunderstorms.png" },
+  { id: "wildfires", label: "Wildfires", icon: "storm_weather_wildfires.png" },
+  { id: "hailstorms", label: "Hailstorms", icon: "storm_weather_hailstorms.png" },
+  { id: "ice_storms", label: "Ice storms", icon: "storm_weather_ice_storms.png" },
+];
+
+function stormWeatherIconUrl(iconFile) {
+  return `/foxess_plant_panel/${iconFile}?v=${STORM_WEATHER_ICON_VER}`;
+}
 const IMPACT_ICON_ASSET_VER = 1;
 const IMPACT_ICON_PATHS = {
   co2: "/foxess_plant_panel/impact_environment_co2.png",
@@ -6392,6 +6408,16 @@ const STYLES = `
 .storm-advanced summary { cursor: pointer; font-weight: 600; font-size: 13px; padding: 4px 0; color: var(--secondary-text-color); }
 .storm-advanced[open] summary { margin-bottom: 10px; color: inherit; }
 .storm-advanced { margin-top: 4px; }
+.storm-weather-category-list { display: flex; flex-direction: column; }
+.storm-weather-category-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 2px;
+  border-bottom: 1px solid color-mix(in srgb, var(--divider-color, #888) 35%, transparent);
+}
+.storm-weather-category-row:last-child { border-bottom: none; }
+.storm-weather-category-icon { width: 40px; height: 40px; flex-shrink: 0; object-fit: contain; }
+.storm-weather-category-label { flex: 1; font-size: 15px; font-weight: 500; }
+.storm-weather-category-row input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--fp-accent); flex-shrink: 0; }
 .trigger-row.google-weather { background: color-mix(in srgb, var(--fp-accent) 10%, transparent); }
 .trigger-role { display: inline-block; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 6px; border-radius: 6px; margin-left: 6px; background: var(--secondary-background-color); color: var(--fp-accent); }
 @container fp-main (min-width: 560px) {
@@ -6954,6 +6980,12 @@ Reloading panel registration…
     const storm = this._plantState?.storm_prep ?? {};
     const periods = JSON.parse(JSON.stringify(storm.charge_periods ?? DEFAULT_PERIODS)).slice(0, 2);
     while (periods.length < 2) periods.push({ ...DEFAULT_PERIODS[0] });
+    const catalog = this._getStormWeatherCategoryCatalog();
+    const defaultCategoryIds = catalog.map((row) => row.id);
+    let stormCategories = storm.storm_weather_categories;
+    if (stormCategories == null) {
+      stormCategories = defaultCategoryIds.length ? defaultCategoryIds : STORM_WEATHER_CATEGORY_FALLBACK.map((r) => r.id);
+    }
     this._stormDraft = {
       enabled: Boolean(storm.enabled),
       alert_provider: storm.alert_provider || "google_weather",
@@ -6963,10 +6995,19 @@ Reloading panel registration…
       forecast_lead_hours: storm.forecast_lead_hours ?? 4,
       condition_entity_id: storm.condition_entity_id ?? null,
       weather_entity_id: storm.weather_entity_id ?? null,
+      storm_weather_categories: [...stormCategories],
       trigger_entities: [...(storm.trigger_entities ?? [])],
       charge_periods: periods,
       target_max_soc: storm.target_max_soc ?? null,
     };
+  }
+
+  _getStormWeatherCategoryCatalog() {
+    return (
+      this._plantState?.storm_prep?.storm_weather_category_catalog ??
+      this._triggerMeta?.google_weather?.storm_weather_categories ??
+      STORM_WEATHER_CATEGORY_FALLBACK
+    );
   }
 
   _getGoogleWeatherEntries() {
@@ -7362,6 +7403,7 @@ Reloading panel registration…
       }
       payload.use_forecast_lead = Boolean(this._stormDraft.use_forecast_lead);
       payload.forecast_lead_hours = Number(this._stormDraft.forecast_lead_hours) || 4;
+      payload.storm_weather_categories = [...(this._stormDraft.storm_weather_categories ?? [])];
       const state = await this._hass.connection.sendMessagePromise(payload);
       if (state) this._plantState = state;
       this._initStormDraft();
@@ -7710,6 +7752,19 @@ Reloading panel registration…
     if (el.dataset.action === "toggle-storm-enabled") {
       if (!this._stormDraft) this._initStormDraft();
       this._stormDraft.enabled = el.checked;
+    }
+    if (el.dataset.action === "toggle-storm-category") {
+      if (!this._stormDraft) this._initStormDraft();
+      const categoryId = el.dataset.category;
+      if (!categoryId) return;
+      const catalogIds = this._getStormWeatherCategoryCatalog().map((row) => row.id);
+      let list = this._stormDraft.storm_weather_categories ?? [...catalogIds];
+      if (el.checked) {
+        if (!list.includes(categoryId)) list.push(categoryId);
+      } else {
+        list = list.filter((id) => id !== categoryId);
+      }
+      this._stormDraft.storm_weather_categories = list;
     }
   }
 
@@ -9701,6 +9756,30 @@ ${options}
 ${detail}${quickBtn}</div>`;
   }
 
+  _renderStormWeatherCategories() {
+    const draft = this._stormDraft;
+    const catalog = this._getStormWeatherCategoryCatalog();
+    if (!catalog.length) {
+      return `<div class="card"><p class="card-title">Weather warnings</p>
+<p class="storm-hint">Choose which Google Weather conditions trigger StormSafe pre-charge.</p>
+<p class="placeholder" style="margin:8px 0 0">Loading categories…</p></div>`;
+    }
+    const selected = new Set(draft?.storm_weather_categories ?? catalog.map((row) => row.id));
+    const rows = catalog
+      .map((cat) => {
+        const on = selected.has(cat.id);
+        return `<div class="storm-weather-category-row">
+<img class="storm-weather-category-icon" src="${esc(stormWeatherIconUrl(cat.icon))}" alt="" width="40" height="40" loading="lazy">
+<span class="storm-weather-category-label">${esc(cat.label)}</span>
+<input type="checkbox" data-action="toggle-storm-category" data-category="${esc(cat.id)}" ${on ? "checked" : ""} ${this._busy ? "disabled" : ""}>
+</div>`;
+      })
+      .join("");
+    return `<div class="card"><p class="card-title">Weather warnings</p>
+<p class="storm-hint">Choose which severe weather conditions trigger StormSafe — same categories as the Fox app.</p>
+<div class="storm-weather-category-list">${rows}</div></div>`;
+  }
+
   _renderStormAdvancedTriggers() {
     const draft = this._stormDraft;
     if (!this._stormShowAdvanced) {
@@ -9975,6 +10054,7 @@ ${activeTriggers.length ? `<div>${activeTriggers.map((t) => `<span class="trigge
 <input type="checkbox" data-action="toggle-storm-enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 </div>
 ${this._renderGoogleWeatherSource()}
+${this._renderStormWeatherCategories()}
 <div class="card">
 <p class="card-title">Pre-charge timing</p>
 <div class="toggle-row"><span><strong>Forecast pre-charge</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Start storm schedule when Google hourly forecast shows severe weather within the lead time</span></span>

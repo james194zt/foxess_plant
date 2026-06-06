@@ -289,6 +289,7 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             vol.Optional("google_weather_entry_id"): str,
             vol.Optional("use_forecast_lead"): cv.boolean,
             vol.Optional("forecast_lead_hours"): vol.All(vol.Coerce(int), vol.Range(min=1, max=48)),
+            vol.Optional("storm_weather_categories"): vol.Any(None, [str]),
         }
     )
     @websocket_api.require_admin
@@ -312,6 +313,7 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             google_weather_entry_id=msg.get("google_weather_entry_id"),
             use_forecast_lead=msg.get("use_forecast_lead"),
             forecast_lead_hours=msg.get("forecast_lead_hours"),
+            storm_weather_categories=msg.get("storm_weather_categories"),
         )
         connection.send_result(msg["id"], coordinator.get_plant_state())
 

@@ -265,6 +265,7 @@ DEFAULT_STORM_PREP = {
     "condition_entity_id": None,
     "weather_entity_id": None,
     "storm_google_types": None,
+    "storm_weather_categories": None,
     "trigger_entities": [],
     "charge_periods": [
         {

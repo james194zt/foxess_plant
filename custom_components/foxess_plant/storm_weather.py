@@ -6,50 +6,20 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant, State
 
-# Google Weather API weatherCondition.type values that arm StormSafe.
-# Source: ha_google_weather weather.py CONDITION_MAP + Google Weather API enum.
-DEFAULT_STORM_GOOGLE_WEATHER_TYPES: frozenset[str] = frozenset(
-    {
-        "WINDY",
-        "WIND_AND_RAIN",
-        "HEAVY_RAIN",
-        "HEAVY_RAIN_SHOWERS",
-        "MODERATE_TO_HEAVY_RAIN",
-        "RAIN_PERIODICALLY_HEAVY",
-        "HAIL",
-        "HAIL_SHOWERS",
-        "THUNDERSTORM",
-        "THUNDERSHOWER",
-        "LIGHT_THUNDERSTORM_RAIN",
-        "SCATTERED_THUNDERSTORMS",
-        "HEAVY_THUNDERSTORM",
-        "SEVERE_THUNDERSTORM",
-        "TORNADO",
-        "HURRICANE",
-        "TROPICAL_STORM",
-        "SNOWSTORM",
-        "HEAVY_SNOW_STORM",
-        "BLIZZARD",
-        "BLOWING_SNOW",
-        "HEAVY_SNOW",
-        "SNOW_PERIODICALLY_HEAVY",
-        "MODERATE_TO_HEAVY_SNOW",
-        "HEAVY_SNOW_SHOWERS",
-    }
-)
-
 # Home Assistant weather entity states (mapped from Google types in ha_google_weather).
 DEFAULT_STORM_HA_WEATHER_CONDITIONS: frozenset[str] = frozenset(
     {
         "lightning",
         "lightning-rainy",
         "pouring",
+        "rainy",
         "hail",
         "exceptional",
         "snowy",
         "snowy-rainy",
         "windy",
         "windy-variant",
+        "hurricane",
     }
 )
 
@@ -71,6 +41,10 @@ STORM_GOOGLE_TYPE_LABELS: dict[str, str] = {
     "TORNADO": "Tornado",
     "HURRICANE": "Hurricane",
     "TROPICAL_STORM": "Tropical storm",
+    "TYPHOON": "Typhoon",
+    "CYCLONE": "Cyclone",
+    "TROPICAL_CYCLONE": "Tropical cyclone",
+    "EXTRATROPICAL_CYCLONE": "Extra-tropical cyclone",
     "SNOWSTORM": "Snowstorm",
     "HEAVY_SNOW_STORM": "Heavy snow storm",
     "BLIZZARD": "Blizzard",
@@ -79,8 +53,133 @@ STORM_GOOGLE_TYPE_LABELS: dict[str, str] = {
     "SNOW_PERIODICALLY_HEAVY": "Periodically heavy snow",
     "MODERATE_TO_HEAVY_SNOW": "Moderate to heavy snow",
     "HEAVY_SNOW_SHOWERS": "Heavy snow showers",
+    "HEAT": "Extreme heat",
+    "COLD": "Extreme cold",
+    "WIND_CHILL": "Wind chill",
+    "DUST_STORM": "Dust storm",
+    "WILDFIRE": "Wildfire",
+    "FIRE": "Fire",
+    "BUSHFIRE": "Bushfire",
+    "FIRE_WEATHER": "Fire weather",
+    "ICE_STORM": "Ice storm",
+    "WINTER_STORM": "Winter storm",
+    "GLAZE": "Glaze ice",
+    "FREEZING_RAIN": "Freezing rain",
 }
 
+# Fox-app style warning groups mapped to Google Weather condition / alert types.
+STORM_WEATHER_CATEGORIES: tuple[dict[str, Any], ...] = (
+    {
+        "id": "extreme_heat",
+        "label": "Extreme heat",
+        "icon": "storm_weather_extreme_heat.png",
+        "google_types": frozenset({"HEAT"}),
+        "ha_conditions": frozenset({"exceptional"}),
+    },
+    {
+        "id": "extreme_cold",
+        "label": "Extreme cold",
+        "icon": "storm_weather_extreme_cold.png",
+        "google_types": frozenset(
+            {
+                "COLD",
+                "WIND_CHILL",
+                "BLIZZARD",
+                "BLOWING_SNOW",
+                "HEAVY_SNOW",
+                "HEAVY_SNOW_STORM",
+                "SNOWSTORM",
+                "HEAVY_SNOW_SHOWERS",
+                "MODERATE_TO_HEAVY_SNOW",
+                "SNOW_PERIODICALLY_HEAVY",
+            }
+        ),
+        "ha_conditions": frozenset({"snowy", "exceptional"}),
+    },
+    {
+        "id": "heavy_rain",
+        "label": "Heavy rain",
+        "icon": "storm_weather_heavy_rain.png",
+        "google_types": frozenset(
+            {
+                "HEAVY_RAIN",
+                "HEAVY_RAIN_SHOWERS",
+                "MODERATE_TO_HEAVY_RAIN",
+                "RAIN_PERIODICALLY_HEAVY",
+                "WIND_AND_RAIN",
+            }
+        ),
+        "ha_conditions": frozenset({"pouring", "rainy"}),
+    },
+    {
+        "id": "typhoons",
+        "label": "Typhoons",
+        "icon": "storm_weather_typhoons.png",
+        "google_types": frozenset(
+            {
+                "TYPHOON",
+                "HURRICANE",
+                "TROPICAL_STORM",
+                "CYCLONE",
+                "TROPICAL_CYCLONE",
+                "EXTRATROPICAL_CYCLONE",
+                "WINDY",
+            }
+        ),
+        "ha_conditions": frozenset({"exceptional", "hurricane", "windy"}),
+    },
+    {
+        "id": "dust_storm",
+        "label": "Dust storm",
+        "icon": "storm_weather_dust_storm.png",
+        "google_types": frozenset({"DUST_STORM"}),
+        "ha_conditions": frozenset({"windy-variant"}),
+    },
+    {
+        "id": "thunderstorms",
+        "label": "Thunderstorms",
+        "icon": "storm_weather_thunderstorms.png",
+        "google_types": frozenset(
+            {
+                "THUNDERSTORM",
+                "THUNDERSHOWER",
+                "LIGHT_THUNDERSTORM_RAIN",
+                "SCATTERED_THUNDERSTORMS",
+                "HEAVY_THUNDERSTORM",
+                "SEVERE_THUNDERSTORM",
+                "TORNADO",
+            }
+        ),
+        "ha_conditions": frozenset({"lightning", "lightning-rainy"}),
+    },
+    {
+        "id": "wildfires",
+        "label": "Wildfires",
+        "icon": "storm_weather_wildfires.png",
+        "google_types": frozenset({"WILDFIRE", "FIRE", "BUSHFIRE", "FIRE_WEATHER"}),
+        "ha_conditions": frozenset({"exceptional"}),
+    },
+    {
+        "id": "hailstorms",
+        "label": "Hailstorms",
+        "icon": "storm_weather_hailstorms.png",
+        "google_types": frozenset({"HAIL", "HAIL_SHOWERS"}),
+        "ha_conditions": frozenset({"hail"}),
+    },
+    {
+        "id": "ice_storms",
+        "label": "Ice storms",
+        "icon": "storm_weather_ice_storms.png",
+        "google_types": frozenset({"ICE_STORM", "WINTER_STORM", "GLAZE", "FREEZING_RAIN"}),
+        "ha_conditions": frozenset({"snowy-rainy", "exceptional"}),
+    },
+)
+
+STORM_WEATHER_CATEGORY_BY_ID = {row["id"]: row for row in STORM_WEATHER_CATEGORIES}
+
+DEFAULT_STORM_GOOGLE_WEATHER_TYPES: frozenset[str] = frozenset(
+    {t for row in STORM_WEATHER_CATEGORIES for t in row["google_types"]}
+)
 
 def storm_google_types(storm_types: list[str] | None) -> frozenset[str]:
     if not storm_types:
@@ -103,6 +202,64 @@ def is_storm_ha_condition(condition: str | None) -> bool:
     if not condition:
         return False
     return condition.lower() in DEFAULT_STORM_HA_WEATHER_CONDITIONS
+
+
+def default_storm_category_ids() -> list[str]:
+    return [row["id"] for row in STORM_WEATHER_CATEGORIES]
+
+
+def storm_weather_category_catalog() -> list[dict[str, Any]]:
+    return [
+        {
+            "id": row["id"],
+            "label": row["label"],
+            "icon": row["icon"],
+            "google_types": sorted(row["google_types"]),
+        }
+        for row in STORM_WEATHER_CATEGORIES
+    ]
+
+
+def google_types_from_categories(category_ids: list[str] | None) -> list[str] | None:
+    if category_ids is None:
+        return None
+    merged: set[str] = set()
+    for cid in category_ids:
+        row = STORM_WEATHER_CATEGORY_BY_ID.get(cid)
+        if row:
+            merged |= set(row["google_types"])
+    return sorted(merged)
+
+
+def categories_from_google_types(storm_types: list[str] | None) -> list[str]:
+    if storm_types is None:
+        return default_storm_category_ids()
+    allowed = {str(t).upper() for t in storm_types}
+    if not allowed:
+        return []
+    selected: list[str] = []
+    for row in STORM_WEATHER_CATEGORIES:
+        if row["google_types"] & allowed:
+            selected.append(row["id"])
+    return selected
+
+
+def ha_conditions_for_storm_types(storm_types: list[str] | None) -> frozenset[str]:
+    allowed = storm_google_types(storm_types)
+    merged: set[str] = set()
+    for row in STORM_WEATHER_CATEGORIES:
+        if row["google_types"] & allowed:
+            merged |= set(row["ha_conditions"])
+    return frozenset(merged) if merged else DEFAULT_STORM_HA_WEATHER_CONDITIONS
+
+
+def is_storm_ha_condition_for_types(condition: str | None, storm_types: list[str] | None) -> bool:
+    if not condition:
+        return False
+    token = condition.lower()
+    if storm_types is None:
+        return is_storm_ha_condition(token)
+    return token in ha_conditions_for_storm_types(storm_types)
 
 
 def read_condition_snapshot(
@@ -135,7 +292,7 @@ def read_condition_snapshot(
         state = hass.states.get(weather_entity_id)
         if state and state.state not in ("unknown", "unavailable"):
             ha_cond = state.state.lower()
-            active = is_storm_ha_condition(ha_cond)
+            active = is_storm_ha_condition_for_types(ha_cond, storm_types)
             return {
                 "source": "ha_condition",
                 "entity_id": weather_entity_id,
@@ -168,10 +325,11 @@ def is_storm_weather_active(
 
 
 def storm_type_catalog() -> list[dict[str, str]]:
-    """Human-readable list of Google types that arm StormSafe (for the panel)."""
+    """Flat Google type list (advanced / legacy)."""
+    allowed = storm_google_types(None)
     return [
-        {"type": key, "label": STORM_GOOGLE_TYPE_LABELS[key]}
-        for key in sorted(DEFAULT_STORM_GOOGLE_WEATHER_TYPES)
+        {"type": key, "label": STORM_GOOGLE_TYPE_LABELS.get(key, key.replace("_", " ").title())}
+        for key in sorted(allowed)
     ]
 
 
