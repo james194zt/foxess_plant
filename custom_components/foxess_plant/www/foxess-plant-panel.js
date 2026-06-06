@@ -991,8 +991,8 @@ function renderFoxAnalysisMetricRow(label, value, color) {
 
 function renderFoxAnalysisCometBridge() {
   const tracks = [
-    { x: 22, cls: "flow-grid" },
-    { x: 50, cls: "flow-solar" },
+    { x: 38, cls: "flow-grid" },
+    { x: 62, cls: "flow-solar" },
   ];
   const comets = tracks
     .map(({ x, cls }) => {
@@ -1013,7 +1013,7 @@ function renderFoxAnalysisCometBridge() {
     )
     .join("");
   return `<div class="fox-analysis-bridge" aria-hidden="true">
-<svg class="fox-analysis-bridge-svg" viewBox="0 0 72 100" preserveAspectRatio="none">${idle}${comets}</svg>
+<svg class="fox-analysis-bridge-svg" viewBox="0 0 100 100" preserveAspectRatio="none">${idle}${comets}</svg>
 </div>`;
 }
 
@@ -1073,19 +1073,29 @@ ${consumptionBar}
 }
 
 function renderFoxSupplyUsagePanel(a) {
+  const supplyMetrics = [
+    ["Imported", a.load_from_grid_kwh_today, "#2F6BFF"],
+    ["PV Produced", a.pv_production_kwh_today, "#19D4DE"],
+    ["Discharged", a.battery_discharge_kwh_today, "#8DB6FF"],
+  ]
+    .map(([label, value, color]) => renderFoxAnalysisMetricRow(label, value, color))
+    .join("");
+  const usageMetrics = [
+    ["Exported", a.pv_to_grid_kwh_today, "#FF6FAF"],
+    ["Consumed", a.load_consumption_kwh_today, "#8A4DFF"],
+    ["Charged", a.battery_charge_kwh_today, "#C4A3FF"],
+  ]
+    .map(([label, value, color]) => renderFoxAnalysisMetricRow(label, value, color))
+    .join("");
   return `<div class="fox-analysis-flow-panel">
-<div class="fox-analysis-flow-col">
+<div class="fox-analysis-flow-block">
 <h4 class="fox-analysis-flow-heading">Supply</h4>
-${renderFoxAnalysisMetricRow("Imported", a.load_from_grid_kwh_today, "#2F6BFF")}
-${renderFoxAnalysisMetricRow("PV Produced", a.pv_production_kwh_today, "#19D4DE")}
-${renderFoxAnalysisMetricRow("Discharged", a.battery_discharge_kwh_today, "#8DB6FF")}
+<div class="fox-analysis-flow-metrics">${supplyMetrics}</div>
 </div>
 ${renderFoxAnalysisCometBridge()}
-<div class="fox-analysis-flow-col">
+<div class="fox-analysis-flow-block">
 <h4 class="fox-analysis-flow-heading">Usage</h4>
-${renderFoxAnalysisMetricRow("Exported", a.pv_to_grid_kwh_today, "#FF6FAF")}
-${renderFoxAnalysisMetricRow("Consumed", a.load_consumption_kwh_today, "#8A4DFF")}
-${renderFoxAnalysisMetricRow("Charged", a.battery_charge_kwh_today, "#C4A3FF")}
+<div class="fox-analysis-flow-metrics">${usageMetrics}</div>
 </div>
 </div>`;
 }
@@ -4227,9 +4237,14 @@ const STYLES = `
 }
 .fox-analysis-top-metrics strong { color: var(--primary-text-color); font-weight: 600; margin-left: 4px; }
 .fox-analysis-top-pct { font-weight: 700; margin-right: 4px; }
-.fox-analysis-toolbar { margin-bottom: 14px; }
+.fox-analysis-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 10px 16px; margin-bottom: 14px; padding: 12px 16px;
+}
+.fox-analysis-toolbar .energy-period-tabs { margin-bottom: 0; flex: 1 1 280px; }
+.fox-analysis-toolbar .energy-date-nav { margin-bottom: 0; flex: 0 0 auto; }
 .fox-analysis-main {
-  display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
   gap: 14px; align-items: stretch;
 }
 .fox-analysis-chart-card,
@@ -4239,34 +4254,38 @@ const STYLES = `
   border: 1px solid var(--divider-color, rgba(127,127,127,0.22));
   min-width: 0;
 }
-.fox-analysis-side-card { display: flex; flex-direction: column; justify-content: center; }
+.fox-analysis-side-card { display: flex; flex-direction: column; justify-content: flex-start; }
 .fox-analysis-flow-panel {
-  display: grid; grid-template-columns: minmax(0, 1fr) 72px minmax(0, 1fr);
-  gap: 8px; align-items: stretch; min-height: 220px;
+  display: flex; flex-direction: column; gap: 0; min-width: 0;
 }
-.fox-analysis-flow-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.fox-analysis-flow-block { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.fox-analysis-flow-metrics {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;
+}
 .fox-analysis-flow-heading {
-  margin: 0 0 2px; font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
+  margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
   color: var(--secondary-text-color); text-transform: uppercase;
 }
 .fox-analysis-metric-row {
-  display: grid; grid-template-columns: 10px minmax(0, 1fr); gap: 8px; align-items: start;
+  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px;
+  min-width: 0; padding: 4px 2px;
 }
 .fox-analysis-metric-dot {
-  width: 8px; height: 8px; border-radius: 999px; margin-top: 5px;
+  width: 8px; height: 8px; border-radius: 999px; flex-shrink: 0;
 }
 .fox-analysis-metric-label {
   display: block; font-size: 11px; color: var(--secondary-text-color); line-height: 1.25;
 }
 .fox-analysis-metric-value {
-  grid-column: 2; font-size: 18px; font-weight: 700; line-height: 1.15;
+  font-size: 16px; font-weight: 700; line-height: 1.15;
   color: var(--primary-text-color); letter-spacing: -0.02em;
 }
 .fox-analysis-metric-value span {
   font-size: 12px; font-weight: 500; color: var(--secondary-text-color); margin-left: 3px;
 }
 .fox-analysis-bridge {
-  position: relative; width: 72px; align-self: stretch; min-height: 180px;
+  position: relative; width: 100%; height: 52px; min-height: 52px;
+  flex-shrink: 0; margin: 6px 0;
 }
 .fox-analysis-bridge-svg {
   width: 100%; height: 100%; display: block; overflow: visible;
@@ -4333,8 +4352,7 @@ const STYLES = `
     border-left: none; border-top: 1px solid var(--divider-color, rgba(127,127,127,0.22));
     max-width: none; padding: 12px 0 0;
   }
-  .fox-analysis-flow-panel { grid-template-columns: 1fr; min-height: 0; }
-  .fox-analysis-bridge { width: 100%; height: 56px; min-height: 56px; }
+  .fox-analysis-flow-metrics { grid-template-columns: 1fr; }
 }
 .stat { background: var(--card-background-color); border-radius: var(--fp-radius); padding: 16px; border: 1px solid var(--divider-color, transparent); box-shadow: var(--ha-card-box-shadow, 0 1px 2px rgba(0,0,0,0.06)); }
 .stat label { font-size: 12px; color: var(--secondary-text-color); display: block; }
@@ -7398,11 +7416,11 @@ ${this._renderEnergyCharts()}`;
     const a = this._energyAnalyticsForView(plant);
     const title = energyBreakdownTitle(this._energyPeriod, this._energyPeriodOffset);
     return `<header class="header"><h1>Energy Analysis</h1><p>${esc(title)} — FoxCloud-style supply and usage</p></header>
-${renderFoxAnalysisTopCards(a)}
 <div class="card fox-analysis-toolbar">
 ${this._renderEnergyPeriodTabs()}
 ${this._renderEnergyDateNav()}
 </div>
+${renderFoxAnalysisTopCards(a)}
 <div class="fox-analysis-main">
 ${this._renderEnergyAnalysisCharts()}
 <div class="fox-analysis-side-card">${renderFoxSupplyUsagePanel(a)}</div>
