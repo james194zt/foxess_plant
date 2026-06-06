@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.96
+ * @version 0.9.97
  */
 
 const NAV = [
@@ -1074,12 +1074,12 @@ async function fetchHourlyWeatherOverview(hass, weatherEntityId, overviewWx) {
     return { empty: "Add Google Weather to show an hourly forecast." };
   }
   try {
-    const response = await hass.callService(
+    const response = await callServiceWithResponse(
+      hass,
       "weather",
       "get_forecasts",
-      { type: "hourly", entity_id: weatherEntityId },
-      undefined,
-      true
+      { type: "hourly" },
+      { entity_id: weatherEntityId }
     );
     const block = response?.[weatherEntityId] ?? Object.values(response || {})[0];
     const forecast = block?.forecast;
@@ -4849,6 +4849,25 @@ function buildBrandIconUrl(domain) {
 
 async function callService(hass, domain, service, data) {
   await hass.callService(domain, service, data, undefined, { blocking: true });
+}
+
+async function callServiceWithResponse(hass, domain, service, serviceData, target) {
+  const targetPayload = target ? { ...target } : {};
+  if (targetPayload.entity_id && !Array.isArray(targetPayload.entity_id)) {
+    targetPayload.entity_id = [targetPayload.entity_id];
+  }
+  if (typeof hass.callWS === "function") {
+    const result = await hass.callWS({
+      type: "call_service",
+      domain,
+      service,
+      service_data: serviceData || {},
+      target: targetPayload,
+      return_response: true,
+    });
+    return result?.response ?? result;
+  }
+  return hass.callService(domain, service, serviceData, targetPayload, true, true);
 }
 
 const SOC_MIN_PCT = 10;
