@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.93
+ * @version 0.9.94
  */
 
 const NAV = [
@@ -1750,7 +1750,7 @@ function renderStatisticsSideLegend(visible, { socVisible = false } = {}) {
     return `<div class="statistics-legend-section">${head}${rows}</div>`;
   };
   return (
-    section("SOC", STATISTICS_SIDE_LEGEND.soc) +
+    section("", STATISTICS_SIDE_LEGEND.soc) +
     section("SUPPLY", STATISTICS_SIDE_LEGEND.supply) +
     section("USAGE", STATISTICS_SIDE_LEGEND.usage) +
     section("", STATISTICS_SIDE_LEGEND.forecast)
@@ -4181,7 +4181,7 @@ ${xLabels}
 </div>`;
 
   if (sideLegend) {
-    return `<div class="statistics-chart-wrap statistics-chart-wrap--side" data-statistics-chart="1">
+    return `<div class="statistics-chart-wrap statistics-chart-wrap--side${hasSoc ? " statistics-chart-wrap--soc" : ""}" data-statistics-chart="1"${hasSoc ? ` style="--stat-legend-top:${pad.t + 4}px"` : ""}>
 <div class="statistics-chart-main">${plotHtml}</div>
 <aside class="statistics-chart-legend-side">${legendItems}</aside>
 </div>`;
@@ -5201,6 +5201,9 @@ const STYLES = `
   min-width: 148px; max-width: 168px;
   padding: 8px 4px 8px 0;
 }
+.statistics-chart-wrap--soc .statistics-chart-legend-side {
+  padding-top: var(--stat-legend-top, 26px);
+}
 .statistics-legend-section { display: flex; flex-direction: column; gap: 8px; }
 .statistics-legend-heading {
   font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
@@ -5428,6 +5431,7 @@ const STYLES = `
   border: 1px solid var(--divider-color, rgba(127,127,127,0.22));
   min-width: 0;
 }
+.fox-analysis-chart-title { margin: 0 0 12px; }
 .fox-analysis-panel-card { display: flex; flex-direction: column; justify-content: flex-start; }
 .fox-analysis-summary-card-inner { display: flex; flex-direction: column; gap: 12px; min-width: 0; height: 100%; }
 .fox-analysis-summary-head {
@@ -5652,6 +5656,9 @@ const STYLES = `
   .statistics-chart-wrap--side { grid-template-columns: 1fr; }
   .statistics-chart-legend-side {
     max-width: none; padding: 12px 0 0;
+  }
+  .statistics-chart-wrap--soc .statistics-chart-legend-side {
+    padding-top: var(--stat-legend-top, 26px);
   }
 }
 .stat { background: var(--card-background-color); border-radius: var(--fp-radius); padding: 16px; border: 1px solid var(--divider-color, transparent); box-shadow: var(--ha-card-box-shadow, 0 1px 2px rgba(0,0,0,0.06)); }
@@ -9224,7 +9231,10 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
     } else {
       body = `<p class="chart-loading">Loading chart…</p>`;
     }
-    return `<div class="fox-analysis-chart-card">${body}</div>`;
+    return `<div class="fox-analysis-chart-card">
+<h3 class="fox-analysis-summary-title fox-analysis-chart-title">Statistics</h3>
+${body}
+</div>`;
   }
 
   _syncEnergyBalanceHelpModal(shell) {
