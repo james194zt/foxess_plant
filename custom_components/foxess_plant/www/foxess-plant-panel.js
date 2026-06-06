@@ -1072,6 +1072,87 @@ ${consumptionBar}
 </div>`;
 }
 
+function renderFoxAnalysisLineSparkline(values, color, { placeholder = false } = {}) {
+  const width = 132;
+  const height = 40;
+  const pad = { l: 0, r: 0, t: 6, b: 6 };
+  const w = width - pad.l - pad.r;
+  const h = height - pad.t - pad.b;
+  if (placeholder) {
+    const y0 = pad.t + h * 0.62;
+    const y1 = pad.t + h * 0.38;
+    const path = `M${pad.l},${y0.toFixed(1)} L${(pad.l + w * 0.35).toFixed(1)},${(y0 - h * 0.08).toFixed(1)} L${(pad.l + w * 0.72).toFixed(1)},${(y1 + h * 0.05).toFixed(1)} L${(pad.l + w).toFixed(1)},${y1.toFixed(1)}`;
+    return `<svg class="fox-analysis-sparkline fox-analysis-sparkline--placeholder" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true"><path d="${path}" fill="none" stroke="${color}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" opacity="0.38" stroke-dasharray="4 3"/></svg>`;
+  }
+  const data = (values || []).map((v) => Number(v) || 0);
+  if (data.length < 2) {
+    return `<svg class="fox-analysis-sparkline fox-analysis-sparkline--empty" viewBox="0 0 ${width} ${height}" aria-hidden="true"></svg>`;
+  }
+  let yMax = 0.1;
+  let yMin = 0;
+  for (const v of data) {
+    yMax = Math.max(yMax, v);
+    yMin = Math.min(yMin, v);
+  }
+  const span = Math.max(yMax - yMin, 0.1) * 1.12;
+  const base = yMin;
+  const pts = data.map((v, i) => ({
+    x: pad.l + (i / (data.length - 1)) * w,
+    y: pad.t + h - ((v - base) / span) * h,
+  }));
+  const path = smoothLinePath(pts);
+  if (!path) {
+    return `<svg class="fox-analysis-sparkline fox-analysis-sparkline--empty" viewBox="0 0 ${width} ${height}" aria-hidden="true"></svg>`;
+  }
+  return `<svg class="fox-analysis-sparkline" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true"><path d="${path}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
+function renderFoxAnalysisSummaryRow(label, displayValue, unit, sparklineHtml, { muted = false } = {}) {
+  const unitHtml = unit ? `<span>${esc(unit)}</span>` : "";
+  return `<div class="fox-analysis-summary-row${muted ? " fox-analysis-summary-row--muted" : ""}">
+<div class="fox-analysis-summary-row-main">
+<span class="fox-analysis-summary-label">${esc(label)}</span>
+<strong class="fox-analysis-summary-value">${esc(displayValue)}${unitHtml}</strong>
+</div>
+<div class="fox-analysis-summary-spark">${sparklineHtml}</div>
+</div>`;
+}
+
+function renderFoxAnalysisSummaryCard(a, overviewDaily, { loading = false } = {}) {
+  const pvVal = Number(a.pv_production_kwh_today ?? 0) || 0;
+  const loadVal = Number(a.load_consumption_kwh_today ?? 0) || 0;
+  let prodSpark = "";
+  let consSpark = "";
+  if (loading) {
+    prodSpark = `<span class="fox-analysis-sparkline-loading" aria-hidden="true"></span>`;
+    consSpark = prodSpark;
+  } else if (overviewDaily?.production?.length) {
+    prodSpark = renderFoxAnalysisLineSparkline(overviewDaily.production, FOX_ANALYSIS_SPARK_COLORS.production);
+    consSpark = renderFoxAnalysisLineSparkline(
+      overviewDaily.consumption || [],
+      FOX_ANALYSIS_SPARK_COLORS.consumption
+    );
+  } else {
+    prodSpark = renderFoxAnalysisLineSparkline([], FOX_ANALYSIS_SPARK_COLORS.production);
+    consSpark = renderFoxAnalysisLineSparkline([], FOX_ANALYSIS_SPARK_COLORS.consumption);
+  }
+  const revenueSpark = renderFoxAnalysisLineSparkline(null, FOX_ANALYSIS_SPARK_COLORS.revenue, {
+    placeholder: true,
+  });
+  const rows = [
+    renderFoxAnalysisSummaryRow("Daily Production", pvVal.toFixed(2), "kWh", prodSpark),
+    renderFoxAnalysisSummaryRow("Daily Consumption", loadVal.toFixed(2), "kWh", consSpark),
+    renderFoxAnalysisSummaryRow("Total Revenue", "—", "", revenueSpark, { muted: true }),
+  ].join("");
+  return `<div class="fox-analysis-summary-card-inner">
+<div class="fox-analysis-summary-head">
+<h3 class="fox-analysis-summary-title">Analysis</h3>
+<button type="button" class="fox-analysis-summary-details" data-action="nav" data-view="energy">Details ›</button>
+</div>
+<div class="fox-analysis-summary-rows">${rows}</div>
+</div>`;
+}
+
 function renderFoxSupplyUsagePanel(a) {
   const supplyMetrics = [
     ["Imported", a.load_from_grid_kwh_today, "#2F6BFF"],
@@ -1300,6 +1381,12 @@ const OVERVIEW_DAILY_COLORS = {
   production: "#8A4DFF",
   consumption: "#19D4DE",
   barMuted: "#4a5058",
+};
+
+const FOX_ANALYSIS_SPARK_COLORS = {
+  production: "#17A589",
+  consumption: "#2F6BFF",
+  revenue: "#8A4DFF",
 };
 
 function startOfLocalDay(d) {
@@ -4243,18 +4330,64 @@ const STYLES = `
 }
 .fox-analysis-toolbar .energy-period-tabs { margin-bottom: 0; flex: 1 1 280px; }
 .fox-analysis-toolbar .energy-date-nav { margin-bottom: 0; flex: 0 0 auto; }
-.fox-analysis-main {
-  display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
-  gap: 14px; align-items: stretch;
+.fox-analysis-panels-row {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px; margin-bottom: 14px; align-items: stretch;
 }
-.fox-analysis-chart-card,
-.fox-analysis-side-card {
+.fox-analysis-chart-row { min-width: 0; }
+.fox-analysis-panel-card,
+.fox-analysis-chart-card {
   padding: 14px; border-radius: 14px;
   background: var(--card-background-color);
   border: 1px solid var(--divider-color, rgba(127,127,127,0.22));
   min-width: 0;
 }
-.fox-analysis-side-card { display: flex; flex-direction: column; justify-content: flex-start; }
+.fox-analysis-panel-card { display: flex; flex-direction: column; justify-content: flex-start; }
+.fox-analysis-summary-card-inner { display: flex; flex-direction: column; gap: 12px; min-width: 0; height: 100%; }
+.fox-analysis-summary-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+}
+.fox-analysis-summary-title {
+  margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -0.02em; color: var(--primary-text-color);
+}
+.fox-analysis-summary-details {
+  padding: 6px 12px; border-radius: 999px; border: 1px solid var(--divider-color, rgba(127,127,127,0.35));
+  background: transparent; color: var(--secondary-text-color); font-size: 12px; font-weight: 600;
+  font-family: inherit; cursor: pointer; line-height: 1.2; white-space: nowrap;
+}
+.fox-analysis-summary-details:hover {
+  color: var(--primary-text-color);
+  background: var(--secondary-background-color, rgba(127,127,127,0.12));
+}
+.fox-analysis-summary-rows { display: flex; flex-direction: column; gap: 0; flex: 1; }
+.fox-analysis-summary-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(96px, 42%);
+  gap: 10px; align-items: center; padding: 12px 0;
+  border-top: 1px solid var(--divider-color, rgba(127,127,127,0.18));
+}
+.fox-analysis-summary-row:first-child { border-top: none; padding-top: 0; }
+.fox-analysis-summary-row-main { min-width: 0; }
+.fox-analysis-summary-label {
+  display: block; font-size: 12px; color: var(--secondary-text-color); margin-bottom: 4px;
+}
+.fox-analysis-summary-value {
+  display: block; font-size: 22px; font-weight: 700; line-height: 1.15; letter-spacing: -0.02em;
+  color: var(--primary-text-color);
+}
+.fox-analysis-summary-value span {
+  font-size: 14px; font-weight: 500; color: var(--secondary-text-color); margin-left: 3px;
+}
+.fox-analysis-summary-row--muted .fox-analysis-summary-value { color: var(--secondary-text-color); }
+.fox-analysis-summary-spark {
+  display: flex; align-items: center; justify-content: flex-end; min-width: 0; height: 40px;
+}
+.fox-analysis-sparkline { width: 100%; height: 40px; display: block; overflow: visible; }
+.fox-analysis-sparkline-loading,
+.fox-analysis-sparkline--empty {
+  width: 100%; height: 40px; display: block;
+  background: color-mix(in srgb, var(--secondary-text-color) 8%, transparent);
+  border-radius: 8px;
+}
 .fox-analysis-flow-panel {
   display: flex; flex-direction: column; gap: 0; min-width: 0;
 }
@@ -4346,7 +4479,9 @@ const STYLES = `
     margin-top: 4px;
   }
   .fox-analysis-top { grid-template-columns: 1fr; }
-  .fox-analysis-main { grid-template-columns: 1fr; }
+  .fox-analysis-panels-row { grid-template-columns: 1fr; }
+  .fox-analysis-summary-row { grid-template-columns: 1fr; }
+  .fox-analysis-summary-spark { justify-content: flex-start; }
   .statistics-chart-wrap--side { grid-template-columns: 1fr; }
   .statistics-chart-legend-side {
     border-left: none; border-top: 1px solid var(--divider-color, rgba(127,127,127,0.22));
@@ -6815,7 +6950,12 @@ ${this._renderOverviewDailyCard(
       };
     } finally {
       this._overviewDailyLoading = false;
-      if (this._getPlant()?.entry_id === plantId && this._view === "overview") this._scheduleRender();
+      if (
+        this._getPlant()?.entry_id === plantId &&
+        (this._view === "overview" || this._view === "energy_analysis")
+      ) {
+        this._scheduleRender();
+      }
     }
   }
 
@@ -7415,15 +7555,21 @@ ${this._renderEnergyCharts()}`;
   _renderEnergyAnalysis(plant) {
     const a = this._energyAnalyticsForView(plant);
     const title = energyBreakdownTitle(this._energyPeriod, this._energyPeriodOffset);
+    const summaryCard = renderFoxAnalysisSummaryCard(a, this._overviewDaily, {
+      loading: this._overviewDailyLoading,
+    });
     return `<header class="header"><h1>Energy Analysis</h1><p>${esc(title)} — FoxCloud-style supply and usage</p></header>
 <div class="card fox-analysis-toolbar">
 ${this._renderEnergyPeriodTabs()}
 ${this._renderEnergyDateNav()}
 </div>
 ${renderFoxAnalysisTopCards(a)}
-<div class="fox-analysis-main">
+<div class="fox-analysis-panels-row">
+<div class="fox-analysis-panel-card">${renderFoxSupplyUsagePanel(a)}</div>
+<div class="fox-analysis-panel-card">${summaryCard}</div>
+</div>
+<div class="fox-analysis-chart-row">
 ${this._renderEnergyAnalysisCharts()}
-<div class="fox-analysis-side-card">${renderFoxSupplyUsagePanel(a)}</div>
 </div>`;
   }
 
@@ -8201,6 +8347,13 @@ ${active
         }
       } else if (!this._energyChartLoading && (this._energyChartPlantId !== cacheKey || !this._energyChart)) {
         this._loadEnergyCharts();
+      }
+      if (
+        this._view === "energy_analysis" &&
+        !this._overviewDailyLoading &&
+        (this._overviewDailyPlantId !== plant.entry_id || !this._overviewDaily)
+      ) {
+        this._loadOverviewDailyCards();
       }
     }
     if (this._view === "overview") {
