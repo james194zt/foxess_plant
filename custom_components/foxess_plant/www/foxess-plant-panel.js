@@ -990,30 +990,25 @@ function renderFoxAnalysisMetricRow(label, value, color) {
 }
 
 function renderFoxAnalysisCometBridge() {
-  const tracks = [
-    { x: 38, cls: "flow-grid" },
-    { x: 62, cls: "flow-solar" },
-  ];
-  const comets = tracks
-    .map(({ x, cls }) => {
-      const d = `M ${x} 6 L ${x} 94`;
-      return flowCometPaths({
-        d,
-        cls,
-        headSw: 2.6,
-        stroke: flowActiveStroke(cls),
-        reverse: false,
-      });
+  const tracks = [33.33, 66.67];
+  const green = "#17A589";
+  const pathLen = 100;
+  const cometLen = 16;
+  const gap = pathLen - cometLen;
+  const dash = `${cometLen} ${gap}`;
+  const parts = tracks
+    .map((x, i) => {
+      const d = `M ${x} 0 L ${x} 100`;
+      const delay = i ? ' style="animation-delay:0.35s"' : "";
+      return (
+        `<line x1="${x}" y1="0" x2="${x}" y2="100" class="fox-analysis-bridge-idle" vector-effect="non-scaling-stroke"/>` +
+        `<path class="fox-bridge-comet fox-bridge-comet-glow"${delay} d="${d}" pathLength="${pathLen}" stroke="${green}" stroke-width="5.5" stroke-dasharray="${dash}" stroke-linecap="round"/>` +
+        `<path class="fox-bridge-comet fox-bridge-comet-head"${delay} d="${d}" pathLength="${pathLen}" stroke="${green}" stroke-width="2.6" stroke-dasharray="${dash}" stroke-linecap="round"/>`
+      );
     })
     .join("");
-  const idle = tracks
-    .map(
-      ({ x }) =>
-        `<line x1="${x}" y1="0" x2="${x}" y2="100" class="fox-analysis-bridge-idle" vector-effect="non-scaling-stroke"/>`
-    )
-    .join("");
   return `<div class="fox-analysis-bridge" aria-hidden="true">
-<svg class="fox-analysis-bridge-svg" viewBox="0 0 100 100" preserveAspectRatio="none">${idle}${comets}</svg>
+<svg class="fox-analysis-bridge-svg" viewBox="0 0 100 100" preserveAspectRatio="none">${parts}</svg>
 </div>`;
 }
 
@@ -1169,14 +1164,18 @@ function renderFoxSupplyUsagePanel(a) {
     .map(([label, value, color]) => renderFoxAnalysisMetricRow(label, value, color))
     .join("");
   return `<div class="fox-analysis-flow-panel">
-<div class="fox-analysis-flow-block">
+<div class="fox-analysis-flow-block fox-analysis-flow-block--supply">
 <h4 class="fox-analysis-flow-heading">Supply</h4>
+<div class="fox-analysis-flow-frame">
 <div class="fox-analysis-flow-metrics">${supplyMetrics}</div>
 </div>
+</div>
 ${renderFoxAnalysisCometBridge()}
-<div class="fox-analysis-flow-block">
+<div class="fox-analysis-flow-block fox-analysis-flow-block--usage">
 <h4 class="fox-analysis-flow-heading">Usage</h4>
+<div class="fox-analysis-flow-frame">
 <div class="fox-analysis-flow-metrics">${usageMetrics}</div>
+</div>
 </div>
 </div>`;
 }
@@ -4390,8 +4389,16 @@ const STYLES = `
 }
 .fox-analysis-flow-panel {
   display: flex; flex-direction: column; gap: 0; min-width: 0;
+  --fox-flow-green: #17A589;
 }
-.fox-analysis-flow-block { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.fox-analysis-flow-block { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.fox-analysis-flow-frame {
+  border-left: 1.5px solid var(--fox-flow-green);
+  border-right: 1.5px solid var(--fox-flow-green);
+  border-bottom: 1.5px solid var(--fox-flow-green);
+  border-radius: 0 0 12px 12px;
+  padding: 10px 6px 12px;
+}
 .fox-analysis-flow-metrics {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;
 }
@@ -4417,19 +4424,29 @@ const STYLES = `
   font-size: 12px; font-weight: 500; color: var(--secondary-text-color); margin-left: 3px;
 }
 .fox-analysis-bridge {
-  position: relative; width: 100%; height: 52px; min-height: 52px;
-  flex-shrink: 0; margin: 6px 0;
+  position: relative; width: 100%; height: 48px; min-height: 48px;
+  flex-shrink: 0; margin: 0; padding: 0 0;
 }
 .fox-analysis-bridge-svg {
   width: 100%; height: 100%; display: block; overflow: visible;
 }
 .fox-analysis-bridge-idle {
-  stroke: color-mix(in srgb, var(--secondary-text-color) 28%, transparent);
+  stroke: color-mix(in srgb, var(--fox-flow-green) 32%, transparent);
   stroke-width: 1.5; stroke-linecap: round;
 }
-.fox-analysis-bridge .flow-comet { fill: none; stroke-linejoin: round; pointer-events: none; }
-.fox-analysis-bridge .flow-comet-glow { opacity: 0.45; animation: flow-comet-pulse-fwd 1.85s linear infinite; }
-.fox-analysis-bridge .flow-comet-pulse { opacity: 1; animation: flow-comet-pulse-fwd 1.85s linear infinite; }
+.fox-bridge-comet {
+  fill: none; stroke-linejoin: round; pointer-events: none;
+  animation: fox-bridge-comet-down 2.1s linear infinite;
+}
+.fox-bridge-comet-glow { opacity: 0.42; }
+.fox-bridge-comet-head {
+  opacity: 1;
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--fox-flow-green) 85%, transparent));
+}
+@keyframes fox-bridge-comet-down {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -100; }
+}
 .impact-card .card-title { margin-bottom: 12px; }
 .impact-grid {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px;
