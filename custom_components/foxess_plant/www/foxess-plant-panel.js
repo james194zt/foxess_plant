@@ -994,11 +994,11 @@ function renderEnergyBalanceHelpModal() {
 </div>`;
 }
 
-function renderFoxAnalysisProporBar(segments, total) {
+function renderFoxAnalysisProporBar(segments, total, attrs = "") {
   const sum = segments.reduce((s, seg) => s + Math.max(0, seg.value), 0);
   const t = total > 0 ? total : sum;
   if (t <= 0) {
-    return `<div class="fox-analysis-propor fox-analysis-propor--empty" aria-hidden="true"></div>`;
+    return `<div class="fox-analysis-propor fox-analysis-propor--empty"${attrs} aria-hidden="true"></div>`;
   }
   const bars = segments
     .filter((seg) => seg.value > 0)
@@ -1008,32 +1008,143 @@ function renderFoxAnalysisProporBar(segments, total) {
       return `<div class="fox-analysis-propor-seg" style="width:${pct.toFixed(2)}%;background:${seg.color}" title="${esc(seg.label)}">${label}</div>`;
     })
     .join("");
-  return `<div class="fox-analysis-propor" role="img" aria-hidden="true">${bars}</div>`;
+  return `<div class="fox-analysis-propor"${attrs} role="img" aria-hidden="true">${bars}</div>`;
 }
 
-function renderFoxAnalysisInfoRow({ label, value, pct, color }) {
+function renderFoxAnalysisInfoRowInner({ label, value, pct, color }) {
   const v = Number(value ?? 0) || 0;
   const p = Number(pct ?? 0) || 0;
-  return `<div class="fox-analysis-info-row">
-<div class="fox-analysis-info-na">${esc(label)}</div>
+  return `<div class="fox-analysis-info-na">${esc(label)}</div>
 <div class="fox-analysis-info-nu">
 <div class="fox-analysis-info-l">${v.toFixed(2)}<span>kWh</span></div>
 <div class="fox-analysis-info-r" style="color:${color}">${Math.round(p)}%</div>
 </div>
-<div class="fox-analysis-info-pr" style="background:${color}"></div>
+<div class="fox-analysis-info-pr" style="background:${color}"></div>`;
+}
+
+function renderFoxAnalysisInfoRow(row) {
+  return `<div class="fox-analysis-info-row">${renderFoxAnalysisInfoRowInner(row)}</div>`;
+}
+
+function renderFoxAnalysisEnergySplitCard({ cardId, title, total, segments, rows }) {
+  const t = Number(total ?? 0) || 0;
+  const rowHtml = rows
+    .map(
+      (row, i) =>
+        `<div class="fox-analysis-info-row" data-energy-split-row="${i}">${renderFoxAnalysisInfoRowInner(row)}</div>`
+    )
+    .join("");
+  return `<div class="fox-analysis-top-card fox-analysis-enerbf" data-energy-split-card="${esc(cardId)}">
+<div class="fox-analysis-prc">
+<div class="fox-analysis-num" data-energy-split-total>${t.toFixed(2)}<span class="fox-analysis-unit">kWh</span></div>
+<div class="fox-analysis-name">${esc(title)}</div>
+</div>
+${renderFoxAnalysisProporBar(segments, t, ' data-energy-split-bar="1"')}
+<div class="fox-analysis-info">${rowHtml}</div>
 </div>`;
 }
 
-function renderFoxAnalysisEnergySplitCard({ title, total, segments, rows }) {
-  const t = Number(total ?? 0) || 0;
-  return `<div class="fox-analysis-top-card fox-analysis-enerbf">
-<div class="fox-analysis-prc">
-<div class="fox-analysis-num">${t.toFixed(2)}<span class="fox-analysis-unit">kWh</span></div>
-<div class="fox-analysis-name">${esc(title)}</div>
-</div>
-${renderFoxAnalysisProporBar(segments, t)}
-<div class="fox-analysis-info">${rows.map((row) => renderFoxAnalysisInfoRow(row)).join("")}</div>
-</div>`;
+function foxAnalysisTopCardsData(a) {
+  const pvTotal = Number(a.pv_production_kwh_today ?? 0) || 0;
+  const pvToLoadBattery = Number(a.pv_to_load_battery_kwh_today ?? 0) || 0;
+  const pvToGrid = Number(a.pv_to_grid_kwh_today ?? 0) || 0;
+  const loadTotal = Number(a.load_consumption_kwh_today ?? 0) || 0;
+  const loadFromPvBattery = Number(a.load_from_pv_battery_kwh_today ?? 0) || 0;
+  const loadFromGrid = Number(a.load_from_grid_kwh_today ?? 0) || 0;
+  const selfConsumption = Number(a.self_consumption_percent_today ?? 0) || 0;
+  const selfSufficiency = Number(a.self_sufficiency_percent_today ?? 0) || 0;
+  return {
+    balance: Math.max(0, pvTotal - loadTotal),
+    production: {
+      total: pvTotal,
+      segments: [
+        { value: pvToLoadBattery, color: FOX_ANALYSIS_SPLIT_COLORS.selfConsumption, label: "Self-Consumption" },
+        { value: pvToGrid, color: FOX_ANALYSIS_SPLIT_COLORS.export, label: "Export" },
+      ],
+      rows: [
+        { label: "Self-Consumption", value: pvToLoadBattery, pct: selfConsumption, color: FOX_ANALYSIS_SPLIT_COLORS.selfConsumption },
+        { label: "Export", value: pvToGrid, pct: Math.max(0, 100 - selfConsumption), color: FOX_ANALYSIS_SPLIT_COLORS.export },
+      ],
+    },
+    consumption: {
+      total: loadTotal,
+      segments: [
+        { value: loadFromPvBattery, color: FOX_ANALYSIS_SPLIT_COLORS.selfSufficiency, label: "Self-Sufficiency" },
+        { value: loadFromGrid, color: FOX_ANALYSIS_SPLIT_COLORS.gridPurchase, label: "Grid Purchase" },
+      ],
+      rows: [
+        { label: "Self-Sufficiency", value: loadFromPvBattery, pct: selfSufficiency, color: FOX_ANALYSIS_SPLIT_COLORS.selfSufficiency },
+        { label: "Grid Purchase", value: loadFromGrid, pct: Math.max(0, 100 - selfSufficiency), color: FOX_ANALYSIS_SPLIT_COLORS.gridPurchase },
+      ],
+    },
+  };
+}
+
+function patchFoxAnalysisInfoRowEl(rowEl, { value, pct, color }) {
+  if (!rowEl) return;
+  const v = Number(value ?? 0) || 0;
+  const p = Number(pct ?? 0) || 0;
+  const l = rowEl.querySelector(".fox-analysis-info-l");
+  const r = rowEl.querySelector(".fox-analysis-info-r");
+  const pr = rowEl.querySelector(".fox-analysis-info-pr");
+  if (l) l.innerHTML = `${v.toFixed(2)}<span>kWh</span>`;
+  if (r) {
+    r.textContent = `${Math.round(p)}%`;
+    r.style.color = color;
+  }
+  if (pr) pr.style.background = color;
+}
+
+function patchFoxAnalysisProporBarEl(barEl, segments, total) {
+  if (!barEl) return;
+  const sum = segments.reduce((s, seg) => s + Math.max(0, seg.value), 0);
+  const t = total > 0 ? total : sum;
+  const active = segments.filter((seg) => seg.value > 0);
+  const existing = barEl.querySelectorAll(".fox-analysis-propor-seg");
+  if (!active.length) {
+    barEl.className = "fox-analysis-propor fox-analysis-propor--empty";
+    barEl.innerHTML = "";
+    return;
+  }
+  barEl.className = "fox-analysis-propor";
+  if (existing.length !== active.length) {
+    barEl.innerHTML = active
+      .map((seg) => {
+        const pct = (seg.value / t) * 100;
+        const label = pct >= 10 ? `<span>${Math.round(pct)}%</span>` : "";
+        return `<div class="fox-analysis-propor-seg" style="width:${pct.toFixed(2)}%;background:${seg.color}" title="${esc(seg.label)}">${label}</div>`;
+      })
+      .join("");
+    return;
+  }
+  active.forEach((seg, i) => {
+    const el = existing[i];
+    const pct = (seg.value / t) * 100;
+    el.style.width = `${pct.toFixed(2)}%`;
+    el.style.background = seg.color;
+    el.title = seg.label;
+    el.innerHTML = pct >= 10 ? `<span>${Math.round(pct)}%</span>` : "";
+  });
+}
+
+function patchFoxAnalysisSplitCardEl(root, cardId, { total, segments, rows }) {
+  const card = root.querySelector(`[data-energy-split-card="${cardId}"]`);
+  if (!card) return false;
+  const num = card.querySelector("[data-energy-split-total]");
+  if (num) num.innerHTML = `${Number(total ?? 0).toFixed(2)}<span class="fox-analysis-unit">kWh</span>`;
+  patchFoxAnalysisProporBarEl(card.querySelector("[data-energy-split-bar]"), segments, total);
+  card.querySelectorAll("[data-energy-split-row]").forEach((rowEl, i) => {
+    patchFoxAnalysisInfoRowEl(rowEl, rows[i] || {});
+  });
+  return true;
+}
+
+function patchFoxAnalysisTopCardsEl(topEl, a) {
+  const data = foxAnalysisTopCardsData(a);
+  const balanceEl = topEl.querySelector("[data-energy-balance-value]");
+  if (balanceEl) balanceEl.innerHTML = `${data.balance.toFixed(2)}<span>kWh</span>`;
+  patchFoxAnalysisSplitCardEl(topEl, "production", data.production);
+  patchFoxAnalysisSplitCardEl(topEl, "consumption", data.consumption);
 }
 
 function foxAnalysisIconHtml(key, { muted = false } = {}) {
@@ -1054,59 +1165,33 @@ ${foxAnalysisIconHtml(iconKey, options)}
 
 function renderFoxAnalysisFlowBridge() {
   return `<div class="fox-analysis-stat-bridge" aria-hidden="true">
-<div class="fox-analysis-stat-flow flow-l"></div>
-<div class="fox-analysis-stat-flow flow-r"></div>
+<div class="fox-analysis-stat-flow flow-l"><span class="fox-analysis-stat-flow-glow"></span></div>
+<div class="fox-analysis-stat-flow flow-r"><span class="fox-analysis-stat-flow-glow"></span></div>
 </div>`;
 }
 
 function renderFoxAnalysisTopCards(a) {
-  const pvTotal = Number(a.pv_production_kwh_today ?? 0) || 0;
-  const pvToLoadBattery = Number(a.pv_to_load_battery_kwh_today ?? 0) || 0;
-  const pvToGrid = Number(a.pv_to_grid_kwh_today ?? 0) || 0;
-  const loadTotal = Number(a.load_consumption_kwh_today ?? 0) || 0;
-  const loadFromPvBattery = Number(a.load_from_pv_battery_kwh_today ?? 0) || 0;
-  const loadFromGrid = Number(a.load_from_grid_kwh_today ?? 0) || 0;
-  const selfConsumption = Number(a.self_consumption_percent_today ?? 0) || 0;
-  const selfSufficiency = Number(a.self_sufficiency_percent_today ?? 0) || 0;
-  const balance = Math.max(0, pvTotal - loadTotal);
-
-  const exportPct = Math.max(0, 100 - selfConsumption);
-  const gridPct = Math.max(0, 100 - selfSufficiency);
-
+  const data = foxAnalysisTopCardsData(a);
   return `<div class="fox-analysis-top">
 <div class="fox-analysis-top-card fox-analysis-top-card--balance">
 <div class="fox-analysis-balance-icon" aria-hidden="true">
 <svg viewBox="0 0 48 48"><circle cx="19" cy="24" r="13" fill="${FOX_ANALYSIS_SPLIT_COLORS.selfConsumption}" opacity="0.88"/><circle cx="29" cy="24" r="13" fill="${FOX_ANALYSIS_SPLIT_COLORS.export}" opacity="0.88"/></svg>
 </div>
-<div class="fox-analysis-top-value">${balance.toFixed(2)}<span>kWh</span></div>
+<div class="fox-analysis-top-value" data-energy-balance-value>${data.balance.toFixed(2)}<span>kWh</span></div>
 <div class="fox-analysis-top-heading-row">
 <div class="fox-analysis-top-heading">Energy Balance</div>
 ${renderEnergyBalanceHelpIcon()}
 </div>
 </div>
 ${renderFoxAnalysisEnergySplitCard({
+  cardId: "production",
   title: "Production",
-  total: pvTotal,
-  segments: [
-    { value: pvToLoadBattery, color: FOX_ANALYSIS_SPLIT_COLORS.selfConsumption, label: "Self-Consumption" },
-    { value: pvToGrid, color: FOX_ANALYSIS_SPLIT_COLORS.export, label: "Export" },
-  ],
-  rows: [
-    { label: "Self-Consumption", value: pvToLoadBattery, pct: selfConsumption, color: FOX_ANALYSIS_SPLIT_COLORS.selfConsumption },
-    { label: "Export", value: pvToGrid, pct: exportPct, color: FOX_ANALYSIS_SPLIT_COLORS.export },
-  ],
+  ...data.production,
 })}
 ${renderFoxAnalysisEnergySplitCard({
+  cardId: "consumption",
   title: "Consumption",
-  total: loadTotal,
-  segments: [
-    { value: loadFromPvBattery, color: FOX_ANALYSIS_SPLIT_COLORS.selfSufficiency, label: "Self-Sufficiency" },
-    { value: loadFromGrid, color: FOX_ANALYSIS_SPLIT_COLORS.gridPurchase, label: "Grid Purchase" },
-  ],
-  rows: [
-    { label: "Self-Sufficiency", value: loadFromPvBattery, pct: selfSufficiency, color: FOX_ANALYSIS_SPLIT_COLORS.selfSufficiency },
-    { label: "Grid Purchase", value: loadFromGrid, pct: gridPct, color: FOX_ANALYSIS_SPLIT_COLORS.gridPurchase },
-  ],
+  ...data.consumption,
 })}
 </div>`;
 }
@@ -1146,12 +1231,13 @@ function renderFoxAnalysisLineSparkline(values, color, { placeholder = false } =
   return `<svg class="fox-analysis-sparkline" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true"><path d="${path}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 }
 
-function renderFoxAnalysisSummaryRow(label, displayValue, unit, sparklineHtml, { muted = false } = {}) {
+function renderFoxAnalysisSummaryRow(label, displayValue, unit, sparklineHtml, { muted = false, valueKey = "" } = {}) {
   const unitHtml = unit ? `<span>${esc(unit)}</span>` : "";
+  const valueAttr = valueKey ? ` data-summary-value="${esc(valueKey)}"` : "";
   return `<div class="fox-analysis-summary-row${muted ? " fox-analysis-summary-row--muted" : ""}">
 <div class="fox-analysis-summary-row-main">
 <span class="fox-analysis-summary-label">${esc(label)}</span>
-<strong class="fox-analysis-summary-value">${esc(displayValue)}${unitHtml}</strong>
+<strong class="fox-analysis-summary-value"${valueAttr}>${esc(displayValue)}${unitHtml}</strong>
 </div>
 <div class="fox-analysis-summary-spark">${sparklineHtml}</div>
 </div>`;
@@ -1179,8 +1265,8 @@ function renderFoxAnalysisSummaryCard(a, overviewDaily, { loading = false } = {}
     placeholder: true,
   });
   const rows = [
-    renderFoxAnalysisSummaryRow("Daily Production", pvVal.toFixed(2), "kWh", prodSpark),
-    renderFoxAnalysisSummaryRow("Daily Consumption", loadVal.toFixed(2), "kWh", consSpark),
+    renderFoxAnalysisSummaryRow("Daily Production", pvVal.toFixed(2), "kWh", prodSpark, { valueKey: "production" }),
+    renderFoxAnalysisSummaryRow("Daily Consumption", loadVal.toFixed(2), "kWh", consSpark, { valueKey: "consumption" }),
     renderFoxAnalysisSummaryRow("Total Revenue", "—", "", revenueSpark, { muted: true }),
   ].join("");
   return `<div class="fox-analysis-summary-card-inner">
@@ -4686,6 +4772,8 @@ const STYLES = `
   position: relative;
   height: 87px;
   margin: 0;
+  contain: layout style;
+  isolation: isolate;
 }
 .fox-analysis-stat-flow {
   width: 87px;
@@ -4702,21 +4790,17 @@ const STYLES = `
   right: 25%;
   transform: translate(50%, -50%) rotate(90deg);
 }
-.fox-analysis-stat-flow::after {
-  width: 100%;
-  height: 100%;
-  content: "";
+.fox-analysis-stat-flow-glow {
   position: absolute;
-  top: 0;
-  left: 0;
+  inset: 0;
   background: linear-gradient(to right, var(--fox-flow-track) 40%, var(--fox-flow-green));
-  background-repeat: no-repeat;
-  background-size: 87px 100%;
-  animation: fox-stat-flow-r 2s linear infinite;
+  transform: translateX(-100%);
+  animation: fox-stat-flow-glow 2s linear infinite;
+  will-change: transform;
 }
-@keyframes fox-stat-flow-r {
-  0% { background-position: 0 0; }
-  100% { background-position: 87px 0; }
+@keyframes fox-stat-flow-glow {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
 }
 .impact-card .card-title { margin-bottom: 12px; }
 .impact-grid {
@@ -4770,19 +4854,14 @@ const STYLES = `
   .fox-analysis-panels-row { grid-template-columns: 1fr; }
   .fox-analysis-summary-row { grid-template-columns: 1fr; }
   .fox-analysis-summary-spark { justify-content: flex-start; }
+  .fox-analysis-stat-flow { width: 64px; }
   .fox-analysis-stat-row { flex-direction: column; min-height: 0; gap: 16px; padding: 16px; }
   .fox-analysis-stat-bridge { height: 64px; }
-  .fox-analysis-stat-flow { width: 64px; }
-  .fox-analysis-stat-flow::after { background-size: 64px 100%; animation-name: fox-stat-flow-r-sm; }
   .statistics-chart-wrap--side { grid-template-columns: 1fr; }
   .statistics-chart-legend-side {
     border-left: none; border-top: 1px solid var(--divider-color, rgba(127,127,127,0.22));
     max-width: none; padding: 12px 0 0;
   }
-}
-@keyframes fox-stat-flow-r-sm {
-  0% { background-position: 0 0; }
-  100% { background-position: 64px 0; }
 }
 .stat { background: var(--card-background-color); border-radius: var(--fp-radius); padding: 16px; border: 1px solid var(--divider-color, transparent); box-shadow: var(--ha-card-box-shadow, 0 1px 2px rgba(0,0,0,0.06)); }
 .stat label { font-size: 12px; color: var(--secondary-text-color); display: block; }
@@ -7870,13 +7949,17 @@ ${this._renderEnergyCharts()}`;
     if (d?.error) return `err:${d.error}`;
     const prod = (d?.production || []).join(",");
     const cons = (d?.consumption || []).join(",");
-    return `${this._energyPeriod}|${this._energyPeriodOffset}|${prod}|${cons}|${a.pv_production_kwh_today ?? ""}|${a.load_consumption_kwh_today ?? ""}`;
+    return `${this._energyPeriod}|${this._energyPeriodOffset}|${prod}|${cons}`;
   }
 
   _energyAnalysisChartSlotKey() {
     if (this._energyPeriod === "day") {
       if (this._statisticsChartLoading) return "stat:loading";
-      return `stat:${this._statisticsChartPlantId ?? ""}|${this._statisticsChart?.series?.length ?? 0}|${this._statisticsChart?.error ?? ""}`;
+      const chart = this._statisticsChart;
+      if (chart?.error) return `stat:err:${chart.error}`;
+      if (chart?.empty) return `stat:empty:${chart.empty}`;
+      if (!chart?.series?.length && !chart?.socSeries?.points?.length) return "stat:none";
+      return `stat:${this._statisticsChartPlantId ?? ""}|loaded`;
     }
     if (this._energyChartLoading) return "energy:loading";
     return `energy:${this._energyChartPlantId ?? ""}|${this._energyChart?.svg ? 1 : 0}|${this._energyChart?.error ?? ""}`;
@@ -7884,6 +7967,15 @@ ${this._renderEnergyCharts()}`;
 
   _energyAnalysisToolbarKey() {
     return `${this._energyPeriod}|${this._energyPeriodOffset}`;
+  }
+
+  _patchFoxAnalysisSummaryValues(root, a) {
+    const pvVal = Number(a.pv_production_kwh_today ?? 0) || 0;
+    const loadVal = Number(a.load_consumption_kwh_today ?? 0) || 0;
+    const prodEl = root.querySelector('[data-summary-value="production"]');
+    const consEl = root.querySelector('[data-summary-value="consumption"]');
+    if (prodEl) prodEl.innerHTML = `${pvVal.toFixed(2)}<span>kWh</span>`;
+    if (consEl) consEl.innerHTML = `${loadVal.toFixed(2)}<span>kWh</span>`;
   }
 
   _patchFoxAnalysisStatValues(root, a) {
@@ -7923,19 +8015,27 @@ ${this._renderEnergyCharts()}`;
     }
 
     const top = root.querySelector("[data-energy-analysis-top]");
-    if (top) top.innerHTML = renderFoxAnalysisTopCards(a);
+    if (top) {
+      if (top.querySelector("[data-energy-split-card]")) {
+        patchFoxAnalysisTopCardsEl(top, a);
+      } else {
+        top.innerHTML = renderFoxAnalysisTopCards(a);
+      }
+    }
 
     this._patchFoxAnalysisStatValues(root, a);
 
     const summaryKey = this._energyAnalysisSummaryKey(a);
+    const summary = root.querySelector("[data-energy-analysis-summary]");
     if (summaryKey !== this._energyAnalysisSummaryCache) {
-      const summary = root.querySelector("[data-energy-analysis-summary]");
       if (summary) {
         summary.innerHTML = renderFoxAnalysisSummaryCard(a, this._overviewDaily, {
           loading: this._overviewDailyLoading,
         });
       }
       this._energyAnalysisSummaryCache = summaryKey;
+    } else {
+      this._patchFoxAnalysisSummaryValues(root, a);
     }
 
     let chartUpdated = false;
@@ -7953,14 +8053,6 @@ ${this._renderEnergyCharts()}`;
       this._statisticsChart?.series
     ) {
       this._bindStatisticsChart();
-    }
-
-    if (
-      this._view === "energy_analysis" &&
-      !this._overviewDailyLoading &&
-      (this._overviewDailyPlantId !== plant.entry_id || !this._overviewDaily)
-    ) {
-      this._loadOverviewDailyCards();
     }
 
     return true;
