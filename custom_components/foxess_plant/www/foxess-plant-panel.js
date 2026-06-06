@@ -4475,8 +4475,9 @@ const STYLES = `
   content: "";
   position: absolute;
   top: 0;
-  right: 0;
+  left: 0;
   background: linear-gradient(to right, var(--fox-flow-track) 40%, var(--fox-flow-green));
+  background-repeat: no-repeat;
   background-size: 87px 100%;
   animation: fox-stat-flow-r 2s linear infinite;
 }
@@ -5128,6 +5129,9 @@ class FoxessPlantPanel extends HTMLElement {
     this._overviewDailyLoading = false;
     this._overviewDailyPlantId = undefined;
     this._overviewDailySlotCache = undefined;
+    this._energyAnalysisSummaryCache = undefined;
+    this._energyAnalysisChartSlotCache = undefined;
+    this._energyAnalysisToolbarCache = undefined;
     this._panelSyncBusy = false;
     this._panelStale = false;
     this._flowSceneKey = undefined;
@@ -5476,7 +5480,9 @@ Reloading panel registration…
       !this._socDrag &&
       !this._rangeDrag &&
       !this._settingsFieldBlocksRender() &&
-      (this._patchDeviceMainLiveIfNeeded() || this._patchSettingsMainLiveIfNeeded())
+      (this._patchDeviceMainLiveIfNeeded() ||
+        this._patchSettingsMainLiveIfNeeded() ||
+        this._patchEnergyAnalysisMainIfNeeded())
     ) {
       this._renderPending = false;
       return;
@@ -5893,6 +5899,9 @@ Reloading panel registration…
         this._energyBreakdown = null;
         this._statisticsChart = null;
         this._statisticsChartPlantId = undefined;
+        this._energyAnalysisSummaryCache = undefined;
+        this._energyAnalysisChartSlotCache = undefined;
+        this._energyAnalysisToolbarCache = undefined;
       }
       this._view = nextView;
       this._settingsView = "main";
@@ -7597,6 +7606,108 @@ ${this._renderEnergyBreakdownCard(plant)}
 ${this._renderEnergyCharts()}`;
   }
 
+  _energyAnalysisSummaryKey(a) {
+    if (this._overviewDailyLoading) return "loading";
+    const d = this._overviewDaily;
+    if (d?.error) return `err:${d.error}`;
+    const prod = (d?.production || []).join(",");
+    const cons = (d?.consumption || []).join(",");
+    return `${this._energyPeriod}|${this._energyPeriodOffset}|${prod}|${cons}|${a.pv_production_kwh_today ?? ""}|${a.load_consumption_kwh_today ?? ""}`;
+  }
+
+  _energyAnalysisChartSlotKey() {
+    if (this._energyPeriod === "day") {
+      if (this._statisticsChartLoading) return "stat:loading";
+      return `stat:${this._statisticsChartPlantId ?? ""}|${this._statisticsChart?.series?.length ?? 0}|${this._statisticsChart?.error ?? ""}`;
+    }
+    if (this._energyChartLoading) return "energy:loading";
+    return `energy:${this._energyChartPlantId ?? ""}|${this._energyChart?.svg ? 1 : 0}|${this._energyChart?.error ?? ""}`;
+  }
+
+  _energyAnalysisToolbarKey() {
+    return `${this._energyPeriod}|${this._energyPeriodOffset}`;
+  }
+
+  _patchFoxAnalysisStatValues(root, a) {
+    const values = [
+      a.load_from_grid_kwh_today,
+      a.pv_production_kwh_today,
+      a.battery_discharge_kwh_today,
+      a.pv_to_grid_kwh_today,
+      a.load_consumption_kwh_today,
+      a.battery_charge_kwh_today,
+    ];
+    root.querySelectorAll(".fox-analysis-stat-col-nu").forEach((el, i) => {
+      const v = Number(values[i] ?? 0) || 0;
+      el.innerHTML = `${v.toFixed(2)}<span>kWh</span>`;
+    });
+  }
+
+  _patchEnergyAnalysisMainIfNeeded() {
+    if (this._view !== "energy_analysis" || !this._hass) return false;
+    const root = this._root.querySelector("[data-energy-analysis-main]");
+    if (!root) return false;
+    const plant = this._getPlant();
+    if (!plant || root.dataset.plantId !== plant.entry_id) return false;
+
+    const a = this._energyAnalyticsForView(plant);
+    const title = energyBreakdownTitle(this._energyPeriod, this._energyPeriodOffset);
+    const sub = root.querySelector(".header p");
+    if (sub) sub.textContent = `${title} — FoxCloud-style supply and usage`;
+
+    const toolbarKey = this._energyAnalysisToolbarKey();
+    if (toolbarKey !== this._energyAnalysisToolbarCache) {
+      const toolbar = root.querySelector("[data-energy-analysis-toolbar]");
+      if (toolbar) {
+        toolbar.innerHTML = `${this._renderEnergyPeriodTabs()}${this._renderEnergyDateNav()}`;
+      }
+      this._energyAnalysisToolbarCache = toolbarKey;
+    }
+
+    const top = root.querySelector("[data-energy-analysis-top]");
+    if (top) top.innerHTML = renderFoxAnalysisTopCards(a);
+
+    this._patchFoxAnalysisStatValues(root, a);
+
+    const summaryKey = this._energyAnalysisSummaryKey(a);
+    if (summaryKey !== this._energyAnalysisSummaryCache) {
+      const summary = root.querySelector("[data-energy-analysis-summary]");
+      if (summary) {
+        summary.innerHTML = renderFoxAnalysisSummaryCard(a, this._overviewDaily, {
+          loading: this._overviewDailyLoading,
+        });
+      }
+      this._energyAnalysisSummaryCache = summaryKey;
+    }
+
+    let chartUpdated = false;
+    const chartKey = this._energyAnalysisChartSlotKey();
+    if (chartKey !== this._energyAnalysisChartSlotCache) {
+      const chart = root.querySelector("[data-energy-analysis-chart]");
+      if (chart) chart.innerHTML = this._renderEnergyAnalysisCharts();
+      this._energyAnalysisChartSlotCache = chartKey;
+      chartUpdated = true;
+    }
+
+    if (
+      chartUpdated &&
+      this._energyPeriod === "day" &&
+      this._statisticsChart?.series
+    ) {
+      this._bindStatisticsChart();
+    }
+
+    if (
+      this._view === "energy_analysis" &&
+      !this._overviewDailyLoading &&
+      (this._overviewDailyPlantId !== plant.entry_id || !this._overviewDaily)
+    ) {
+      this._loadOverviewDailyCards();
+    }
+
+    return true;
+  }
+
   _renderEnergyAnalysisCharts() {
     let body;
     if (this._energyPeriod === "day") {
@@ -7619,18 +7730,23 @@ ${this._renderEnergyCharts()}`;
     const summaryCard = renderFoxAnalysisSummaryCard(a, this._overviewDaily, {
       loading: this._overviewDailyLoading,
     });
-    return `<header class="header"><h1>Energy Analysis</h1><p>${esc(title)} — FoxCloud-style supply and usage</p></header>
-<div class="card fox-analysis-toolbar">
+    this._energyAnalysisSummaryCache = this._energyAnalysisSummaryKey(a);
+    this._energyAnalysisChartSlotCache = this._energyAnalysisChartSlotKey();
+    this._energyAnalysisToolbarCache = this._energyAnalysisToolbarKey();
+    return `<div data-energy-analysis-main="1" data-plant-id="${esc(plant.entry_id)}">
+<header class="header"><h1>Energy Analysis</h1><p>${esc(title)} — FoxCloud-style supply and usage</p></header>
+<div class="card fox-analysis-toolbar" data-energy-analysis-toolbar="1">
 ${this._renderEnergyPeriodTabs()}
 ${this._renderEnergyDateNav()}
 </div>
-${renderFoxAnalysisTopCards(a)}
+<div data-energy-analysis-top="1">${renderFoxAnalysisTopCards(a)}</div>
 <div class="fox-analysis-panels-row">
-<div class="fox-analysis-panel-card">${renderFoxSupplyUsagePanel(a)}</div>
-<div class="fox-analysis-panel-card">${summaryCard}</div>
+<div class="fox-analysis-panel-card" data-energy-analysis-supply="1">${renderFoxSupplyUsagePanel(a)}</div>
+<div class="fox-analysis-panel-card" data-energy-analysis-summary="1">${summaryCard}</div>
 </div>
-<div class="fox-analysis-chart-row">
+<div class="fox-analysis-chart-row" data-energy-analysis-chart="1">
 ${this._renderEnergyAnalysisCharts()}
+</div>
 </div>`;
   }
 
