@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.92
+ * @version 0.9.93
  */
 
 const NAV = [
@@ -1507,7 +1507,10 @@ function renderFoxAnalysisLineSparkline(values, color, { placeholder = false } =
     yMax = Math.max(yMax, v);
     yMin = Math.min(yMin, v);
   }
-  const span = Math.max(yMax - yMin, 0.1) * 1.12;
+  if (yMax - yMin < yMax * 0.08 && yMin > 0) {
+    yMin = Math.max(0, yMin - (yMax - yMin) * 0.35);
+  }
+  const span = Math.max(yMax - yMin, yMax * 0.06, 0.1) * 1.08;
   const base = yMin;
   const pts = data.map((v, i) => ({
     x: pad.l + (i / (data.length - 1)) * w,
@@ -1524,10 +1527,10 @@ function buildTariffIntradaySeries(importPts, exportPts, rates, range, currency)
   const importRateMajor = minorToMajor(rates.import_p_per_kwh, currency);
   const exportRateMajor = minorToMajor(rates.export_p_per_kwh, currency);
   const standingDailyMajor = minorToMajor(rates.standing_charge_p_per_day, currency);
-  const importKwh = interpolatePointsToPeriod(importPts, STATISTICS_PERIOD_MS, range.tMin, range.nowMs).map(
+  const importKwh = interpolatePointsToPeriod(importPts, ANALYSIS_SPARK_SAMPLE_MS, range.tMin, range.nowMs).map(
     (p) => Math.max(0, p.v)
   );
-  const exportKwh = interpolatePointsToPeriod(exportPts, STATISTICS_PERIOD_MS, range.tMin, range.nowMs).map(
+  const exportKwh = interpolatePointsToPeriod(exportPts, ANALYSIS_SPARK_SAMPLE_MS, range.tMin, range.nowMs).map(
     (p) => Math.max(0, p.v)
   );
   const slots = Math.max(importKwh.length, exportKwh.length, 1);
@@ -1538,7 +1541,7 @@ function buildTariffIntradaySeries(importPts, exportPts, rates, range, currency)
   for (let i = 0; i < slots; i++) {
     const ik = importKwh[i] ?? importKwh[importKwh.length - 1] ?? 0;
     const ek = exportKwh[i] ?? exportKwh[exportKwh.length - 1] ?? 0;
-    const t = range.tMin + i * STATISTICS_PERIOD_MS;
+    const t = range.tMin + i * ANALYSIS_SPARK_SAMPLE_MS;
     const standing = standingDailyMajor * Math.min(1, Math.max(0, (t - range.tMin) / daySpan));
     const ic = ik * importRateMajor;
     const er = ek * exportRateMajor;
@@ -1546,10 +1549,14 @@ function buildTariffIntradaySeries(importPts, exportPts, rates, range, currency)
     exportRevenue.push(er);
     totalCost.push(standing + ic - er);
   }
-  return { importCost, exportRevenue, totalCost };
+  return {
+    importCost: downsampleSparkSeries(importCost),
+    exportRevenue: downsampleSparkSeries(exportRevenue),
+    totalCost: downsampleSparkSeries(totalCost),
+  };
 }
 
-async function fetchAnalysisTariffIntraday(hass, plant, plantState, overviewDaily) {
+async function fetchAnalysisTariffIntraday(hass, plant, plantState, overviewDaily, { start, end } = {}) {
   const tariff = plantState?.tariff;
   if (!tariff?.configured) {
     return { configured: false };
@@ -1560,12 +1567,19 @@ async function fetchAnalysisTariffIntraday(hass, plant, plantState, overviewDail
   const importId = map.grid_consumption_energy_today;
   const exportId = map.feed_in_energy_today;
   const now = new Date();
-  const range = getStatisticsDayRange(now);
+  const range =
+    start && end
+      ? {
+          tMin: start.getTime(),
+          nowMs: Math.min(end.getTime(), now.getTime()),
+          tMax: end.getTime(),
+        }
+      : getStatisticsDayRange(now);
   const ids = [importId, exportId].filter(Boolean);
   let importPts = [];
   let exportPts = [];
   if (ids.length) {
-    const hist = await fetchHistoryDuring(hass, ids, new Date(range.tMin), now);
+    const hist = await fetchHistoryDuring(hass, ids, new Date(range.tMin), new Date(range.nowMs));
     importPts = importId ? historyToPoints(historyRowsForEntity(hist, importId)) : [];
     exportPts = exportId ? historyToPoints(historyRowsForEntity(hist, exportId)) : [];
   }
@@ -1887,6 +1901,9 @@ function statisticsChartLayout({ sideLegend = false, hasSoc = false } = {}) {
 
 /** Matches dashboard plotly-graph defaults: statistic mean, period 5minute. */
 const STATISTICS_PERIOD_MS = 5 * 60 * 1000;
+/** Analysis summary sparklines: 10-minute buckets for intraday trend shape. */
+const ANALYSIS_SPARK_SAMPLE_MS = 10 * 60 * 1000;
+const ANALYSIS_SPARK_MAX_POINTS = 72;
 
 const BATTERY_SOC_POWER_THRESHOLD_KW = 0.04;
 const BATTERY_SOC_POWER_SMOOTH_MS = STATISTICS_PERIOD_MS * 3;
@@ -3714,7 +3731,7 @@ function energyPeriodSummaryLabel(period) {
   return "Daily";
 }
 
-function downsampleSparkSeries(values, maxPoints = 32) {
+function downsampleSparkSeries(values, maxPoints = ANALYSIS_SPARK_MAX_POINTS) {
   const data = (values || []).map((v) => Number(v) || 0);
   if (data.length <= maxPoints) return data;
   const out = [];
@@ -3725,33 +3742,121 @@ function downsampleSparkSeries(values, maxPoints = 32) {
   return out;
 }
 
+function sortCumulativeHistoryPts(pts, endMs) {
+  return (pts || [])
+    .map((p) => ({ t: p.t, v: Math.max(0, Number(p.v) || 0) }))
+    .filter((p) => p.t <= endMs)
+    .sort((a, b) => a.t - b.t);
+}
+
+function cumulativeValueAt(sortedPts, t) {
+  if (!sortedPts?.length) return 0;
+  return Math.max(0, interpolateSeriesAt(sortedPts, t, { allowBackfill: true }) ?? 0);
+}
+
+function resampleCumulativeSparkValues(pts, startMs, endMs) {
+  const sorted = sortCumulativeHistoryPts(pts, endMs);
+  if (!sorted.length) return [];
+  const out = [];
+  for (let t = startMs; t <= endMs; t += ANALYSIS_SPARK_SAMPLE_MS) {
+    out.push(roundEnergyKwh(cumulativeValueAt(sorted, t)));
+  }
+  const data = downsampleSparkSeries(out);
+  return data.length >= 2 ? data : [];
+}
+
 function cumulativeHistorySparkValues(pts, startMs, endMs) {
-  const slice = (pts || [])
-    .filter((p) => p.t >= startMs && p.t <= endMs)
-    .sort((a, b) => a.t - b.t)
-    .map((p) => Math.max(0, Number(p.v) || 0));
-  if (slice.length >= 2) return downsampleSparkSeries(slice);
-  if (slice.length === 1) return [0, slice[0]];
-  return [];
+  return resampleCumulativeSparkValues(pts, startMs, endMs);
+}
+
+function buildIntradayProductionSpark(points, startMs, endMs) {
+  return resampleCumulativeSparkValues(points.pv, startMs, endMs);
 }
 
 function buildIntradayConsumptionSpark(points, startMs, endMs) {
-  const fromLoad = cumulativeHistorySparkValues(points.load, startMs, endMs);
-  if (fromLoad.length >= 2) return fromLoad;
-  const span = endMs - startMs;
-  if (span <= 0) return [];
-  const steps = 24;
-  const values = [];
-  for (let i = 0; i < steps; i++) {
-    const t = startMs + (span * i) / (steps - 1);
-    const load =
-      dailyMaxInRange(points.load, startMs, t) -
-      dailyMaxInRange(points.discharge, startMs, t) +
-      dailyMaxInRange(points.charge, startMs, t) +
-      dailyMaxInRange(points.grid, startMs, t);
-    values.push(Math.max(0, Math.round(load * 100) / 100));
+  const sorted = {
+    load: sortCumulativeHistoryPts(points.load, endMs),
+    discharge: sortCumulativeHistoryPts(points.discharge, endMs),
+    charge: sortCumulativeHistoryPts(points.charge, endMs),
+    grid: sortCumulativeHistoryPts(points.grid, endMs),
+  };
+  const out = [];
+  for (let t = startMs; t <= endMs; t += ANALYSIS_SPARK_SAMPLE_MS) {
+    let v;
+    if (sorted.load.length) {
+      v = cumulativeValueAt(sorted.load, t);
+    } else {
+      v =
+        -cumulativeValueAt(sorted.discharge, t) +
+        cumulativeValueAt(sorted.charge, t) +
+        cumulativeValueAt(sorted.grid, t);
+    }
+    out.push(roundEnergyKwh(Math.max(0, v)));
   }
-  return downsampleSparkSeries(values);
+  const data = downsampleSparkSeries(out);
+  return data.length >= 2 ? data : [];
+}
+
+function buildSparkPowerPoints(hass, entityId, spec, range, statsMap, hist) {
+  if (!entityId) return [];
+  const statRows = statsMap?.[entityId];
+  let rawPoints;
+  if (statRows?.length) {
+    rawPoints = recorderStatsToPoints(statRows, range);
+  } else {
+    const histPts = historyToPoints(historyRowsForEntity(hist, entityId)).map((p) => ({
+      t: p.t,
+      v: transformHistoryPoint(hass, entityId, p.v, spec),
+    }));
+    rawPoints = resamplePointsMean(histPts, STATISTICS_PERIOD_MS, range.tMin, range.nowMs);
+  }
+  return rawPoints
+    .map((p) => ({ t: p.t, v: Math.max(0, Number(p.v) || 0) }))
+    .filter((p) => Number.isFinite(p.v));
+}
+
+function integratePowerSparkSeries(powerPts, startMs, endMs) {
+  if (!powerPts?.length) return [];
+  const hours = ANALYSIS_SPARK_SAMPLE_MS / 3600000;
+  let cum = 0;
+  const out = [];
+  for (let t = startMs; t <= endMs; t += ANALYSIS_SPARK_SAMPLE_MS) {
+    const kw = interpolateSeriesAt(powerPts, t) ?? 0;
+    cum += Math.max(0, kw) * hours;
+    out.push(roundEnergyKwh(cum));
+  }
+  const data = downsampleSparkSeries(out);
+  return data.length >= 2 ? data : [];
+}
+
+async function fetchDaySparkFromPowerStats(hass, plant, plantState, startMs, endMs) {
+  const map = resolveEntityMap(hass, plant, plantState);
+  const pvId = map.pv_power;
+  const loadId = map.load_power;
+  const ids = [pvId, loadId].filter(Boolean);
+  if (!ids.length) return null;
+  const start = new Date(startMs);
+  const end = new Date(endMs);
+  const [statsMap, hist] = await Promise.all([
+    fetchStatisticsDuring(hass, ids, start, end),
+    fetchHistoryDuring(hass, ids, start, end),
+  ]);
+  const range = { tMin: startMs, nowMs: endMs, tMax: endMs };
+  const pvSpec = { toKw: true };
+  const loadSpec = { toKw: true };
+  const pvPower = buildSparkPowerPoints(hass, pvId, pvSpec, range, statsMap, hist);
+  const loadPower = loadId ? buildSparkPowerPoints(hass, loadId, loadSpec, range, statsMap, hist) : [];
+  if (!pvPower.length && !loadPower.length) return null;
+  const production = integratePowerSparkSeries(pvPower, startMs, endMs);
+  const consumption = integratePowerSparkSeries(loadPower, startMs, endMs);
+  if (production.length < 2 && consumption.length < 2) return null;
+  return { production, consumption };
+}
+
+function resamplePeriodSparkBuckets(values, maxPoints = ANALYSIS_SPARK_MAX_POINTS) {
+  const data = (values || []).map((v) => Number(v) || 0);
+  if (data.length <= 1) return data.length === 1 ? [0, data[0]] : [];
+  return downsampleSparkSeries(data, Math.min(maxPoints, Math.max(data.length, 2)));
 }
 
 function buildDailySparkBuckets(points, days) {
@@ -3791,8 +3896,21 @@ async function fetchAnalysisSummarySparkData(hass, plant, plantState, period, of
   if (period === "day") {
     const startMs = bounds.start.getTime();
     const endMs = fetchEnd.getTime();
+    const fromPower = await fetchDaySparkFromPowerStats(hass, plant, plantState, startMs, endMs);
+    if (fromPower?.production?.length >= 2 || fromPower?.consumption?.length >= 2) {
+      return {
+        production:
+          fromPower.production?.length >= 2
+            ? fromPower.production
+            : buildIntradayProductionSpark(points, startMs, endMs),
+        consumption:
+          fromPower.consumption?.length >= 2
+            ? fromPower.consumption
+            : buildIntradayConsumptionSpark(points, startMs, endMs),
+      };
+    }
     return {
-      production: cumulativeHistorySparkValues(points.pv, startMs, endMs),
+      production: buildIntradayProductionSpark(points, startMs, endMs),
       consumption: buildIntradayConsumptionSpark(points, startMs, endMs),
     };
   }
@@ -3801,8 +3919,8 @@ async function fetchAnalysisSummarySparkData(hass, plant, plantState, period, of
     const days = daysUpToToday(buildFullWeekDays(bounds.start), now);
     const buckets = buildDailySparkBuckets(points, days);
     return {
-      production: buckets.map((b) => b.production),
-      consumption: buckets.map((b) => b.consumption),
+      production: resamplePeriodSparkBuckets(buckets.map((b) => b.production), 7),
+      consumption: resamplePeriodSparkBuckets(buckets.map((b) => b.consumption), 7),
     };
   }
 
@@ -3810,8 +3928,8 @@ async function fetchAnalysisSummarySparkData(hass, plant, plantState, period, of
     const days = daysUpToToday(buildFullMonthDays(bounds.start), now);
     const buckets = buildDailySparkBuckets(points, days);
     return {
-      production: buckets.map((b) => b.production),
-      consumption: buckets.map((b) => b.consumption),
+      production: resamplePeriodSparkBuckets(buckets.map((b) => b.production), 31),
+      consumption: resamplePeriodSparkBuckets(buckets.map((b) => b.consumption), 31),
     };
   }
 
@@ -3841,7 +3959,10 @@ async function fetchAnalysisSummarySparkData(hass, plant, plantState, period, of
       production.push(roundEnergyKwh(pv));
       consumption.push(roundEnergyKwh(load));
     }
-    return { production, consumption };
+    return {
+      production: resamplePeriodSparkBuckets(production, 12),
+      consumption: resamplePeriodSparkBuckets(consumption, 12),
+    };
   }
 
   const years = new Set();
@@ -3874,7 +3995,10 @@ async function fetchAnalysisSummarySparkData(hass, plant, plantState, period, of
     }
     return roundEnergyKwh(load);
   });
-  return { production, consumption };
+  return {
+    production: resamplePeriodSparkBuckets(production, 24),
+    consumption: resamplePeriodSparkBuckets(consumption, 24),
+  };
 }
 
 function formatChartDayLabel(d) {
@@ -6118,6 +6242,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._overviewSummarySlotCache = undefined;
     this._overviewEnergyBandCache = undefined;
     this._analysisTariffDaily = null;
+    this._analysisPeriodTariff = null;
     this._analysisTariffSlotCache = undefined;
     this._analysisSummarySpark = null;
     this._analysisSummarySparkLoading = false;
@@ -8862,10 +8987,17 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
 </div>`;
   }
 
+  _analysisTariffForCard() {
+    if (this._view === "energy_analysis" && this._energyPeriod === "day" && this._analysisPeriodTariff?.configured) {
+      return this._analysisPeriodTariff;
+    }
+    return this._analysisTariffDaily;
+  }
+
   _energyAnalysisSummaryKey(a) {
     if (this._analysisSummarySparkLoading) return "spark:loading";
     const spark = this._analysisSummarySpark;
-    const t = this._analysisTariffDaily;
+    const t = this._analysisTariffForCard();
     if (spark?.error) return `spark:err:${spark.error}`;
     const prod = (spark?.production || []).join(",");
     const cons = (spark?.consumption || []).join(",");
@@ -8911,6 +9043,19 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
         this._energyPeriod,
         this._energyPeriodOffset
       );
+      this._analysisPeriodTariff = null;
+      if (this._plantState?.tariff?.configured && this._energyPeriod === "day") {
+        const now = new Date();
+        const bounds = energyPeriodBounds("day", this._energyPeriodOffset, now);
+        const fetchEnd = bounds.end > now ? now : bounds.end;
+        this._analysisPeriodTariff = await fetchAnalysisTariffIntraday(
+          this._hass,
+          plant,
+          this._plantState,
+          this._overviewDaily,
+          { start: bounds.start, end: fetchEnd }
+        );
+      }
     } catch (err) {
       this._analysisSummarySpark = {
         error:
@@ -8959,7 +9104,7 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
     if (prodEl) prodEl.innerHTML = `${pvVal.toFixed(2)}<span>kWh</span>`;
     if (consEl) consEl.innerHTML = `${loadVal.toFixed(2)}<span>kWh</span>`;
     const tariffState = this._plantState?.tariff;
-    if (!tariffState?.configured && !this._analysisTariffDaily?.configured) return;
+    if (!tariffState?.configured && !this._analysisTariffForCard()?.configured) return;
     const rates = tariffEffectiveRates(tariffState || {});
     const importKwh = Number(a.load_from_grid_kwh_today ?? 0) || 0;
     const exportKwh = Number(a.pv_to_grid_kwh_today ?? 0) || 0;
@@ -9036,7 +9181,7 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
     const summary = root.querySelector("[data-energy-analysis-summary]");
     if (summaryKey !== this._energyAnalysisSummaryCache) {
       if (summary) {
-        summary.innerHTML = renderFoxAnalysisSummaryCard(a, this._analysisSummarySpark, this._analysisTariffDaily, {
+        summary.innerHTML = renderFoxAnalysisSummaryCard(a, this._analysisSummarySpark, this._analysisTariffForCard(), {
           loading: this._analysisSummarySparkLoading,
           period: this._energyPeriod,
         });
@@ -9095,7 +9240,7 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
   _renderEnergyAnalysis(plant) {
     const a = this._energyAnalyticsForView(plant);
     const title = energyBreakdownTitle(this._energyPeriod, this._energyPeriodOffset);
-    const summaryCard = renderFoxAnalysisSummaryCard(a, this._analysisSummarySpark, this._analysisTariffDaily, {
+    const summaryCard = renderFoxAnalysisSummaryCard(a, this._analysisSummarySpark, this._analysisTariffForCard(), {
       loading: this._analysisSummarySparkLoading,
       period: this._energyPeriod,
     });
