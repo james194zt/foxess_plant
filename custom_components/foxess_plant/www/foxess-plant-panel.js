@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.83
+ * @version 0.9.87
  */
 
 const NAV = [
@@ -1659,18 +1659,19 @@ ${renderFoxAnalysisStatCol("PV Produced", a.pv_production_kwh_today, "pv_produce
 ${renderFoxAnalysisStatCol("Discharged", a.battery_discharge_kwh_today, "discharged")}
 </div>
 ${renderFoxAnalysisFlowBridge()}
-<div class="fox-analysis-stat-na">Usage</div>
+<div class="fox-analysis-stat-usage-wrap">
+<div class="fox-analysis-stat-na fox-analysis-stat-na--overlay">Usage</div>
 <div class="fox-analysis-stat-row">
 ${renderFoxAnalysisStatCol("Exported", a.pv_to_grid_kwh_today, "exported", { muted: true })}
 ${renderFoxAnalysisStatCol("Consumed", a.load_consumption_kwh_today, "consumed")}
 ${renderFoxAnalysisStatCol("Charged", a.battery_charge_kwh_today, "charged")}
 </div>
+</div>
 </div>`;
 }
 
-function renderStatisticsSideLegend(visible, { socVisible = false } = {}) {
+function renderStatisticsSideLegend(visible) {
   const groupsPresent = new Set(visible.map((s) => s.legendGroup || s.id));
-  if (socVisible) groupsPresent.add("soc");
   const section = (heading, items) => {
     const rows = items
       .filter((it) => groupsPresent.has(it.group))
@@ -1684,7 +1685,6 @@ function renderStatisticsSideLegend(visible, { socVisible = false } = {}) {
     return `<div class="statistics-legend-section">${head}${rows}</div>`;
   };
   return (
-    section("SOC", STATISTICS_SIDE_LEGEND.soc) +
     section("SUPPLY", STATISTICS_SIDE_LEGEND.supply) +
     section("USAGE", STATISTICS_SIDE_LEGEND.usage) +
     section("", STATISTICS_SIDE_LEGEND.forecast)
@@ -1794,10 +1794,7 @@ const STATISTICS_LEGEND_COLORS = {
 };
 
 /** Side legend groups (FoxCloud Energy Analysis layout). */
-const STATISTICS_SOC_COLOR = "#7FD47C";
-const STATISTICS_SOC_Y_TICKS = [0, 50, 100];
 const STATISTICS_SIDE_LEGEND = {
-  soc: [{ group: "soc", label: "SoC", color: STATISTICS_SOC_COLOR }],
   supply: [
     { group: "solar", label: "Solar", color: "#19D4DE" },
     { group: "battery", label: "Battery Discharge", color: "#8DB6FF" },
@@ -1820,13 +1817,13 @@ const STATISTICS_CHART_LAYOUT = {
   yTickStepKw: 0.5,
 };
 
-function statisticsChartLayout({ sideLegend = false, hasSoc = false } = {}) {
+function statisticsChartLayout({ sideLegend = false } = {}) {
   return {
     ...STATISTICS_CHART_LAYOUT,
     pad: {
-      l: sideLegend || hasSoc ? 58 : 52,
-      r: hasSoc ? 52 : sideLegend ? 16 : 8,
-      t: sideLegend || hasSoc ? 22 : 12,
+      l: sideLegend ? 58 : 52,
+      r: sideLegend ? 16 : 8,
+      t: sideLegend ? 22 : 12,
       b: 40,
     },
   };
@@ -2831,10 +2828,9 @@ function statisticsYTicks(yMin, yMax, step = STATISTICS_CHART_LAYOUT.yTickStepKw
   return ticks;
 }
 
-function formatStatisticsYTick(v, { mirrored = false } = {}) {
+function formatStatisticsYTick(v) {
   const r = Math.round(v * 2) / 2;
-  const display = mirrored && v < 0 ? Math.abs(r) : r;
-  return Number.isInteger(display) ? String(display) : display.toFixed(1);
+  return Number.isInteger(r) ? String(r) : r.toFixed(1);
 }
 
 /** Map screen coords to viewBox when SVG uses meet or slice scaling. */
@@ -2884,13 +2880,8 @@ function statisticsTooltipRowsHtml(seriesMeta, t, hiddenGroups) {
       const g = s.legendGroup;
       if (g && hiddenGroups.has(g)) return "";
       const v = interpolateSeriesAt(s.points, t);
-      if (v == null) return "";
+      if (v == null || Math.abs(v) < 0.001) return "";
       const label = statisticsSeriesTooltipLabel(s);
-      if (s.yAxis === "soc") {
-        if (v == null) return "";
-        return `<div class="statistics-tooltip-row"><span class="statistics-tooltip-label"><i class="statistics-tooltip-swatch" style="background:${esc(s.color)}"></i>${esc(label)}</span><strong>${esc(formatSocPercent(v))}</strong></div>`;
-      }
-      if (Math.abs(v) < 0.001) return "";
       return `<div class="statistics-tooltip-row"><span class="statistics-tooltip-label"><i class="statistics-tooltip-swatch" style="background:${esc(s.color)}"></i>${esc(label)}</span><strong>${formatStatisticsKw(v)}</strong></div>`;
     })
     .filter(Boolean)
@@ -3319,8 +3310,7 @@ async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset =
   const range = getStatisticsDayRangeForDate(day, { asOf: dayOffset === 0 ? now : endOfLocalDay(day) });
   const fetchEnd = new Date(range.nowMs);
   const start = new Date(range.tMin);
-  const socId = map.battery_soc;
-  const entityIds = [...new Set([...specs.map((s) => s.entity_id), socId].filter(Boolean))];
+  const entityIds = specs.map((s) => s.entity_id);
   const [statsMap, hist] = await Promise.all([
     fetchStatisticsDuring(hass, entityIds, start, fetchEnd),
     fetchHistoryDuring(hass, entityIds, start, fetchEnd),
@@ -3337,23 +3327,6 @@ async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset =
     lineWidth: spec.lineWidth,
     points: buildStatisticsSeriesPoints(hass, spec.entity_id, spec, range, statsMap, hist),
   }));
-  let socSeries = null;
-  if (socId) {
-    const socPoints = buildSocHistoryPoints(hass, socId, range, statsMap, hist);
-    if (socPoints.length) {
-      socSeries = {
-        id: "battery_soc",
-        label: "SoC",
-        tooltipLabel: "SoC",
-        legendGroup: "soc",
-        yAxis: "soc",
-        color: STATISTICS_SOC_COLOR,
-        connectGaps: true,
-        lineWidth: 1.6,
-        points: socPoints,
-      };
-    }
-  }
   if (dayOffset === 0) {
     const fPoints = buildForecastSeriesPoints(forecastState, range, hass);
     if (fPoints.length) {
@@ -3382,7 +3355,7 @@ async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset =
       empty: `No statistics for: ${listed}. Confirm the Recorder stores 5-minute means for these entities (same as your Lovelace plotly-graph card).`,
     };
   }
-  return { series, socSeries, range, forecastState, dayOffset };
+  return { series, range, forecastState, dayOffset };
 }
 
 function buildDailyLabels(startDay, count) {
@@ -3635,13 +3608,11 @@ function formatChartTimeLabel(ms) {
 
 function renderStatisticsChartHtml(series, range, options = {}) {
   const sideLegend = options.sideLegend === true;
-  const socSeries = options.socSeries;
-  const hasSoc = !!socSeries?.points?.length;
   const visible = series.filter((s) => s.points?.length);
-  if (!visible.length && !hasSoc) {
+  if (!visible.length) {
     return `<p class="placeholder chart-empty">No power history for today yet.</p>`;
   }
-  const layout = statisticsChartLayout({ sideLegend, hasSoc });
+  const layout = statisticsChartLayout({ sideLegend });
   const { width, height, pad, xTickHours, xTickCount } = layout;
   const w = width - pad.l - pad.r;
   const h = height - pad.t - pad.b;
@@ -3651,15 +3622,11 @@ function renderStatisticsChartHtml(series, range, options = {}) {
   const { yMin, yMax } = computeStatisticsYDomain(visible);
   const ySpan = yMax - yMin || 1;
   const yScale = (v) => pad.t + h - ((v - yMin) / ySpan) * h;
-  const ySocScale = (v) => pad.t + h - (Math.min(100, Math.max(0, v)) / 100) * h;
   const yZero = yScale(0);
   const yTicks = statisticsYTicks(yMin, yMax);
   const yAxisX = pad.l;
   const yLabelX = yAxisX - 10;
-  const yAxisRightX = pad.l + w;
-  const yLabelRightX = yAxisRightX + 10;
   const xTicks = Array.from({ length: xTickCount }, (_, i) => tMin + i * xTickHours * 60 * 60 * 1000);
-  const mirroredTicks = sideLegend || hasSoc;
 
   const plotSeries = visible.map((s) => {
     const isForecast = s.id === "forecast" || s.legendGroup === "forecast";
@@ -3691,20 +3658,6 @@ function renderStatisticsChartHtml(series, range, options = {}) {
     return { ...s, segments, isForecast };
   });
 
-  let socPlotSeries = null;
-  if (hasSoc) {
-    const clipped = socSeries.points.filter((p) => p.t >= tMin && p.t <= nowMs);
-    const segmentGroups = socSeries.connectGaps ? [clipped] : splitStatisticsSegments(clipped);
-    const segments = segmentGroups
-      .filter((pts) => pts.length >= 2)
-      .map((pts) => ({
-        timePts: pts,
-        pixelPts: pts.map((p) => ({ x: xScale(p.t), y: ySocScale(p.v), t: p.t, v: p.v })),
-        dash: "",
-      }));
-    socPlotSeries = { ...socSeries, segments };
-  }
-
   const grid = yTicks
     .map((yv) => {
       const y = yScale(yv);
@@ -3715,16 +3668,9 @@ function renderStatisticsChartHtml(series, range, options = {}) {
   const yLabels = yTicks
     .map((yv) => {
       const y = yScale(yv);
-      return `<text x="${yLabelX}" y="${(y + 4).toFixed(1)}" text-anchor="end" class="statistics-axis-y">${esc(formatStatisticsYTick(yv, { mirrored: mirroredTicks }))}</text>`;
+      return `<text x="${yLabelX}" y="${(y + 4).toFixed(1)}" text-anchor="end" class="statistics-axis-y">${esc(formatStatisticsYTick(yv))}</text>`;
     })
     .join("");
-
-  const ySocLabels = hasSoc
-    ? STATISTICS_SOC_Y_TICKS.map((yv) => {
-        const y = ySocScale(yv);
-        return `<text x="${yLabelRightX}" y="${(y + 4).toFixed(1)}" text-anchor="start" class="statistics-axis-y statistics-axis-y--soc">${yv}%</text>`;
-      }).join("")
-    : "";
 
   const xLabels = xTicks
     .map((xt) => {
@@ -3755,18 +3701,8 @@ function renderStatisticsChartHtml(series, range, options = {}) {
     )
     .join("");
 
-  const socLines = socPlotSeries
-    ? (socPlotSeries.segments || [])
-        .filter((seg) => seg.pixelPts.length >= 2)
-        .map(
-          (seg) =>
-            `<path class="statistics-line statistics-line-soc" data-series-id="${esc(socPlotSeries.id)}" data-legend-group="soc" d="${statisticsLinePath(seg.pixelPts, seg.timePts)}" fill="none" stroke="${socPlotSeries.color}" stroke-width="${socPlotSeries.lineWidth || 1.6}" stroke-linecap="round" stroke-linejoin="round"/>`
-        )
-        .join("")
-    : "";
-
   const legendItems = sideLegend
-    ? renderStatisticsSideLegend(visible, { socVisible: hasSoc })
+    ? renderStatisticsSideLegend(visible)
     : STATISTICS_LEGEND_ORDER.filter((g) => new Set(visible.map((s) => s.legendGroup || s.id)).has(g))
         .map(
           (g) =>
@@ -3774,25 +3710,18 @@ function renderStatisticsChartHtml(series, range, options = {}) {
         )
         .join("");
 
-  const powerAxisLabel = sideLegend || hasSoc ? "Power (kW)" : "kW";
+  const powerAxisLabel = sideLegend ? "Power (kW)" : "kW";
   const leftAxisTitle = `<text x="${yLabelX}" y="${(pad.t - 6).toFixed(1)}" text-anchor="start" class="statistics-y-label statistics-y-label--left">${esc(powerAxisLabel)}</text>`;
-  const rightAxisTitle = hasSoc
-    ? `<text x="${yLabelRightX}" y="${(pad.t - 6).toFixed(1)}" text-anchor="start" class="statistics-y-label statistics-y-label--right">SOC</text>`
-    : "";
 
   const plotHtml = `<div class="statistics-chart-plot" data-pad-l="${pad.l}" data-pad-t="${pad.t}" data-pad-b="${pad.b}" data-plot-w="${w}" data-plot-h="${h}" data-t-min="${tMin}" data-t-max="${tMax}" data-y-min="${yMin}" data-y-max="${yMax}" data-now-ms="${nowMs}">
 <svg class="statistics-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Statistics power chart">
 ${leftAxisTitle}
-${rightAxisTitle}
 ${grid}
 <line x1="${yAxisX}" y1="${pad.t}" x2="${yAxisX}" y2="${(pad.t + h).toFixed(1)}" class="statistics-y-axis"/>
-${hasSoc ? `<line x1="${yAxisRightX}" y1="${pad.t}" x2="${yAxisRightX}" y2="${(pad.t + h).toFixed(1)}" class="statistics-y-axis statistics-y-axis--right"/>` : ""}
 <line x1="${yAxisX}" y1="${yZero.toFixed(1)}" x2="${(pad.l + w).toFixed(1)}" y2="${yZero.toFixed(1)}" class="statistics-zero-line"/>
 ${fills}
 ${lines}
-${socLines}
 ${yLabels}
-${ySocLabels}
 ${xLabels}
 <rect class="statistics-hit" x="${pad.l}" y="${pad.t}" width="${w}" height="${h}" fill="transparent"/>
 </svg>
@@ -3807,13 +3736,8 @@ ${xLabels}
 </div>`;
   }
 
-  const topLegendSoc =
-    hasSoc && !sideLegend
-      ? `<button type="button" class="statistics-legend-item" data-legend-group="soc" aria-pressed="true"><i style="background:${STATISTICS_SOC_COLOR}"></i><span>SoC</span></button>`
-      : "";
-
   return `<div class="statistics-chart-wrap" data-statistics-chart="1">
-<div class="statistics-chart-legend">${topLegendSoc}${legendItems}</div>
+<div class="statistics-chart-legend">${legendItems}</div>
 ${plotHtml}
 </div>`;
 }
@@ -4571,8 +4495,11 @@ const STYLES = `
 .card-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--secondary-text-color); margin: 0 0 14px; }
 .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 12px; }
 .overview-hero-row { display: flex; flex-direction: column; gap: 14px; margin-bottom: 14px; }
-.overview-hero-scene { width: 100%; max-width: none; margin: 0; min-width: 0; }
+.overview-hero-scene { width: 100%; max-width: none; margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
 .overview-hero-scene .scene-card--fox-flow { margin-bottom: 0; width: 100%; }
+.overview-hero-breakdown.breakdown-card { margin-top: 0; margin-bottom: 0; }
+.overview-hero-summary { min-width: 0; }
+.overview-hero-summary .card { margin-top: 14px; }
 .overview-hero-daily {
   display: flex; flex-direction: column; gap: 12px;
   min-width: 0;
@@ -4822,11 +4749,7 @@ const STYLES = `
   fill: var(--secondary-text-color); font-size: 12px; font-weight: 600; text-anchor: start;
 }
 .statistics-y-label--left { text-anchor: start; }
-.statistics-y-label--right { text-anchor: start; }
 .statistics-y-axis { stroke: rgba(127,127,127,0.35); stroke-width: 1; }
-.statistics-y-axis--right { stroke: rgba(127,127,127,0.28); }
-.statistics-axis-y--soc { fill: var(--secondary-text-color); }
-.statistics-line-soc { pointer-events: none; }
 .statistics-axis-x, .statistics-axis-y {
   fill: var(--secondary-text-color); font-size: 12px;
   font-variant-numeric: tabular-nums; text-rendering: geometricPrecision;
@@ -5065,14 +4988,10 @@ const STYLES = `
   background: color-mix(in srgb, var(--secondary-text-color) 8%, transparent);
   border-radius: 8px;
 }
-.fox-analysis-panel-card:has(.fox-analysis-stat-r) {
-  padding: 0; background: transparent; border: none; box-shadow: none;
-}
 .fox-analysis-stat-r {
   position: relative;
-  padding: 20px 24px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--secondary-background-color) 70%, var(--card-background-color));
+  padding: 0;
+  background: transparent;
   --fox-flow-green: #03bd9a;
   --fox-flow-track: color-mix(in srgb, var(--secondary-text-color) 14%, transparent);
   --fox-stat-border-top: color-mix(in srgb, var(--secondary-text-color) 14%, transparent);
@@ -5084,8 +5003,18 @@ const STYLES = `
   color: var(--primary-text-color);
   margin: 0 0 10px;
 }
-.fox-analysis-stat-na + .fox-analysis-stat-row + .fox-analysis-stat-bridge + .fox-analysis-stat-na {
-  margin-top: 0;
+.fox-analysis-stat-usage-wrap {
+  position: relative;
+}
+.fox-analysis-stat-na--overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  margin: 0;
+  padding: 0 8px 0 0;
+  transform: translateY(-50%);
+  background: var(--card-background-color);
 }
 .fox-analysis-stat-row {
   display: flex;
@@ -5103,9 +5032,6 @@ const STYLES = `
     var(--fox-stat-border-top) 25%,
     var(--fox-flow-green)
   ) 2 2;
-}
-.fox-analysis-stat-row + .fox-analysis-stat-bridge + .fox-analysis-stat-na {
-  margin-top: 10px;
 }
 .fox-analysis-stat-col {
   display: flex;
@@ -5825,6 +5751,8 @@ class FoxessPlantPanel extends HTMLElement {
     this._overviewDailyLoading = false;
     this._overviewDailyPlantId = undefined;
     this._overviewDailySlotCache = undefined;
+    this._overviewBreakdownSlotCache = undefined;
+    this._overviewSummarySlotCache = undefined;
     this._analysisTariffDaily = null;
     this._analysisTariffSlotCache = undefined;
     this._energyAnalysisSummaryCache = undefined;
@@ -7722,6 +7650,8 @@ ${this._renderImpactPanel()}`;
       this._flowSceneKeyPending = undefined;
       this._flowSceneKeyPendingN = 0;
       this._overviewDailySlotCache = undefined;
+      this._overviewBreakdownSlotCache = undefined;
+    this._overviewSummarySlotCache = undefined;
     }
     const stableKey = this._stableFlowSceneKey(ctx.key);
     const rebuildFlow = stableKey !== this._flowSceneKey;
@@ -7730,7 +7660,11 @@ ${this._renderImpactPanel()}`;
       mainEl.innerHTML = `<div class="overview-root">
 <div class="overview-chrome"></div>
 <div class="overview-hero-row">
-<div class="overview-hero-scene"></div>
+<div class="overview-hero-scene">
+<div class="overview-hero-scene-slot"></div>
+<div class="overview-hero-breakdown-slot"></div>
+<div class="overview-hero-summary-slot"></div>
+</div>
 <div class="overview-hero-daily-slot"></div>
 </div>
 <div class="overview-after-hero"></div>
@@ -7745,11 +7679,23 @@ ${this._renderImpactPanel()}`;
       dailySlot.innerHTML = this._renderOverviewDailyCards();
       this._overviewDailySlotCache = dailyKey;
     }
+    const breakdownKey = this._overviewBreakdownSlotKey(plant);
+    const breakdownSlot = mainEl.querySelector(".overview-hero-breakdown-slot");
+    if (breakdownSlot && breakdownKey !== this._overviewBreakdownSlotCache) {
+      breakdownSlot.innerHTML = this._renderOverviewEnergyBreakdown(plant);
+      this._overviewBreakdownSlotCache = breakdownKey;
+    }
+    const summaryKey = this._overviewSummarySlotKey(plant);
+    const summarySlot = mainEl.querySelector(".overview-hero-summary-slot");
+    if (summarySlot && summaryKey !== this._overviewSummarySlotCache) {
+      summarySlot.innerHTML = this._renderOverviewEnergySummary(plant);
+      this._overviewSummarySlotCache = summaryKey;
+    }
     mainEl.querySelector(".overview-after-hero").innerHTML = this._renderOverviewAfterHero(plant);
 
-    const sceneSlot = mainEl.querySelector(".overview-hero-scene");
-    if (rebuildFlow || !sceneSlot.querySelector(".fox-flow-stage")) {
-      sceneSlot.innerHTML = this._renderEnergyScene(plant);
+    const sceneSlot = mainEl.querySelector(".overview-hero-scene-slot");
+    if (rebuildFlow || !sceneSlot?.querySelector(".fox-flow-stage")) {
+      if (sceneSlot) sceneSlot.innerHTML = this._renderEnergyScene(plant);
       this._flowSceneKey = stableKey;
     } else {
       const stage = sceneSlot.querySelector(".fox-flow-stage");
@@ -7931,6 +7877,8 @@ ${this._renderPanelStaleBanner()}
 <div class="overview-hero-row">
 <div class="overview-hero-scene">
 ${this._renderEnergyScene(plant)}
+${this._renderOverviewEnergyBreakdown(plant)}
+${this._renderOverviewEnergySummary(plant)}
 </div>
 ${this._renderOverviewDailyCards()}
 </div>
@@ -8306,21 +8254,16 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
       return `<p class="placeholder chart-empty">${esc(this._statisticsChart.empty)}</p>`;
     }
     const series = this._statisticsSeriesForDisplay();
-    if (series?.length || this._statisticsChart?.socSeries?.points?.length) {
-      return renderStatisticsChartHtml(series || [], this._statisticsChart.range, {
-        ...options,
-        socSeries: this._statisticsChart.socSeries,
-      });
+    if (series?.length) {
+      return renderStatisticsChartHtml(series, this._statisticsChart.range, options);
     }
     return `<p class="placeholder chart-empty">Open Energy or wait for history to load.</p>`;
   }
 
   _bindStatisticsChart() {
-    const series = this._statisticsSeriesForDisplay() || [];
-    const soc = this._statisticsChart?.socSeries;
-    const meta = soc?.points?.length ? [...series, soc] : series;
-    if (!meta.length) return;
-    bindStatisticsChart(this._root, meta);
+    const series = this._statisticsSeriesForDisplay();
+    if (!series?.length) return;
+    bindStatisticsChart(this._root, series);
   }
 
   async _loadBatterySocChart() {
@@ -8428,7 +8371,7 @@ ${this._stat("Battery discharge", a.battery_discharge_kwh_today, " kWh")}
     return this._renderEnergyBreakdownRows(a, title);
   }
 
-  _renderEnergyBreakdownRows(a, title) {
+  _renderEnergyBreakdownRows(a, title, { extraClass = "" } = {}) {
     const pvTotal = Number(a.pv_production_kwh_today ?? 0) || 0;
     const pvToLoadBattery = Number(a.pv_to_load_battery_kwh_today ?? 0) || 0;
     const pvToGrid = Number(a.pv_to_grid_kwh_today ?? 0) || 0;
@@ -8471,10 +8414,55 @@ ${this._stat("Battery discharge", a.battery_discharge_kwh_today, " kWh")}
       accent: FOX_ENERGY.load,
     });
 
-    return `<div class="card breakdown-card">
+    return `<div class="card breakdown-card${extraClass ? ` ${extraClass}` : ""}">
 <p class="card-title">${esc(title)}</p>
 <div class="fox-energy-panel">${pvRow}${loadRow}</div>
 </div>`;
+  }
+
+  _overviewBreakdownSlotKey(plant) {
+    if (this._overviewDailyLoading && !this._plantState?.analytics) return "loading";
+    const a = readLiveAnalytics(this._hass, plant, this._plantState, this._overviewDaily);
+    return [
+      a.pv_production_kwh_today,
+      a.pv_to_load_battery_kwh_today,
+      a.pv_to_grid_kwh_today,
+      a.load_consumption_kwh_today,
+      a.load_from_pv_battery_kwh_today,
+      a.load_from_grid_kwh_today,
+      a.self_consumption_percent_today,
+      a.self_sufficiency_percent_today,
+    ].join("|");
+  }
+
+  _renderOverviewEnergyBreakdown(plant) {
+    if (this._overviewDailyLoading && !this._plantState?.analytics) {
+      return `<div class="card breakdown-card overview-hero-breakdown"><p class="chart-loading">Loading breakdown…</p></div>`;
+    }
+    const a = readLiveAnalytics(this._hass, plant, this._plantState, this._overviewDaily);
+    return this._renderEnergyBreakdownRows(a, "Today energy breakdown", {
+      extraClass: "overview-hero-breakdown",
+    });
+  }
+
+  _overviewSummarySlotKey(plant) {
+    if (this._overviewDailyLoading && !this._plantState?.analytics) return "loading";
+    const a = readLiveAnalytics(this._hass, plant, this._plantState, this._overviewDaily);
+    return [
+      a.load_consumption_kwh_today,
+      a.load_from_grid_kwh_today,
+      a.pv_to_grid_kwh_today,
+      a.self_consumption_percent_today,
+      a.battery_charge_kwh_today,
+      a.battery_discharge_kwh_today,
+    ].join("|");
+  }
+
+  _renderOverviewEnergySummary(plant) {
+    if (this._overviewDailyLoading && !this._plantState?.analytics) {
+      return `<div class="overview-hero-summary"><p class="chart-loading">Loading…</p></div>`;
+    }
+    return `<div class="overview-hero-summary">${this._renderEnergySummaryCards(plant)}</div>`;
   }
 
   _renderEnergyCharts() {
@@ -8533,7 +8521,7 @@ ${this._renderEnergyCharts()}`;
       const chart = this._statisticsChart;
       if (chart?.error) return `stat:err:${chart.error}`;
       if (chart?.empty) return `stat:empty:${chart.empty}`;
-      if (!chart?.series?.length && !chart?.socSeries?.points?.length) return "stat:none";
+      if (!chart?.series?.length) return "stat:none";
       return `stat:${this._statisticsChartPlantId ?? ""}|loaded`;
     }
     if (this._energyChartLoading) return "energy:loading";
