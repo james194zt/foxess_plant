@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.91
+ * @version 0.9.92
  */
 
 const NAV = [
@@ -350,6 +350,38 @@ const WORK_MODE_META = {
     hint: "Active remote force-discharge session.",
   },
 };
+
+const FOX_WORK_MODE_ICONS = {"selfUse": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 48 48\" fill=\"none\"><rect width=\"48\" height=\"48\" rx=\"10\" fill=\"#FA8C16\" /><path d=\"M24.9987 24.2216H27.9987L22.9987 31.9989V26.4442H19.9987L24.9987 18.6656V24.2216Z\" fill=\"white\" /><path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M23.1016 10.1474C23.61 9.68526 24.3874 9.68526 24.8958 10.1474L38.6654 22.6656H34.6654V34.6656C34.6654 35.402 34.0684 35.9989 33.332 35.9989H14.6654C13.929 35.9989 13.332 35.402 13.332 34.6656V22.6656H9.33203L23.1016 10.1474ZM15.9987 20.2099V33.3322H31.9987V20.2099L23.9987 12.9364L15.9987 20.2099Z\" fill=\"white\" /></svg>", "feedInPriority": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 48 48\" fill=\"none\"><rect width=\"48\" height=\"48\" rx=\"10\" fill=\"#894BFC\" /><path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M27.2427 10.0007C26.6165 10.6391 26.1184 11.4025 25.7883 12.2507H20.8534L19.7974 16.0007H25.468C25.6131 16.7158 25.8742 17.3886 26.2284 18.0007H19.2349L17.8286 23.0007H30.1737L29.576 20.877C30.3276 21.1707 31.1449 21.3339 32.0005 21.334C32.0138 21.334 32.0276 21.3328 32.0409 21.3327L32.5109 23.0007H35.5005C35.7766 23.0007 36.0005 23.2245 36.0005 23.5007V24.5007C36.0005 24.7768 35.7766 25.0006 35.5005 25.0007H33.0747L36.6476 37.7012C36.7072 37.9142 36.4811 38.0939 36.287 37.9876L24.0005 31.2598L11.714 37.9876C11.5201 38.0933 11.2941 37.9139 11.3534 37.7012L14.9276 25.0007H12.5005C12.2246 25.0004 12.0005 24.7766 12.0005 24.5007V23.5007C12.0005 23.2247 12.2246 23.0009 12.5005 23.0007H15.4901L16.8976 18.0007H15.5005C15.2246 18.0004 15.0005 17.7766 15.0005 17.5007V16.5007C15.0005 16.2247 15.2246 16.0009 15.5005 16.0007H17.4601L18.9953 10.5475C19.0863 10.2242 19.3808 10.0008 19.7167 10.0007H27.2427ZM14.8091 33.7285L21.6581 29.9772L16.6385 27.2285L14.8091 33.7285ZM26.343 29.9772L33.1932 33.7285L31.3638 27.2285L26.343 29.9772ZM17.2635 25.0059L24.0005 28.6947L30.7388 25.0059L30.7375 25.0007H17.2648L17.2635 25.0059Z\" fill=\"white\" /><path d=\"M32.0005 13.334H37.3338V16.0007H32.0005V20.0007L26.6672 14.6673L32.0005 9.33398V13.334Z\" fill=\"white\" /></svg>", "backUp": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 48 48\" fill=\"none\"><rect width=\"48\" height=\"48\" rx=\"10\" fill=\"#08979C\" /><path d=\"M25.3346 23.9993H29.3346L22.668 33.3327V26.666H18.668L25.3346 17.3327V23.9993ZM22.668 15.9993H17.3346V34.666H30.668V15.9993H25.3346V13.3327H22.668V15.9993ZM20.0013 13.3327V11.9993C20.0013 11.263 20.5983 10.666 21.3346 10.666H26.668C27.4044 10.666 28.0013 11.263 28.0013 11.9993V13.3327H32.0013C32.7377 13.3327 33.3346 13.9296 33.3346 14.666V35.9993C33.3346 36.7357 32.7377 37.3327 32.0013 37.3327H16.0013C15.2649 37.3327 14.668 36.7357 14.668 35.9993V14.666C14.668 13.9296 15.2649 13.3327 16.0013 13.3327H20.0013Z\" fill=\"white\" /></svg>", "peakShaving": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 48 48\" fill=\"none\"><g id=\"Frame 1321316676\"><rect id=\"Rectangle 34625412\" width=\"48\" height=\"48\" rx=\"4\" fill=\"#FC355D\" /><g id=\"Frame 1321316322\"><g id=\"Group 1000004358\"><path id=\"Vector 480\" d=\"M12.6494 22.5198C12.899 22.5198 13.473 22.2442 13.7724 21.1419C14.1468 19.7639 15.2698 16.0893 16.3929 21.6012C16.4417 21.821 17.3211 25.1092 18.5159 22.1977C19.7106 19.2862 19.8921 18.9575 21.1913 22.3093C22.2306 24.9907 22.7792 22.718 22.9236 21.2465C22.9997 20.087 23.1033 18.8083 23.2314 17.5844M35.2209 22.5198C34.8662 22.7079 34.3616 22.6402 33.9039 22.4954C33.3174 22.3099 32.9696 21.7466 32.8761 21.1386C32.2139 16.8336 30.7403 11.14 29.1478 16.9445C27.0039 24.7587 26.4404 21.7384 26.2566 20.9341C26.1296 19.6614 26.0048 18.5496 25.8824 17.5844\" stroke=\"white\" stroke-width=\"1.5\" stroke-linecap=\"round\" /><path id=\"Vector 479\" d=\"M23.3679 15.9402C23.6839 13.4146 24.634 9.44125 25.8455 15.8182\" stroke=\"white\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-dasharray=\"3 3\" /><path id=\"Vector 481\" d=\"M12.3613 17.8438H33.6387C34.7432 17.8438 35.6387 18.7392 35.6387 19.8437V29.4103C35.6387 30.5149 34.7432 31.4103 33.6387 31.4103H23.0051\" stroke=\"#FFB8C6\" stroke-width=\"1.5\" stroke-linecap=\"round\" /><rect id=\"Rectangle 24027\" x=\"18.895\" y=\"26.5547\" width=\"9.31278\" height=\"9.06249\" rx=\"1\" fill=\"white\" /><g id=\"Rectangle 24028\"><mask id=\"path-6-inside-1_2095_75746\" fill=\"white\"><rect x=\"20.7388\" y=\"28.9844\" width=\"1.53526\" height=\"4.7414\" rx=\"0.1\" /></mask><rect x=\"20.7388\" y=\"28.9844\" width=\"1.53526\" height=\"4.7414\" rx=\"0.1\" stroke=\"#FC355D\" stroke-width=\"0.4\" mask=\"url(#path-6-inside-1_2095_75746)\" /></g><rect id=\"Rectangle 24029\" x=\"21.1538\" y=\"28.4453\" width=\"0.705239\" height=\"0.363547\" rx=\"0.1\" fill=\"#FC355D\" /><rect id=\"Rectangle 24030\" x=\"20.8098\" y=\"31.25\" width=\"1.39725\" height=\"2.32806\" fill=\"#FC355D\" /><g id=\"Rectangle 24028_2\"><mask id=\"path-9-inside-2_2095_75746\" fill=\"white\"><rect x=\"22.822\" y=\"28.9844\" width=\"1.53526\" height=\"4.7414\" rx=\"0.1\" /></mask><rect x=\"22.822\" y=\"28.9844\" width=\"1.53526\" height=\"4.7414\" rx=\"0.1\" stroke=\"#FC355D\" stroke-width=\"0.4\" mask=\"url(#path-9-inside-2_2095_75746)\" /></g><rect id=\"Rectangle 24029_2\" x=\"23.2334\" y=\"28.4453\" width=\"0.705239\" height=\"0.363547\" rx=\"0.1\" fill=\"#FC355D\" /><rect id=\"Rectangle 24030_2\" x=\"22.8855\" y=\"29.8047\" width=\"1.39725\" height=\"3.77386\" fill=\"#FC355D\" /><g id=\"Rectangle 24028_3\"><mask id=\"path-12-inside-3_2095_75746\" fill=\"white\"><rect x=\"24.8977\" y=\"28.9844\" width=\"1.53526\" height=\"4.7414\" rx=\"0.1\" /></mask><rect x=\"24.8977\" y=\"28.9844\" width=\"1.53526\" height=\"4.7414\" rx=\"0.1\" stroke=\"#FC355D\" stroke-width=\"0.4\" mask=\"url(#path-12-inside-3_2095_75746)\" /></g><rect id=\"Rectangle 24029_3\" x=\"25.3127\" y=\"28.4453\" width=\"0.705239\" height=\"0.363547\" rx=\"0.1\" fill=\"#FC355D\" /><rect id=\"Rectangle 24030_3\" x=\"24.9648\" y=\"32.2656\" width=\"1.39725\" height=\"1.31359\" fill=\"#FC355D\" /></g></g></g></svg>", "forceCharge": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 20 20\" fill=\"none\"><g id=\"Frame 272\"><path d=\"M0 2C0 0.895431 0.895431 0 2 0H18C19.1046 0 20 0.895431 20 2V18C20 19.1046 19.1046 20 18 20H2C0.895431 20 0 19.1046 0 18V2Z\" fill=\"#1677FF\" /><g id=\"Icon/ChargeOutline\"><path id=\"vector\" fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M12.5 3.25C12.5 3.11193 12.3881 3 12.25 3H7.82812C7.69005 3 7.57812 3.11193 7.57812 3.25V4H4.25C4.11193 4 4 4.11193 4 4.25V4.875C4 5.01307 4.11193 5.125 4.25 5.125H5V14.9375H4.25C4.11193 14.9375 4 15.0494 4 15.1875V15.8125C4 15.9506 4.11193 16.0625 4.25 16.0625H15.75C15.8881 16.0625 16 15.9506 16 15.8125V15.1875C16 15.0494 15.8881 14.9375 15.75 14.9375H15V5.125H15.75C15.8881 5.125 16 5.01307 16 4.875V4.25C16 4.11193 15.8881 4 15.75 4H12.5V3.25ZM9.5 10.7H7.5L10.5 6.5V9.3H12.5L9.5 13.5V10.7Z\" fill=\"white\" /></g></g></svg>", "forceDischarge": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 20 20\" fill=\"none\"><g id=\"Frame 272\"><path d=\"M0 2C0 0.895431 0.895431 0 2 0H18C19.1046 0 20 0.895431 20 2V18C20 19.1046 19.1046 20 18 20H2C0.895431 20 0 19.1046 0 18V2Z\" fill=\"#894BFC\" /><g id=\"Icon/ChargeOutline\"><path id=\"vector\" fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M12.5 3.25C12.5 3.11193 12.3881 3 12.25 3H7.82812C7.69005 3 7.57812 3.11193 7.57812 3.25V4H4.25C4.11193 4 4 4.11193 4 4.25V4.875C4 5.01307 4.11193 5.125 4.25 5.125H5V14.9375H4.25C4.11193 14.9375 4 15.0494 4 15.1875V15.8125C4 15.9506 4.11193 16.0625 4.25 16.0625H15.75C15.8881 16.0625 16 15.9506 16 15.8125V15.1875C16 15.0494 15.8881 14.9375 15.75 14.9375H15V5.125H15.75C15.8881 5.125 16 5.01307 16 4.875V4.25C16 4.11193 15.8881 4 15.75 4H12.5V3.25ZM9.5 10.7H7.5L10.5 6.5V9.3H12.5L9.5 13.5V10.7Z\" fill=\"white\" /></g></g></svg>"};
+
+
+function workModeIconKey(option) {
+  const k = String(option ?? "").trim();
+  const map = {
+    "Self Use": "selfUse",
+    "Feed-in First": "feedInPriority",
+    "Feed-in Priority": "feedInPriority",
+    "Back-up": "backUp",
+    "Back Up": "backUp",
+    "Peak Shaving": "peakShaving",
+    "Force Charge": "forceCharge",
+    "Force Discharge": "forceDischarge",
+  };
+  if (map[k]) return map[k];
+  const lower = k.toLowerCase();
+  if (lower.includes("self")) return "selfUse";
+  if (lower.includes("feed")) return "feedInPriority";
+  if (lower.includes("back")) return "backUp";
+  if (lower.includes("peak")) return "peakShaving";
+  if (lower.includes("force") && lower.includes("charge")) return "forceCharge";
+  if (lower.includes("force") && lower.includes("discharge")) return "forceDischarge";
+  return null;
+}
+
+function renderWorkModeIconHtml(option) {
+  const key = workModeIconKey(option);
+  const svg = key ? FOX_WORK_MODE_ICONS[key] : "";
+  return svg ? `<span class="mode-option-icon" aria-hidden="true">${svg}</span>` : "";
+}
 
 function workModeMeta(option) {
   const key = String(option ?? "").trim();
@@ -5343,7 +5375,7 @@ const STYLES = `
   z-index: 2;
   margin: 0;
   padding: 0 8px 0 0;
-  transform: translateY(-50%);
+  transform: translateY(calc(-100% - 10px));
   background: var(--card-background-color);
 }
 .fox-analysis-stat-row {
@@ -5907,12 +5939,16 @@ const STYLES = `
 }
 .mode-grid { display: grid; gap: 8px; }
 .mode-option {
-  display: block; width: 100%; text-align: left; padding: 14px 16px;
+  display: flex; align-items: flex-start; gap: 12px; width: 100%; text-align: left; padding: 14px 16px;
   border-radius: 12px; border: 2px solid var(--divider-color); background: var(--card-background-color);
   cursor: pointer; font-family: inherit; color: inherit; transition: border-color 0.15s;
 }
 .mode-option.selected { border-color: var(--fp-accent); background: color-mix(in srgb, var(--fp-accent) 10%, var(--card-background-color)); }
-.mode-option-body { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; width: 100%; }
+.mode-option-icon {
+  flex: 0 0 40px; width: 40px; height: 40px; border-radius: 8px; overflow: hidden;
+}
+.mode-option-icon svg { display: block; width: 100%; height: 100%; }
+.mode-option-body { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; flex: 1; min-width: 0; }
 .mode-option .name { display: block; font-weight: 600; font-size: 15px; line-height: 1.3; }
 .mode-option .hint { display: block; font-size: 12px; line-height: 1.4; color: var(--secondary-text-color); }
 .hero { border-radius: var(--fp-radius); overflow: hidden; background: var(--card-background-color); margin-bottom: 14px; border: 1px solid var(--divider-color); }
@@ -9460,7 +9496,7 @@ ${this._renderPeriodCard(1, this._chargeDraft[1])}
         const sel = opt === this._workModeDraft ? "selected" : "";
         const meta = workModeMeta(opt);
         return `<button type="button" class="mode-option ${sel}" data-action="pick-work-mode" data-mode="${esc(opt)}">
-<span class="mode-option-body"><span class="name">${esc(meta.title)}</span>${meta.hint ? `<span class="hint">${esc(meta.hint)}</span>` : ""}</span></button>`;
+${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">${esc(meta.title)}</span>${meta.hint ? `<span class="hint">${esc(meta.hint)}</span>` : ""}</span></button>`;
       })
       .join("")}</div>
 <div class="btn-row" style="margin-top:16px"><button type="button" class="btn btn-primary" data-action="save-work-mode" ${this._busy ? "disabled" : ""}>Apply work mode</button></div>`;
