@@ -17,20 +17,20 @@ Top tabs (like **Energy → Summary / Electricity / Gas**):
 
 | Tab | Content |
 |-----|---------|
-| **Overview** | Live energy-flow diagram + today’s analytics |
+| **Overview** | Live energy-flow diagram, today’s analytics, and energy breakdown |
 | **Device** | PV gauge, battery card, detailed parameters |
-| **Energy** | Daily kWh stats, Fox-style breakdown donuts, **Day / Month / Year** history charts |
+| **Analysis** | Supply/usage summary, tariff costs, Fox-style breakdown donuts, **Day / Month / Year** history charts |
 | **Settings** | Sub-tabs: Quick, Schedule, Work mode, StormSafe, Charts, Control |
 
 ## Statistics chart & forecast overlay
 
-The **Statistics** line chart (Overview and Energy → **Day**) matches your main dashboard: Solar, battery charge/discharge, grid import/export, and load — with filled areas under the curves.
+The **Statistics** line chart (Overview and Analysis → **Day**) matches your main dashboard: Solar, battery charge/discharge, grid import/export, and load — with filled areas under the curves.
 
 Configure the gold **Forecast** line under **Settings → Charts**. Pick any sensor that reports forecast power (e.g. `sensor.solcast_pv_forecast_power_now`). For Solcast, the panel reads the half-hourly `detailedForecast` from today's forecast sensor when available; otherwise it forward-fills sparse history. Values in **W** are converted to kW automatically.
 
-## Energy charts (Day / Month / Year)
+## Analysis charts (Day / Month / Year)
 
-On the **Energy** tab, use **Day**, **Month**, or **Year** above the chart:
+On the **Analysis** tab, use **Day**, **Month**, or **Year** above the chart:
 
 | Period | Chart |
 |--------|--------|

@@ -11,12 +11,11 @@ import type {
   PlantConfig,
   SettingsView,
 } from "./types";
-import { fetchPlantState, formatPercent, stateString } from "./types";
+import { fetchPlantState, stateString } from "./types";
 
 const NAV: { id: PanelView; label: string; icon: string }[] = [
   { id: "overview", label: "Overview", icon: "mdi:home-lightning-bolt" },
   { id: "device", label: "Device", icon: "mdi:solar-power-variant" },
-  { id: "energy", label: "Energy", icon: "mdi:chart-line" },
   { id: "settings", label: "Settings", icon: "mdi:cog" },
 ];
 
@@ -234,8 +233,6 @@ export class FoxessPlantPanel extends LitElement {
         return this._renderOverview(plant);
       case "device":
         return this._renderDevice(plant);
-      case "energy":
-        return this._renderEnergy(plant);
       case "settings":
         return this._renderSettings(plant);
       default:
@@ -323,23 +320,6 @@ export class FoxessPlantPanel extends LitElement {
           this._deviceSub = e.detail.sub;
         }}
       ></fox-device-overview>
-    `;
-  }
-
-  private _renderEnergy(plant: PlantConfig) {
-    const analytics = (this._plantState?.analytics ?? {}) as Record<string, number>;
-    return html`
-      <header class="header">
-        <h1>Energy</h1>
-        <p>Daily analytics from your plant</p>
-      </header>
-      <div class="stats-row">
-        <div class="stat"><label>Load consumption</label><strong>${analytics.load_consumption_kwh_today ?? "—"} kWh</strong></div>
-        <div class="stat"><label>From grid</label><strong>${analytics.load_from_grid_kwh_today ?? "—"} kWh</strong></div>
-        <div class="stat"><label>PV to grid</label><strong>${analytics.pv_to_grid_kwh_today ?? "—"} kWh</strong></div>
-        <div class="stat"><label>Self-consumption</label><strong>${formatPercent(analytics.self_consumption_percent_today ?? 0)}</strong></div>
-      </div>
-      <p class="placeholder" style="margin-top:16px">Analysis graph (Day / Month / Year) — coming in next update.</p>
     `;
   }
 

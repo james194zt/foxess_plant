@@ -32,7 +32,7 @@ export interface PanelInfo {
   config: PanelConfig;
 }
 
-export type PanelView = "overview" | "device" | "energy" | "settings";
+export type PanelView = "overview" | "device" | "settings";
 export type SettingsView = "main" | "storm";
 
 export function stateNumber(hass: HomeAssistant, entityId?: string): number {

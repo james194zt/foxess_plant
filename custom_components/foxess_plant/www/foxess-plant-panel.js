@@ -1,16 +1,20 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.87
+ * @version 0.9.89
  */
 
 const NAV = [
   { id: "overview", label: "Overview" },
   { id: "device", label: "Device" },
-  { id: "energy", label: "Energy" },
   { id: "energy_analysis", label: "Analysis" },
   { id: "settings", label: "Settings" },
 ];
+
+function normalizePanelView(view) {
+  if (view === "energy") return "energy_analysis";
+  return view;
+}
 
 const SETTINGS_NAV = [
   { id: "main", label: "All" },
@@ -1550,32 +1554,40 @@ async function fetchAnalysisTariffIntraday(hass, plant, plantState, overviewDail
   };
 }
 
-function renderFoxAnalysisSummaryRow(label, displayValue, unit, sparklineHtml, { muted = false, valueKey = "" } = {}) {
+function renderFoxAnalysisSummaryRow(label, displayValue, unit, sparklineHtml, { muted = false, valueKey = "", labelKey = "" } = {}) {
   const unitHtml = unit ? `<span>${esc(unit)}</span>` : "";
   const valueAttr = valueKey ? ` data-summary-value="${esc(valueKey)}"` : "";
+  const labelAttr = labelKey ? ` data-summary-label="${esc(labelKey)}"` : "";
   return `<div class="fox-analysis-summary-row${muted ? " fox-analysis-summary-row--muted" : ""}">
 <div class="fox-analysis-summary-row-main">
-<span class="fox-analysis-summary-label">${esc(label)}</span>
+<span class="fox-analysis-summary-label"${labelAttr}>${esc(label)}</span>
 <strong class="fox-analysis-summary-value"${valueAttr}>${esc(displayValue)}${unitHtml}</strong>
 </div>
 <div class="fox-analysis-summary-spark">${sparklineHtml}</div>
 </div>`;
 }
 
-function renderFoxAnalysisSummaryCard(a, overviewDaily, analysisTariff, { loading = false } = {}) {
+function renderFoxAnalysisSummaryCard(a, sparkData, analysisTariff, { loading = false, period = "day" } = {}) {
+  const periodLabel = energyPeriodSummaryLabel(period);
   const pvVal = Number(a.pv_production_kwh_today ?? 0) || 0;
   const loadVal = Number(a.load_consumption_kwh_today ?? 0) || 0;
   let prodSpark = "";
   let consSpark = "";
-  if (loading) {
+  const sparkLoading = loading || sparkData?.loading;
+  let prodSeries = sparkData?.production;
+  let consSeries = sparkData?.consumption;
+  if (period === "day" && !sparkLoading && !sparkData?.error) {
+    prodSeries = syncSparkSeriesToTotal(prodSeries, pvVal);
+    consSeries = syncSparkSeriesToTotal(consSeries, loadVal);
+  }
+  prodSeries = ensureSparkSeries(prodSeries);
+  consSeries = ensureSparkSeries(consSeries);
+  if (sparkLoading) {
     prodSpark = `<span class="fox-analysis-sparkline-loading" aria-hidden="true"></span>`;
     consSpark = prodSpark;
-  } else if (overviewDaily?.production?.length) {
-    prodSpark = renderFoxAnalysisLineSparkline(overviewDaily.production, FOX_ANALYSIS_SPARK_COLORS.production);
-    consSpark = renderFoxAnalysisLineSparkline(
-      overviewDaily.consumption || [],
-      FOX_ANALYSIS_SPARK_COLORS.consumption
-    );
+  } else if (prodSeries.length >= 2) {
+    prodSpark = renderFoxAnalysisLineSparkline(prodSeries, FOX_ANALYSIS_SPARK_COLORS.production);
+    consSpark = renderFoxAnalysisLineSparkline(consSeries, FOX_ANALYSIS_SPARK_COLORS.consumption);
   } else {
     prodSpark = renderFoxAnalysisLineSparkline([], FOX_ANALYSIS_SPARK_COLORS.production);
     consSpark = renderFoxAnalysisLineSparkline([], FOX_ANALYSIS_SPARK_COLORS.consumption);
@@ -1626,8 +1638,14 @@ function renderFoxAnalysisSummaryCard(a, overviewDaily, analysisTariff, { loadin
   }
 
   const rows = [
-    renderFoxAnalysisSummaryRow("Daily Production", pvVal.toFixed(2), "kWh", prodSpark, { valueKey: "production" }),
-    renderFoxAnalysisSummaryRow("Daily Consumption", loadVal.toFixed(2), "kWh", consSpark, { valueKey: "consumption" }),
+    renderFoxAnalysisSummaryRow(`${periodLabel} Production`, pvVal.toFixed(2), "kWh", prodSpark, {
+      valueKey: "production",
+      labelKey: "production",
+    }),
+    renderFoxAnalysisSummaryRow(`${periodLabel} Consumption`, loadVal.toFixed(2), "kWh", consSpark, {
+      valueKey: "consumption",
+      labelKey: "consumption",
+    }),
     renderFoxAnalysisSummaryRow("Exported Energy Revenue", exportDisplay, exportUnit, exportSpark, {
       valueKey: "export_revenue",
       muted: !tariffReady,
@@ -1644,7 +1662,7 @@ function renderFoxAnalysisSummaryCard(a, overviewDaily, analysisTariff, { loadin
   return `<div class="fox-analysis-summary-card-inner">
 <div class="fox-analysis-summary-head">
 <h3 class="fox-analysis-summary-title">Analysis</h3>
-<button type="button" class="fox-analysis-summary-details" data-action="nav" data-view="energy">Details ›</button>
+<button type="button" class="fox-analysis-summary-details" data-action="nav" data-view="energy_analysis">Details ›</button>
 </div>
 <div class="fox-analysis-summary-rows">${rows}</div>
 </div>`;
@@ -3594,6 +3612,177 @@ async function fetchOverviewDailyEnergy(hass, plant, plantState) {
   return { labels, production, consumption };
 }
 
+function energyPeriodSummaryLabel(period) {
+  if (period === "week") return "Weekly";
+  if (period === "month") return "Monthly";
+  if (period === "year") return "Yearly";
+  if (period === "total") return "Total";
+  return "Daily";
+}
+
+function downsampleSparkSeries(values, maxPoints = 32) {
+  const data = (values || []).map((v) => Number(v) || 0);
+  if (data.length <= maxPoints) return data;
+  const out = [];
+  const step = (data.length - 1) / (maxPoints - 1);
+  for (let i = 0; i < maxPoints; i++) {
+    out.push(data[Math.round(i * step)]);
+  }
+  return out;
+}
+
+function cumulativeHistorySparkValues(pts, startMs, endMs) {
+  const slice = (pts || [])
+    .filter((p) => p.t >= startMs && p.t <= endMs)
+    .sort((a, b) => a.t - b.t)
+    .map((p) => Math.max(0, Number(p.v) || 0));
+  if (slice.length >= 2) return downsampleSparkSeries(slice);
+  if (slice.length === 1) return [0, slice[0]];
+  return [];
+}
+
+function buildIntradayConsumptionSpark(points, startMs, endMs) {
+  const fromLoad = cumulativeHistorySparkValues(points.load, startMs, endMs);
+  if (fromLoad.length >= 2) return fromLoad;
+  const span = endMs - startMs;
+  if (span <= 0) return [];
+  const steps = 24;
+  const values = [];
+  for (let i = 0; i < steps; i++) {
+    const t = startMs + (span * i) / (steps - 1);
+    const load =
+      dailyMaxInRange(points.load, startMs, t) -
+      dailyMaxInRange(points.discharge, startMs, t) +
+      dailyMaxInRange(points.charge, startMs, t) +
+      dailyMaxInRange(points.grid, startMs, t);
+    values.push(Math.max(0, Math.round(load * 100) / 100));
+  }
+  return downsampleSparkSeries(values);
+}
+
+function buildDailySparkBuckets(points, days) {
+  return days.map((day) => {
+    const ds = startOfLocalDay(day).getTime();
+    const de = endOfLocalDay(day).getTime();
+    return {
+      production: dailyProductionKwh(points, ds, de),
+      consumption: dailyConsumptionKwh(points, ds, de),
+    };
+  });
+}
+
+function syncSparkSeriesToTotal(series, total) {
+  const data = (series || []).map((v) => Number(v) || 0);
+  const target = Number(total) || 0;
+  if (!data.length) return target > 0 ? [0, target] : [];
+  if (data.length === 1) return [0, target];
+  data[data.length - 1] = target;
+  return data;
+}
+
+function ensureSparkSeries(values) {
+  const data = (values || []).map((v) => Number(v) || 0);
+  if (data.length >= 2) return data;
+  if (data.length === 1) return [0, data[0]];
+  return [];
+}
+
+async function fetchAnalysisSummarySparkData(hass, plant, plantState, period, offset = 0) {
+  const now = new Date();
+  const bounds = energyPeriodBounds(period, offset, now);
+  const fetchEnd = bounds.end > now ? now : bounds.end;
+  const { points, error } = await fetchEnergyHistoryPoints(hass, plant, plantState, bounds.start, fetchEnd);
+  if (!points) return { error, production: [], consumption: [] };
+
+  if (period === "day") {
+    const startMs = bounds.start.getTime();
+    const endMs = fetchEnd.getTime();
+    return {
+      production: cumulativeHistorySparkValues(points.pv, startMs, endMs),
+      consumption: buildIntradayConsumptionSpark(points, startMs, endMs),
+    };
+  }
+
+  if (period === "week") {
+    const days = daysUpToToday(buildFullWeekDays(bounds.start), now);
+    const buckets = buildDailySparkBuckets(points, days);
+    return {
+      production: buckets.map((b) => b.production),
+      consumption: buckets.map((b) => b.consumption),
+    };
+  }
+
+  if (period === "month") {
+    const days = daysUpToToday(buildFullMonthDays(bounds.start), now);
+    const buckets = buildDailySparkBuckets(points, days);
+    return {
+      production: buckets.map((b) => b.production),
+      consumption: buckets.map((b) => b.consumption),
+    };
+  }
+
+  if (period === "year") {
+    const year = bounds.start.getFullYear();
+    const production = [];
+    const consumption = [];
+    const today = startOfLocalDay(now);
+    for (let m = 0; m < 12; m++) {
+      const monthStart = new Date(year, m, 1);
+      if (offset === 0 && monthStart > today) {
+        production.push(0);
+        consumption.push(0);
+        continue;
+      }
+      const monthEnd = new Date(year, m + 1, 0, 23, 59, 59, 999);
+      const effectiveEnd = offset === 0 && monthEnd > now ? now : monthEnd;
+      const days = buildDaysInRange(monthStart, effectiveEnd);
+      let pv = 0;
+      let load = 0;
+      for (const day of days) {
+        const ds = startOfLocalDay(day).getTime();
+        const de = endOfLocalDay(day).getTime();
+        pv += dailyProductionKwh(points, ds, de);
+        load += dailyConsumptionKwh(points, ds, de);
+      }
+      production.push(roundEnergyKwh(pv));
+      consumption.push(roundEnergyKwh(load));
+    }
+    return { production, consumption };
+  }
+
+  const years = new Set();
+  for (const key of ["pv", "feedIn", "load", "discharge", "charge", "grid"]) {
+    for (const p of points[key] || []) years.add(new Date(p.t).getFullYear());
+  }
+  const yearList = Array.from(years).filter((y) => y >= 2000 && y <= now.getFullYear()).sort((a, b) => a - b);
+  if (!yearList.length) yearList.push(now.getFullYear());
+  const production = yearList.map((year) => {
+    const yStart = new Date(year, 0, 1);
+    const yEnd = year === now.getFullYear() ? fetchEnd : new Date(year, 11, 31, 23, 59, 59, 999);
+    const days = buildDaysInRange(yStart, yEnd);
+    let pv = 0;
+    for (const day of days) {
+      const ds = startOfLocalDay(day).getTime();
+      const de = endOfLocalDay(day).getTime();
+      pv += dailyProductionKwh(points, ds, de);
+    }
+    return roundEnergyKwh(pv);
+  });
+  const consumption = yearList.map((year) => {
+    const yStart = new Date(year, 0, 1);
+    const yEnd = year === now.getFullYear() ? fetchEnd : new Date(year, 11, 31, 23, 59, 59, 999);
+    const days = buildDaysInRange(yStart, yEnd);
+    let load = 0;
+    for (const day of days) {
+      const ds = startOfLocalDay(day).getTime();
+      const de = endOfLocalDay(day).getTime();
+      load += dailyConsumptionKwh(points, ds, de);
+    }
+    return roundEnergyKwh(load);
+  });
+  return { production, consumption };
+}
+
 function formatChartDayLabel(d) {
   return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
@@ -4495,11 +4684,15 @@ const STYLES = `
 .card-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--secondary-text-color); margin: 0 0 14px; }
 .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 12px; }
 .overview-hero-row { display: flex; flex-direction: column; gap: 14px; margin-bottom: 14px; }
-.overview-hero-scene { width: 100%; max-width: none; margin: 0; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.overview-hero-scene { width: 100%; max-width: none; margin: 0; min-width: 0; }
 .overview-hero-scene .scene-card--fox-flow { margin-bottom: 0; width: 100%; }
-.overview-hero-breakdown.breakdown-card { margin-top: 0; margin-bottom: 0; }
-.overview-hero-summary { min-width: 0; }
-.overview-hero-summary .card { margin-top: 14px; }
+.overview-energy-band {
+  display: flex; flex-direction: column; gap: 14px;
+  width: 100%; margin-bottom: 14px; min-width: 0;
+}
+.overview-energy-breakdown.breakdown-card { margin-top: 0; margin-bottom: 0; }
+.overview-energy-stats-row { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.overview-energy-balance-card { margin-top: 0; margin-bottom: 0; }
 .overview-hero-daily {
   display: flex; flex-direction: column; gap: 12px;
   min-width: 0;
@@ -4717,7 +4910,6 @@ const STYLES = `
   display: flex; flex-direction: column; gap: 14px;
   min-width: 148px; max-width: 168px;
   padding: 8px 4px 8px 0;
-  border-left: 1px solid var(--divider-color, rgba(127,127,127,0.22));
 }
 .statistics-legend-section { display: flex; flex-direction: column; gap: 8px; }
 .statistics-legend-heading {
@@ -5165,7 +5357,6 @@ const STYLES = `
   .fox-analysis-stat-bridge { height: 64px; }
   .statistics-chart-wrap--side { grid-template-columns: 1fr; }
   .statistics-chart-legend-side {
-    border-left: none; border-top: 1px solid var(--divider-color, rgba(127,127,127,0.22));
     max-width: none; padding: 12px 0 0;
   }
 }
@@ -5333,16 +5524,7 @@ const STYLES = `
 }
 .device-header { margin-bottom: 8px; }
 .device-header h1 { margin-bottom: 4px; }
-.device-model { margin: 0; font-size: 14px; color: var(--secondary-text-color); }
-.device-fox-pill {
-  display: inline-flex; align-items: center; padding: 5px 14px; border-radius: 999px;
-  margin-bottom: 12px; font-size: 13px; font-weight: 700;
-}
-.device-fox-pill.is-normal { background: #569e5c; color: #fff; }
-.device-fox-pill.is-fault { background: #c62828; color: #fff; }
-.device-fox-pill.is-checking { background: #5c6370; color: #fff; }
-.device-fox-pill.is-offgrid { background: #e6a817; color: #1a1a1a; }
-.device-fox-pill.is-default { background: var(--secondary-background-color); color: var(--primary-text-color); }
+.device-model { margin: 4px 0 0; font-size: 14px; color: var(--secondary-text-color); }
 .device-hero {
   display: flex; flex-direction: column; align-items: center; gap: 8px;
   margin: 4px 0 18px; padding: 0 16px; width: 100%; box-sizing: border-box;
@@ -5686,6 +5868,7 @@ const STYLES = `
 }
 @media (max-width: 720px) {
   .device-grid { grid-template-columns: 1fr; gap: 12px; }
+  .overview-energy-stats-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .device-card--pv, .device-card--battery { padding: 20px 20px 22px; }
   .device-pv-gauges--dual .device-pv-gauge { max-width: 120px; }
   .device-pv-gauges--dual .device-pv-value { font-size: 14px; }
@@ -5753,8 +5936,12 @@ class FoxessPlantPanel extends HTMLElement {
     this._overviewDailySlotCache = undefined;
     this._overviewBreakdownSlotCache = undefined;
     this._overviewSummarySlotCache = undefined;
+    this._overviewEnergyBandCache = undefined;
     this._analysisTariffDaily = null;
     this._analysisTariffSlotCache = undefined;
+    this._analysisSummarySpark = null;
+    this._analysisSummarySparkLoading = false;
+    this._analysisSummarySparkKey = undefined;
     this._energyAnalysisSummaryCache = undefined;
     this._energyAnalysisChartSlotCache = undefined;
     this._energyAnalysisToolbarCache = undefined;
@@ -6078,7 +6265,7 @@ Reloading panel registration…
   _statisticsChartVisible() {
     return (
       this._view === "overview" ||
-      ((this._view === "energy" || this._view === "energy_analysis") && this._energyPeriod === "day")
+      ((this._view === "energy_analysis") && this._energyPeriod === "day")
     );
   }
 
@@ -6657,8 +6844,7 @@ Reloading panel registration…
     if (action === "nav") {
       const nextView = btn.dataset.view;
       if (
-        (this._view === "energy" || this._view === "energy_analysis") &&
-        nextView !== "energy" &&
+        this._view === "energy_analysis" &&
         nextView !== "energy_analysis"
       ) {
         this._energyPeriodOffset = 0;
@@ -6668,13 +6854,15 @@ Reloading panel registration…
         this._energyAnalysisSummaryCache = undefined;
         this._energyAnalysisChartSlotCache = undefined;
         this._energyAnalysisToolbarCache = undefined;
+        this._analysisSummarySpark = null;
+        this._analysisSummarySparkKey = undefined;
         this._energyBalanceHelpOpen = false;
       }
-      this._view = nextView;
+      this._view = normalizePanelView(nextView);
       this._settingsView = "main";
       this._solcastDraft = null;
       this._deviceSub = "main";
-      if (this._view === "energy" || this._view === "energy_analysis") this._loadEnergyCharts();
+      if (this._view === "energy_analysis") this._loadEnergyCharts();
       if (this._view === "overview") this._loadOverviewStatisticsChart();
       this._render();
       return;
@@ -6689,6 +6877,9 @@ Reloading panel registration…
       this._energyChartPlantId = undefined;
       this._statisticsChart = null;
       this._statisticsChartPlantId = undefined;
+      this._analysisSummarySpark = null;
+      this._analysisSummarySparkKey = undefined;
+      this._energyAnalysisSummaryCache = undefined;
       this._loadEnergyCharts();
       this._render();
       return;
@@ -6708,6 +6899,9 @@ Reloading panel registration…
       this._energyChartPlantId = undefined;
       this._statisticsChart = null;
       this._statisticsChartPlantId = undefined;
+      this._analysisSummarySpark = null;
+      this._analysisSummarySparkKey = undefined;
+      this._energyAnalysisSummaryCache = undefined;
       this._loadEnergyCharts();
       this._scheduleRender();
       return;
@@ -6982,6 +7176,8 @@ Reloading panel registration…
       this._statisticsChartPlantId = undefined;
       this._energyPeriodOffset = 0;
       this._energyBreakdown = null;
+      this._analysisSummarySpark = null;
+      this._analysisSummarySparkKey = undefined;
       this._batterySocChart = null;
       this._batterySocChartPlantId = undefined;
       this._settingsView = "main";
@@ -7651,7 +7847,8 @@ ${this._renderImpactPanel()}`;
       this._flowSceneKeyPendingN = 0;
       this._overviewDailySlotCache = undefined;
       this._overviewBreakdownSlotCache = undefined;
-    this._overviewSummarySlotCache = undefined;
+      this._overviewSummarySlotCache = undefined;
+      this._overviewEnergyBandCache = undefined;
     }
     const stableKey = this._stableFlowSceneKey(ctx.key);
     const rebuildFlow = stableKey !== this._flowSceneKey;
@@ -7662,11 +7859,10 @@ ${this._renderImpactPanel()}`;
 <div class="overview-hero-row">
 <div class="overview-hero-scene">
 <div class="overview-hero-scene-slot"></div>
-<div class="overview-hero-breakdown-slot"></div>
-<div class="overview-hero-summary-slot"></div>
 </div>
 <div class="overview-hero-daily-slot"></div>
 </div>
+<div class="overview-energy-band-slot"></div>
 <div class="overview-after-hero"></div>
 </div>`;
     }
@@ -7679,17 +7875,13 @@ ${this._renderImpactPanel()}`;
       dailySlot.innerHTML = this._renderOverviewDailyCards();
       this._overviewDailySlotCache = dailyKey;
     }
-    const breakdownKey = this._overviewBreakdownSlotKey(plant);
-    const breakdownSlot = mainEl.querySelector(".overview-hero-breakdown-slot");
-    if (breakdownSlot && breakdownKey !== this._overviewBreakdownSlotCache) {
-      breakdownSlot.innerHTML = this._renderOverviewEnergyBreakdown(plant);
+    const breakdownKey = this._overviewEnergyBandKey(plant);
+    const energyBandSlot = mainEl.querySelector(".overview-energy-band-slot");
+    if (energyBandSlot && breakdownKey !== this._overviewEnergyBandCache) {
+      energyBandSlot.innerHTML = this._renderOverviewEnergyBand(plant);
+      this._overviewEnergyBandCache = breakdownKey;
       this._overviewBreakdownSlotCache = breakdownKey;
-    }
-    const summaryKey = this._overviewSummarySlotKey(plant);
-    const summarySlot = mainEl.querySelector(".overview-hero-summary-slot");
-    if (summarySlot && summaryKey !== this._overviewSummarySlotCache) {
-      summarySlot.innerHTML = this._renderOverviewEnergySummary(plant);
-      this._overviewSummarySlotCache = summaryKey;
+      this._overviewSummarySlotCache = breakdownKey;
     }
     mainEl.querySelector(".overview-after-hero").innerHTML = this._renderOverviewAfterHero(plant);
 
@@ -7785,7 +7977,7 @@ ${basis}
       values?.length && labels?.length
         ? renderOverviewDailySparklineSvg(values, labels, accentColor)
         : "";
-    return `<button type="button" class="overview-daily-card" data-action="nav" data-view="energy" aria-label="${esc(title)}">
+    return `<button type="button" class="overview-daily-card" data-action="nav" data-view="energy_analysis" aria-label="${esc(title)}">
 <div class="overview-daily-head"><span class="overview-daily-title">${esc(title)}</span><span class="overview-daily-chev" aria-hidden="true">›</span></div>
 <div class="overview-daily-value">${esc(formatDailyKwh(display))}</div>
 ${chart}
@@ -7877,11 +8069,10 @@ ${this._renderPanelStaleBanner()}
 <div class="overview-hero-row">
 <div class="overview-hero-scene">
 ${this._renderEnergyScene(plant)}
-${this._renderOverviewEnergyBreakdown(plant)}
-${this._renderOverviewEnergySummary(plant)}
 </div>
 ${this._renderOverviewDailyCards()}
 </div>
+${this._renderOverviewEnergyBand(plant)}
 ${this._renderOverviewAfterHero(plant)}`;
   }
 
@@ -7928,6 +8119,16 @@ ${this._renderOverviewAfterHero(plant)}`;
       .join("")}</div>`;
   }
 
+  _renderDeviceStatusRow(plant) {
+    const systemStatus = foxInverterStateLabel(this._hass, plant, this._plantState);
+    if (systemStatus === "—") return "";
+    return `<div class="overview-status-block">
+<div class="overview-status-row">
+<span class="fox-pill overview-fox-status ${foxStatusToneClass(systemStatus)}">${esc(systemStatus)}</span>
+</div>
+</div>`;
+  }
+
   _renderDevice(plant) {
     if (this._deviceSub === "system") {
       return `<button type="button" class="back-btn" data-action="device-back">← Device</button><header class="header"><h1>System info</h1><p>From Modbus (matches Fox app where confirmed)</p></header>${this._identityValueList(this._identityRows(plant))}`;
@@ -7953,7 +8154,7 @@ ${this._renderOverviewAfterHero(plant)}`;
       serial !== "—"
         ? `<button type="button" class="device-serial-btn" data-action="device-sub" data-sub="system"><span class="device-serial">${esc(serial)}</span><span class="chev">›</span></button>`
         : `<p class="device-serial device-serial-muted">Serial unavailable</p>`;
-    return `<div data-device-main="1"><header class="header device-header"><h1>${esc(plant.title)}</h1>${modelLine !== "—" ? `<p class="device-model">${esc(modelLine)}</p>` : ""}</header>
+    return `<div data-device-main="1"><header class="header device-header"><h1>${esc(plant.title)}</h1>${modelLine !== "—" ? `<p class="device-model">${esc(modelLine)}</p>` : ""}<div data-device-status-wrap>${this._renderDeviceStatusRow(plant)}</div></header>
 <div class="device-hero"><img class="device-hero-img" src="${esc(DEVICE_EVO_IMAGE_STATIC)}" alt="${esc(modelLine !== "—" ? modelLine : "Inverter")}" loading="lazy" />${serialRow}</div>
 <div data-device-live>${this._renderDeviceLiveHtml(plant)}</div>
 <div data-device-nav>
@@ -7973,12 +8174,7 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     const map = resolveEntityMap(this._hass, plant, this._plantState);
     const tempRaw = stateString(this._hass, map.bms_temp_low);
     const tempDisplay = tempRaw !== "—" ? `${tempRaw}℃` : "—";
-    const systemStatus = foxInverterStateLabel(this._hass, plant, this._plantState);
-    const statusPill =
-      systemStatus !== "—"
-        ? `<div class="device-fox-pill ${foxStatusToneClass(systemStatus)}">${esc(systemStatus)}</div>`
-        : "";
-    return `${statusPill}<div class="device-grid">${pvCard}<div class="device-card device-card--battery">${renderDeviceBatteryCard(flows, tempDisplay)}</div></div>`;
+    return `<div class="device-grid">${pvCard}<div class="device-card device-card--battery">${renderDeviceBatteryCard(flows, tempDisplay)}</div></div>`;
   }
 
   _patchDeviceMainLiveIfNeeded() {
@@ -7988,6 +8184,8 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     if (!root || !live) return false;
     const plant = this._getPlant();
     if (!plant) return false;
+    const statusWrap = root.querySelector("[data-device-status-wrap]");
+    if (statusWrap) statusWrap.innerHTML = this._renderDeviceStatusRow(plant);
     live.innerHTML = this._renderDeviceLiveHtml(plant);
     const pvSub = root.querySelector('[data-action="device-sub"][data-sub="pv-config"] .list-btn-sub');
     if (pvSub) pvSub.textContent = pvConfigSummary(this._plantState?.pv_config);
@@ -8158,7 +8356,7 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
       };
     } finally {
       this._energyChartLoading = false;
-      if (this._energyChartCacheKey(this._getPlant()) === cacheKey && (this._view === "energy" || this._view === "energy_analysis")) {
+      if (this._energyChartCacheKey(this._getPlant()) === cacheKey && this._view === "energy_analysis") {
         this._scheduleRender();
       }
     }
@@ -8341,34 +8539,23 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     return live;
   }
 
-  _renderEnergySummaryCards(plant) {
-    const a = this._energyAnalyticsForView(plant);
-    return `<div class="stats-row">
+  _renderEnergyQuickStatsRow(a) {
+    return `<div class="stats-row overview-energy-stats-row">
 ${this._stat("Load", a.load_consumption_kwh_today, " kWh")}
 ${this._stat("From grid", a.load_from_grid_kwh_today, " kWh")}
 ${this._stat("PV → grid", a.pv_to_grid_kwh_today, " kWh")}
 ${this._stat("Self-use", a.self_consumption_percent_today, "%")}
-</div>
-<div class="card" style="margin-top:14px"><p class="card-title">Balance</p>
+</div>`;
+  }
+
+  _renderEnergyBalanceCard(a, { inBand = false } = {}) {
+    const bandClass = inBand ? " overview-energy-balance-card" : "";
+    const bandStyle = inBand ? "" : ' style="margin-top:14px"';
+    return `<div class="card${bandClass}"${bandStyle}><p class="card-title">Balance</p>
 <div class="stats-row">
 ${this._stat("Battery charge", a.battery_charge_kwh_today, " kWh")}
 ${this._stat("Battery discharge", a.battery_discharge_kwh_today, " kWh")}
 </div></div>`;
-  }
-
-  _renderEnergyBreakdownCard(plant) {
-    const a = this._energyAnalyticsForView(plant);
-    const has =
-      Number(a.pv_production_kwh_today ?? 0) > 0 ||
-      Number(a.load_consumption_kwh_today ?? 0) > 0 ||
-      this._energyPeriod !== "day" ||
-      this._energyPeriodOffset > 0;
-    if (!has && (this._energyChartLoading || this._statisticsChartLoading)) {
-      return `<div class="card breakdown-card"><p class="chart-loading">Loading breakdown…</p></div>`;
-    }
-    if (!has) return "";
-    const title = energyBreakdownTitle(this._energyPeriod, this._energyPeriodOffset);
-    return this._renderEnergyBreakdownRows(a, title);
   }
 
   _renderEnergyBreakdownRows(a, title, { extraClass = "" } = {}) {
@@ -8435,16 +8622,6 @@ ${this._stat("Battery discharge", a.battery_discharge_kwh_today, " kWh")}
     ].join("|");
   }
 
-  _renderOverviewEnergyBreakdown(plant) {
-    if (this._overviewDailyLoading && !this._plantState?.analytics) {
-      return `<div class="card breakdown-card overview-hero-breakdown"><p class="chart-loading">Loading breakdown…</p></div>`;
-    }
-    const a = readLiveAnalytics(this._hass, plant, this._plantState, this._overviewDaily);
-    return this._renderEnergyBreakdownRows(a, "Today energy breakdown", {
-      extraClass: "overview-hero-breakdown",
-    });
-  }
-
   _overviewSummarySlotKey(plant) {
     if (this._overviewDailyLoading && !this._plantState?.analytics) return "loading";
     const a = readLiveAnalytics(this._hass, plant, this._plantState, this._overviewDaily);
@@ -8458,50 +8635,39 @@ ${this._stat("Battery discharge", a.battery_discharge_kwh_today, " kWh")}
     ].join("|");
   }
 
-  _renderOverviewEnergySummary(plant) {
-    if (this._overviewDailyLoading && !this._plantState?.analytics) {
-      return `<div class="overview-hero-summary"><p class="chart-loading">Loading…</p></div>`;
-    }
-    return `<div class="overview-hero-summary">${this._renderEnergySummaryCards(plant)}</div>`;
+  _overviewEnergyBandKey(plant) {
+    return `${this._overviewBreakdownSlotKey(plant)}|${this._overviewSummarySlotKey(plant)}`;
   }
 
-  _renderEnergyCharts() {
-    let body;
-    if (this._energyPeriod === "day") {
-      body = this._renderStatisticsChartBody();
-    } else if (this._energyChartLoading) {
-      body = `<p class="chart-loading">Loading chart…</p>`;
-    } else if (this._energyChart?.error) {
-      body = `<p class="placeholder chart-empty">${esc(this._energyChart.error)}</p>`;
-    } else if (this._energyChart?.svg) {
-      body = this._energyChart.svg;
-    } else {
-      body = `<p class="chart-loading">Loading chart…</p>`;
+  _renderOverviewEnergyBreakdown(plant) {
+    if (this._overviewDailyLoading && !this._plantState?.analytics) {
+      return `<div class="card breakdown-card overview-energy-breakdown"><p class="chart-loading">Loading breakdown…</p></div>`;
     }
-    return `<div class="card energy-chart-card">
-<p class="card-title">Statistics</p>
-${body}
+    const a = readLiveAnalytics(this._hass, plant, this._plantState, this._overviewDaily);
+    return this._renderEnergyBreakdownRows(a, "Today energy breakdown", {
+      extraClass: "overview-energy-breakdown",
+    });
+  }
+
+  _renderOverviewEnergyBand(plant) {
+    if (this._overviewDailyLoading && !this._plantState?.analytics) {
+      return `<div class="overview-energy-band"><p class="chart-loading">Loading energy data…</p></div>`;
+    }
+    const a = readLiveAnalytics(this._hass, plant, this._plantState, this._overviewDaily);
+    return `<div class="overview-energy-band">
+${this._renderOverviewEnergyBreakdown(plant)}
+${this._renderEnergyQuickStatsRow(a)}
+${this._renderEnergyBalanceCard(a, { inBand: true })}
 </div>`;
   }
 
-  _renderEnergy(plant) {
-    return `<header class="header"><h1>Energy</h1><p>Production and consumption analysis</p></header>
-${this._renderEnergySummaryCards(plant)}
-<div class="card energy-analysis-card">
-${this._renderEnergyPeriodTabs()}
-${this._renderEnergyDateNav()}
-</div>
-${this._renderEnergyBreakdownCard(plant)}
-${this._renderEnergyCharts()}`;
-  }
-
   _energyAnalysisSummaryKey(a) {
-    if (this._overviewDailyLoading) return "loading";
-    const d = this._overviewDaily;
+    if (this._analysisSummarySparkLoading) return "spark:loading";
+    const spark = this._analysisSummarySpark;
     const t = this._analysisTariffDaily;
-    if (d?.error) return `err:${d.error}`;
-    const prod = (d?.production || []).join(",");
-    const cons = (d?.consumption || []).join(",");
+    if (spark?.error) return `spark:err:${spark.error}`;
+    const prod = (spark?.production || []).join(",");
+    const cons = (spark?.consumption || []).join(",");
     const tariffPart = t?.configured
       ? [
           t.totals?.importCost,
@@ -8512,7 +8678,53 @@ ${this._renderEnergyCharts()}`;
           (t.series?.totalCost || []).join(","),
         ].join("|")
       : String(t?.configured);
-    return `${this._energyPeriod}|${this._energyPeriodOffset}|${prod}|${cons}|${tariffPart}|${a.load_from_grid_kwh_today}|${a.pv_to_grid_kwh_today}`;
+    return `${this._energyPeriod}|${this._energyPeriodOffset}|${prod}|${cons}|${tariffPart}|${a.pv_production_kwh_today}|${a.load_consumption_kwh_today}|${a.load_from_grid_kwh_today}|${a.pv_to_grid_kwh_today}`;
+  }
+
+  _analysisSummarySparkCacheKey(plant) {
+    const base = `${plant.entry_id}:${this._energyPeriod}:${this._energyPeriodOffset}:spark`;
+    if (this._energyPeriod === "day") {
+      const bucket = Math.floor(Date.now() / (5 * 60 * 1000));
+      return `${base}:${bucket}`;
+    }
+    return base;
+  }
+
+  async _loadAnalysisSummarySpark() {
+    const plant = this._getPlant();
+    if (!plant || !this._hass) return;
+    const cacheKey = this._analysisSummarySparkCacheKey(plant);
+    if (this._analysisSummarySparkKey === cacheKey && this._analysisSummarySpark && !this._analysisSummarySpark.error) {
+      return;
+    }
+    this._analysisSummarySparkLoading = true;
+    this._analysisSummarySparkKey = cacheKey;
+    this._energyAnalysisSummaryCache = undefined;
+    this._scheduleRender();
+    try {
+      if (!this._plantState) await this._refreshPlantState();
+      this._analysisSummarySpark = await fetchAnalysisSummarySparkData(
+        this._hass,
+        plant,
+        this._plantState,
+        this._energyPeriod,
+        this._energyPeriodOffset
+      );
+    } catch (err) {
+      this._analysisSummarySpark = {
+        error:
+          err?.message ||
+          "Could not load energy history for sparklines. Enable the Home Assistant recorder for daily kWh sensors.",
+        production: [],
+        consumption: [],
+      };
+    } finally {
+      this._analysisSummarySparkLoading = false;
+      if (this._analysisSummarySparkCacheKey(this._getPlant()) === cacheKey) {
+        this._energyAnalysisSummaryCache = undefined;
+        this._scheduleRender();
+      }
+    }
   }
 
   _energyAnalysisChartSlotKey() {
@@ -8532,9 +8744,14 @@ ${this._renderEnergyCharts()}`;
     return `${this._energyPeriod}|${this._energyPeriodOffset}`;
   }
 
-  _patchFoxAnalysisSummaryValues(root, a) {
+  _patchFoxAnalysisSummaryValues(root, a, period = this._energyPeriod) {
+    const periodLabel = energyPeriodSummaryLabel(period);
     const pvVal = Number(a.pv_production_kwh_today ?? 0) || 0;
     const loadVal = Number(a.load_consumption_kwh_today ?? 0) || 0;
+    const prodLabel = root.querySelector('[data-summary-label="production"]');
+    const consLabel = root.querySelector('[data-summary-label="consumption"]');
+    if (prodLabel) prodLabel.textContent = `${periodLabel} Production`;
+    if (consLabel) consLabel.textContent = `${periodLabel} Consumption`;
     const prodEl = root.querySelector('[data-summary-value="production"]');
     const consEl = root.querySelector('[data-summary-value="consumption"]');
     if (prodEl) prodEl.innerHTML = `${pvVal.toFixed(2)}<span>kWh</span>`;
@@ -8617,8 +8834,9 @@ ${this._renderEnergyCharts()}`;
     const summary = root.querySelector("[data-energy-analysis-summary]");
     if (summaryKey !== this._energyAnalysisSummaryCache) {
       if (summary) {
-        summary.innerHTML = renderFoxAnalysisSummaryCard(a, this._overviewDaily, this._analysisTariffDaily, {
-          loading: this._overviewDailyLoading,
+        summary.innerHTML = renderFoxAnalysisSummaryCard(a, this._analysisSummarySpark, this._analysisTariffDaily, {
+          loading: this._analysisSummarySparkLoading,
+          period: this._energyPeriod,
         });
       }
       this._energyAnalysisSummaryCache = summaryKey;
@@ -8675,8 +8893,9 @@ ${this._renderEnergyCharts()}`;
   _renderEnergyAnalysis(plant) {
     const a = this._energyAnalyticsForView(plant);
     const title = energyBreakdownTitle(this._energyPeriod, this._energyPeriodOffset);
-    const summaryCard = renderFoxAnalysisSummaryCard(a, this._overviewDaily, this._analysisTariffDaily, {
-      loading: this._overviewDailyLoading,
+    const summaryCard = renderFoxAnalysisSummaryCard(a, this._analysisSummarySpark, this._analysisTariffDaily, {
+      loading: this._analysisSummarySparkLoading,
+      period: this._energyPeriod,
     });
     this._energyAnalysisSummaryCache = this._energyAnalysisSummaryKey(a);
     this._energyAnalysisChartSlotCache = this._energyAnalysisChartSlotKey();
@@ -9507,8 +9726,6 @@ ${active
         return this._renderOverview(plant);
       case "device":
         return this._renderDevice(plant);
-      case "energy":
-        return this._renderEnergy(plant);
       case "energy_analysis":
         return this._renderEnergyAnalysis(plant);
       case "settings":
@@ -9539,6 +9756,8 @@ ${active
       this._root.innerHTML = `<div class="main"><p class="placeholder">Add FoxESS Plant and select your inverter device.</p></div>`;
       return;
     }
+
+    this._view = normalizePanelView(this._view);
 
     const showSubTabs = this._view === "settings";
     let shell = this._root.querySelector(".shell");
@@ -9586,7 +9805,7 @@ ${active
     }
     if (
       (this._view === "overview" ||
-        ((this._view === "energy" || this._view === "energy_analysis") && this._energyPeriod === "day")) &&
+        ((this._view === "energy_analysis") && this._energyPeriod === "day")) &&
       this._statisticsChart?.series
     ) {
       this._bindStatisticsChart();
@@ -9597,7 +9816,7 @@ ${active
         this._bindBatterySocChart();
       }
     }
-    if (this._view === "energy" || this._view === "energy_analysis") {
+    if (this._view === "energy_analysis") {
       const plant = this._getPlant();
       if (!plant) return;
       const cacheKey = this._energyChartCacheKey(plant);
@@ -9607,6 +9826,13 @@ ${active
         }
       } else if (!this._energyChartLoading && (this._energyChartPlantId !== cacheKey || !this._energyChart)) {
         this._loadEnergyCharts();
+      }
+      const sparkKey = this._analysisSummarySparkCacheKey(plant);
+      if (
+        !this._analysisSummarySparkLoading &&
+        (this._analysisSummarySparkKey !== sparkKey || !this._analysisSummarySpark)
+      ) {
+        void this._loadAnalysisSummarySpark();
       }
       if (
         this._view === "energy_analysis" &&
