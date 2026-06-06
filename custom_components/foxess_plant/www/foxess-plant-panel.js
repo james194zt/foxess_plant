@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.94
+ * @version 0.9.95
  */
 
 const NAV = [
@@ -3253,11 +3253,6 @@ function renderBatterySocChartHtml(chart, liveSocPct) {
     );
   }
   const nowX = xScale(nowMs);
-  if (![...xTickSet].some((xt) => Math.abs(xt - nowMs) < 20 * 60 * 1000)) {
-    xLabels.push(
-      `<text x="${nowX.toFixed(1)}" y="${height - pad.b + 18}" text-anchor="middle" class="soc-chart-axis-x soc-chart-now-label">Now</text>`
-    );
-  }
   xLabels.push(
     `<line x1="${nowX.toFixed(1)}" y1="${pad.t}" x2="${nowX.toFixed(1)}" y2="${pad.t + h}" class="soc-chart-now-line"/>`
   );
@@ -5067,7 +5062,6 @@ const STYLES = `
   fill: var(--secondary-text-color); font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
-.soc-chart-now-label { font-weight: 600; fill: var(--primary-text-color); }
 .soc-chart-now-line { stroke: rgba(127,127,127,0.28); stroke-width: 1; stroke-dasharray: 3 3; }
 .soc-chart-hit { position: absolute; inset: 0; cursor: crosshair; }
 .soc-chart-crosshair {
