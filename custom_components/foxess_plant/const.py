@@ -370,6 +370,36 @@ DEFAULT_PV_CONFIG = {
 TARIFF_KIND_STATIC = "static"
 TARIFF_KIND_DYNAMIC = "dynamic"
 
+# ISO 4217 codes supported in tariff settings (minor-unit storage uses `decimals`).
+TARIFF_CURRENCIES: dict[str, dict[str, str | int]] = {
+    "AUD": {"name": "Australian dollar", "decimals": 2},
+    "BGN": {"name": "Bulgarian lev", "decimals": 2},
+    "BRL": {"name": "Brazilian real", "decimals": 2},
+    "CAD": {"name": "Canadian dollar", "decimals": 2},
+    "CHF": {"name": "Swiss franc", "decimals": 2},
+    "CNY": {"name": "Chinese yuan", "decimals": 2},
+    "CZK": {"name": "Czech koruna", "decimals": 2},
+    "DKK": {"name": "Danish krone", "decimals": 2},
+    "EUR": {"name": "Euro", "decimals": 2},
+    "GBP": {"name": "British pound", "decimals": 2},
+    "HKD": {"name": "Hong Kong dollar", "decimals": 2},
+    "HUF": {"name": "Hungarian forint", "decimals": 2},
+    "ILS": {"name": "Israeli new shekel", "decimals": 2},
+    "INR": {"name": "Indian rupee", "decimals": 2},
+    "JPY": {"name": "Japanese yen", "decimals": 0},
+    "KRW": {"name": "South Korean won", "decimals": 0},
+    "MXN": {"name": "Mexican peso", "decimals": 2},
+    "NOK": {"name": "Norwegian krone", "decimals": 2},
+    "NZD": {"name": "New Zealand dollar", "decimals": 2},
+    "PLN": {"name": "Polish zloty", "decimals": 2},
+    "RON": {"name": "Romanian leu", "decimals": 2},
+    "SEK": {"name": "Swedish krona", "decimals": 2},
+    "SGD": {"name": "Singapore dollar", "decimals": 2},
+    "TRY": {"name": "Turkish lira", "decimals": 2},
+    "USD": {"name": "US dollar", "decimals": 2},
+    "ZAR": {"name": "South African rand", "decimals": 2},
+}
+
 DEFAULT_TARIFF = {
     "kind": TARIFF_KIND_STATIC,
     "currency": "GBP",

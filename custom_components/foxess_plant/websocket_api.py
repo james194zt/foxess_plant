@@ -13,7 +13,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, STORM_ALERT_PROVIDER_GOOGLE
+from .const import DOMAIN, STORM_ALERT_PROVIDER_GOOGLE, TARIFF_CURRENCIES
 from .panel_config import list_forecast_entity_candidates, list_tariff_entity_candidates, list_trigger_candidates
 
 WS_TYPE_PLANT_STATE = "foxess_plant/plant_state"
@@ -86,7 +86,7 @@ TARIFF_DYNAMIC_SCHEMA = vol.Schema(
 TARIFF_SCHEMA = vol.Schema(
     {
         vol.Optional("kind", default="static"): vol.In(["static", "dynamic"]),
-        vol.Optional("currency", default="GBP"): str,
+        vol.Optional("currency", default="GBP"): vol.In(sorted(TARIFF_CURRENCIES)),
         vol.Optional("import_source", default="manual"): vol.In(["manual", "entity"]),
         vol.Optional("import_entity"): vol.Any(str, None),
         vol.Required("import_p_per_kwh"): vol.All(vol.Coerce(float), vol.Range(min=0, max=9999)),

@@ -447,7 +447,7 @@ class TariffDynamicConfig:
 
 @dataclass
 class TariffConfig:
-    """Electricity tariff for cost analysis (static UK flat rate now; extensible for dynamic/API)."""
+    """Electricity tariff for cost analysis (static flat rate now; extensible for dynamic/API)."""
 
     kind: str = "static"
     currency: str = "GBP"
@@ -466,6 +466,7 @@ class TariffConfig:
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> TariffConfig:
         from .const import DEFAULT_TARIFF, TARIFF_KIND_STATIC
+        from .tariff_currency import normalize_tariff_currency
         from .tariff_rates import TARIFF_SOURCE_ENTITY, TARIFF_SOURCE_MANUAL
 
         raw = {**DEFAULT_TARIFF, **(data if isinstance(data, dict) else {})}
@@ -489,7 +490,7 @@ class TariffConfig:
 
         return cls(
             kind=kind,
-            currency=str(raw.get("currency") or "GBP").upper()[:3] or "GBP",
+            currency=normalize_tariff_currency(raw.get("currency")),
             import_source=_source("import_source"),
             import_entity=_entity("import_entity"),
             import_p_per_kwh=_rate("import_p_per_kwh"),

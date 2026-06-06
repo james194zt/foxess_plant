@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.81
+ * @version 0.9.83
  */
 
 const NAV = [
@@ -58,6 +58,67 @@ const DEFAULT_TARIFF = {
   standing_entity: "",
   standing_charge_p_per_day: 0,
 };
+
+/** ISO 4217 codes for tariff settings (must match const.py TARIFF_CURRENCIES). */
+const TARIFF_CURRENCIES = {
+  AUD: { name: "Australian dollar", decimals: 2 },
+  BGN: { name: "Bulgarian lev", decimals: 2 },
+  BRL: { name: "Brazilian real", decimals: 2 },
+  CAD: { name: "Canadian dollar", decimals: 2 },
+  CHF: { name: "Swiss franc", decimals: 2 },
+  CNY: { name: "Chinese yuan", decimals: 2 },
+  CZK: { name: "Czech koruna", decimals: 2 },
+  DKK: { name: "Danish krone", decimals: 2 },
+  EUR: { name: "Euro", decimals: 2 },
+  GBP: { name: "British pound", decimals: 2 },
+  HKD: { name: "Hong Kong dollar", decimals: 2 },
+  HUF: { name: "Hungarian forint", decimals: 2 },
+  ILS: { name: "Israeli new shekel", decimals: 2 },
+  INR: { name: "Indian rupee", decimals: 2 },
+  JPY: { name: "Japanese yen", decimals: 0 },
+  KRW: { name: "South Korean won", decimals: 0 },
+  MXN: { name: "Mexican peso", decimals: 2 },
+  NOK: { name: "Norwegian krone", decimals: 2 },
+  NZD: { name: "New Zealand dollar", decimals: 2 },
+  PLN: { name: "Polish zloty", decimals: 2 },
+  RON: { name: "Romanian leu", decimals: 2 },
+  SEK: { name: "Swedish krona", decimals: 2 },
+  SGD: { name: "Singapore dollar", decimals: 2 },
+  TRY: { name: "Turkish lira", decimals: 2 },
+  USD: { name: "US dollar", decimals: 2 },
+  ZAR: { name: "South African rand", decimals: 2 },
+};
+
+function normalizeTariffCurrency(code) {
+  const raw = String(code || "GBP").toUpperCase().trim().slice(0, 3);
+  return TARIFF_CURRENCIES[raw] ? raw : "GBP";
+}
+
+function tariffCurrencyMeta(code) {
+  return TARIFF_CURRENCIES[normalizeTariffCurrency(code)] || TARIFF_CURRENCIES.GBP;
+}
+
+function tariffMinorFactor(code) {
+  const decimals = tariffCurrencyMeta(code).decimals;
+  return decimals > 0 ? 10 ** decimals : 1;
+}
+
+function minorToMajor(minor, code) {
+  const factor = tariffMinorFactor(code);
+  const decimals = tariffCurrencyMeta(code).decimals;
+  return Math.round((parseTariffRate(minor) / factor) * 10 ** Math.max(decimals, 4)) / 10 ** Math.max(decimals, 4);
+}
+
+function majorToMinor(major, code) {
+  return Math.round(parseTariffRate(major) * tariffMinorFactor(code) * 10000) / 10000;
+}
+
+function tariffRateInputStep(code) {
+  const d = tariffCurrencyMeta(code).decimals;
+  if (d === 0) return "1";
+  if (d === 2) return "0.01";
+  return "0.0001";
+}
 
 const PV_EFFICIENCY_FACTOR_URL = "https://kb.solcast.com.au/what-is-the-efficiency-factor";
 const SOLCAST_API_DOCS_URL = "https://docs.solcast.com.au/";
@@ -721,7 +782,7 @@ function normalizeTariffDraft(raw) {
   };
   return {
     kind: t.kind === "dynamic" ? "dynamic" : "static",
-    currency: String(t.currency || "GBP").toUpperCase().slice(0, 3) || "GBP",
+    currency: normalizeTariffCurrency(t.currency),
     import_source: source(t.import_source),
     import_entity: entity(t.import_entity),
     import_p_per_kwh: parseTariffRate(t.import_p_per_kwh),
@@ -751,51 +812,121 @@ async function fetchTariffEntityCandidates(hass) {
   return res?.entities ?? [];
 }
 
-function tariffCandidatesForKind(candidates, kind) {
-  const rows = Array.isArray(candidates) ? candidates : [];
-  const kindKey = kind === "standing" ? "standing" : kind;
-  const suggestedKey = `suggested_${kindKey}`;
-  const suggested = rows.filter(
-    (row) => row[suggestedKey] || (row.rate_kinds ?? []).includes(kindKey)
-  );
-  const suggestedIds = new Set(suggested.map((row) => row.entity_id));
-  const rest = rows.filter((row) => !suggestedIds.has(row.entity_id));
-  return { suggested, rest, all: rows };
+const TARIFF_IMPORT_HINTS = ["import", "consumption", "buy", "unit_rate", "electricity", "glow", "octopus", "agile", "tariff", "rate"];
+const TARIFF_EXPORT_HINTS = ["export", "feed_in", "feed-in", "feedin", "seg", "sell", "tariff", "rate"];
+const TARIFF_STANDING_HINTS = ["standing", "daily_charge", "daily_standing", "standing_charge", "fixed", "daily"];
+
+function tariffSensorEntityFilter(state) {
+  if (!state?.entity_id?.startsWith("sensor.")) return false;
+  if (state.state == null || state.state === "" || state.state === "unknown" || state.state === "unavailable") {
+    return false;
+  }
+  const v = parseFloat(String(state.state));
+  return Number.isFinite(v);
 }
 
-function renderTariffEntityOptions(candidates, kind, selectedId) {
-  const { suggested, rest, all } = tariffCandidatesForKind(candidates, kind);
-  const selected = selectedId ? String(selectedId) : "";
-  const renderRow = (row) => {
-    const unit = row.unit ? ` · ${row.unit}` : "";
-    const state = row.state != null && row.state !== "" ? ` · ${row.state}` : "";
-    return `<option value="${esc(row.entity_id)}" ${row.entity_id === selected ? "selected" : ""}>${esc(row.name)} (${esc(row.entity_id)}${esc(state)}${esc(unit)})</option>`;
-  };
-  let html = `<option value="" ${selected ? "" : "selected"}>— Select sensor —</option>`;
-  if (selected && !all.some((row) => row.entity_id === selected)) {
-    html += `<option value="${esc(selected)}" selected>${esc(selected)}</option>`;
+function suggestedTariffEntitiesForKind(hass, kind, limit = 5) {
+  if (!hass?.states) return [];
+  const hints =
+    kind === "export" ? TARIFF_EXPORT_HINTS : kind === "standing" ? TARIFF_STANDING_HINTS : TARIFF_IMPORT_HINTS;
+  const rows = [];
+  for (const entityId of Object.keys(hass.states)) {
+    const state = hass.states[entityId];
+    if (!tariffSensorEntityFilter(state)) continue;
+    const blob = `${entityId} ${state.attributes?.friendly_name || ""}`.toLowerCase();
+    const matched = hints.some((hint) => blob.includes(hint));
+    if (!matched) continue;
+    if (kind === "import" && (blob.includes("export") || blob.includes("feed"))) continue;
+    if (kind === "export" && (blob.includes("import") || blob.includes("consumption"))) continue;
+    rows.push({
+      entity_id: entityId,
+      name: state.attributes?.friendly_name || entityId,
+      state: state.state,
+      unit: state.attributes?.unit_of_measurement || "",
+    });
   }
-  if (suggested.length) {
-    html += `<optgroup label="Suggested">${suggested.map(renderRow).join("")}</optgroup>`;
-  }
-  if (rest.length) {
-    html += `<optgroup label="Other sensors">${rest.map(renderRow).join("")}</optgroup>`;
-  }
-  if (!all.length) {
-    html += `<option value="" disabled>No matching sensors found yet</option>`;
-  }
-  return html;
+  rows.sort((a, b) => a.name.localeCompare(b.name));
+  return rows.slice(0, limit);
 }
 
-function formatTariffPence(pence) {
-  const v = parseTariffRate(pence);
+function tariffSuggestedEntitiesHint(hass, kind) {
+  const rows = suggestedTariffEntitiesForKind(hass, kind);
+  if (!rows.length) return "Search by sensor name or entity id (e.g. sensor.octopus_energy_electricity_meter_rate).";
+  const bits = rows.map((row) => {
+    const unit = row.unit ? ` ${row.unit}` : "";
+    return `${row.name} (${row.entity_id}${unit ? ` · ${String(row.state).trim()}${unit}` : ""})`;
+  });
+  return `Suggested: ${bits.join(" · ")}`;
+}
+
+let _haEntityPickerLoadPromise = null;
+
+async function ensureHaEntityPickerLoaded() {
+  if (customElements.get("ha-entity-picker")) return;
+  if (typeof window.loadCardHelpers !== "function") {
+    throw new Error("Home Assistant entity picker is not available");
+  }
+  if (!_haEntityPickerLoadPromise) {
+    _haEntityPickerLoadPromise = (async () => {
+      const helpers = await window.loadCardHelpers();
+      const card = await helpers.createCardElement({ type: "entities", entities: [] });
+      const configEl = card.constructor.getConfigElement?.();
+      if (configEl && typeof configEl.then === "function") await configEl;
+      await customElements.whenDefined("ha-entity-picker");
+    })();
+  }
+  await _haEntityPickerLoadPromise;
+}
+
+function tariffCurrencyFromTariff(tariff) {
+  const t = tariff && typeof tariff === "object" ? tariff : {};
+  return normalizeTariffCurrency(t.currency ?? t.effective?.currency);
+}
+
+function formatTariffMoney(minor, currency) {
+  const v = parseTariffRate(minor);
   if (v <= 0) return "—";
-  if (v >= 100) return `£${(v / 100).toFixed(2)}`;
-  return `${v.toFixed(2)}p`;
+  const code = normalizeTariffCurrency(currency);
+  const major = minorToMajor(v, code);
+  const decimals = tariffCurrencyMeta(code).decimals;
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: code,
+      minimumFractionDigits: Math.min(decimals, 4),
+      maximumFractionDigits: Math.max(decimals, 4),
+    }).format(major);
+  } catch {
+    return `${major.toFixed(Math.min(decimals, 4))} ${code}`;
+  }
+}
+
+function formatTariffMoneyDisplay(majorAmount, currency) {
+  if (majorAmount == null || !Number.isFinite(Number(majorAmount))) return { value: "—", unit: "" };
+  const code = normalizeTariffCurrency(currency);
+  const n = Number(majorAmount);
+  const sign = n < 0 ? "-" : "";
+  try {
+    const parts = new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: code,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).formatToParts(Math.abs(n));
+    const symbol = parts.find((p) => p.type === "currency")?.value ?? code;
+    const num = parts
+      .filter((p) => ["integer", "group", "decimal", "fraction"].includes(p.type))
+      .map((p) => p.value)
+      .join("");
+    return { value: `${sign}${num}`, unit: ` ${symbol}` };
+  } catch {
+    return { value: `${sign}${Math.abs(n).toFixed(2)}`, unit: ` ${code}` };
+  }
 }
 
 function tariffSettingsSummary(tariff) {
   const rates = tariffEffectiveRates(tariff);
+  const currency = tariffCurrencyFromTariff(tariff);
   const entityBits = [];
   if (tariff?.import_source === "entity" && tariff?.import_entity) entityBits.push("Import sensor");
   if (tariff?.export_source === "entity" && tariff?.export_entity) entityBits.push("Export sensor");
@@ -805,10 +936,10 @@ function tariffSettingsSummary(tariff) {
     return "Not configured — add rates for cost analysis";
   }
   const parts = [];
-  if (rates.import_p_per_kwh) parts.push(`Import ${formatTariffPence(rates.import_p_per_kwh)}/kWh`);
-  if (rates.export_p_per_kwh) parts.push(`Export ${formatTariffPence(rates.export_p_per_kwh)}/kWh`);
+  if (rates.import_p_per_kwh) parts.push(`Import ${formatTariffMoney(rates.import_p_per_kwh, currency)}/kWh`);
+  if (rates.export_p_per_kwh) parts.push(`Export ${formatTariffMoney(rates.export_p_per_kwh, currency)}/kWh`);
   if (rates.standing_charge_p_per_day) {
-    parts.push(`Standing ${formatTariffPence(rates.standing_charge_p_per_day)}/day`);
+    parts.push(`Standing ${formatTariffMoney(rates.standing_charge_p_per_day, currency)}/day`);
   }
   return parts.join(" · ");
 }
@@ -1353,17 +1484,10 @@ function renderFoxAnalysisLineSparkline(values, color, { placeholder = false } =
   return `<svg class="fox-analysis-sparkline" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true"><path d="${path}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 }
 
-function formatGbpDisplay(gbp) {
-  if (gbp == null || !Number.isFinite(Number(gbp))) return { value: "—", unit: "" };
-  const n = Number(gbp);
-  const sign = n < 0 ? "-" : "";
-  return { value: `${sign}${Math.abs(n).toFixed(2)}`, unit: " £" };
-}
-
-function buildTariffIntradaySeries(importPts, exportPts, rates, range) {
-  const importRateGbp = parseTariffRate(rates.import_p_per_kwh) / 100;
-  const exportRateGbp = parseTariffRate(rates.export_p_per_kwh) / 100;
-  const standingDailyGbp = parseTariffRate(rates.standing_charge_p_per_day) / 100;
+function buildTariffIntradaySeries(importPts, exportPts, rates, range, currency) {
+  const importRateMajor = minorToMajor(rates.import_p_per_kwh, currency);
+  const exportRateMajor = minorToMajor(rates.export_p_per_kwh, currency);
+  const standingDailyMajor = minorToMajor(rates.standing_charge_p_per_day, currency);
   const importKwh = interpolatePointsToPeriod(importPts, STATISTICS_PERIOD_MS, range.tMin, range.nowMs).map(
     (p) => Math.max(0, p.v)
   );
@@ -1379,9 +1503,9 @@ function buildTariffIntradaySeries(importPts, exportPts, rates, range) {
     const ik = importKwh[i] ?? importKwh[importKwh.length - 1] ?? 0;
     const ek = exportKwh[i] ?? exportKwh[exportKwh.length - 1] ?? 0;
     const t = range.tMin + i * STATISTICS_PERIOD_MS;
-    const standing = standingDailyGbp * Math.min(1, Math.max(0, (t - range.tMin) / daySpan));
-    const ic = ik * importRateGbp;
-    const er = ek * exportRateGbp;
+    const standing = standingDailyMajor * Math.min(1, Math.max(0, (t - range.tMin) / daySpan));
+    const ic = ik * importRateMajor;
+    const er = ek * exportRateMajor;
     importCost.push(ic);
     exportRevenue.push(er);
     totalCost.push(standing + ic - er);
@@ -1394,6 +1518,7 @@ async function fetchAnalysisTariffIntraday(hass, plant, plantState, overviewDail
   if (!tariff?.configured) {
     return { configured: false };
   }
+  const currency = tariffCurrencyFromTariff(tariff);
   const rates = tariffEffectiveRates(tariff);
   const map = resolveEntityMap(hass, plant, plantState);
   const importId = map.grid_consumption_energy_today;
@@ -1408,16 +1533,17 @@ async function fetchAnalysisTariffIntraday(hass, plant, plantState, overviewDail
     importPts = importId ? historyToPoints(historyRowsForEntity(hist, importId)) : [];
     exportPts = exportId ? historyToPoints(historyRowsForEntity(hist, exportId)) : [];
   }
-  const series = buildTariffIntradaySeries(importPts, exportPts, rates, range);
+  const series = buildTariffIntradaySeries(importPts, exportPts, rates, range, currency);
   const analytics = readLiveAnalytics(hass, plant, plantState, overviewDaily);
   const importKwh = Number(analytics.load_from_grid_kwh_today ?? 0) || 0;
   const exportKwh = Number(analytics.pv_to_grid_kwh_today ?? 0) || 0;
-  const importCost = importKwh * (parseTariffRate(rates.import_p_per_kwh) / 100);
-  const exportRevenue = exportKwh * (parseTariffRate(rates.export_p_per_kwh) / 100);
-  const standing = parseTariffRate(rates.standing_charge_p_per_day) / 100;
+  const importCost = importKwh * minorToMajor(rates.import_p_per_kwh, currency);
+  const exportRevenue = exportKwh * minorToMajor(rates.export_p_per_kwh, currency);
+  const standing = minorToMajor(rates.standing_charge_p_per_day, currency);
   const totalCost = standing + importCost - exportRevenue;
   return {
     configured: true,
+    currency,
     rates,
     totals: { importCost, exportRevenue, standing, totalCost, importKwh, exportKwh },
     series,
@@ -1486,15 +1612,16 @@ function renderFoxAnalysisSummaryCard(a, overviewDaily, analysisTariff, { loadin
     if (series.totalCost?.length >= 2) {
       totalSpark = renderFoxAnalysisLineSparkline(series.totalCost, FOX_ANALYSIS_SPARK_COLORS.totalCost);
     }
-    const exportGbp = formatGbpDisplay(totals.exportRevenue);
-    const importGbp = formatGbpDisplay(totals.importCost);
-    const totalGbp = formatGbpDisplay(totals.totalCost);
-    exportDisplay = exportGbp.value;
-    exportUnit = exportGbp.unit;
-    importDisplay = importGbp.value;
-    importUnit = importGbp.unit;
-    totalDisplay = totalGbp.value;
-    totalUnit = totalGbp.unit;
+    const currency = analysisTariff.currency ?? "GBP";
+    const exportMoney = formatTariffMoneyDisplay(totals.exportRevenue, currency);
+    const importMoney = formatTariffMoneyDisplay(totals.importCost, currency);
+    const totalMoney = formatTariffMoneyDisplay(totals.totalCost, currency);
+    exportDisplay = exportMoney.value;
+    exportUnit = exportMoney.unit;
+    importDisplay = importMoney.value;
+    importUnit = importMoney.unit;
+    totalDisplay = totalMoney.value;
+    totalUnit = totalMoney.unit;
     totalMuted = false;
   }
 
@@ -5428,6 +5555,10 @@ const STYLES = `
 .toggle-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; font-size: 14px; }
 .toggle-row input { width: 18px; height: 18px; accent-color: var(--fp-accent); }
 .field-hint { font-size: 12px; color: var(--secondary-text-color); margin: 0 0 8px; line-height: 1.45; }
+.tariff-entity-picker-host { display: block; min-height: 56px; }
+.tariff-entity-picker-host ha-entity-picker { display: block; width: 100%; }
+.tariff-entity-picker-loading { margin: 0; font-size: 13px; color: var(--secondary-text-color); }
+.tariff-entity-picker-error { margin: 0; font-size: 13px; color: var(--error-color, #db4437); }
 .field-link { color: var(--fp-accent); text-decoration: none; }
 .field-link:hover { text-decoration: underline; }
 .pv-range-row { display: flex; align-items: center; gap: 12px; }
@@ -5709,7 +5840,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._pvDraft = null;
     this._solcastDraft = null;
     this._tariffDraft = null;
-    this._tariffCandidates = null;
+    this._tariffPickerMountGen = 0;
     this._headerHasSubTabs = undefined;
     this._renderRaf = 0;
     this._onSocMove = this._onSocMove.bind(this);
@@ -5949,6 +6080,7 @@ Reloading panel registration…
     if (this._settingsFieldFocused) return true;
     const el = this.shadowRoot?.activeElement || document.activeElement;
     if (!el || !this._root.contains(el)) return false;
+    if (el.tagName === "HA-ENTITY-PICKER" || el.closest?.("ha-entity-picker")) return true;
     const tag = el.tagName;
     if (tag === "SELECT" || tag === "TEXTAREA") return true;
     if (tag !== "INPUT") return false;
@@ -5958,14 +6090,25 @@ Reloading panel registration…
 
   _onFocusIn(e) {
     if (this._view !== "settings" || !this._root.contains(e.target)) return;
-    if (e.target.matches?.("input, select, textarea")) this._settingsFieldFocused = true;
+    if (
+      e.target.matches?.("input, select, textarea, ha-entity-picker") ||
+      e.target.closest?.("ha-entity-picker")
+    ) {
+      this._settingsFieldFocused = true;
+    }
   }
 
   _onFocusOut() {
     if (this._view !== "settings") return;
     window.requestAnimationFrame(() => {
       const active = this.shadowRoot?.activeElement || document.activeElement;
-      if (active && this._root.contains(active) && active.matches?.("input, select, textarea")) return;
+      if (
+        active &&
+        this._root.contains(active) &&
+        (active.matches?.("input, select, textarea, ha-entity-picker") || active.closest?.("ha-entity-picker"))
+      ) {
+        return;
+      }
       this._settingsFieldFocused = false;
       if (this._renderPending) {
         this._renderPending = false;
@@ -6243,22 +6386,72 @@ Reloading panel registration…
 
   _enterTariffSettings() {
     this._initTariffDraft();
-    void this._loadTariffCandidates();
+    this._tariffPickerMountGen += 1;
   }
 
-  async _loadTariffCandidates() {
-    if (!this._hass) return;
+  _syncTariffDraftFromPickers() {
+    if (!this._tariffDraft) return;
+    for (const kind of ["import", "export", "standing"]) {
+      const picker = this._root.querySelector(`[data-tariff-picker="${kind}"] ha-entity-picker`);
+      if (picker) this._tariffDraft[`${kind}_entity`] = picker.value || "";
+    }
+  }
+
+  async _syncTariffEntityPickers() {
+    if (this._settingsView !== "tariff" || !this._tariffDraft || !this._hass) return;
+    const gen = ++this._tariffPickerMountGen;
+    for (const kind of ["import", "export", "standing"]) {
+      const host = this._root.querySelector(`[data-tariff-picker="${kind}"]`);
+      if (!host) continue;
+      if (this._tariffDraft[`${kind}_source`] !== "entity") {
+        host.replaceChildren();
+        continue;
+      }
+      if (!host.querySelector("ha-entity-picker")) {
+        host.innerHTML = `<p class="field-hint tariff-entity-picker-loading">Loading entity picker…</p>`;
+      }
+    }
     try {
-      this._tariffCandidates = await fetchTariffEntityCandidates(this._hass);
-      if (this._settingsView === "tariff") this._scheduleRender();
-    } catch {
-      this._tariffCandidates = [];
+      await ensureHaEntityPickerLoaded();
+    } catch (err) {
+      if (gen !== this._tariffPickerMountGen) return;
+      for (const kind of ["import", "export", "standing"]) {
+        const host = this._root.querySelector(`[data-tariff-picker="${kind}"]`);
+        if (!host || this._tariffDraft[`${kind}_source`] !== "entity") continue;
+        host.innerHTML = `<p class="tariff-entity-picker-error">${esc(err?.message || "Entity picker unavailable")}</p>`;
+      }
+      return;
+    }
+    if (gen !== this._tariffPickerMountGen) return;
+    for (const kind of ["import", "export", "standing"]) {
+      if (this._tariffDraft[`${kind}_source`] !== "entity") continue;
+      const host = this._root.querySelector(`[data-tariff-picker="${kind}"]`);
+      if (!host) continue;
+      let picker = host.querySelector("ha-entity-picker");
+      if (!picker) {
+        host.replaceChildren();
+        picker = document.createElement("ha-entity-picker");
+        picker.setAttribute("allow-custom-entity", "");
+        if (this._hass.userData?.showEntityIdPicker) picker.setAttribute("show-entity-id", "");
+        picker.includeDomains = ["sensor"];
+        picker.entityFilter = tariffSensorEntityFilter;
+        picker.addEventListener("value-changed", (ev) => {
+          if (this._busy || !this._tariffDraft) return;
+          this._tariffDraft[`${kind}_entity`] = ev.detail?.value || "";
+        });
+        host.appendChild(picker);
+      }
+      picker.hass = this._hass;
+      picker.disabled = this._busy;
+      const value = this._tariffDraft[`${kind}_entity`] || "";
+      if (picker.value !== value) picker.value = value || undefined;
     }
   }
 
   async _saveTariffSettings() {
     const plant = this._getPlant();
     if (!plant || !this._tariffDraft) return;
+    this._syncTariffDraftFromPickers();
     const draft = normalizeTariffDraft(this._tariffDraft);
     const missing = [];
     if (draft.import_source === "entity" && !draft.import_entity) missing.push("Import sensor");
@@ -6615,7 +6808,10 @@ Reloading panel registration…
     if (action === "settings-sub") {
       this._view = "settings";
       if (btn.dataset.sub !== "solcast") this._solcastDraft = null;
-      if (btn.dataset.sub !== "tariff") this._tariffDraft = null;
+      if (btn.dataset.sub !== "tariff") {
+        this._tariffDraft = null;
+        this._tariffPickerMountGen += 1;
+      }
       this._settingsView = btn.dataset.sub;
       if (btn.dataset.sub === "schedules") this._initChargeDraft();
       if (btn.dataset.sub === "quick") this._initSocDraft();
@@ -6630,7 +6826,10 @@ Reloading panel registration…
     if (action === "settings-tab") {
       this._view = "settings";
       if (btn.dataset.sub !== "solcast") this._solcastDraft = null;
-      if (btn.dataset.sub !== "tariff") this._tariffDraft = null;
+      if (btn.dataset.sub !== "tariff") {
+        this._tariffDraft = null;
+        this._tariffPickerMountGen += 1;
+      }
       this._settingsView = btn.dataset.sub;
       if (btn.dataset.sub === "schedules") this._initChargeDraft();
       if (btn.dataset.sub === "quick") this._initSocDraft();
@@ -6796,15 +6995,16 @@ Reloading panel registration…
       if (parts[0] === "tariff" && this._tariffDraft) {
         const kind = parts[1];
         const sub = parts[2];
+        if (kind === "currency") {
+          this._tariffDraft.currency = normalizeTariffCurrency(el.value);
+          this._scheduleRender();
+          return;
+        }
         if (kind === "import" || kind === "export" || kind === "standing") {
           if (sub === "source") {
             this._tariffDraft[`${kind}_source`] = el.value === "entity" ? "entity" : "manual";
             this._scheduleRender();
-            return;
-          }
-          if (sub === "entity") {
-            this._tariffDraft[`${kind}_entity`] = el.value || "";
-            this._scheduleRender();
+            void this._syncTariffEntityPickers();
             return;
           }
         }
@@ -6939,12 +7139,13 @@ Reloading panel registration…
     if (kind === "tariff" && this._tariffDraft) {
       const rateKind = parts[1];
       const sub = parts[2];
+      const currency = normalizeTariffCurrency(this._tariffDraft.currency);
       if ((rateKind === "import" || rateKind === "export") && sub === "p") {
-        this._tariffDraft[`${rateKind}_p_per_kwh`] = parseTariffRate(el.value);
+        this._tariffDraft[`${rateKind}_p_per_kwh`] = majorToMinor(parseTariffRate(el.value), currency);
         return;
       }
       if (rateKind === "standing" && sub === "p") {
-        this._tariffDraft.standing_charge_p_per_day = parseTariffRate(el.value);
+        this._tariffDraft.standing_charge_p_per_day = majorToMinor(parseTariffRate(el.value), currency);
         return;
       }
       const field = parts[1];
@@ -8355,24 +8556,25 @@ ${this._renderEnergyCharts()}`;
     const rates = tariffEffectiveRates(tariffState || {});
     const importKwh = Number(a.load_from_grid_kwh_today ?? 0) || 0;
     const exportKwh = Number(a.pv_to_grid_kwh_today ?? 0) || 0;
-    const importCost = importKwh * (parseTariffRate(rates.import_p_per_kwh) / 100);
-    const exportRevenue = exportKwh * (parseTariffRate(rates.export_p_per_kwh) / 100);
-    const standing = parseTariffRate(rates.standing_charge_p_per_day) / 100;
+    const currency = tariffCurrencyFromTariff(tariffState || {});
+    const importCost = importKwh * minorToMajor(rates.import_p_per_kwh, currency);
+    const exportRevenue = exportKwh * minorToMajor(rates.export_p_per_kwh, currency);
+    const standing = minorToMajor(rates.standing_charge_p_per_day, currency);
     const totalCost = standing + importCost - exportRevenue;
     const exportEl = root.querySelector('[data-summary-value="export_revenue"]');
     const importEl = root.querySelector('[data-summary-value="import_cost"]');
     const totalEl = root.querySelector('[data-summary-value="total_cost"]');
-    const exportGbp = formatGbpDisplay(exportRevenue);
-    const importGbp = formatGbpDisplay(importCost);
-    const totalGbp = formatGbpDisplay(totalCost);
+    const exportMoney = formatTariffMoneyDisplay(exportRevenue, currency);
+    const importMoney = formatTariffMoneyDisplay(importCost, currency);
+    const totalMoney = formatTariffMoneyDisplay(totalCost, currency);
     if (exportEl) {
-      exportEl.innerHTML = `${exportGbp.value}${exportGbp.unit ? `<span>${esc(exportGbp.unit.trim())}</span>` : ""}`;
+      exportEl.innerHTML = `${exportMoney.value}${exportMoney.unit ? `<span>${esc(exportMoney.unit.trim())}</span>` : ""}`;
     }
     if (importEl) {
-      importEl.innerHTML = `${importGbp.value}${importGbp.unit ? `<span>${esc(importGbp.unit.trim())}</span>` : ""}`;
+      importEl.innerHTML = `${importMoney.value}${importMoney.unit ? `<span>${esc(importMoney.unit.trim())}</span>` : ""}`;
     }
     if (totalEl) {
-      totalEl.innerHTML = `${totalGbp.value}${totalGbp.unit ? `<span>${esc(totalGbp.unit.trim())}</span>` : ""}`;
+      totalEl.innerHTML = `${totalMoney.value}${totalMoney.unit ? `<span>${esc(totalMoney.unit.trim())}</span>` : ""}`;
     }
   }
 
@@ -9032,23 +9234,27 @@ ${this._renderPvStringBlock("pv2")}
   _renderTariffRateBlock(kind, { label, unitLabel, manualKey, placeholder, liveMeta }) {
     if (!this._tariffDraft) this._initTariffDraft();
     const draft = this._tariffDraft;
+    const currency = normalizeTariffCurrency(draft.currency);
     const sourceKey = `${kind}_source`;
     const entityKey = `${kind}_entity`;
     const source = draft[sourceKey] === "entity" ? "entity" : "manual";
-    const manualVal = draft[manualKey];
+    const manualMinor = draft[manualKey];
+    const manualDisplay = manualMinor > 0 ? minorToMajor(manualMinor, currency) : "";
     const entityId = draft[entityKey] || "";
     const manualDisabled = this._busy || source !== "manual";
-    const entityDisabled = this._busy || source !== "entity";
+    const inputStep = tariffRateInputStep(currency);
+    const suggestedHint =
+      source === "entity" ? tariffSuggestedEntitiesHint(this._hass, kind) : "";
     const manualHint =
-      manualVal > 0
+      manualMinor > 0
         ? kind === "standing"
-          ? `≈ £${(manualVal / 100).toFixed(2)}/day`
-          : `≈ £${(manualVal / 100).toFixed(4)}/kWh`
+          ? `≈ ${formatTariffMoney(manualMinor, currency)}/day`
+          : `≈ ${formatTariffMoney(manualMinor, currency)}/kWh`
         : kind === "standing"
-          ? "Daily standing charge in pence"
+          ? `Daily standing charge in ${currency}`
           : kind === "export"
-            ? "SEG / export rate in pence per kWh"
-            : "Enter pence per kWh from your bill";
+            ? `Export / feed-in rate in ${currency} per kWh`
+            : `Import rate in ${currency} per kWh`;
     let liveHint = "";
     if (source === "entity") {
       if (liveMeta?.available === false) {
@@ -9056,15 +9262,16 @@ ${this._renderPvStringBlock("pv2")}
           ? `Sensor ${entityId} is unavailable`
           : "Choose a sensor that reports this rate";
       } else if (liveMeta?.resolved_p != null) {
-        liveHint = `Live: ${formatTariffPence(liveMeta.resolved_p)}${unitLabel}${liveMeta.entity_id ? ` from ${liveMeta.entity_id}` : ""}`;
+        liveHint = `Live: ${formatTariffMoney(liveMeta.resolved_p, currency)}${unitLabel}${liveMeta.entity_id ? ` from ${liveMeta.entity_id}` : ""}`;
       } else if (entityId && liveMeta?.state != null) {
-        liveHint = `Live state: ${liveMeta.state}${liveMeta.unit ? ` ${liveMeta.unit}` : ""} — could not convert to pence automatically`;
+        liveHint = `Live state: ${liveMeta.state}${liveMeta.unit ? ` ${liveMeta.unit}` : ""} — could not convert to ${currency} automatically`;
       } else if (entityId) {
         liveHint = "Waiting for a numeric reading from the selected sensor";
       } else {
-        liveHint = "Select a sensor from Glow, Octopus, or your energy integration";
+        liveHint = suggestedHint;
       }
     }
+    const entityHint = source === "entity" ? liveHint || suggestedHint : "";
     return `<div class="tariff-rate-block" data-tariff-kind="${esc(kind)}">
 <div class="field">
 <label>${esc(label)}</label>
@@ -9075,53 +9282,66 @@ ${this._renderPvStringBlock("pv2")}
 </div>
 <div class="field" ${source === "manual" ? "" : 'style="display:none"'} data-tariff-manual="${esc(kind)}">
 <p class="field-hint">${esc(manualHint)}</p>
-<input type="number" min="0" max="9999" step="0.01" inputmode="decimal" data-field="tariff:${esc(kind)}:p" value="${esc(String(manualVal || ""))}" placeholder="${esc(placeholder)}" ${manualDisabled ? "disabled" : ""}>
+<input type="number" min="0" max="9999" step="${esc(inputStep)}" inputmode="decimal" data-field="tariff:${esc(kind)}:p" value="${esc(String(manualDisplay || ""))}" placeholder="${esc(placeholder)}" ${manualDisabled ? "disabled" : ""}>
 </div>
 <div class="field" ${source === "entity" ? "" : 'style="display:none"'} data-tariff-entity="${esc(kind)}">
-<p class="field-hint">${esc(liveHint || "Use an existing sensor from Glow, Octopus, or another energy integration")}</p>
-<select data-field="tariff:${esc(kind)}:entity" ${entityDisabled ? "disabled" : ""}>
-${renderTariffEntityOptions(this._tariffCandidates, kind, entityId)}
-</select>
+<p class="field-hint">${esc(entityHint || "Use the Home Assistant sensor picker — search by friendly name or entity id.")}</p>
+<div class="tariff-entity-picker-host" data-tariff-picker="${esc(kind)}"></div>
 </div>
 </div>`;
   }
 
   _renderSettingsTariff() {
     if (!this._tariffDraft) this._initTariffDraft();
+    const draft = this._tariffDraft;
+    const currency = normalizeTariffCurrency(draft.currency);
     const live = this._plantState?.tariff ?? {};
+    const liveCurrency = tariffCurrencyFromTariff(live);
     const entities = live.entities ?? {};
     const historyCount = live.rate_history_count ?? 0;
     const lastUpdated = live.last_updated_at ? esc(formatSolcastTimestamp(live.last_updated_at)) : "Never";
     const effective = tariffEffectiveRates(live);
     const effectiveBits = [];
-    if (effective.import_p_per_kwh) effectiveBits.push(`Import ${formatTariffPence(effective.import_p_per_kwh)}/kWh`);
-    if (effective.export_p_per_kwh) effectiveBits.push(`Export ${formatTariffPence(effective.export_p_per_kwh)}/kWh`);
+    if (effective.import_p_per_kwh) effectiveBits.push(`Import ${formatTariffMoney(effective.import_p_per_kwh, liveCurrency)}/kWh`);
+    if (effective.export_p_per_kwh) effectiveBits.push(`Export ${formatTariffMoney(effective.export_p_per_kwh, liveCurrency)}/kWh`);
     if (effective.standing_charge_p_per_day) {
-      effectiveBits.push(`Standing ${formatTariffPence(effective.standing_charge_p_per_day)}/day`);
+      effectiveBits.push(`Standing ${formatTariffMoney(effective.standing_charge_p_per_day, liveCurrency)}/day`);
     }
-    return `<header class="header"><h1>Tariff</h1><p>UK electricity rates for cost and revenue analysis. Enter values manually in <strong>pence</strong>, or bind Home Assistant sensors from Glow, Octopus, or other energy integrations.</p></header>
+    const currencyOptions = Object.entries(TARIFF_CURRENCIES)
+      .sort((a, b) => a[1].name.localeCompare(b[1].name))
+      .map(
+        ([code, meta]) =>
+          `<option value="${esc(code)}" ${code === currency ? "selected" : ""}>${esc(code)} — ${esc(meta.name)}</option>`
+      )
+      .join("");
+    return `<header class="header"><h1>Tariff</h1><p>Electricity rates for cost and revenue analysis. Choose your currency, enter rates manually, or bind Home Assistant sensors from energy integrations (Octopus, Glow, etc.).</p></header>
 <div class="card">
 <p class="card-title">Electricity tariff</p>
-<p class="field-hint" style="margin:0 0 12px">Each rate can be typed in or sourced from a sensor. Sensor values in £/kWh or p/kWh are converted automatically for analysis.</p>
+<div class="field">
+<label>Currency</label>
+<select data-field="tariff:currency" ${this._busy ? "disabled" : ""}>${currencyOptions}</select>
+<p class="field-hint">Rates are stored in the selected currency. Changing currency does not convert existing values — re-enter rates after switching.</p>
+</div>
+<p class="field-hint" style="margin:0 0 12px">Each rate can be typed in or sourced from a sensor. Sensor values in major units (e.g. ${esc(currency)}/kWh) or minor units are converted automatically.</p>
 ${this._renderTariffRateBlock("import", {
       label: "Import cost",
-      unitLabel: "p/kWh",
+      unitLabel: `${currency}/kWh`,
       manualKey: "import_p_per_kwh",
-      placeholder: "e.g. 24.50",
+      placeholder: currency === "GBP" ? "e.g. 0.245" : "e.g. 0.25",
       liveMeta: entities.import,
     })}
 ${this._renderTariffRateBlock("export", {
-      label: "Export cost",
-      unitLabel: "p/kWh",
+      label: "Export revenue",
+      unitLabel: `${currency}/kWh`,
       manualKey: "export_p_per_kwh",
-      placeholder: "e.g. 15.00",
+      placeholder: currency === "GBP" ? "e.g. 0.150" : "e.g. 0.15",
       liveMeta: entities.export,
     })}
 ${this._renderTariffRateBlock("standing", {
       label: "Daily standing charge",
-      unitLabel: "p/day",
+      unitLabel: `${currency}/day`,
       manualKey: "standing_charge_p_per_day",
-      placeholder: "e.g. 53.35",
+      placeholder: currency === "GBP" ? "e.g. 0.53" : "e.g. 1.00",
       liveMeta: entities.standing,
     })}
 <div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-tariff-settings" ${this._busy ? "disabled" : ""}>Save tariff</button></div>
@@ -9372,6 +9592,9 @@ ${active
     }
     if (this._view === "settings" && this._settingsView === "storm" && this._stormDraft) {
       this._syncStormTriggerPicker();
+    }
+    if (this._view === "settings" && this._settingsView === "tariff" && this._tariffDraft) {
+      void this._syncTariffEntityPickers();
     }
     if (
       (this._view === "overview" ||

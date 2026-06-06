@@ -6,6 +6,12 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant, State
 
+from .tariff_currency import (
+    entity_value_to_minor_per_day,
+    entity_value_to_minor_per_kwh,
+    normalize_tariff_currency,
+)
+
 TARIFF_SOURCE_MANUAL = "manual"
 TARIFF_SOURCE_ENTITY = "entity"
 
@@ -47,13 +53,6 @@ _STANDING_HINTS = (
 )
 
 
-def _normalize_unit(unit: str | None) -> str:
-    if not unit:
-        return ""
-    u = str(unit).lower().replace(" ", "")
-    return u.replace("gb£", "gbp").replace("£", "gbp")
-
-
 def _parse_float(raw: str | None) -> float | None:
     if raw in (None, "", "unknown", "unavailable"):
         return None
@@ -63,48 +62,15 @@ def _parse_float(raw: str | None) -> float | None:
         return None
 
 
-def entity_value_to_pence_per_kwh(value: float, unit: str | None) -> float | None:
-    """Convert a sensor reading to pence per kWh."""
-    if value < 0:
-        return None
-    u = _normalize_unit(unit)
-    if not u:
-        if 0 < value <= 5:
-            return round(value * 100, 4)
-        if value > 0:
-            return round(value, 4)
-        return None
-    if "p/kwh" in u or "pence/kwh" in u or u in ("p", "pence"):
-        return round(value, 4)
-    if "/kwh" in u or u.endswith("kwh"):
-        if u.startswith("p") or (u.startswith("pence") and "gbp" not in u):
-            return round(value, 4)
-        return round(value * 100, 4)
-    if u in ("gbp", "eur", "usd") and 0 < value <= 5:
-        return round(value * 100, 4)
-    return None
+def _normalize_unit(unit: str | None) -> str:
+    from .tariff_currency import _normalize_unit as normalize
+
+    return normalize(unit)
 
 
-def entity_value_to_pence_per_day(value: float, unit: str | None) -> float | None:
-    """Convert a sensor reading to pence per day."""
-    if value < 0:
-        return None
-    u = _normalize_unit(unit)
-    if not u:
-        if 0 < value <= 5:
-            return round(value * 100, 4)
-        if value > 0:
-            return round(value, 4)
-        return None
-    if "p/day" in u or "pence/day" in u:
-        return round(value, 4)
-    if "/day" in u or "daily" in u or "perday" in u:
-        if u.startswith("p") or (u.startswith("pence") and "gbp" not in u):
-            return round(value, 4)
-        return round(value * 100, 4)
-    if u in ("gbp", "eur", "usd") and 0 < value <= 5:
-        return round(value * 100, 4)
-    return None
+# Backwards-compatible aliases (stored values are currency minor units).
+entity_value_to_pence_per_kwh = entity_value_to_minor_per_kwh
+entity_value_to_pence_per_day = entity_value_to_minor_per_day
 
 
 def _entity_blob(state: State) -> str:
@@ -128,8 +94,8 @@ def _tariff_rate_kinds(state: State) -> list[str]:
     blob = _entity_blob(state)
     kinds: list[str] = []
 
-    per_kwh = entity_value_to_pence_per_kwh(value, unit) is not None
-    per_day = entity_value_to_pence_per_day(value, unit) is not None
+    per_kwh = entity_value_to_minor_per_kwh(value, unit, "GBP") is not None
+    per_day = entity_value_to_minor_per_day(value, unit, "GBP") is not None
 
     if per_kwh:
         if any(h in blob for h in _IMPORT_HINTS) and "export" not in blob and "feed" not in blob:
@@ -150,11 +116,12 @@ def _tariff_rate_kinds(state: State) -> list[str]:
     return sorted(set(kinds))
 
 
-def _resolve_entity_pence(
+def _resolve_entity_minor(
     hass: HomeAssistant,
     entity_id: str | None,
     *,
     per_day: bool,
+    currency: str,
 ) -> tuple[float | None, dict[str, Any] | None]:
     if not entity_id:
         return None, None
@@ -172,9 +139,9 @@ def _resolve_entity_pence(
     resolved = None
     if value is not None:
         resolved = (
-            entity_value_to_pence_per_day(value, unit)
+            entity_value_to_minor_per_day(value, unit, currency)
             if per_day
-            else entity_value_to_pence_per_kwh(value, unit)
+            else entity_value_to_minor_per_kwh(value, unit, currency)
         )
     return resolved, {
         "entity_id": entity_id,
@@ -187,7 +154,8 @@ def _resolve_entity_pence(
 
 
 def resolve_tariff_rates(hass: HomeAssistant, tariff: Any) -> dict[str, Any]:
-    """Resolve effective pence rates and entity metadata for panel / analysis."""
+    """Resolve effective minor-unit rates and entity metadata for panel / analysis."""
+    currency = normalize_tariff_currency(getattr(tariff, "currency", None))
     import_p = max(0.0, float(getattr(tariff, "import_p_per_kwh", 0) or 0))
     export_p = max(0.0, float(getattr(tariff, "export_p_per_kwh", 0) or 0))
     standing_p = max(0.0, float(getattr(tariff, "standing_charge_p_per_day", 0) or 0))
@@ -195,24 +163,31 @@ def resolve_tariff_rates(hass: HomeAssistant, tariff: Any) -> dict[str, Any]:
     entities: dict[str, Any] = {}
 
     if getattr(tariff, "import_source", TARIFF_SOURCE_MANUAL) == TARIFF_SOURCE_ENTITY:
-        resolved, meta = _resolve_entity_pence(hass, getattr(tariff, "import_entity", None), per_day=False)
+        resolved, meta = _resolve_entity_minor(
+            hass, getattr(tariff, "import_entity", None), per_day=False, currency=currency
+        )
         entities["import"] = meta
         if resolved is not None:
             import_p = resolved
 
     if getattr(tariff, "export_source", TARIFF_SOURCE_MANUAL) == TARIFF_SOURCE_ENTITY:
-        resolved, meta = _resolve_entity_pence(hass, getattr(tariff, "export_entity", None), per_day=False)
+        resolved, meta = _resolve_entity_minor(
+            hass, getattr(tariff, "export_entity", None), per_day=False, currency=currency
+        )
         entities["export"] = meta
         if resolved is not None:
             export_p = resolved
 
     if getattr(tariff, "standing_source", TARIFF_SOURCE_MANUAL) == TARIFF_SOURCE_ENTITY:
-        resolved, meta = _resolve_entity_pence(hass, getattr(tariff, "standing_entity", None), per_day=True)
+        resolved, meta = _resolve_entity_minor(
+            hass, getattr(tariff, "standing_entity", None), per_day=True, currency=currency
+        )
         entities["standing"] = meta
         if resolved is not None:
             standing_p = resolved
 
     return {
+        "currency": currency,
         "effective": {
             "import_p_per_kwh": round(import_p, 4),
             "export_p_per_kwh": round(export_p, 4),
