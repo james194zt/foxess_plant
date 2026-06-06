@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.76
+ * @version 0.9.78
  */
 
 const NAV = [
@@ -1442,11 +1442,23 @@ const STATISTICS_SIDE_LEGEND = {
 const STATISTICS_CHART_LAYOUT = {
   width: 1000,
   height: 440,
-  pad: { l: 52, r: 4, t: 12, b: 40 },
+  pad: { l: 58, r: 8, t: 22, b: 40 },
   xTickHours: 3,
   xTickCount: 8,
   yTickStepKw: 0.5,
 };
+
+function statisticsChartLayout({ sideLegend = false, hasSoc = false } = {}) {
+  return {
+    ...STATISTICS_CHART_LAYOUT,
+    pad: {
+      l: sideLegend || hasSoc ? 58 : 52,
+      r: hasSoc ? 52 : sideLegend ? 16 : 8,
+      t: sideLegend || hasSoc ? 22 : 12,
+      b: 40,
+    },
+  };
+}
 
 /** Matches dashboard plotly-graph defaults: statistic mean, period 5minute. */
 const STATISTICS_PERIOD_MS = 5 * 60 * 1000;
@@ -3254,14 +3266,7 @@ function renderStatisticsChartHtml(series, range, options = {}) {
   if (!visible.length && !hasSoc) {
     return `<p class="placeholder chart-empty">No power history for today yet.</p>`;
   }
-  const layout = sideLegend
-    ? {
-        ...STATISTICS_CHART_LAYOUT,
-        pad: { ...STATISTICS_CHART_LAYOUT.pad, r: hasSoc ? 44 : 16 },
-      }
-    : hasSoc
-      ? { ...STATISTICS_CHART_LAYOUT, pad: { ...STATISTICS_CHART_LAYOUT.pad, r: 44 } }
-      : STATISTICS_CHART_LAYOUT;
+  const layout = statisticsChartLayout({ sideLegend, hasSoc });
   const { width, height, pad, xTickHours, xTickCount } = layout;
   const w = width - pad.l - pad.r;
   const h = height - pad.t - pad.b;
@@ -3275,9 +3280,9 @@ function renderStatisticsChartHtml(series, range, options = {}) {
   const yZero = yScale(0);
   const yTicks = statisticsYTicks(yMin, yMax);
   const yAxisX = pad.l;
-  const yLabelX = yAxisX - 8;
+  const yLabelX = yAxisX - 10;
   const yAxisRightX = pad.l + w;
-  const yLabelRightX = yAxisRightX + 8;
+  const yLabelRightX = yAxisRightX + 10;
   const xTicks = Array.from({ length: xTickCount }, (_, i) => tMin + i * xTickHours * 60 * 60 * 1000);
   const mirroredTicks = sideLegend || hasSoc;
 
@@ -3395,13 +3400,13 @@ function renderStatisticsChartHtml(series, range, options = {}) {
         .join("");
 
   const powerAxisLabel = sideLegend || hasSoc ? "Power (kW)" : "kW";
-  const leftAxisTitle = `<text x="${yAxisX}" y="${(pad.t - 4).toFixed(1)}" class="statistics-y-label statistics-y-label--left">${esc(powerAxisLabel)}</text>`;
+  const leftAxisTitle = `<text x="${yLabelX}" y="${(pad.t - 6).toFixed(1)}" text-anchor="start" class="statistics-y-label statistics-y-label--left">${esc(powerAxisLabel)}</text>`;
   const rightAxisTitle = hasSoc
-    ? `<text x="${yAxisRightX}" y="${(pad.t - 4).toFixed(1)}" text-anchor="end" class="statistics-y-label statistics-y-label--right">SOC</text>`
+    ? `<text x="${yLabelRightX}" y="${(pad.t - 6).toFixed(1)}" text-anchor="start" class="statistics-y-label statistics-y-label--right">SOC</text>`
     : "";
 
   const plotHtml = `<div class="statistics-chart-plot" data-pad-l="${pad.l}" data-pad-t="${pad.t}" data-pad-b="${pad.b}" data-plot-w="${w}" data-plot-h="${h}" data-t-min="${tMin}" data-t-max="${tMax}" data-y-min="${yMin}" data-y-max="${yMax}" data-now-ms="${nowMs}">
-<svg class="statistics-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Statistics power chart">
+<svg class="statistics-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Statistics power chart">
 ${leftAxisTitle}
 ${rightAxisTitle}
 ${grid}
@@ -4436,13 +4441,13 @@ const STYLES = `
 }
 .statistics-chart-plot { position: relative; width: 100%; margin: 0; }
 .statistics-chart-svg {
-  width: 100%; height: 440px; display: block;
+  width: 100%; height: 440px; display: block; overflow: visible;
 }
 .statistics-y-label {
   fill: var(--secondary-text-color); font-size: 12px; font-weight: 600; text-anchor: start;
 }
 .statistics-y-label--left { text-anchor: start; }
-.statistics-y-label--right { text-anchor: end; }
+.statistics-y-label--right { text-anchor: start; }
 .statistics-y-axis { stroke: rgba(127,127,127,0.35); stroke-width: 1; }
 .statistics-y-axis--right { stroke: rgba(127,127,127,0.28); }
 .statistics-axis-y--soc { fill: var(--secondary-text-color); }
