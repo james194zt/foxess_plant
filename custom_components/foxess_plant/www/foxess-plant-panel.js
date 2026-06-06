@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.78
+ * @version 0.9.81
  */
 
 const NAV = [
@@ -19,6 +19,7 @@ const SETTINGS_NAV = [
   { id: "workmode", label: "Work mode" },
   { id: "pv", label: "PV" },
   { id: "solcast", label: "Solcast" },
+  { id: "tariff", label: "Tariff" },
   { id: "storm", label: "StormSafe" },
   { id: "control", label: "Control" },
 ];
@@ -42,6 +43,20 @@ const DEFAULT_PV_CONFIG = {
     tilt: 25,
     azimuth: 180,
   },
+};
+
+const DEFAULT_TARIFF = {
+  kind: "static",
+  currency: "GBP",
+  import_source: "manual",
+  import_entity: "",
+  import_p_per_kwh: 0,
+  export_source: "manual",
+  export_entity: "",
+  export_p_per_kwh: 0,
+  standing_source: "manual",
+  standing_entity: "",
+  standing_charge_p_per_day: 0,
 };
 
 const PV_EFFICIENCY_FACTOR_URL = "https://kb.solcast.com.au/what-is-the-efficiency-factor";
@@ -691,6 +706,113 @@ function pvConfigSummary(pv) {
   return `PV1: ${pvStringSummary(cfg.pv1)} · PV2: ${pvStringSummary(cfg.pv2)}`;
 }
 
+function parseTariffRate(raw) {
+  if (raw == null || raw === "") return 0;
+  const v = parseFloat(String(raw).trim());
+  return Number.isFinite(v) ? Math.max(0, v) : 0;
+}
+
+function normalizeTariffDraft(raw) {
+  const t = { ...DEFAULT_TARIFF, ...(raw && typeof raw === "object" ? raw : {}) };
+  const source = (v) => (String(v || "manual") === "entity" ? "entity" : "manual");
+  const entity = (v) => {
+    const s = v ? String(v).trim() : "";
+    return s || null;
+  };
+  return {
+    kind: t.kind === "dynamic" ? "dynamic" : "static",
+    currency: String(t.currency || "GBP").toUpperCase().slice(0, 3) || "GBP",
+    import_source: source(t.import_source),
+    import_entity: entity(t.import_entity),
+    import_p_per_kwh: parseTariffRate(t.import_p_per_kwh),
+    export_source: source(t.export_source),
+    export_entity: entity(t.export_entity),
+    export_p_per_kwh: parseTariffRate(t.export_p_per_kwh),
+    standing_source: source(t.standing_source),
+    standing_entity: entity(t.standing_entity),
+    standing_charge_p_per_day: parseTariffRate(t.standing_charge_p_per_day),
+  };
+}
+
+function tariffEffectiveRates(tariff) {
+  const t = tariff && typeof tariff === "object" ? tariff : {};
+  const eff = t.effective ?? {};
+  return {
+    import_p_per_kwh: parseTariffRate(eff.import_p_per_kwh ?? t.import_p_per_kwh),
+    export_p_per_kwh: parseTariffRate(eff.export_p_per_kwh ?? t.export_p_per_kwh),
+    standing_charge_p_per_day: parseTariffRate(
+      eff.standing_charge_p_per_day ?? t.standing_charge_p_per_day
+    ),
+  };
+}
+
+async function fetchTariffEntityCandidates(hass) {
+  const res = await hass.connection.sendMessagePromise({ type: "foxess_plant/tariff_entity_candidates" });
+  return res?.entities ?? [];
+}
+
+function tariffCandidatesForKind(candidates, kind) {
+  const rows = Array.isArray(candidates) ? candidates : [];
+  const kindKey = kind === "standing" ? "standing" : kind;
+  const suggestedKey = `suggested_${kindKey}`;
+  const suggested = rows.filter(
+    (row) => row[suggestedKey] || (row.rate_kinds ?? []).includes(kindKey)
+  );
+  const suggestedIds = new Set(suggested.map((row) => row.entity_id));
+  const rest = rows.filter((row) => !suggestedIds.has(row.entity_id));
+  return { suggested, rest, all: rows };
+}
+
+function renderTariffEntityOptions(candidates, kind, selectedId) {
+  const { suggested, rest, all } = tariffCandidatesForKind(candidates, kind);
+  const selected = selectedId ? String(selectedId) : "";
+  const renderRow = (row) => {
+    const unit = row.unit ? ` · ${row.unit}` : "";
+    const state = row.state != null && row.state !== "" ? ` · ${row.state}` : "";
+    return `<option value="${esc(row.entity_id)}" ${row.entity_id === selected ? "selected" : ""}>${esc(row.name)} (${esc(row.entity_id)}${esc(state)}${esc(unit)})</option>`;
+  };
+  let html = `<option value="" ${selected ? "" : "selected"}>— Select sensor —</option>`;
+  if (selected && !all.some((row) => row.entity_id === selected)) {
+    html += `<option value="${esc(selected)}" selected>${esc(selected)}</option>`;
+  }
+  if (suggested.length) {
+    html += `<optgroup label="Suggested">${suggested.map(renderRow).join("")}</optgroup>`;
+  }
+  if (rest.length) {
+    html += `<optgroup label="Other sensors">${rest.map(renderRow).join("")}</optgroup>`;
+  }
+  if (!all.length) {
+    html += `<option value="" disabled>No matching sensors found yet</option>`;
+  }
+  return html;
+}
+
+function formatTariffPence(pence) {
+  const v = parseTariffRate(pence);
+  if (v <= 0) return "—";
+  if (v >= 100) return `£${(v / 100).toFixed(2)}`;
+  return `${v.toFixed(2)}p`;
+}
+
+function tariffSettingsSummary(tariff) {
+  const rates = tariffEffectiveRates(tariff);
+  const entityBits = [];
+  if (tariff?.import_source === "entity" && tariff?.import_entity) entityBits.push("Import sensor");
+  if (tariff?.export_source === "entity" && tariff?.export_entity) entityBits.push("Export sensor");
+  if (tariff?.standing_source === "entity" && tariff?.standing_entity) entityBits.push("Standing sensor");
+  if (!rates.import_p_per_kwh && !rates.export_p_per_kwh && !rates.standing_charge_p_per_day) {
+    if (entityBits.length) return `${entityBits.join(" · ")} — awaiting live values`;
+    return "Not configured — add rates for cost analysis";
+  }
+  const parts = [];
+  if (rates.import_p_per_kwh) parts.push(`Import ${formatTariffPence(rates.import_p_per_kwh)}/kWh`);
+  if (rates.export_p_per_kwh) parts.push(`Export ${formatTariffPence(rates.export_p_per_kwh)}/kWh`);
+  if (rates.standing_charge_p_per_day) {
+    parts.push(`Standing ${formatTariffPence(rates.standing_charge_p_per_day)}/day`);
+  }
+  return parts.join(" · ");
+}
+
 function overviewWeatherIconSvg(iconKey) {
   const key = String(iconKey || "unknown");
   if (key === "cloudy") {
@@ -1231,6 +1353,77 @@ function renderFoxAnalysisLineSparkline(values, color, { placeholder = false } =
   return `<svg class="fox-analysis-sparkline" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true"><path d="${path}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 }
 
+function formatGbpDisplay(gbp) {
+  if (gbp == null || !Number.isFinite(Number(gbp))) return { value: "—", unit: "" };
+  const n = Number(gbp);
+  const sign = n < 0 ? "-" : "";
+  return { value: `${sign}${Math.abs(n).toFixed(2)}`, unit: " £" };
+}
+
+function buildTariffIntradaySeries(importPts, exportPts, rates, range) {
+  const importRateGbp = parseTariffRate(rates.import_p_per_kwh) / 100;
+  const exportRateGbp = parseTariffRate(rates.export_p_per_kwh) / 100;
+  const standingDailyGbp = parseTariffRate(rates.standing_charge_p_per_day) / 100;
+  const importKwh = interpolatePointsToPeriod(importPts, STATISTICS_PERIOD_MS, range.tMin, range.nowMs).map(
+    (p) => Math.max(0, p.v)
+  );
+  const exportKwh = interpolatePointsToPeriod(exportPts, STATISTICS_PERIOD_MS, range.tMin, range.nowMs).map(
+    (p) => Math.max(0, p.v)
+  );
+  const slots = Math.max(importKwh.length, exportKwh.length, 1);
+  const daySpan = range.tMax - range.tMin;
+  const importCost = [];
+  const exportRevenue = [];
+  const totalCost = [];
+  for (let i = 0; i < slots; i++) {
+    const ik = importKwh[i] ?? importKwh[importKwh.length - 1] ?? 0;
+    const ek = exportKwh[i] ?? exportKwh[exportKwh.length - 1] ?? 0;
+    const t = range.tMin + i * STATISTICS_PERIOD_MS;
+    const standing = standingDailyGbp * Math.min(1, Math.max(0, (t - range.tMin) / daySpan));
+    const ic = ik * importRateGbp;
+    const er = ek * exportRateGbp;
+    importCost.push(ic);
+    exportRevenue.push(er);
+    totalCost.push(standing + ic - er);
+  }
+  return { importCost, exportRevenue, totalCost };
+}
+
+async function fetchAnalysisTariffIntraday(hass, plant, plantState, overviewDaily) {
+  const tariff = plantState?.tariff;
+  if (!tariff?.configured) {
+    return { configured: false };
+  }
+  const rates = tariffEffectiveRates(tariff);
+  const map = resolveEntityMap(hass, plant, plantState);
+  const importId = map.grid_consumption_energy_today;
+  const exportId = map.feed_in_energy_today;
+  const now = new Date();
+  const range = getStatisticsDayRange(now);
+  const ids = [importId, exportId].filter(Boolean);
+  let importPts = [];
+  let exportPts = [];
+  if (ids.length) {
+    const hist = await fetchHistoryDuring(hass, ids, new Date(range.tMin), now);
+    importPts = importId ? historyToPoints(historyRowsForEntity(hist, importId)) : [];
+    exportPts = exportId ? historyToPoints(historyRowsForEntity(hist, exportId)) : [];
+  }
+  const series = buildTariffIntradaySeries(importPts, exportPts, rates, range);
+  const analytics = readLiveAnalytics(hass, plant, plantState, overviewDaily);
+  const importKwh = Number(analytics.load_from_grid_kwh_today ?? 0) || 0;
+  const exportKwh = Number(analytics.pv_to_grid_kwh_today ?? 0) || 0;
+  const importCost = importKwh * (parseTariffRate(rates.import_p_per_kwh) / 100);
+  const exportRevenue = exportKwh * (parseTariffRate(rates.export_p_per_kwh) / 100);
+  const standing = parseTariffRate(rates.standing_charge_p_per_day) / 100;
+  const totalCost = standing + importCost - exportRevenue;
+  return {
+    configured: true,
+    rates,
+    totals: { importCost, exportRevenue, standing, totalCost, importKwh, exportKwh },
+    series,
+  };
+}
+
 function renderFoxAnalysisSummaryRow(label, displayValue, unit, sparklineHtml, { muted = false, valueKey = "" } = {}) {
   const unitHtml = unit ? `<span>${esc(unit)}</span>` : "";
   const valueAttr = valueKey ? ` data-summary-value="${esc(valueKey)}"` : "";
@@ -1243,7 +1436,7 @@ function renderFoxAnalysisSummaryRow(label, displayValue, unit, sparklineHtml, {
 </div>`;
 }
 
-function renderFoxAnalysisSummaryCard(a, overviewDaily, { loading = false } = {}) {
+function renderFoxAnalysisSummaryCard(a, overviewDaily, analysisTariff, { loading = false } = {}) {
   const pvVal = Number(a.pv_production_kwh_today ?? 0) || 0;
   const loadVal = Number(a.load_consumption_kwh_today ?? 0) || 0;
   let prodSpark = "";
@@ -1261,13 +1454,65 @@ function renderFoxAnalysisSummaryCard(a, overviewDaily, { loading = false } = {}
     prodSpark = renderFoxAnalysisLineSparkline([], FOX_ANALYSIS_SPARK_COLORS.production);
     consSpark = renderFoxAnalysisLineSparkline([], FOX_ANALYSIS_SPARK_COLORS.consumption);
   }
-  const revenueSpark = renderFoxAnalysisLineSparkline(null, FOX_ANALYSIS_SPARK_COLORS.revenue, {
-    placeholder: true,
-  });
+
+  const tariffReady = analysisTariff?.configured;
+  const tariffLoading = loading && !tariffReady;
+  const placeholderSpark = (color) =>
+    renderFoxAnalysisLineSparkline(null, color, { placeholder: true });
+  let exportSpark = placeholderSpark(FOX_ANALYSIS_SPARK_COLORS.exportRevenue);
+  let importSpark = placeholderSpark(FOX_ANALYSIS_SPARK_COLORS.importCost);
+  let totalSpark = placeholderSpark(FOX_ANALYSIS_SPARK_COLORS.totalCost);
+  let exportDisplay = "—";
+  let exportUnit = "";
+  let importDisplay = "—";
+  let importUnit = "";
+  let totalDisplay = "—";
+  let totalUnit = "";
+  let totalMuted = true;
+
+  if (tariffLoading) {
+    exportSpark = `<span class="fox-analysis-sparkline-loading" aria-hidden="true"></span>`;
+    importSpark = exportSpark;
+    totalSpark = exportSpark;
+  } else if (tariffReady) {
+    const totals = analysisTariff.totals ?? {};
+    const series = analysisTariff.series ?? {};
+    if (series.exportRevenue?.length >= 2) {
+      exportSpark = renderFoxAnalysisLineSparkline(series.exportRevenue, FOX_ANALYSIS_SPARK_COLORS.exportRevenue);
+    }
+    if (series.importCost?.length >= 2) {
+      importSpark = renderFoxAnalysisLineSparkline(series.importCost, FOX_ANALYSIS_SPARK_COLORS.importCost);
+    }
+    if (series.totalCost?.length >= 2) {
+      totalSpark = renderFoxAnalysisLineSparkline(series.totalCost, FOX_ANALYSIS_SPARK_COLORS.totalCost);
+    }
+    const exportGbp = formatGbpDisplay(totals.exportRevenue);
+    const importGbp = formatGbpDisplay(totals.importCost);
+    const totalGbp = formatGbpDisplay(totals.totalCost);
+    exportDisplay = exportGbp.value;
+    exportUnit = exportGbp.unit;
+    importDisplay = importGbp.value;
+    importUnit = importGbp.unit;
+    totalDisplay = totalGbp.value;
+    totalUnit = totalGbp.unit;
+    totalMuted = false;
+  }
+
   const rows = [
     renderFoxAnalysisSummaryRow("Daily Production", pvVal.toFixed(2), "kWh", prodSpark, { valueKey: "production" }),
     renderFoxAnalysisSummaryRow("Daily Consumption", loadVal.toFixed(2), "kWh", consSpark, { valueKey: "consumption" }),
-    renderFoxAnalysisSummaryRow("Total Revenue", "—", "", revenueSpark, { muted: true }),
+    renderFoxAnalysisSummaryRow("Exported Energy Revenue", exportDisplay, exportUnit, exportSpark, {
+      valueKey: "export_revenue",
+      muted: !tariffReady,
+    }),
+    renderFoxAnalysisSummaryRow("Imported Energy Cost", importDisplay, importUnit, importSpark, {
+      valueKey: "import_cost",
+      muted: !tariffReady,
+    }),
+    renderFoxAnalysisSummaryRow("Total Revenue", totalDisplay, totalUnit, totalSpark, {
+      valueKey: "total_cost",
+      muted: totalMuted,
+    }),
   ].join("");
   return `<div class="fox-analysis-summary-card-inner">
 <div class="fox-analysis-summary-head">
@@ -1520,6 +1765,9 @@ const FOX_ANALYSIS_ICONS = {"imported": "<svg xmlns=\"http://www.w3.org/2000/svg
 const FOX_ANALYSIS_SPARK_COLORS = {
   production: "#17A589",
   consumption: "#2F6BFF",
+  exportRevenue: "#17A589",
+  importCost: "#EB6D48",
+  totalCost: "#8A4DFF",
   revenue: "#8A4DFF",
 };
 
@@ -5446,6 +5694,8 @@ class FoxessPlantPanel extends HTMLElement {
     this._overviewDailyLoading = false;
     this._overviewDailyPlantId = undefined;
     this._overviewDailySlotCache = undefined;
+    this._analysisTariffDaily = null;
+    this._analysisTariffSlotCache = undefined;
     this._energyAnalysisSummaryCache = undefined;
     this._energyAnalysisChartSlotCache = undefined;
     this._energyAnalysisToolbarCache = undefined;
@@ -5458,6 +5708,8 @@ class FoxessPlantPanel extends HTMLElement {
     this._flowSceneKeyPendingN = 0;
     this._pvDraft = null;
     this._solcastDraft = null;
+    this._tariffDraft = null;
+    this._tariffCandidates = null;
     this._headerHasSubTabs = undefined;
     this._renderRaf = 0;
     this._onSocMove = this._onSocMove.bind(this);
@@ -5672,6 +5924,7 @@ Reloading panel registration…
       if (this._settingsView !== "quick") this._socDraft = null;
       if (this._settingsView !== "workmode") this._workModeDraft = null;
       if (this._settingsView !== "storm") this._stormDraft = null;
+      if (this._settingsView !== "tariff") this._tariffDraft = null;
       if (
         this._settingsView === "solcast" &&
         this._solcastDraft &&
@@ -5976,6 +6229,62 @@ Reloading panel registration…
 
   _enterPvSettings() {
     this._initPvDraft();
+  }
+
+  _initTariffDraft() {
+    const raw = this._plantState?.tariff ?? {};
+    this._tariffDraft = {
+      ...normalizeTariffDraft(raw),
+      import_entity: raw.import_entity || "",
+      export_entity: raw.export_entity || "",
+      standing_entity: raw.standing_entity || "",
+    };
+  }
+
+  _enterTariffSettings() {
+    this._initTariffDraft();
+    void this._loadTariffCandidates();
+  }
+
+  async _loadTariffCandidates() {
+    if (!this._hass) return;
+    try {
+      this._tariffCandidates = await fetchTariffEntityCandidates(this._hass);
+      if (this._settingsView === "tariff") this._scheduleRender();
+    } catch {
+      this._tariffCandidates = [];
+    }
+  }
+
+  async _saveTariffSettings() {
+    const plant = this._getPlant();
+    if (!plant || !this._tariffDraft) return;
+    const draft = normalizeTariffDraft(this._tariffDraft);
+    const missing = [];
+    if (draft.import_source === "entity" && !draft.import_entity) missing.push("Import sensor");
+    if (draft.export_source === "entity" && !draft.export_entity) missing.push("Export sensor");
+    if (draft.standing_source === "entity" && !draft.standing_entity) missing.push("Standing charge sensor");
+    if (missing.length) {
+      this._showToast(`${missing.join(", ")} required when using sensor source`, "err");
+      return;
+    }
+    this._busy = true;
+    this._render();
+    try {
+      const state = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/update_tariff",
+        plant_id: plant.entry_id,
+        tariff: draft,
+      });
+      if (state) this._plantState = state;
+      this._initTariffDraft();
+      this._showToast("Tariff settings saved");
+    } catch (err) {
+      this._showToast(err?.message || "Save failed", "err");
+    } finally {
+      this._busy = false;
+      this._render();
+    }
   }
 
   _initSolcastDraft() {
@@ -6306,6 +6615,7 @@ Reloading panel registration…
     if (action === "settings-sub") {
       this._view = "settings";
       if (btn.dataset.sub !== "solcast") this._solcastDraft = null;
+      if (btn.dataset.sub !== "tariff") this._tariffDraft = null;
       this._settingsView = btn.dataset.sub;
       if (btn.dataset.sub === "schedules") this._initChargeDraft();
       if (btn.dataset.sub === "quick") this._initSocDraft();
@@ -6313,12 +6623,14 @@ Reloading panel registration…
       if (btn.dataset.sub === "storm") this._enterStormSettings();
       if (btn.dataset.sub === "pv") this._enterPvSettings();
       if (btn.dataset.sub === "solcast") this._enterSolcastSettings();
+      if (btn.dataset.sub === "tariff") this._enterTariffSettings();
       this._render();
       return;
     }
     if (action === "settings-tab") {
       this._view = "settings";
       if (btn.dataset.sub !== "solcast") this._solcastDraft = null;
+      if (btn.dataset.sub !== "tariff") this._tariffDraft = null;
       this._settingsView = btn.dataset.sub;
       if (btn.dataset.sub === "schedules") this._initChargeDraft();
       if (btn.dataset.sub === "quick") this._initSocDraft();
@@ -6326,11 +6638,16 @@ Reloading panel registration…
       if (btn.dataset.sub === "storm") this._enterStormSettings();
       if (btn.dataset.sub === "pv") this._enterPvSettings();
       if (btn.dataset.sub === "solcast") this._enterSolcastSettings();
+      if (btn.dataset.sub === "tariff") this._enterTariffSettings();
       this._render();
       return;
     }
     if (action === "save-pv-config") {
       await this._savePvConfig();
+      return;
+    }
+    if (action === "save-tariff-settings") {
+      await this._saveTariffSettings();
       return;
     }
     if (action === "save-solcast-settings") {
@@ -6476,6 +6793,22 @@ Reloading panel registration…
           return;
         }
       }
+      if (parts[0] === "tariff" && this._tariffDraft) {
+        const kind = parts[1];
+        const sub = parts[2];
+        if (kind === "import" || kind === "export" || kind === "standing") {
+          if (sub === "source") {
+            this._tariffDraft[`${kind}_source`] = el.value === "entity" ? "entity" : "manual";
+            this._scheduleRender();
+            return;
+          }
+          if (sub === "entity") {
+            this._tariffDraft[`${kind}_entity`] = el.value || "";
+            this._scheduleRender();
+            return;
+          }
+        }
+      }
       if (parts[0] === "pv" && ["tilt", "azimuth", "panel_count", "watts_per_panel"].includes(parts[2])) {
         this._rangeDrag = false;
         this._scheduleRender(true);
@@ -6601,6 +6934,22 @@ Reloading panel registration…
         this._solcastDraft.installation_date = el.value;
         return;
       }
+      return;
+    }
+    if (kind === "tariff" && this._tariffDraft) {
+      const rateKind = parts[1];
+      const sub = parts[2];
+      if ((rateKind === "import" || rateKind === "export") && sub === "p") {
+        this._tariffDraft[`${rateKind}_p_per_kwh`] = parseTariffRate(el.value);
+        return;
+      }
+      if (rateKind === "standing" && sub === "p") {
+        this._tariffDraft.standing_charge_p_per_day = parseTariffRate(el.value);
+        return;
+      }
+      const field = parts[1];
+      if (!field) return;
+      this._tariffDraft[field] = parseTariffRate(el.value);
       return;
     }
     if (kind === "pv" && this._pvDraft) {
@@ -7344,17 +7693,26 @@ ${this._renderOverviewDailyCard(
     const plantId = plant.entry_id;
     this._overviewDailyLoading = true;
     this._overviewDaily = null;
+    this._analysisTariffDaily = null;
     this._overviewDailyPlantId = plantId;
     this._scheduleRender();
     try {
       if (!this._plantState) await this._refreshPlantState();
-      this._overviewDaily = await fetchOverviewDailyEnergy(this._hass, plant, this._plantState);
+      const overview = await fetchOverviewDailyEnergy(this._hass, plant, this._plantState);
+      this._overviewDaily = overview;
+      this._analysisTariffDaily = await fetchAnalysisTariffIntraday(
+        this._hass,
+        plant,
+        this._plantState,
+        overview
+      );
     } catch (err) {
       this._overviewDaily = {
         error:
           err?.message ||
           "Could not load daily energy history. Enable the Home Assistant recorder for your daily kWh sensors.",
       };
+      this._analysisTariffDaily = { configured: false, error: err?.message };
     } finally {
       this._overviewDailyLoading = false;
       if (
@@ -7951,10 +8309,21 @@ ${this._renderEnergyCharts()}`;
   _energyAnalysisSummaryKey(a) {
     if (this._overviewDailyLoading) return "loading";
     const d = this._overviewDaily;
+    const t = this._analysisTariffDaily;
     if (d?.error) return `err:${d.error}`;
     const prod = (d?.production || []).join(",");
     const cons = (d?.consumption || []).join(",");
-    return `${this._energyPeriod}|${this._energyPeriodOffset}|${prod}|${cons}`;
+    const tariffPart = t?.configured
+      ? [
+          t.totals?.importCost,
+          t.totals?.exportRevenue,
+          t.totals?.totalCost,
+          (t.series?.importCost || []).join(","),
+          (t.series?.exportRevenue || []).join(","),
+          (t.series?.totalCost || []).join(","),
+        ].join("|")
+      : String(t?.configured);
+    return `${this._energyPeriod}|${this._energyPeriodOffset}|${prod}|${cons}|${tariffPart}|${a.load_from_grid_kwh_today}|${a.pv_to_grid_kwh_today}`;
   }
 
   _energyAnalysisChartSlotKey() {
@@ -7981,6 +8350,30 @@ ${this._renderEnergyCharts()}`;
     const consEl = root.querySelector('[data-summary-value="consumption"]');
     if (prodEl) prodEl.innerHTML = `${pvVal.toFixed(2)}<span>kWh</span>`;
     if (consEl) consEl.innerHTML = `${loadVal.toFixed(2)}<span>kWh</span>`;
+    const tariffState = this._plantState?.tariff;
+    if (!tariffState?.configured && !this._analysisTariffDaily?.configured) return;
+    const rates = tariffEffectiveRates(tariffState || {});
+    const importKwh = Number(a.load_from_grid_kwh_today ?? 0) || 0;
+    const exportKwh = Number(a.pv_to_grid_kwh_today ?? 0) || 0;
+    const importCost = importKwh * (parseTariffRate(rates.import_p_per_kwh) / 100);
+    const exportRevenue = exportKwh * (parseTariffRate(rates.export_p_per_kwh) / 100);
+    const standing = parseTariffRate(rates.standing_charge_p_per_day) / 100;
+    const totalCost = standing + importCost - exportRevenue;
+    const exportEl = root.querySelector('[data-summary-value="export_revenue"]');
+    const importEl = root.querySelector('[data-summary-value="import_cost"]');
+    const totalEl = root.querySelector('[data-summary-value="total_cost"]');
+    const exportGbp = formatGbpDisplay(exportRevenue);
+    const importGbp = formatGbpDisplay(importCost);
+    const totalGbp = formatGbpDisplay(totalCost);
+    if (exportEl) {
+      exportEl.innerHTML = `${exportGbp.value}${exportGbp.unit ? `<span>${esc(exportGbp.unit.trim())}</span>` : ""}`;
+    }
+    if (importEl) {
+      importEl.innerHTML = `${importGbp.value}${importGbp.unit ? `<span>${esc(importGbp.unit.trim())}</span>` : ""}`;
+    }
+    if (totalEl) {
+      totalEl.innerHTML = `${totalGbp.value}${totalGbp.unit ? `<span>${esc(totalGbp.unit.trim())}</span>` : ""}`;
+    }
   }
 
   _patchFoxAnalysisStatValues(root, a) {
@@ -8034,7 +8427,7 @@ ${this._renderEnergyCharts()}`;
     const summary = root.querySelector("[data-energy-analysis-summary]");
     if (summaryKey !== this._energyAnalysisSummaryCache) {
       if (summary) {
-        summary.innerHTML = renderFoxAnalysisSummaryCard(a, this._overviewDaily, {
+        summary.innerHTML = renderFoxAnalysisSummaryCard(a, this._overviewDaily, this._analysisTariffDaily, {
           loading: this._overviewDailyLoading,
         });
       }
@@ -8092,7 +8485,7 @@ ${this._renderEnergyCharts()}`;
   _renderEnergyAnalysis(plant) {
     const a = this._energyAnalyticsForView(plant);
     const title = energyBreakdownTitle(this._energyPeriod, this._energyPeriodOffset);
-    const summaryCard = renderFoxAnalysisSummaryCard(a, this._overviewDaily, {
+    const summaryCard = renderFoxAnalysisSummaryCard(a, this._overviewDaily, this._analysisTariffDaily, {
       loading: this._overviewDailyLoading,
     });
     this._energyAnalysisSummaryCache = this._energyAnalysisSummaryKey(a);
@@ -8409,6 +8802,7 @@ ${detail}${quickBtn}</div>`;
       workmode: String(s.work_mode ?? "—"),
       pv: pvConfigSummary(this._plantState?.pv_config),
       solcast: this._solcastSettingsSubtitle(),
+      tariff: tariffSettingsSummary(this._plantState?.tariff),
       storm: this._settingsStormSubtitle(),
       control: this._plantState?.control_active ? "Fox Plant manages periods" : "Released to manual",
     };
@@ -8442,6 +8836,7 @@ ${renderListButton({ action: "settings-sub", sub: "schedules" }, "Charge schedul
 ${renderListButton({ action: "settings-sub", sub: "workmode" }, "Work mode", subs.workmode)}
 ${renderListButton({ action: "settings-sub", sub: "pv" }, "PV Configuration", subs.pv)}
 ${renderListButton({ action: "settings-sub", sub: "solcast" }, "Solcast", subs.solcast)}
+${renderListButton({ action: "settings-sub", sub: "tariff" }, "Tariff", subs.tariff)}
 ${renderListButton({ action: "settings-sub", sub: "storm" }, "StormSafe", subs.storm)}
 ${renderListButton({ action: "settings-sub", sub: "control" }, "Plant control", subs.control)}
 </div></div>`;
@@ -8634,6 +9029,115 @@ ${this._renderPvStringBlock("pv2")}
     });
   }
 
+  _renderTariffRateBlock(kind, { label, unitLabel, manualKey, placeholder, liveMeta }) {
+    if (!this._tariffDraft) this._initTariffDraft();
+    const draft = this._tariffDraft;
+    const sourceKey = `${kind}_source`;
+    const entityKey = `${kind}_entity`;
+    const source = draft[sourceKey] === "entity" ? "entity" : "manual";
+    const manualVal = draft[manualKey];
+    const entityId = draft[entityKey] || "";
+    const manualDisabled = this._busy || source !== "manual";
+    const entityDisabled = this._busy || source !== "entity";
+    const manualHint =
+      manualVal > 0
+        ? kind === "standing"
+          ? `≈ £${(manualVal / 100).toFixed(2)}/day`
+          : `≈ £${(manualVal / 100).toFixed(4)}/kWh`
+        : kind === "standing"
+          ? "Daily standing charge in pence"
+          : kind === "export"
+            ? "SEG / export rate in pence per kWh"
+            : "Enter pence per kWh from your bill";
+    let liveHint = "";
+    if (source === "entity") {
+      if (liveMeta?.available === false) {
+        liveHint = entityId
+          ? `Sensor ${entityId} is unavailable`
+          : "Choose a sensor that reports this rate";
+      } else if (liveMeta?.resolved_p != null) {
+        liveHint = `Live: ${formatTariffPence(liveMeta.resolved_p)}${unitLabel}${liveMeta.entity_id ? ` from ${liveMeta.entity_id}` : ""}`;
+      } else if (entityId && liveMeta?.state != null) {
+        liveHint = `Live state: ${liveMeta.state}${liveMeta.unit ? ` ${liveMeta.unit}` : ""} — could not convert to pence automatically`;
+      } else if (entityId) {
+        liveHint = "Waiting for a numeric reading from the selected sensor";
+      } else {
+        liveHint = "Select a sensor from Glow, Octopus, or your energy integration";
+      }
+    }
+    return `<div class="tariff-rate-block" data-tariff-kind="${esc(kind)}">
+<div class="field">
+<label>${esc(label)}</label>
+<select data-field="tariff:${esc(kind)}:source" ${this._busy ? "disabled" : ""}>
+<option value="manual" ${source === "manual" ? "selected" : ""}>Enter manually (${esc(unitLabel)})</option>
+<option value="entity" ${source === "entity" ? "selected" : ""}>Home Assistant sensor</option>
+</select>
+</div>
+<div class="field" ${source === "manual" ? "" : 'style="display:none"'} data-tariff-manual="${esc(kind)}">
+<p class="field-hint">${esc(manualHint)}</p>
+<input type="number" min="0" max="9999" step="0.01" inputmode="decimal" data-field="tariff:${esc(kind)}:p" value="${esc(String(manualVal || ""))}" placeholder="${esc(placeholder)}" ${manualDisabled ? "disabled" : ""}>
+</div>
+<div class="field" ${source === "entity" ? "" : 'style="display:none"'} data-tariff-entity="${esc(kind)}">
+<p class="field-hint">${esc(liveHint || "Use an existing sensor from Glow, Octopus, or another energy integration")}</p>
+<select data-field="tariff:${esc(kind)}:entity" ${entityDisabled ? "disabled" : ""}>
+${renderTariffEntityOptions(this._tariffCandidates, kind, entityId)}
+</select>
+</div>
+</div>`;
+  }
+
+  _renderSettingsTariff() {
+    if (!this._tariffDraft) this._initTariffDraft();
+    const live = this._plantState?.tariff ?? {};
+    const entities = live.entities ?? {};
+    const historyCount = live.rate_history_count ?? 0;
+    const lastUpdated = live.last_updated_at ? esc(formatSolcastTimestamp(live.last_updated_at)) : "Never";
+    const effective = tariffEffectiveRates(live);
+    const effectiveBits = [];
+    if (effective.import_p_per_kwh) effectiveBits.push(`Import ${formatTariffPence(effective.import_p_per_kwh)}/kWh`);
+    if (effective.export_p_per_kwh) effectiveBits.push(`Export ${formatTariffPence(effective.export_p_per_kwh)}/kWh`);
+    if (effective.standing_charge_p_per_day) {
+      effectiveBits.push(`Standing ${formatTariffPence(effective.standing_charge_p_per_day)}/day`);
+    }
+    return `<header class="header"><h1>Tariff</h1><p>UK electricity rates for cost and revenue analysis. Enter values manually in <strong>pence</strong>, or bind Home Assistant sensors from Glow, Octopus, or other energy integrations.</p></header>
+<div class="card">
+<p class="card-title">Electricity tariff</p>
+<p class="field-hint" style="margin:0 0 12px">Each rate can be typed in or sourced from a sensor. Sensor values in £/kWh or p/kWh are converted automatically for analysis.</p>
+${this._renderTariffRateBlock("import", {
+      label: "Import cost",
+      unitLabel: "p/kWh",
+      manualKey: "import_p_per_kwh",
+      placeholder: "e.g. 24.50",
+      liveMeta: entities.import,
+    })}
+${this._renderTariffRateBlock("export", {
+      label: "Export cost",
+      unitLabel: "p/kWh",
+      manualKey: "export_p_per_kwh",
+      placeholder: "e.g. 15.00",
+      liveMeta: entities.export,
+    })}
+${this._renderTariffRateBlock("standing", {
+      label: "Daily standing charge",
+      unitLabel: "p/day",
+      manualKey: "standing_charge_p_per_day",
+      placeholder: "e.g. 53.35",
+      liveMeta: entities.standing,
+    })}
+<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-tariff-settings" ${this._busy ? "disabled" : ""}>Save tariff</button></div>
+</div>
+<div class="card">
+<p class="card-title">Status</p>
+<p style="margin:0 0 8px;font-size:14px">${live.configured ? "Tariff configured — ready for cost analysis." : "Not configured yet — save at least one rate above."}</p>
+${effectiveBits.length ? `<p class="field-hint" style="margin:0 0 8px">Effective rates now: ${esc(effectiveBits.join(" · "))}</p>` : ""}
+<p class="field-hint" style="margin:0">Last saved: ${lastUpdated}${historyCount ? ` · ${esc(String(historyCount))} rate snapshot(s) recorded` : ""}</p>
+</div>
+<div class="card">
+<p class="card-title">Dynamic tariffs (coming soon)</p>
+<p class="field-hint" style="margin:0">API-linked tariffs such as Octopus Agile will update import and export rates throughout the day. Each update will be recorded so historical cost analysis stays accurate, and future automation can charge or discharge based on live grid prices.</p>
+</div>`;
+  }
+
   _renderSettingsSolcast() {
     if (!this._solcastDraft) this._initSolcastDraft();
     const draft = this._solcastDraft;
@@ -8776,6 +9280,8 @@ ${active
         return this._renderSettingsWorkMode();
       case "pv":
         return this._renderSettingsPv();
+      case "tariff":
+        return this._renderSettingsTariff();
       case "solcast":
         return this._renderSettingsSolcast();
       case "storm":

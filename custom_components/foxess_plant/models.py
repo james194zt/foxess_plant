@@ -416,6 +416,154 @@ class SolcastConfig:
 
 
 @dataclass
+class TariffDynamicConfig:
+    """Future API / entity-backed tariffs (e.g. Octopus Agile)."""
+
+    enabled: bool = False
+    provider: str = ""
+    import_entity: str | None = None
+    export_entity: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> TariffDynamicConfig:
+        raw = data if isinstance(data, dict) else {}
+        import_entity = raw.get("import_entity")
+        export_entity = raw.get("export_entity")
+        return cls(
+            enabled=bool(raw.get("enabled", False)),
+            provider=str(raw.get("provider") or "").strip(),
+            import_entity=str(import_entity) if import_entity else None,
+            export_entity=str(export_entity) if export_entity else None,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "provider": self.provider,
+            "import_entity": self.import_entity,
+            "export_entity": self.export_entity,
+        }
+
+
+@dataclass
+class TariffConfig:
+    """Electricity tariff for cost analysis (static UK flat rate now; extensible for dynamic/API)."""
+
+    kind: str = "static"
+    currency: str = "GBP"
+    import_source: str = "manual"
+    import_entity: str | None = None
+    import_p_per_kwh: float = 0.0
+    export_source: str = "manual"
+    export_entity: str | None = None
+    export_p_per_kwh: float = 0.0
+    standing_source: str = "manual"
+    standing_entity: str | None = None
+    standing_charge_p_per_day: float = 0.0
+    dynamic: TariffDynamicConfig = field(default_factory=TariffDynamicConfig)
+    last_updated_at: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> TariffConfig:
+        from .const import DEFAULT_TARIFF, TARIFF_KIND_STATIC
+        from .tariff_rates import TARIFF_SOURCE_ENTITY, TARIFF_SOURCE_MANUAL
+
+        raw = {**DEFAULT_TARIFF, **(data if isinstance(data, dict) else {})}
+        kind = str(raw.get("kind") or TARIFF_KIND_STATIC)
+        if kind not in ("static", "dynamic"):
+            kind = TARIFF_KIND_STATIC
+
+        def _rate(key: str) -> float:
+            try:
+                return max(0.0, float(raw.get(key, 0) or 0))
+            except (TypeError, ValueError):
+                return 0.0
+
+        def _source(key: str) -> str:
+            value = str(raw.get(key) or TARIFF_SOURCE_MANUAL)
+            return value if value in (TARIFF_SOURCE_MANUAL, TARIFF_SOURCE_ENTITY) else TARIFF_SOURCE_MANUAL
+
+        def _entity(key: str) -> str | None:
+            value = raw.get(key)
+            return str(value) if value else None
+
+        return cls(
+            kind=kind,
+            currency=str(raw.get("currency") or "GBP").upper()[:3] or "GBP",
+            import_source=_source("import_source"),
+            import_entity=_entity("import_entity"),
+            import_p_per_kwh=_rate("import_p_per_kwh"),
+            export_source=_source("export_source"),
+            export_entity=_entity("export_entity"),
+            export_p_per_kwh=_rate("export_p_per_kwh"),
+            standing_source=_source("standing_source"),
+            standing_entity=_entity("standing_entity"),
+            standing_charge_p_per_day=_rate("standing_charge_p_per_day"),
+            dynamic=TariffDynamicConfig.from_dict(raw.get("dynamic")),
+            last_updated_at=raw.get("last_updated_at"),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "kind": self.kind,
+            "currency": self.currency,
+            "import_source": self.import_source,
+            "import_entity": self.import_entity,
+            "import_p_per_kwh": round(self.import_p_per_kwh, 4),
+            "export_source": self.export_source,
+            "export_entity": self.export_entity,
+            "export_p_per_kwh": round(self.export_p_per_kwh, 4),
+            "standing_source": self.standing_source,
+            "standing_entity": self.standing_entity,
+            "standing_charge_p_per_day": round(self.standing_charge_p_per_day, 4),
+            "dynamic": self.dynamic.to_dict(),
+            "last_updated_at": self.last_updated_at,
+        }
+
+    def _rate_configured(self, source: str, manual_p: float, entity_id: str | None) -> bool:
+        from .tariff_rates import TARIFF_SOURCE_ENTITY, TARIFF_SOURCE_MANUAL
+
+        if source == TARIFF_SOURCE_ENTITY:
+            return bool(entity_id)
+        if source == TARIFF_SOURCE_MANUAL:
+            return manual_p > 0
+        return False
+
+    def configured(self) -> bool:
+        return (
+            self._rate_configured(self.import_source, self.import_p_per_kwh, self.import_entity)
+            or self._rate_configured(self.export_source, self.export_p_per_kwh, self.export_entity)
+            or self._rate_configured(
+                self.standing_source, self.standing_charge_p_per_day, self.standing_entity
+            )
+            or self.dynamic.enabled
+        )
+
+    def rates_snapshot(self, *, effective: dict[str, float] | None = None) -> dict[str, float | str | None]:
+        """Normalized rates for history store / future recorder sensors."""
+        eff = effective or {}
+        return {
+            "kind": self.kind,
+            "currency": self.currency,
+            "import_p_per_kwh": round(
+                float(eff.get("import_p_per_kwh", self.import_p_per_kwh)), 4
+            ),
+            "export_p_per_kwh": round(
+                float(eff.get("export_p_per_kwh", self.export_p_per_kwh)), 4
+            ),
+            "standing_charge_p_per_day": round(
+                float(eff.get("standing_charge_p_per_day", self.standing_charge_p_per_day)), 4
+            ),
+            "import_source": self.import_source,
+            "export_source": self.export_source,
+            "standing_source": self.standing_source,
+            "import_entity": self.import_entity,
+            "export_entity": self.export_entity,
+            "standing_entity": self.standing_entity,
+        }
+
+
+@dataclass
 class PvSystemConfig:
     """PV1 / PV2 configuration for the plant."""
 
@@ -457,6 +605,7 @@ class PlantConfig:
     panel_display: PanelDisplayConfig = field(default_factory=PanelDisplayConfig)
     pv_config: PvSystemConfig = field(default_factory=PvSystemConfig)
     solcast: SolcastConfig = field(default_factory=SolcastConfig)
+    tariff: TariffConfig = field(default_factory=TariffConfig)
     tariff_modes: dict[str, list[ChargePeriodConfig]] = field(default_factory=dict)
 
     @classmethod
@@ -469,6 +618,7 @@ class PlantConfig:
             DEFAULT_PV_CONFIG,
             DEFAULT_SOLCAST,
             DEFAULT_STORM_PREP,
+            DEFAULT_TARIFF,
         )
 
         baseline = [ChargePeriodConfig.from_dict(p) for p in data.get("baseline_periods", DEFAULT_BASELINE_PERIODS)]
@@ -494,6 +644,7 @@ class PlantConfig:
             panel_display=PanelDisplayConfig.from_dict(data.get("panel_display", DEFAULT_PANEL_DISPLAY)),
             pv_config=PvSystemConfig.from_dict(data.get("pv_config", DEFAULT_PV_CONFIG)),
             solcast=SolcastConfig.from_dict(data.get("solcast", DEFAULT_SOLCAST)),
+            tariff=TariffConfig.from_dict(data.get("tariff", DEFAULT_TARIFF)),
             tariff_modes=tariff_modes,
         )
 
@@ -512,6 +663,7 @@ class PlantConfig:
             "panel_display": self.panel_display.to_dict(),
             "pv_config": self.pv_config.to_dict(),
             "solcast": self.solcast.to_dict(),
+            "tariff": self.tariff.to_dict(),
             "tariff_modes": {
                 name: [p.to_dict() for p in periods] for name, periods in self.tariff_modes.items()
             },

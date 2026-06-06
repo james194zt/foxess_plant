@@ -14,7 +14,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, STORM_ALERT_PROVIDER_GOOGLE
-from .panel_config import list_forecast_entity_candidates, list_trigger_candidates
+from .panel_config import list_forecast_entity_candidates, list_tariff_entity_candidates, list_trigger_candidates
 
 WS_TYPE_PLANT_STATE = "foxess_plant/plant_state"
 WS_TYPE_PLANT_LIST = "foxess_plant/plant_list"
@@ -24,6 +24,8 @@ WS_TYPE_SET_SOC_LIMITS = "foxess_plant/set_soc_limits"
 WS_TYPE_FORECAST_ENTITY_CANDIDATES = "foxess_plant/forecast_entity_candidates"
 WS_TYPE_UPDATE_PANEL_DISPLAY = "foxess_plant/update_panel_display"
 WS_TYPE_UPDATE_PV_CONFIG = "foxess_plant/update_pv_config"
+WS_TYPE_UPDATE_TARIFF = "foxess_plant/update_tariff"
+WS_TYPE_TARIFF_ENTITY_CANDIDATES = "foxess_plant/tariff_entity_candidates"
 WS_TYPE_UPDATE_SOLCAST = "foxess_plant/update_solcast"
 WS_TYPE_TEST_SOLCAST = "foxess_plant/test_solcast"
 WS_TYPE_FETCH_HISTORY = "foxess_plant/fetch_history"
@@ -69,6 +71,34 @@ SOLCAST_SCHEMA = vol.Schema(
         vol.Optional("period", default="PT30M"): str,
         vol.Optional("fetch_pv_forecast", default=True): cv.boolean,
         vol.Optional("fetch_now", default=True): cv.boolean,
+    }
+)
+
+TARIFF_DYNAMIC_SCHEMA = vol.Schema(
+    {
+        vol.Optional("enabled", default=False): cv.boolean,
+        vol.Optional("provider", default=""): str,
+        vol.Optional("import_entity"): vol.Any(str, None),
+        vol.Optional("export_entity"): vol.Any(str, None),
+    }
+)
+
+TARIFF_SCHEMA = vol.Schema(
+    {
+        vol.Optional("kind", default="static"): vol.In(["static", "dynamic"]),
+        vol.Optional("currency", default="GBP"): str,
+        vol.Optional("import_source", default="manual"): vol.In(["manual", "entity"]),
+        vol.Optional("import_entity"): vol.Any(str, None),
+        vol.Required("import_p_per_kwh"): vol.All(vol.Coerce(float), vol.Range(min=0, max=9999)),
+        vol.Optional("export_source", default="manual"): vol.In(["manual", "entity"]),
+        vol.Optional("export_entity"): vol.Any(str, None),
+        vol.Required("export_p_per_kwh"): vol.All(vol.Coerce(float), vol.Range(min=0, max=9999)),
+        vol.Optional("standing_source", default="manual"): vol.In(["manual", "entity"]),
+        vol.Optional("standing_entity"): vol.Any(str, None),
+        vol.Required("standing_charge_p_per_day"): vol.All(
+            vol.Coerce(float), vol.Range(min=0, max=9999)
+        ),
+        vol.Optional("dynamic", default={}): TARIFF_DYNAMIC_SCHEMA,
     }
 )
 
@@ -370,6 +400,36 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
 
     @websocket_api.websocket_command(
         {
+            vol.Required("type"): WS_TYPE_UPDATE_TARIFF,
+            vol.Optional("plant_id"): str,
+            vol.Required("tariff"): TARIFF_SCHEMA,
+        }
+    )
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def ws_update_tariff(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        await coordinator.async_save_tariff(tariff=msg["tariff"])
+        connection.send_result(msg["id"], coordinator.get_plant_state())
+
+    @websocket_api.websocket_command({vol.Required("type"): WS_TYPE_TARIFF_ENTITY_CANDIDATES})
+    @websocket_api.async_response
+    async def ws_tariff_entity_candidates(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        connection.send_result(msg["id"], {"entities": list_tariff_entity_candidates(hass)})
+
+    @websocket_api.websocket_command(
+        {
             vol.Required("type"): WS_TYPE_UPDATE_SOLCAST,
             vol.Optional("plant_id"): str,
             vol.Required("solcast"): SOLCAST_SCHEMA,
@@ -539,6 +599,8 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_forecast_entity_candidates)
     websocket_api.async_register_command(hass, ws_update_panel_display)
     websocket_api.async_register_command(hass, ws_update_pv_config)
+    websocket_api.async_register_command(hass, ws_update_tariff)
+    websocket_api.async_register_command(hass, ws_tariff_entity_candidates)
     websocket_api.async_register_command(hass, ws_update_solcast)
     websocket_api.async_register_command(hass, ws_test_solcast)
     websocket_api.async_register_command(hass, ws_fetch_history)

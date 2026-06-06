@@ -17,6 +17,7 @@ CONF_FORECAST_PREP = "forecast_prep"
 CONF_PANEL_DISPLAY = "panel_display"
 CONF_PV_CONFIG = "pv_config"
 CONF_SOLCAST = "solcast"
+CONF_TARIFF = "tariff"
 CONF_TARIFF_MODES = "tariff_modes"
 
 CHARGE_PERIOD_KEYS = (
@@ -364,6 +365,30 @@ DEFAULT_PV_CONFIG = {
         "tilt": 25,
         "azimuth": 180,
     },
+}
+
+TARIFF_KIND_STATIC = "static"
+TARIFF_KIND_DYNAMIC = "dynamic"
+
+DEFAULT_TARIFF = {
+    "kind": TARIFF_KIND_STATIC,
+    "currency": "GBP",
+    "import_source": "manual",
+    "import_entity": None,
+    "import_p_per_kwh": 0.0,
+    "export_source": "manual",
+    "export_entity": None,
+    "export_p_per_kwh": 0.0,
+    "standing_source": "manual",
+    "standing_entity": None,
+    "standing_charge_p_per_day": 0.0,
+    "dynamic": {
+        "enabled": False,
+        "provider": "",
+        "import_entity": None,
+        "export_entity": None,
+    },
+    "last_updated_at": None,
 }
 
 TRIGGER_ON_STATES = frozenset({"on", "true", "1", "active", "warning", "severe"})

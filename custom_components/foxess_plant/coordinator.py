@@ -29,6 +29,7 @@ from .const import (
     CONF_PV_CONFIG,
     CONF_SOLCAST,
     CONF_STORM_PREP,
+    CONF_TARIFF,
     IDENTITY_ENTITY_SUFFIXES,
     EVENT_BASELINE_RESTORED,
     EVENT_CONTROL_DRIFT,
@@ -55,6 +56,7 @@ from .models import (
     PlantConfig,
     PvSystemConfig,
     SolcastConfig,
+    TariffConfig,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -87,6 +89,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._solcast_store = None
         self._solcast_history_count = 0
         self._solcast_forecast_chart_points: list[dict[str, float]] = []
+        self._tariff_store = None
+        self._tariff_history_count = 0
         super().__init__(
             hass,
             _LOGGER,
@@ -110,6 +114,24 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             await self._maybe_repair_solcast_storage(stored)
         await self._rebuild_solcast_forecast_chart()
+
+    async def _async_load_tariff_storage(self) -> None:
+        from .tariff_store import TariffRateStore
+
+        self._tariff_store = TariffRateStore(self.hass, self.config_entry.entry_id)
+        stored = await self._tariff_store.async_load()
+        self._tariff_history_count = TariffRateStore.history_count(stored)
+
+    def _tariff_state(self) -> dict[str, Any]:
+        from .tariff_rates import resolve_tariff_rates
+
+        state = self.plant.tariff.to_dict()
+        resolved = resolve_tariff_rates(self.hass, self.plant.tariff)
+        state["configured"] = self.plant.tariff.configured()
+        state["rate_history_count"] = self._tariff_history_count
+        state["effective"] = resolved["effective"]
+        state["entities"] = resolved["entities"]
+        return state
 
     async def _rebuild_solcast_forecast_chart(self) -> None:
         from .solcast_forecast_chart import build_forecast_intraday_chart
@@ -149,6 +171,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_config_entry_first_refresh(self) -> None:
         await self._async_load_solcast_storage()
+        await self._async_load_tariff_storage()
         self._sync_trigger_membership()
         self.setup_trigger_listeners()
         await super().async_config_entry_first_refresh()
@@ -582,6 +605,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "panel_display": self.plant.panel_display.to_dict(),
             "pv_config": self.plant.pv_config.to_dict(),
             "solcast": self._solcast_state(),
+            "tariff": self._tariff_state(),
             "panel_runtime": get_panel_disk_info(),
             "settings": {
                 "max_soc": self._entity_float("max_soc"),
@@ -952,6 +976,48 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.update_plant_config(PlantConfig.from_entry_data(data))
         if self._solcast_pv_active():
             await self._async_refresh_solcast_pv(force=True)
+        await self.async_request_refresh()
+
+    async def async_save_tariff(self, *, tariff: dict[str, Any]) -> None:
+        """Persist electricity tariff rates from the panel."""
+        from homeassistant.util import dt as dt_util
+
+        from .tariff_rates import TARIFF_SOURCE_ENTITY, resolve_tariff_rates
+        from .tariff_store import TariffRateStore
+
+        cfg = TariffConfig.from_dict(tariff)
+        for label, source, entity_id in (
+            ("Import", cfg.import_source, cfg.import_entity),
+            ("Export", cfg.export_source, cfg.export_entity),
+            ("Standing charge", cfg.standing_source, cfg.standing_entity),
+        ):
+            if source != TARIFF_SOURCE_ENTITY or not entity_id:
+                continue
+            st = self.hass.states.get(entity_id)
+            if st is None:
+                raise HomeAssistantError(f"{label} entity {entity_id} is not available")
+            if not entity_id.startswith("sensor."):
+                raise HomeAssistantError(f"{label} entity {entity_id} must be a sensor")
+        cfg.last_updated_at = dt_util.utcnow().isoformat()
+        data = dict(self.config_entry.data)
+        data[CONF_TARIFF] = cfg.to_dict()
+        self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+        self.update_plant_config(PlantConfig.from_entry_data(data))
+        if self._tariff_store is None:
+            self._tariff_store = TariffRateStore(self.hass, self.config_entry.entry_id)
+        resolved = resolve_tariff_rates(self.hass, cfg)
+        effective = resolved["effective"]
+        source_kind = cfg.kind
+        if any(
+            getattr(cfg, f"{key}_source") == TARIFF_SOURCE_ENTITY
+            for key in ("import", "export", "standing")
+        ):
+            source_kind = "entity"
+        self._tariff_history_count = await self._tariff_store.async_record_rates(
+            rates=cfg.rates_snapshot(effective=effective),
+            source=source_kind,
+            recorded_at=cfg.last_updated_at,
+        )
         await self.async_request_refresh()
 
     async def async_save_solcast(self, *, solcast: dict[str, Any], fetch_now: bool = True) -> None:

@@ -363,3 +363,40 @@ def list_forecast_entity_candidates(hass: HomeAssistant) -> list[dict[str, Any]]
         )
     rows.sort(key=lambda r: (not r["native"], not r["suggested"], r["name"].lower()))
     return rows
+
+
+def list_tariff_entity_candidates(hass: HomeAssistant) -> list[dict[str, Any]]:
+    """Numeric sensors suitable as import/export rate or daily standing charge sources."""
+    from .tariff_rates import RATE_KIND_EXPORT, RATE_KIND_IMPORT, RATE_KIND_STANDING, tariff_rate_kinds
+
+    rows: list[dict[str, Any]] = []
+    for state in hass.states.async_all("sensor"):
+        if state.state in (None, "", "unknown", "unavailable"):
+            continue
+        try:
+            float(state.state)
+        except (TypeError, ValueError):
+            continue
+        specific = tariff_rate_kinds(state)
+        kinds = specific or [RATE_KIND_IMPORT, RATE_KIND_EXPORT, RATE_KIND_STANDING]
+        name = state.attributes.get("friendly_name") or state.entity_id
+        unit = state.attributes.get("unit_of_measurement")
+        rows.append(
+            {
+                "entity_id": state.entity_id,
+                "name": str(name),
+                "state": state.state,
+                "unit": str(unit) if unit else "",
+                "rate_kinds": kinds,
+                "suggested_import": RATE_KIND_IMPORT in specific,
+                "suggested_export": RATE_KIND_EXPORT in specific,
+                "suggested_standing": RATE_KIND_STANDING in specific,
+            }
+        )
+    rows.sort(
+        key=lambda r: (
+            not (r["suggested_import"] or r["suggested_export"] or r["suggested_standing"]),
+            r["name"].lower(),
+        )
+    )
+    return rows
