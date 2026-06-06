@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.68
+ * @version 0.9.74
  */
 
 const NAV = [
@@ -964,20 +964,53 @@ ${donut}
 </div>`;
 }
 
-function renderFoxAnalysisHBar(segments, total) {
+const FOX_ANALYSIS_SPLIT_COLORS = {
+  selfConsumption: "#894BFC",
+  export: "#eb6d48",
+  selfSufficiency: "#eb6d48",
+  gridPurchase: "#03BD9A",
+};
+
+function renderFoxAnalysisProporBar(segments, total) {
   const sum = segments.reduce((s, seg) => s + Math.max(0, seg.value), 0);
   const t = total > 0 ? total : sum;
   if (t <= 0) {
-    return `<div class="fox-analysis-hbar fox-analysis-hbar--empty" aria-hidden="true"></div>`;
+    return `<div class="fox-analysis-propor fox-analysis-propor--empty" aria-hidden="true"></div>`;
   }
   const bars = segments
     .filter((seg) => seg.value > 0)
-    .map(
-      (seg) =>
-        `<div class="fox-analysis-hbar-seg" style="width:${((seg.value / t) * 100).toFixed(2)}%;background:${seg.color}" title="${esc(seg.label)}"></div>`
-    )
+    .map((seg) => {
+      const pct = (seg.value / t) * 100;
+      const label = pct >= 10 ? `<span>${Math.round(pct)}%</span>` : "";
+      return `<div class="fox-analysis-propor-seg" style="width:${pct.toFixed(2)}%;background:${seg.color}" title="${esc(seg.label)}">${label}</div>`;
+    })
     .join("");
-  return `<div class="fox-analysis-hbar" role="img" aria-hidden="true">${bars}</div>`;
+  return `<div class="fox-analysis-propor" role="img" aria-hidden="true">${bars}</div>`;
+}
+
+function renderFoxAnalysisInfoRow({ label, value, pct, color }) {
+  const v = Number(value ?? 0) || 0;
+  const p = Number(pct ?? 0) || 0;
+  return `<div class="fox-analysis-info-row">
+<div class="fox-analysis-info-na">${esc(label)}</div>
+<div class="fox-analysis-info-nu">
+<div class="fox-analysis-info-l">${v.toFixed(2)}<span>kWh</span></div>
+<div class="fox-analysis-info-r" style="color:${color}">${Math.round(p)}%</div>
+</div>
+<div class="fox-analysis-info-pr" style="background:${color}"></div>
+</div>`;
+}
+
+function renderFoxAnalysisEnergySplitCard({ title, total, segments, rows }) {
+  const t = Number(total ?? 0) || 0;
+  return `<div class="fox-analysis-top-card fox-analysis-enerbf">
+<div class="fox-analysis-prc">
+<div class="fox-analysis-num">${t.toFixed(2)}<span class="fox-analysis-unit">kWh</span></div>
+<div class="fox-analysis-name">${esc(title)}</div>
+</div>
+${renderFoxAnalysisProporBar(segments, t)}
+<div class="fox-analysis-info">${rows.map((row) => renderFoxAnalysisInfoRow(row)).join("")}</div>
+</div>`;
 }
 
 function foxAnalysisIconHtml(key, { muted = false } = {}) {
@@ -1014,47 +1047,41 @@ function renderFoxAnalysisTopCards(a) {
   const selfSufficiency = Number(a.self_sufficiency_percent_today ?? 0) || 0;
   const balance = Math.max(0, pvTotal - loadTotal);
 
-  const productionBar = renderFoxAnalysisHBar(
-    [
-      { value: pvToLoadBattery, color: "#7F3DFF", label: "Self-Consumption" },
-      { value: pvToGrid, color: "#FF8A00", label: "Export" },
-    ],
-    pvTotal
-  );
-  const consumptionBar = renderFoxAnalysisHBar(
-    [
-      { value: loadFromPvBattery, color: "#FF8A00", label: "Self-Sufficiency" },
-      { value: loadFromGrid, color: "#17A589", label: "Grid Purchase" },
-    ],
-    loadTotal
-  );
+  const exportPct = Math.max(0, 100 - selfConsumption);
+  const gridPct = Math.max(0, 100 - selfSufficiency);
 
   return `<div class="fox-analysis-top">
 <div class="fox-analysis-top-card fox-analysis-top-card--balance">
 <div class="fox-analysis-balance-icon" aria-hidden="true">
-<svg viewBox="0 0 48 48"><circle cx="19" cy="24" r="13" fill="#7F3DFF" opacity="0.88"/><circle cx="29" cy="24" r="13" fill="#FF8A00" opacity="0.88"/></svg>
+<svg viewBox="0 0 48 48"><circle cx="19" cy="24" r="13" fill="${FOX_ANALYSIS_SPLIT_COLORS.selfConsumption}" opacity="0.88"/><circle cx="29" cy="24" r="13" fill="${FOX_ANALYSIS_SPLIT_COLORS.export}" opacity="0.88"/></svg>
 </div>
 <div class="fox-analysis-top-value">${balance.toFixed(2)}<span>kWh</span></div>
 <div class="fox-analysis-top-heading">Energy Balance</div>
 </div>
-<div class="fox-analysis-top-card">
-<div class="fox-analysis-top-heading">Production</div>
-<div class="fox-analysis-top-value">${pvTotal.toFixed(2)}<span>kWh</span></div>
-${productionBar}
-<div class="fox-analysis-top-metrics">
-<div><span class="fox-analysis-top-pct" style="color:#7F3DFF">${Math.round(selfConsumption)}%</span> Self-Consumption <strong>${pvToLoadBattery.toFixed(2)} kWh</strong></div>
-<div><span class="fox-analysis-top-pct" style="color:#FF8A00">${Math.round(100 - selfConsumption)}%</span> Export <strong>${pvToGrid.toFixed(2)} kWh</strong></div>
-</div>
-</div>
-<div class="fox-analysis-top-card">
-<div class="fox-analysis-top-heading">Consumption</div>
-<div class="fox-analysis-top-value">${loadTotal.toFixed(2)}<span>kWh</span></div>
-${consumptionBar}
-<div class="fox-analysis-top-metrics">
-<div><span class="fox-analysis-top-pct" style="color:#FF8A00">${Math.round(selfSufficiency)}%</span> Self-Sufficiency <strong>${loadFromPvBattery.toFixed(2)} kWh</strong></div>
-<div><span class="fox-analysis-top-pct" style="color:#17A589">${Math.round(100 - selfSufficiency)}%</span> Grid Purchase <strong>${loadFromGrid.toFixed(2)} kWh</strong></div>
-</div>
-</div>
+${renderFoxAnalysisEnergySplitCard({
+  title: "Production",
+  total: pvTotal,
+  segments: [
+    { value: pvToLoadBattery, color: FOX_ANALYSIS_SPLIT_COLORS.selfConsumption, label: "Self-Consumption" },
+    { value: pvToGrid, color: FOX_ANALYSIS_SPLIT_COLORS.export, label: "Export" },
+  ],
+  rows: [
+    { label: "Self-Consumption", value: pvToLoadBattery, pct: selfConsumption, color: FOX_ANALYSIS_SPLIT_COLORS.selfConsumption },
+    { label: "Export", value: pvToGrid, pct: exportPct, color: FOX_ANALYSIS_SPLIT_COLORS.export },
+  ],
+})}
+${renderFoxAnalysisEnergySplitCard({
+  title: "Consumption",
+  total: loadTotal,
+  segments: [
+    { value: loadFromPvBattery, color: FOX_ANALYSIS_SPLIT_COLORS.selfSufficiency, label: "Self-Sufficiency" },
+    { value: loadFromGrid, color: FOX_ANALYSIS_SPLIT_COLORS.gridPurchase, label: "Grid Purchase" },
+  ],
+  rows: [
+    { label: "Self-Sufficiency", value: loadFromPvBattery, pct: selfSufficiency, color: FOX_ANALYSIS_SPLIT_COLORS.selfSufficiency },
+    { label: "Grid Purchase", value: loadFromGrid, pct: gridPct, color: FOX_ANALYSIS_SPLIT_COLORS.gridPurchase },
+  ],
+})}
 </div>`;
 }
 
@@ -4289,19 +4316,56 @@ const STYLES = `
 .fox-analysis-top-value span {
   font-size: 14px; font-weight: 500; color: var(--secondary-text-color); margin-left: 4px;
 }
-.fox-analysis-hbar {
-  display: flex; width: 100%; height: 10px; border-radius: 999px; overflow: hidden;
+.fox-analysis-enerbf { padding: 20px; }
+.fox-analysis-prc {
+  display: flex; flex-direction: column; margin-bottom: 15px;
+}
+.fox-analysis-num {
+  font-weight: 600; font-size: 24px; line-height: 32px;
+  color: var(--primary-text-color); letter-spacing: -0.02em;
+}
+.fox-analysis-unit {
+  font-weight: 400; font-size: 14px; margin-left: 4px;
+  color: var(--primary-text-color);
+}
+.fox-analysis-name {
+  font-size: 14px; color: var(--secondary-text-color); line-height: 22px; min-height: 32px;
+}
+.fox-analysis-propor {
+  display: flex; width: 100%; height: 32px; overflow: hidden;
+}
+.fox-analysis-propor--empty {
   background: color-mix(in srgb, var(--secondary-text-color) 12%, transparent);
-  margin-bottom: 10px;
+  border-radius: 2px; opacity: 0.35;
 }
-.fox-analysis-hbar--empty { opacity: 0.35; }
-.fox-analysis-hbar-seg { height: 100%; min-width: 2px; }
-.fox-analysis-top-metrics {
-  display: flex; flex-direction: column; gap: 6px;
-  font-size: 11px; color: var(--secondary-text-color); line-height: 1.35;
+.fox-analysis-propor-seg {
+  line-height: 32px; text-align: center; min-width: 0; overflow: hidden;
 }
-.fox-analysis-top-metrics strong { color: var(--primary-text-color); font-weight: 600; margin-left: 4px; }
-.fox-analysis-top-pct { font-weight: 700; margin-right: 4px; }
+.fox-analysis-propor-seg:first-child { border-radius: 2px 0 0 2px; }
+.fox-analysis-propor-seg:last-child { border-radius: 0 2px 2px 0; }
+.fox-analysis-propor-seg:only-child { border-radius: 2px; }
+.fox-analysis-propor-seg span {
+  font-size: 14px; font-weight: 500; color: #ffffff; white-space: nowrap;
+}
+.fox-analysis-info {
+  display: flex; justify-content: space-between; gap: 12px; margin-top: 15px;
+}
+.fox-analysis-info-row {
+  width: 50%; min-width: 0; display: flex; flex-direction: column;
+}
+.fox-analysis-info-na {
+  font-size: 14px; color: var(--secondary-text-color); line-height: 22px;
+}
+.fox-analysis-info-nu {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 8px; line-height: 26px;
+}
+.fox-analysis-info-l {
+  font-weight: 600; font-size: 16px; color: var(--primary-text-color); min-width: 0;
+}
+.fox-analysis-info-l span { font-weight: 400; font-size: 12px; margin-left: 2px; }
+.fox-analysis-info-r { font-weight: 600; font-size: 13px; flex-shrink: 0; }
+.fox-analysis-info-pr { width: 100%; height: 4px; margin-top: 5px; border-radius: 1px; }
 .fox-analysis-toolbar {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
   gap: 10px 16px; margin-bottom: 14px; padding: 12px 16px;
