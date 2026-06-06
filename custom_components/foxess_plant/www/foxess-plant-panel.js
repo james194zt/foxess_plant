@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.75
+ * @version 0.9.76
  */
 
 const NAV = [
@@ -971,6 +971,29 @@ const FOX_ANALYSIS_SPLIT_COLORS = {
   gridPurchase: "#03BD9A",
 };
 
+function renderEnergyBalanceHelpIcon() {
+  return `<button type="button" class="fox-analysis-help-btn" data-action="energy-balance-help-open" aria-label="Energy Balance help">
+<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.2"/><text x="8" y="11.5" text-anchor="middle" font-size="10" font-weight="600" fill="currentColor">?</text></svg>
+</button>`;
+}
+
+function renderEnergyBalanceHelpModal() {
+  return `<div class="fox-help-modal-backdrop" data-energy-balance-help-modal="1" data-action="energy-balance-help-backdrop">
+<div class="fox-help-modal" data-action="energy-balance-help-dialog" role="dialog" aria-modal="true" aria-labelledby="fox-energy-balance-help-title">
+<button type="button" class="fox-help-modal-close" data-action="energy-balance-help-close" aria-label="Close">×</button>
+<h2 id="fox-energy-balance-help-title" class="fox-help-modal-title">Energy Balance</h2>
+<div class="fox-help-modal-body">
+<p>The energy balance refers to the proportion between the production and consumption.</p>
+<p>A positive energy balance means that you have produced more energy than you consumed.</p>
+<p>A negative energy balance means that you have produced less energy than you consumed.</p>
+</div>
+<div class="fox-help-modal-footer">
+<button type="button" class="fox-help-modal-ok" data-action="energy-balance-help-close">Ok</button>
+</div>
+</div>
+</div>`;
+}
+
 function renderFoxAnalysisProporBar(segments, total) {
   const sum = segments.reduce((s, seg) => s + Math.max(0, seg.value), 0);
   const t = total > 0 ? total : sum;
@@ -1056,7 +1079,10 @@ function renderFoxAnalysisTopCards(a) {
 <svg viewBox="0 0 48 48"><circle cx="19" cy="24" r="13" fill="${FOX_ANALYSIS_SPLIT_COLORS.selfConsumption}" opacity="0.88"/><circle cx="29" cy="24" r="13" fill="${FOX_ANALYSIS_SPLIT_COLORS.export}" opacity="0.88"/></svg>
 </div>
 <div class="fox-analysis-top-value">${balance.toFixed(2)}<span>kWh</span></div>
+<div class="fox-analysis-top-heading-row">
 <div class="fox-analysis-top-heading">Energy Balance</div>
+${renderEnergyBalanceHelpIcon()}
+</div>
 </div>
 ${renderFoxAnalysisEnergySplitCard({
   title: "Production",
@@ -4394,10 +4420,64 @@ const STYLES = `
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   text-align: center; gap: 8px;
 }
+.fox-analysis-top-heading-row {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+}
+.fox-analysis-help-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; padding: 0; border: none; background: transparent;
+  color: var(--secondary-text-color); cursor: pointer; flex-shrink: 0;
+}
+.fox-analysis-help-btn svg { width: 16px; height: 16px; display: block; }
+.fox-analysis-help-btn:hover { color: var(--primary-text-color); }
+.fox-analysis-help-btn:focus-visible {
+  outline: 2px solid var(--fp-accent); outline-offset: 2px; border-radius: 999px;
+}
+.fox-help-modal-backdrop {
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px 16px;
+  background: rgba(0, 0, 0, 0.45);
+}
+.fox-help-modal {
+  position: relative; width: min(100%, 520px);
+  padding: 24px 24px 20px;
+  border-radius: 8px;
+  background: var(--card-background-color, #fff);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
+  color: var(--primary-text-color);
+}
+.fox-help-modal-close {
+  position: absolute; top: 16px; right: 16px;
+  width: 28px; height: 28px; padding: 0; border: none; border-radius: 6px;
+  background: transparent; color: var(--secondary-text-color);
+  font-size: 22px; line-height: 1; cursor: pointer;
+}
+.fox-help-modal-close:hover { color: var(--primary-text-color); background: color-mix(in srgb, var(--secondary-text-color) 12%, transparent); }
+.fox-help-modal-title {
+  margin: 0 36px 16px 0; font-size: 18px; font-weight: 700; line-height: 1.3;
+  color: var(--primary-text-color);
+}
+.fox-help-modal-body {
+  font-size: 14px; line-height: 1.6; color: var(--primary-text-color);
+}
+.fox-help-modal-body p { margin: 0 0 14px; }
+.fox-help-modal-body p:last-child { margin-bottom: 0; }
+.fox-help-modal-footer {
+  display: flex; justify-content: flex-end; margin-top: 24px;
+}
+.fox-help-modal-ok {
+  min-width: 72px; padding: 8px 20px; border: none; border-radius: 6px;
+  background: #894BFC; color: #fff; font: inherit; font-size: 14px; font-weight: 500;
+  cursor: pointer;
+}
+.fox-help-modal-ok:hover { filter: brightness(1.05); }
+.fox-help-modal-ok:focus-visible { outline: 2px solid #894BFC; outline-offset: 2px; }
 .fox-analysis-balance-icon svg { width: 52px; height: 52px; display: block; }
 .fox-analysis-top-heading {
   font-size: 13px; font-weight: 600; color: var(--secondary-text-color); margin-bottom: 4px;
 }
+.fox-analysis-top-heading-row .fox-analysis-top-heading { margin-bottom: 0; }
 .fox-analysis-top-value {
   font-size: 28px; font-weight: 700; line-height: 1.05; letter-spacing: -0.03em;
   color: var(--primary-text-color); margin-bottom: 10px;
@@ -5285,6 +5365,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._energyAnalysisSummaryCache = undefined;
     this._energyAnalysisChartSlotCache = undefined;
     this._energyAnalysisToolbarCache = undefined;
+    this._energyBalanceHelpOpen = false;
     this._panelSyncBusy = false;
     this._panelStale = false;
     this._flowSceneKey = undefined;
@@ -6041,6 +6122,24 @@ Reloading panel registration…
     if (!btn || this._busy) return;
     const action = btn.dataset.action;
 
+    if (action === "energy-balance-help-dialog") return;
+    if (action === "energy-balance-help-open") {
+      this._energyBalanceHelpOpen = true;
+      this._syncEnergyBalanceHelpModal(this._root.querySelector(".shell"));
+      return;
+    }
+    if (action === "energy-balance-help-close") {
+      this._energyBalanceHelpOpen = false;
+      this._syncEnergyBalanceHelpModal(this._root.querySelector(".shell"));
+      return;
+    }
+    if (action === "energy-balance-help-backdrop") {
+      if (e.target === btn) {
+        this._energyBalanceHelpOpen = false;
+        this._syncEnergyBalanceHelpModal(this._root.querySelector(".shell"));
+      }
+      return;
+    }
     if (action === "nav") {
       const nextView = btn.dataset.view;
       if (
@@ -6055,6 +6154,7 @@ Reloading panel registration…
         this._energyAnalysisSummaryCache = undefined;
         this._energyAnalysisChartSlotCache = undefined;
         this._energyAnalysisToolbarCache = undefined;
+        this._energyBalanceHelpOpen = false;
       }
       this._view = nextView;
       this._settingsView = "main";
@@ -7882,6 +7982,16 @@ ${this._renderEnergyCharts()}`;
     return `<div class="fox-analysis-chart-card">${body}</div>`;
   }
 
+  _syncEnergyBalanceHelpModal(shell) {
+    if (!shell) return;
+    shell.querySelector("[data-energy-balance-help-modal]")?.remove();
+    if (!this._energyBalanceHelpOpen) return;
+    const wrap = document.createElement("div");
+    wrap.innerHTML = renderEnergyBalanceHelpModal();
+    const modal = wrap.firstElementChild;
+    if (modal) shell.appendChild(modal);
+  }
+
   _renderEnergyAnalysis(plant) {
     const a = this._energyAnalyticsForView(plant);
     const title = energyBreakdownTitle(this._energyPeriod, this._energyPeriodOffset);
@@ -8652,6 +8762,7 @@ ${active
       this._flowSceneKeyPendingN = 0;
       mainEl.innerHTML = this._renderView(plant);
     }
+    this._syncEnergyBalanceHelpModal(shell);
 
     if (this._view === "settings" && this._settingsView === "quick") {
       this._bindTripleSoc();
