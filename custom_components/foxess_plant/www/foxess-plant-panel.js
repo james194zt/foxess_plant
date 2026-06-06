@@ -980,35 +980,26 @@ function renderFoxAnalysisHBar(segments, total) {
   return `<div class="fox-analysis-hbar" role="img" aria-hidden="true">${bars}</div>`;
 }
 
-function renderFoxAnalysisMetricRow(label, value, color) {
+function foxAnalysisIconHtml(key, { muted = false } = {}) {
+  let svg = FOX_ANALYSIS_ICONS[key] || "";
+  if (!svg) return "";
+  if (muted) svg = svg.replace(/fill="#[^"]+"/g, 'fill="currentColor"');
+  return `<span class="fox-analysis-stat-icon${muted ? " fox-analysis-stat-icon--muted" : ""}" aria-hidden="true">${svg}</span>`;
+}
+
+function renderFoxAnalysisStatCol(label, value, iconKey, options = {}) {
   const v = Number(value ?? 0) || 0;
-  return `<div class="fox-analysis-metric-row">
-<span class="fox-analysis-metric-dot" style="background:${esc(color)}"></span>
-<span class="fox-analysis-metric-label">${esc(label)}</span>
-<strong class="fox-analysis-metric-value">${v.toFixed(2)}<span>kWh</span></strong>
+  return `<div class="fox-analysis-stat-col">
+${foxAnalysisIconHtml(iconKey, options)}
+<div class="fox-analysis-stat-col-nu">${v.toFixed(2)}<span>kWh</span></div>
+<div class="fox-analysis-stat-col-na">${esc(label)}</div>
 </div>`;
 }
 
-function renderFoxAnalysisCometBridge() {
-  const tracks = [33.33, 66.67];
-  const green = "#17A589";
-  const pathLen = 100;
-  const cometLen = 16;
-  const gap = pathLen - cometLen;
-  const dash = `${cometLen} ${gap}`;
-  const parts = tracks
-    .map((x, i) => {
-      const d = `M ${x} 0 L ${x} 100`;
-      const delay = i ? ' style="animation-delay:0.35s"' : "";
-      return (
-        `<line x1="${x}" y1="0" x2="${x}" y2="100" class="fox-analysis-bridge-idle" vector-effect="non-scaling-stroke"/>` +
-        `<path class="fox-bridge-comet fox-bridge-comet-glow"${delay} d="${d}" pathLength="${pathLen}" stroke="${green}" stroke-width="5.5" stroke-dasharray="${dash}" stroke-linecap="round"/>` +
-        `<path class="fox-bridge-comet fox-bridge-comet-head"${delay} d="${d}" pathLength="${pathLen}" stroke="${green}" stroke-width="2.6" stroke-dasharray="${dash}" stroke-linecap="round"/>`
-      );
-    })
-    .join("");
-  return `<div class="fox-analysis-bridge" aria-hidden="true">
-<svg class="fox-analysis-bridge-svg" viewBox="0 0 100 100" preserveAspectRatio="none">${parts}</svg>
+function renderFoxAnalysisFlowBridge() {
+  return `<div class="fox-analysis-stat-bridge" aria-hidden="true">
+<div class="fox-analysis-stat-flow flow-l"></div>
+<div class="fox-analysis-stat-flow flow-r"></div>
 </div>`;
 }
 
@@ -1149,33 +1140,19 @@ function renderFoxAnalysisSummaryCard(a, overviewDaily, { loading = false } = {}
 }
 
 function renderFoxSupplyUsagePanel(a) {
-  const supplyMetrics = [
-    ["Imported", a.load_from_grid_kwh_today, "#2F6BFF"],
-    ["PV Produced", a.pv_production_kwh_today, "#19D4DE"],
-    ["Discharged", a.battery_discharge_kwh_today, "#8DB6FF"],
-  ]
-    .map(([label, value, color]) => renderFoxAnalysisMetricRow(label, value, color))
-    .join("");
-  const usageMetrics = [
-    ["Exported", a.pv_to_grid_kwh_today, "#FF6FAF"],
-    ["Consumed", a.load_consumption_kwh_today, "#8A4DFF"],
-    ["Charged", a.battery_charge_kwh_today, "#C4A3FF"],
-  ]
-    .map(([label, value, color]) => renderFoxAnalysisMetricRow(label, value, color))
-    .join("");
-  return `<div class="fox-analysis-flow-panel">
-<div class="fox-analysis-flow-block fox-analysis-flow-block--supply">
-<h4 class="fox-analysis-flow-heading">Supply</h4>
-<div class="fox-analysis-flow-frame">
-<div class="fox-analysis-flow-metrics">${supplyMetrics}</div>
+  return `<div class="fox-analysis-stat-r">
+<div class="fox-analysis-stat-na">Supply</div>
+<div class="fox-analysis-stat-row">
+${renderFoxAnalysisStatCol("Imported", a.load_from_grid_kwh_today, "imported", { muted: true })}
+${renderFoxAnalysisStatCol("PV Produced", a.pv_production_kwh_today, "pv_produced")}
+${renderFoxAnalysisStatCol("Discharged", a.battery_discharge_kwh_today, "discharged")}
 </div>
-</div>
-${renderFoxAnalysisCometBridge()}
-<div class="fox-analysis-flow-block fox-analysis-flow-block--usage">
-<h4 class="fox-analysis-flow-heading">Usage</h4>
-<div class="fox-analysis-flow-frame">
-<div class="fox-analysis-flow-metrics">${usageMetrics}</div>
-</div>
+${renderFoxAnalysisFlowBridge()}
+<div class="fox-analysis-stat-na">Usage</div>
+<div class="fox-analysis-stat-row">
+${renderFoxAnalysisStatCol("Exported", a.pv_to_grid_kwh_today, "exported", { muted: true })}
+${renderFoxAnalysisStatCol("Consumed", a.load_consumption_kwh_today, "consumed")}
+${renderFoxAnalysisStatCol("Charged", a.battery_charge_kwh_today, "charged")}
 </div>
 </div>`;
 }
@@ -1381,6 +1358,8 @@ const OVERVIEW_DAILY_COLORS = {
   consumption: "#19D4DE",
   barMuted: "#4a5058",
 };
+
+const FOX_ANALYSIS_ICONS = {"imported": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 14 15\" fill=\"none\" id=\"icon-e_grid_import\">\n<path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M8.62038 1.00002C8.30727 1.31924 8.05824 1.70094 7.89316 2.12502H5.42571L4.89772 4.00002H7.733C7.80559 4.3576 7.93611 4.69398 8.11321 5.00001H4.61647L3.91335 7.50001H10.0859L9.78703 6.43817C10.1628 6.58504 10.5715 6.66665 10.9993 6.66669C11.0059 6.66668 11.0128 6.66607 11.0195 6.66603L11.2545 7.50001H12.7493C12.8873 7.50003 12.9993 7.61195 12.9993 7.75001V8.25001C12.9993 8.38808 12.8873 8.5 12.7493 8.50001H11.5364L13.3228 14.8503C13.3526 14.9568 13.2396 15.0466 13.1425 14.9935L6.99928 11.6296L0.85605 14.9935C0.759073 15.0463 0.646091 14.9566 0.675706 14.8503L2.46282 8.50001H1.24928C1.11133 8.49988 0.999284 8.388 0.999284 8.25001V7.75001C0.999285 7.61203 1.11133 7.50015 1.24928 7.50001H2.74407L3.44785 5.00001H2.74928C2.61133 4.99988 2.49928 4.888 2.49928 4.75001V4.25002C2.49928 4.11203 2.61133 4.00015 2.74928 4.00002H3.7291L4.49668 1.27345C4.54217 1.11182 4.68944 1.00009 4.85735 1.00002H8.62038ZM2.40358 12.864L5.82805 10.9883L3.31828 9.61395L2.40358 12.864ZM8.1705 10.9883L11.5956 12.864L10.6809 9.61395L8.1705 10.9883ZM3.63078 8.50262L6.99928 10.347L10.3684 8.50262L10.3678 8.50001H3.63144L3.63078 8.50262Z\" fill=\"#52C41A\" />\n<path d=\"M13.6659 3.33336L10.9993 6.00001V4.00002H8.33261V2.66669H10.9993V0.666687L13.6659 3.33336Z\" fill=\"#52C41A\" />\n</svg>", "pv_produced": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 36 36\" fill=\"none\" id=\"icon-icon-phot\">\n<g id=\"icon-icon-phot_icon-&#229;&#133;&#137;&#228;&#188;&#143;&#229;&#143;&#145;&#231;&#148;&#181;\">\n<path id=\"icon-icon-phot_Rectangle 34625637\" d=\"M4.5 7.5C4.5 5.84315 5.84315 4.5 7.5 4.5H28.5C30.1569 4.5 31.5 5.84315 31.5 7.5V28.5C31.5 30.1569 30.1569 31.5 28.5 31.5H7.5C5.84315 31.5 4.5 30.1569 4.5 28.5V7.5Z\" fill=\"#894BFC\" />\n<g id=\"icon-icon-phot_Frame\">\n<path id=\"icon-icon-phot_Vector\" d=\"M13.9738 18.0725C13.9738 19.4913 14.7413 20.8024 15.9873 21.5118C16.6011 21.8605 17.2949 22.0438 18.0008 22.0438C18.7067 22.0438 19.4005 21.8605 20.0143 21.5118C21.2602 20.8024 22.0277 19.4913 22.0277 18.0725C22.0277 16.6537 21.2602 15.3428 20.0143 14.6334C19.4005 14.2847 18.7067 14.1014 18.0008 14.1014C17.2949 14.1014 16.6011 14.2847 15.9873 14.6334C14.7413 15.3426 13.9738 16.6537 13.9738 18.0725ZM17.9947 10.4385C18.2567 10.4346 18.4861 10.6648 18.4922 10.9252L18.5003 12.5193C18.5044 12.7776 18.271 13.0039 18.0069 13.01C17.7448 13.014 17.5155 12.7836 17.5094 12.5233L17.5013 10.9292C17.5195 10.6308 17.7328 10.4427 17.9947 10.4385ZM25.9107 18.0444C25.9066 18.3029 25.7158 18.5131 25.413 18.5311L23.7966 18.5232C23.5347 18.5191 23.2991 18.2928 23.303 18.0325C23.3072 17.7742 23.5367 17.5419 23.8007 17.5458L25.4171 17.5539C25.679 17.5599 25.9147 17.7861 25.9107 18.0444ZM12.6985 18.0444C12.6944 18.3029 12.5034 18.5131 12.2008 18.5311L10.5844 18.5232C10.3225 18.5191 10.0869 18.2928 10.0909 18.0325C10.095 17.7742 10.3245 17.5419 10.5886 17.5458L12.205 17.5539C12.4669 17.5599 12.7025 17.7861 12.6985 18.0444ZM18.0067 25.7304C17.7448 25.7346 17.5153 25.5043 17.5094 25.2439L17.5013 23.6498C17.4971 23.3915 17.7306 23.1652 17.9947 23.1591C18.2567 23.1552 18.4861 23.3856 18.4922 23.6458L18.5003 25.2399C18.4821 25.5384 18.2688 25.7265 18.0069 25.7306L18.0067 25.7304ZM23.4676 12.6835C23.6566 12.8637 23.6524 13.1862 23.4697 13.3743L22.3325 14.5058C22.1496 14.6921 21.8227 14.6881 21.6317 14.508C21.4429 14.3276 21.4471 14.0052 21.6298 13.8169L22.767 12.6855C22.9924 12.4873 23.2768 12.5033 23.4676 12.6837V12.6835ZM23.6098 23.5818C23.4208 23.7619 23.1365 23.778 22.9092 23.5798L21.772 22.4483C21.5891 22.262 21.5851 21.9376 21.7739 21.7573C21.9629 21.5773 22.2918 21.5731 22.4745 21.7594L23.6117 22.8909C23.7946 23.077 23.7986 23.4016 23.6098 23.5818ZM14.2661 14.3676C14.0773 14.5479 13.7931 14.5639 13.5656 14.3658L12.4283 13.2343C12.2456 13.048 12.2415 12.7236 12.4303 12.5433C12.6193 12.3631 12.9482 12.3591 13.1311 12.5452L14.2683 13.6767C14.451 13.865 14.4571 14.1874 14.2661 14.3677V14.3676ZM12.5095 23.5036C12.3207 23.3235 12.3248 23.0009 12.5077 22.8128L13.6448 21.6813C13.8275 21.495 14.1545 21.499 14.3453 21.6793C14.5343 21.8593 14.5302 22.1819 14.3475 22.3702L13.2103 23.5017C12.9847 23.6998 12.6985 23.6838 12.5095 23.5036Z\" fill=\"white\" />\n</g>\n</g>\n</svg>", "discharged": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 20 20\" fill=\"none\" id=\"icon-icon-discharge\">\n<g id=\"icon-icon-discharge_Frame 272\">\n<path d=\"M0 2C0 0.895431 0.895431 0 2 0H18C19.1046 0 20 0.895431 20 2V18C20 19.1046 19.1046 20 18 20H2C0.895431 20 0 19.1046 0 18V2Z\" fill=\"#894BFC\" />\n<g id=\"icon-icon-discharge_Icon/ChargeOutline\">\n<path id=\"icon-icon-discharge_vector\" fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M12.5 3.25C12.5 3.11193 12.3881 3 12.25 3H7.82812C7.69005 3 7.57812 3.11193 7.57812 3.25V4H4.25C4.11193 4 4 4.11193 4 4.25V4.875C4 5.01307 4.11193 5.125 4.25 5.125H5V14.9375H4.25C4.11193 14.9375 4 15.0494 4 15.1875V15.8125C4 15.9506 4.11193 16.0625 4.25 16.0625H15.75C15.8881 16.0625 16 15.9506 16 15.8125V15.1875C16 15.0494 15.8881 14.9375 15.75 14.9375H15V5.125H15.75C15.8881 5.125 16 5.01307 16 4.875V4.25C16 4.11193 15.8881 4 15.75 4H12.5V3.25ZM9.5 10.7H7.5L10.5 6.5V9.3H12.5L9.5 13.5V10.7Z\" fill=\"white\" />\n</g>\n</g>\n</svg>", "exported": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 16 16\" fill=\"none\" id=\"icon-e_grid_export\">\n<path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M9.62037 1.00002C9.30726 1.31924 9.05824 1.70094 8.89316 2.12502H6.42571L5.89771 4.00002H8.733C8.80559 4.35761 8.93611 4.69399 9.11321 5.00002H5.61646L4.91334 7.50002H11.0859L10.787 6.43817C11.1628 6.58504 11.5715 6.66665 11.9993 6.66669C12.0059 6.66669 12.0128 6.66607 12.0195 6.66604L12.2545 7.50002H13.7493C13.8873 7.50003 13.9993 7.61196 13.9993 7.75002V8.25002C13.9993 8.38808 13.8873 8.50001 13.7493 8.50002H12.5364L14.3228 14.8503C14.3526 14.9568 14.2396 15.0466 14.1425 14.9935L7.99928 11.6296L1.85605 14.9935C1.75907 15.0463 1.64609 14.9566 1.67571 14.8503L3.46282 8.50002H2.24928C2.11132 8.49989 1.99928 8.38801 1.99928 8.25002V7.75002C1.99928 7.61203 2.11132 7.50016 2.24928 7.50002H3.74407L4.44784 5.00002H3.74928C3.61132 4.99989 3.49928 4.88801 3.49928 4.75002V4.25002C3.49928 4.11203 3.61132 4.00016 3.74928 4.00002H4.72909L5.49667 1.27346C5.54217 1.11182 5.68944 1.00009 5.85735 1.00002H9.62037ZM3.40357 12.864L6.82805 10.9883L4.31829 9.61395L3.40357 12.864ZM9.1705 10.9883L12.5956 12.864L11.6809 9.61395L9.1705 10.9883ZM4.63079 8.50262L7.99928 10.347L11.3684 8.50262L11.3678 8.50002H4.63144L4.63079 8.50262Z\" fill=\"#1677FF\" />\n<path d=\"M11.9993 2.66669H14.6659V4.00002H11.9993V6.00002L9.33261 3.33335L11.9993 0.666687V2.66669Z\" fill=\"#1677FF\" />\n</svg>", "consumed": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 36 36\" fill=\"none\" id=\"icon-icon-load\">\n<g id=\"icon-icon-load_icon-&#232;&#180;&#159;&#232;&#189;&#189;&#229;&#174;&#182;&#231;&#148;&#168;\">\n<path id=\"icon-icon-load_Rectangle 34625637\" d=\"M4.5 7.5C4.5 5.84315 5.84315 4.5 7.5 4.5H28.5C30.1569 4.5 31.5 5.84315 31.5 7.5V28.5C31.5 30.1569 30.1569 31.5 28.5 31.5H7.5C5.84315 31.5 4.5 30.1569 4.5 28.5V7.5Z\" fill=\"#EB6D48\" />\n<g id=\"icon-icon-load_Frame\">\n<path id=\"icon-icon-load_Vector\" d=\"M12.9365 19.1735V24.7738H16.3115V21.0408H19.6865V24.7738H23.0615V19.1735L17.999 14.9738L12.9365 19.1735Z\" fill=\"white\" />\n<path id=\"icon-icon-load_Vector_2\" d=\"M17.9961 11.2274L11.2461 17.0236V19.3854L17.9961 13.5909L24.7461 19.3854V17.0236L17.9961 11.2274Z\" fill=\"white\" />\n</g>\n</g>\n</svg>", "charged": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 36 36\" fill=\"none\" id=\"icon-icon-battery\">\n<g id=\"icon-icon-battery_icon-&#231;&#148;&#181;&#230;&#177;&#160;\">\n<path id=\"icon-icon-battery_Rectangle 34625637\" d=\"M4.5 7.5C4.5 5.84315 5.84315 4.5 7.5 4.5H28.5C30.1569 4.5 31.5 5.84315 31.5 7.5V28.5C31.5 30.1569 30.1569 31.5 28.5 31.5H7.5C5.84315 31.5 4.5 30.1569 4.5 28.5V7.5Z\" fill=\"#03BD9A\" />\n<g id=\"icon-icon-battery_Frame\" clip-path=\"url(#icon-icon-battery_clip0_36_2961)\">\n<path id=\"icon-icon-battery_Vector\" d=\"M21.0349 23.7746L21.0349 14.2157L14.9656 14.2157L14.9656 23.7746L21.0349 23.7746ZM16.4829 11.5776L14.9656 11.5776C14.131 11.5776 13.4482 12.1554 13.4482 12.8615L13.4482 23.7746C13.4482 24.4807 14.131 25.0585 14.9656 25.0585L21.0349 25.0585C21.8694 25.0585 22.5522 24.4807 22.5522 23.7746L22.5522 12.8615C22.5522 12.1554 21.8694 11.5776 21.0349 11.5776L19.5175 11.5776C19.5175 11.2246 19.1761 10.9357 18.7589 10.9357L17.2415 10.9357C16.8243 10.9357 16.4829 11.2246 16.4829 11.5776ZM17.2415 12.2196L21.0349 12.2196C21.4521 12.2196 21.7935 12.5084 21.7935 12.8615L21.7935 23.7746C21.7935 24.1277 21.4521 24.4165 21.0349 24.4165L14.9656 24.4165C14.5483 24.4165 14.2069 24.1277 14.2069 23.7746L14.2069 12.8615C14.2069 12.5084 14.5483 12.2196 14.9656 12.2196L17.2415 12.2196Z\" fill=\"white\" />\n</g>\n</g>\n<defs>\n<clipPath id=\"icon-icon-battery_clip0_36_2961\">\n<rect width=\"14.1429\" height=\"16.7143\" fill=\"white\" transform=\"translate(9.64258 25.0714) rotate(-90)\" />\n</clipPath>\n</defs>\n</svg>"};
 
 const FOX_ANALYSIS_SPARK_COLORS = {
   production: "#17A589",
@@ -4387,65 +4366,123 @@ const STYLES = `
   background: color-mix(in srgb, var(--secondary-text-color) 8%, transparent);
   border-radius: 8px;
 }
-.fox-analysis-flow-panel {
-  display: flex; flex-direction: column; gap: 0; min-width: 0;
-  --fox-flow-green: #17A589;
+.fox-analysis-panel-card:has(.fox-analysis-stat-r) {
+  padding: 0; background: transparent; border: none; box-shadow: none;
 }
-.fox-analysis-flow-block { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.fox-analysis-flow-frame {
-  border-left: 1.5px solid var(--fox-flow-green);
-  border-right: 1.5px solid var(--fox-flow-green);
-  border-bottom: 1.5px solid var(--fox-flow-green);
-  border-radius: 0 0 12px 12px;
-  padding: 10px 6px 12px;
+.fox-analysis-stat-r {
+  position: relative;
+  padding: 20px 24px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--secondary-background-color) 70%, var(--card-background-color));
+  --fox-flow-green: #03bd9a;
+  --fox-flow-track: color-mix(in srgb, var(--secondary-text-color) 14%, transparent);
+  --fox-stat-border-top: color-mix(in srgb, var(--secondary-text-color) 14%, transparent);
 }
-.fox-analysis-flow-metrics {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;
+.fox-analysis-stat-na {
+  display: block;
+  font-weight: 500;
+  font-size: 14px;
+  color: var(--primary-text-color);
+  margin: 0 0 10px;
 }
-.fox-analysis-flow-heading {
-  margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
-  color: var(--secondary-text-color); text-transform: uppercase;
+.fox-analysis-stat-na + .fox-analysis-stat-row + .fox-analysis-stat-bridge + .fox-analysis-stat-na {
+  margin-top: 0;
 }
-.fox-analysis-metric-row {
-  display: flex; flex-direction: column; align-items: center; text-align: center; gap: 4px;
-  min-width: 0; padding: 4px 2px;
+.fox-analysis-stat-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 114px;
+  padding: 20px;
+  margin-bottom: 0;
+  border-radius: 6px;
+  border: 3px solid;
+  border-image: linear-gradient(
+    180deg,
+    var(--fox-stat-border-top),
+    var(--fox-stat-border-top) 25%,
+    var(--fox-flow-green)
+  ) 2 2;
 }
-.fox-analysis-metric-dot {
-  width: 8px; height: 8px; border-radius: 999px; flex-shrink: 0;
+.fox-analysis-stat-row + .fox-analysis-stat-bridge + .fox-analysis-stat-na {
+  margin-top: 10px;
 }
-.fox-analysis-metric-label {
-  display: block; font-size: 11px; color: var(--secondary-text-color); line-height: 1.25;
+.fox-analysis-stat-col {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  text-align: center;
 }
-.fox-analysis-metric-value {
-  font-size: 16px; font-weight: 700; line-height: 1.15;
-  color: var(--primary-text-color); letter-spacing: -0.02em;
+.fox-analysis-stat-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
 }
-.fox-analysis-metric-value span {
-  font-size: 12px; font-weight: 500; color: var(--secondary-text-color); margin-left: 3px;
+.fox-analysis-stat-icon svg {
+  width: 32px;
+  height: 32px;
+  display: block;
 }
-.fox-analysis-bridge {
-  position: relative; width: 100%; height: 48px; min-height: 48px;
-  flex-shrink: 0; margin: 0; padding: 0 0;
+.fox-analysis-stat-icon--muted { color: #788bab; }
+.fox-analysis-stat-col-nu {
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 1.2;
+  color: var(--primary-text-color);
+  padding-top: 10px;
 }
-.fox-analysis-bridge-svg {
-  width: 100%; height: 100%; display: block; overflow: visible;
+.fox-analysis-stat-col-nu span {
+  font-weight: 400;
+  font-size: 14px;
+  margin-left: 2px;
 }
-.fox-analysis-bridge-idle {
-  stroke: color-mix(in srgb, var(--fox-flow-green) 32%, transparent);
-  stroke-width: 1.5; stroke-linecap: round;
+.fox-analysis-stat-col-na {
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--secondary-text-color);
+  padding: 0 4px;
 }
-.fox-bridge-comet {
-  fill: none; stroke-linejoin: round; pointer-events: none;
-  animation: fox-bridge-comet-down 2.1s linear infinite;
+.fox-analysis-stat-bridge {
+  position: relative;
+  height: 87px;
+  margin: 0;
 }
-.fox-bridge-comet-glow { opacity: 0.42; }
-.fox-bridge-comet-head {
-  opacity: 1;
-  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--fox-flow-green) 85%, transparent));
+.fox-analysis-stat-flow {
+  width: 87px;
+  height: 2px;
+  background: var(--fox-flow-track);
+  position: absolute;
+  top: 50%;
+  left: 25%;
+  transform: translate(-50%, -50%) rotate(90deg);
+  overflow: hidden;
 }
-@keyframes fox-bridge-comet-down {
-  from { stroke-dashoffset: 0; }
-  to { stroke-dashoffset: -100; }
+.fox-analysis-stat-flow.flow-r {
+  left: auto;
+  right: 25%;
+  transform: translate(50%, -50%) rotate(90deg);
+}
+.fox-analysis-stat-flow::after {
+  width: 100%;
+  height: 100%;
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  background: linear-gradient(to right, var(--fox-flow-track) 40%, var(--fox-flow-green));
+  background-size: 87px 100%;
+  animation: fox-stat-flow-r 2s linear infinite;
+}
+@keyframes fox-stat-flow-r {
+  0% { background-position: 0 0; }
+  100% { background-position: 87px 0; }
 }
 .impact-card .card-title { margin-bottom: 12px; }
 .impact-grid {
@@ -4499,12 +4536,19 @@ const STYLES = `
   .fox-analysis-panels-row { grid-template-columns: 1fr; }
   .fox-analysis-summary-row { grid-template-columns: 1fr; }
   .fox-analysis-summary-spark { justify-content: flex-start; }
+  .fox-analysis-stat-row { flex-direction: column; min-height: 0; gap: 16px; padding: 16px; }
+  .fox-analysis-stat-bridge { height: 64px; }
+  .fox-analysis-stat-flow { width: 64px; }
+  .fox-analysis-stat-flow::after { background-size: 64px 100%; animation-name: fox-stat-flow-r-sm; }
   .statistics-chart-wrap--side { grid-template-columns: 1fr; }
   .statistics-chart-legend-side {
     border-left: none; border-top: 1px solid var(--divider-color, rgba(127,127,127,0.22));
     max-width: none; padding: 12px 0 0;
   }
-  .fox-analysis-flow-metrics { grid-template-columns: 1fr; }
+}
+@keyframes fox-stat-flow-r-sm {
+  0% { background-position: 0 0; }
+  100% { background-position: 64px 0; }
 }
 .stat { background: var(--card-background-color); border-radius: var(--fp-radius); padding: 16px; border: 1px solid var(--divider-color, transparent); box-shadow: var(--ha-card-box-shadow, 0 1px 2px rgba(0,0,0,0.06)); }
 .stat label { font-size: 12px; color: var(--secondary-text-color); display: block; }
