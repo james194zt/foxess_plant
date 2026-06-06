@@ -1,13 +1,14 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.67
+ * @version 0.9.68
  */
 
 const NAV = [
   { id: "overview", label: "Overview" },
   { id: "device", label: "Device" },
   { id: "energy", label: "Energy" },
+  { id: "energy_analysis", label: "Analysis" },
   { id: "settings", label: "Settings" },
 ];
 
@@ -963,6 +964,153 @@ ${donut}
 </div>`;
 }
 
+function renderFoxAnalysisHBar(segments, total) {
+  const sum = segments.reduce((s, seg) => s + Math.max(0, seg.value), 0);
+  const t = total > 0 ? total : sum;
+  if (t <= 0) {
+    return `<div class="fox-analysis-hbar fox-analysis-hbar--empty" aria-hidden="true"></div>`;
+  }
+  const bars = segments
+    .filter((seg) => seg.value > 0)
+    .map(
+      (seg) =>
+        `<div class="fox-analysis-hbar-seg" style="width:${((seg.value / t) * 100).toFixed(2)}%;background:${seg.color}" title="${esc(seg.label)}"></div>`
+    )
+    .join("");
+  return `<div class="fox-analysis-hbar" role="img" aria-hidden="true">${bars}</div>`;
+}
+
+function renderFoxAnalysisMetricRow(label, value, color) {
+  const v = Number(value ?? 0) || 0;
+  return `<div class="fox-analysis-metric-row">
+<span class="fox-analysis-metric-dot" style="background:${esc(color)}"></span>
+<span class="fox-analysis-metric-label">${esc(label)}</span>
+<strong class="fox-analysis-metric-value">${v.toFixed(2)}<span>kWh</span></strong>
+</div>`;
+}
+
+function renderFoxAnalysisCometBridge() {
+  const tracks = [
+    { x: 22, cls: "flow-grid" },
+    { x: 50, cls: "flow-solar" },
+  ];
+  const comets = tracks
+    .map(({ x, cls }) => {
+      const d = `M ${x} 6 L ${x} 94`;
+      return flowCometPaths({
+        d,
+        cls,
+        headSw: 2.6,
+        stroke: flowActiveStroke(cls),
+        reverse: false,
+      });
+    })
+    .join("");
+  const idle = tracks
+    .map(
+      ({ x }) =>
+        `<line x1="${x}" y1="0" x2="${x}" y2="100" class="fox-analysis-bridge-idle" vector-effect="non-scaling-stroke"/>`
+    )
+    .join("");
+  return `<div class="fox-analysis-bridge" aria-hidden="true">
+<svg class="fox-analysis-bridge-svg" viewBox="0 0 72 100" preserveAspectRatio="none">${idle}${comets}</svg>
+</div>`;
+}
+
+function renderFoxAnalysisTopCards(a) {
+  const pvTotal = Number(a.pv_production_kwh_today ?? 0) || 0;
+  const pvToLoadBattery = Number(a.pv_to_load_battery_kwh_today ?? 0) || 0;
+  const pvToGrid = Number(a.pv_to_grid_kwh_today ?? 0) || 0;
+  const loadTotal = Number(a.load_consumption_kwh_today ?? 0) || 0;
+  const loadFromPvBattery = Number(a.load_from_pv_battery_kwh_today ?? 0) || 0;
+  const loadFromGrid = Number(a.load_from_grid_kwh_today ?? 0) || 0;
+  const selfConsumption = Number(a.self_consumption_percent_today ?? 0) || 0;
+  const selfSufficiency = Number(a.self_sufficiency_percent_today ?? 0) || 0;
+  const balance = Math.max(0, pvTotal - loadTotal);
+
+  const productionBar = renderFoxAnalysisHBar(
+    [
+      { value: pvToLoadBattery, color: "#7F3DFF", label: "Self-Consumption" },
+      { value: pvToGrid, color: "#FF8A00", label: "Export" },
+    ],
+    pvTotal
+  );
+  const consumptionBar = renderFoxAnalysisHBar(
+    [
+      { value: loadFromPvBattery, color: "#FF8A00", label: "Self-Sufficiency" },
+      { value: loadFromGrid, color: "#17A589", label: "Grid Purchase" },
+    ],
+    loadTotal
+  );
+
+  return `<div class="fox-analysis-top">
+<div class="fox-analysis-top-card fox-analysis-top-card--balance">
+<div class="fox-analysis-balance-icon" aria-hidden="true">
+<svg viewBox="0 0 48 48"><circle cx="19" cy="24" r="13" fill="#7F3DFF" opacity="0.88"/><circle cx="29" cy="24" r="13" fill="#FF8A00" opacity="0.88"/></svg>
+</div>
+<div class="fox-analysis-top-value">${balance.toFixed(2)}<span>kWh</span></div>
+<div class="fox-analysis-top-heading">Energy Balance</div>
+</div>
+<div class="fox-analysis-top-card">
+<div class="fox-analysis-top-heading">Production</div>
+<div class="fox-analysis-top-value">${pvTotal.toFixed(2)}<span>kWh</span></div>
+${productionBar}
+<div class="fox-analysis-top-metrics">
+<div><span class="fox-analysis-top-pct" style="color:#7F3DFF">${Math.round(selfConsumption)}%</span> Self-Consumption <strong>${pvToLoadBattery.toFixed(2)} kWh</strong></div>
+<div><span class="fox-analysis-top-pct" style="color:#FF8A00">${Math.round(100 - selfConsumption)}%</span> Export <strong>${pvToGrid.toFixed(2)} kWh</strong></div>
+</div>
+</div>
+<div class="fox-analysis-top-card">
+<div class="fox-analysis-top-heading">Consumption</div>
+<div class="fox-analysis-top-value">${loadTotal.toFixed(2)}<span>kWh</span></div>
+${consumptionBar}
+<div class="fox-analysis-top-metrics">
+<div><span class="fox-analysis-top-pct" style="color:#FF8A00">${Math.round(selfSufficiency)}%</span> Self-Sufficiency <strong>${loadFromPvBattery.toFixed(2)} kWh</strong></div>
+<div><span class="fox-analysis-top-pct" style="color:#17A589">${Math.round(100 - selfSufficiency)}%</span> Grid Purchase <strong>${loadFromGrid.toFixed(2)} kWh</strong></div>
+</div>
+</div>
+</div>`;
+}
+
+function renderFoxSupplyUsagePanel(a) {
+  return `<div class="fox-analysis-flow-panel">
+<div class="fox-analysis-flow-col">
+<h4 class="fox-analysis-flow-heading">Supply</h4>
+${renderFoxAnalysisMetricRow("Imported", a.load_from_grid_kwh_today, "#2F6BFF")}
+${renderFoxAnalysisMetricRow("PV Produced", a.pv_production_kwh_today, "#19D4DE")}
+${renderFoxAnalysisMetricRow("Discharged", a.battery_discharge_kwh_today, "#8DB6FF")}
+</div>
+${renderFoxAnalysisCometBridge()}
+<div class="fox-analysis-flow-col">
+<h4 class="fox-analysis-flow-heading">Usage</h4>
+${renderFoxAnalysisMetricRow("Exported", a.pv_to_grid_kwh_today, "#FF6FAF")}
+${renderFoxAnalysisMetricRow("Consumed", a.load_consumption_kwh_today, "#8A4DFF")}
+${renderFoxAnalysisMetricRow("Charged", a.battery_charge_kwh_today, "#C4A3FF")}
+</div>
+</div>`;
+}
+
+function renderStatisticsSideLegend(visible) {
+  const groupsPresent = new Set(visible.map((s) => s.legendGroup || s.id));
+  const section = (heading, items) => {
+    const rows = items
+      .filter((it) => groupsPresent.has(it.group))
+      .map(
+        (it) =>
+          `<button type="button" class="statistics-legend-item statistics-legend-item--side" data-legend-group="${esc(it.group)}" aria-pressed="true"><i style="background:${esc(it.color)}"></i><span>${esc(it.label)}</span></button>`
+      )
+      .join("");
+    if (!rows) return "";
+    const head = heading ? `<div class="statistics-legend-heading">${esc(heading)}</div>` : "";
+    return `<div class="statistics-legend-section">${head}${rows}</div>`;
+  };
+  return (
+    section("SUPPLY", STATISTICS_SIDE_LEGEND.supply) +
+    section("USAGE", STATISTICS_SIDE_LEGEND.usage) +
+    section("", STATISTICS_SIDE_LEGEND.forecast)
+  );
+}
+
 /** Matches dashboard Statistics plotly-graph series (dashboard.yaml). */
 const STATISTICS_CHART_SERIES = [
   {
@@ -1063,6 +1211,21 @@ const STATISTICS_LEGEND_COLORS = {
   grid: "#FF6FAF",
   load: "#8A4DFF",
   forecast: "#FFD700",
+};
+
+/** Side legend groups (FoxCloud Energy Analysis layout). */
+const STATISTICS_SIDE_LEGEND = {
+  supply: [
+    { group: "solar", label: "Solar", color: "#19D4DE" },
+    { group: "battery", label: "Battery Discharge", color: "#8DB6FF" },
+    { group: "grid", label: "Grid Import", color: "#2F6BFF" },
+  ],
+  usage: [
+    { group: "grid", label: "Grid Export", color: "#FF6FAF" },
+    { group: "battery", label: "Battery Charge", color: "#C4A3FF" },
+    { group: "load", label: "Total Load", color: "#8A4DFF" },
+  ],
+  forecast: [{ group: "forecast", label: "Forecast", color: "#FFD700" }],
 };
 
 const STATISTICS_CHART_LAYOUT = {
@@ -2840,12 +3003,16 @@ function formatChartTimeLabel(ms) {
   return new Date(ms).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
-function renderStatisticsChartHtml(series, range) {
+function renderStatisticsChartHtml(series, range, options = {}) {
+  const sideLegend = options.sideLegend === true;
   const visible = series.filter((s) => s.points?.length);
   if (!visible.length) {
     return `<p class="placeholder chart-empty">No power history for today yet.</p>`;
   }
-  const { width, height, pad, xTickHours, xTickCount } = STATISTICS_CHART_LAYOUT;
+  const layout = sideLegend
+    ? { ...STATISTICS_CHART_LAYOUT, pad: { ...STATISTICS_CHART_LAYOUT.pad, r: 16 } }
+    : STATISTICS_CHART_LAYOUT;
+  const { width, height, pad, xTickHours, xTickCount } = layout;
   const w = width - pad.l - pad.r;
   const h = height - pad.t - pad.b;
   const { tMin, tMax, nowMs } = range;
@@ -2935,16 +3102,16 @@ function renderStatisticsChartHtml(series, range) {
     .join("");
 
   const groupsPresent = new Set(visible.map((s) => s.legendGroup || s.id));
-  const legendItems = STATISTICS_LEGEND_ORDER.filter((g) => groupsPresent.has(g))
-    .map(
-      (g) =>
-        `<button type="button" class="statistics-legend-item" data-legend-group="${esc(g)}" aria-pressed="true"><i style="background:${esc(STATISTICS_LEGEND_COLORS[g] || "#888")}"></i><span>${esc(STATISTICS_LEGEND_LABEL[g] || g)}</span></button>`
-    )
-    .join("");
+  const legendItems = sideLegend
+    ? renderStatisticsSideLegend(visible)
+    : STATISTICS_LEGEND_ORDER.filter((g) => groupsPresent.has(g))
+        .map(
+          (g) =>
+            `<button type="button" class="statistics-legend-item" data-legend-group="${esc(g)}" aria-pressed="true"><i style="background:${esc(STATISTICS_LEGEND_COLORS[g] || "#888")}"></i><span>${esc(STATISTICS_LEGEND_LABEL[g] || g)}</span></button>`
+        )
+        .join("");
 
-  return `<div class="statistics-chart-wrap" data-statistics-chart="1">
-<div class="statistics-chart-legend">${legendItems}</div>
-<div class="statistics-chart-plot" data-pad-l="${pad.l}" data-pad-t="${pad.t}" data-pad-b="${pad.b}" data-plot-w="${w}" data-plot-h="${h}" data-t-min="${tMin}" data-t-max="${tMax}" data-y-min="${yMin}" data-y-max="${yMax}" data-now-ms="${nowMs}">
+  const plotHtml = `<div class="statistics-chart-plot" data-pad-l="${pad.l}" data-pad-t="${pad.t}" data-pad-b="${pad.b}" data-plot-w="${w}" data-plot-h="${h}" data-t-min="${tMin}" data-t-max="${tMax}" data-y-min="${yMin}" data-y-max="${yMax}" data-now-ms="${nowMs}">
 <svg class="statistics-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Statistics power chart">
 <text x="${yUnitX}" y="${(pad.t + h / 2).toFixed(1)}" class="statistics-y-label" transform="rotate(-90 ${yUnitX} ${(pad.t + h / 2).toFixed(1)})">kW</text>
 ${grid}
@@ -2958,7 +3125,18 @@ ${xLabels}
 </svg>
 <div class="statistics-crosshair" hidden><div class="statistics-spike"></div></div>
 <div class="statistics-tooltip" hidden role="tooltip"></div>
-</div>
+</div>`;
+
+  if (sideLegend) {
+    return `<div class="statistics-chart-wrap statistics-chart-wrap--side" data-statistics-chart="1">
+<div class="statistics-chart-main">${plotHtml}</div>
+<aside class="statistics-chart-legend-side">${legendItems}</aside>
+</div>`;
+  }
+
+  return `<div class="statistics-chart-wrap" data-statistics-chart="1">
+<div class="statistics-chart-legend">${legendItems}</div>
+${plotHtml}
 </div>`;
 }
 
@@ -3923,6 +4101,29 @@ const STYLES = `
 .statistics-chart-wrap {
   position: relative; width: 100%; font-family: "Segoe UI", Arial, sans-serif;
 }
+.statistics-chart-wrap--side {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px 16px;
+  align-items: stretch;
+}
+.statistics-chart-main { min-width: 0; }
+.statistics-chart-legend-side {
+  display: flex; flex-direction: column; gap: 14px;
+  min-width: 148px; max-width: 168px;
+  padding: 8px 4px 8px 0;
+  border-left: 1px solid var(--divider-color, rgba(127,127,127,0.22));
+}
+.statistics-legend-section { display: flex; flex-direction: column; gap: 8px; }
+.statistics-legend-heading {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.06em;
+  color: var(--secondary-text-color); text-transform: uppercase;
+}
+.statistics-legend-item--side {
+  width: 100%; justify-content: flex-start; text-align: left;
+  font-size: 12px; line-height: 1.25;
+}
+.statistics-legend-item--side i { width: 8px; height: 8px; border-radius: 999px; }
 .statistics-chart-legend {
   display: flex; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 10px;
 }
@@ -3988,6 +4189,95 @@ const STYLES = `
 .chart-legend-item i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
 .chart-empty { margin: 24px 0; text-align: center; }
 .chart-loading { margin: 24px 0; text-align: center; color: var(--secondary-text-color); font-size: 13px; }
+.fox-analysis-top {
+  display: grid; grid-template-columns: minmax(120px, 0.9fr) minmax(0, 1.2fr) minmax(0, 1.2fr);
+  gap: 12px; margin-bottom: 14px;
+}
+.fox-analysis-top-card {
+  padding: 14px 16px; border-radius: 14px;
+  background: var(--card-background-color);
+  border: 1px solid var(--divider-color, rgba(127,127,127,0.22));
+  min-width: 0;
+}
+.fox-analysis-top-card--balance {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; gap: 8px;
+}
+.fox-analysis-balance-icon svg { width: 52px; height: 52px; display: block; }
+.fox-analysis-top-heading {
+  font-size: 13px; font-weight: 600; color: var(--secondary-text-color); margin-bottom: 4px;
+}
+.fox-analysis-top-value {
+  font-size: 28px; font-weight: 700; line-height: 1.05; letter-spacing: -0.03em;
+  color: var(--primary-text-color); margin-bottom: 10px;
+}
+.fox-analysis-top-value span {
+  font-size: 14px; font-weight: 500; color: var(--secondary-text-color); margin-left: 4px;
+}
+.fox-analysis-hbar {
+  display: flex; width: 100%; height: 10px; border-radius: 999px; overflow: hidden;
+  background: color-mix(in srgb, var(--secondary-text-color) 12%, transparent);
+  margin-bottom: 10px;
+}
+.fox-analysis-hbar--empty { opacity: 0.35; }
+.fox-analysis-hbar-seg { height: 100%; min-width: 2px; }
+.fox-analysis-top-metrics {
+  display: flex; flex-direction: column; gap: 6px;
+  font-size: 11px; color: var(--secondary-text-color); line-height: 1.35;
+}
+.fox-analysis-top-metrics strong { color: var(--primary-text-color); font-weight: 600; margin-left: 4px; }
+.fox-analysis-top-pct { font-weight: 700; margin-right: 4px; }
+.fox-analysis-toolbar { margin-bottom: 14px; }
+.fox-analysis-main {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+  gap: 14px; align-items: stretch;
+}
+.fox-analysis-chart-card,
+.fox-analysis-side-card {
+  padding: 14px; border-radius: 14px;
+  background: var(--card-background-color);
+  border: 1px solid var(--divider-color, rgba(127,127,127,0.22));
+  min-width: 0;
+}
+.fox-analysis-side-card { display: flex; flex-direction: column; justify-content: center; }
+.fox-analysis-flow-panel {
+  display: grid; grid-template-columns: minmax(0, 1fr) 72px minmax(0, 1fr);
+  gap: 8px; align-items: stretch; min-height: 220px;
+}
+.fox-analysis-flow-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.fox-analysis-flow-heading {
+  margin: 0 0 2px; font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
+  color: var(--secondary-text-color); text-transform: uppercase;
+}
+.fox-analysis-metric-row {
+  display: grid; grid-template-columns: 10px minmax(0, 1fr); gap: 8px; align-items: start;
+}
+.fox-analysis-metric-dot {
+  width: 8px; height: 8px; border-radius: 999px; margin-top: 5px;
+}
+.fox-analysis-metric-label {
+  display: block; font-size: 11px; color: var(--secondary-text-color); line-height: 1.25;
+}
+.fox-analysis-metric-value {
+  grid-column: 2; font-size: 18px; font-weight: 700; line-height: 1.15;
+  color: var(--primary-text-color); letter-spacing: -0.02em;
+}
+.fox-analysis-metric-value span {
+  font-size: 12px; font-weight: 500; color: var(--secondary-text-color); margin-left: 3px;
+}
+.fox-analysis-bridge {
+  position: relative; width: 72px; align-self: stretch; min-height: 180px;
+}
+.fox-analysis-bridge-svg {
+  width: 100%; height: 100%; display: block; overflow: visible;
+}
+.fox-analysis-bridge-idle {
+  stroke: color-mix(in srgb, var(--secondary-text-color) 28%, transparent);
+  stroke-width: 1.5; stroke-linecap: round;
+}
+.fox-analysis-bridge .flow-comet { fill: none; stroke-linejoin: round; pointer-events: none; }
+.fox-analysis-bridge .flow-comet-glow { opacity: 0.45; animation: flow-comet-pulse-fwd 1.85s linear infinite; }
+.fox-analysis-bridge .flow-comet-pulse { opacity: 1; animation: flow-comet-pulse-fwd 1.85s linear infinite; }
 .impact-card .card-title { margin-bottom: 12px; }
 .impact-grid {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px;
@@ -4036,6 +4326,15 @@ const STYLES = `
     padding-top: 16px;
     margin-top: 4px;
   }
+  .fox-analysis-top { grid-template-columns: 1fr; }
+  .fox-analysis-main { grid-template-columns: 1fr; }
+  .statistics-chart-wrap--side { grid-template-columns: 1fr; }
+  .statistics-chart-legend-side {
+    border-left: none; border-top: 1px solid var(--divider-color, rgba(127,127,127,0.22));
+    max-width: none; padding: 12px 0 0;
+  }
+  .fox-analysis-flow-panel { grid-template-columns: 1fr; min-height: 0; }
+  .fox-analysis-bridge { width: 100%; height: 56px; min-height: 56px; }
 }
 .stat { background: var(--card-background-color); border-radius: var(--fp-radius); padding: 16px; border: 1px solid var(--divider-color, transparent); box-shadow: var(--ha-card-box-shadow, 0 1px 2px rgba(0,0,0,0.06)); }
 .stat label { font-size: 12px; color: var(--secondary-text-color); display: block; }
@@ -4919,7 +5218,7 @@ Reloading panel registration…
   _statisticsChartVisible() {
     return (
       this._view === "overview" ||
-      (this._view === "energy" && this._energyPeriod === "day")
+      ((this._view === "energy" || this._view === "energy_analysis") && this._energyPeriod === "day")
     );
   }
 
@@ -5371,7 +5670,11 @@ Reloading panel registration…
 
     if (action === "nav") {
       const nextView = btn.dataset.view;
-      if (this._view === "energy" && nextView !== "energy") {
+      if (
+        (this._view === "energy" || this._view === "energy_analysis") &&
+        nextView !== "energy" &&
+        nextView !== "energy_analysis"
+      ) {
         this._energyPeriodOffset = 0;
         this._energyBreakdown = null;
         this._statisticsChart = null;
@@ -5381,7 +5684,7 @@ Reloading panel registration…
       this._settingsView = "main";
       this._solcastDraft = null;
       this._deviceSub = "main";
-      if (this._view === "energy") this._loadEnergyCharts();
+      if (this._view === "energy" || this._view === "energy_analysis") this._loadEnergyCharts();
       if (this._view === "overview") this._loadOverviewStatisticsChart();
       this._render();
       return;
@@ -6783,7 +7086,7 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
       };
     } finally {
       this._energyChartLoading = false;
-      if (this._energyChartCacheKey(this._getPlant()) === cacheKey && this._view === "energy") {
+      if (this._energyChartCacheKey(this._getPlant()) === cacheKey && (this._view === "energy" || this._view === "energy_analysis")) {
         this._scheduleRender();
       }
     }
@@ -6868,7 +7171,7 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     });
   }
 
-  _renderStatisticsChartBody() {
+  _renderStatisticsChartBody(options = {}) {
     if (this._statisticsChartLoading) {
       return `<p class="chart-loading">Loading statistics…</p>`;
     }
@@ -6880,7 +7183,7 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     }
     const series = this._statisticsSeriesForDisplay();
     if (series?.length) {
-      return renderStatisticsChartHtml(series, this._statisticsChart.range);
+      return renderStatisticsChartHtml(series, this._statisticsChart.range, options);
     }
     return `<p class="placeholder chart-empty">Open Energy or wait for history to load.</p>`;
   }
@@ -7073,6 +7376,37 @@ ${this._renderEnergyDateNav()}
 </div>
 ${this._renderEnergyBreakdownCard(plant)}
 ${this._renderEnergyCharts()}`;
+  }
+
+  _renderEnergyAnalysisCharts() {
+    let body;
+    if (this._energyPeriod === "day") {
+      body = this._renderStatisticsChartBody({ sideLegend: true });
+    } else if (this._energyChartLoading) {
+      body = `<p class="chart-loading">Loading chart…</p>`;
+    } else if (this._energyChart?.error) {
+      body = `<p class="placeholder chart-empty">${esc(this._energyChart.error)}</p>`;
+    } else if (this._energyChart?.svg) {
+      body = this._energyChart.svg;
+    } else {
+      body = `<p class="chart-loading">Loading chart…</p>`;
+    }
+    return `<div class="fox-analysis-chart-card">${body}</div>`;
+  }
+
+  _renderEnergyAnalysis(plant) {
+    const a = this._energyAnalyticsForView(plant);
+    const title = energyBreakdownTitle(this._energyPeriod, this._energyPeriodOffset);
+    return `<header class="header"><h1>Energy Analysis</h1><p>${esc(title)} — FoxCloud-style supply and usage</p></header>
+${renderFoxAnalysisTopCards(a)}
+<div class="card fox-analysis-toolbar">
+${this._renderEnergyPeriodTabs()}
+${this._renderEnergyDateNav()}
+</div>
+<div class="fox-analysis-main">
+${this._renderEnergyAnalysisCharts()}
+<div class="fox-analysis-side-card">${renderFoxSupplyUsagePanel(a)}</div>
+</div>`;
   }
 
   _renderPeriodCard(idx, period, fieldPrefix = "period", titlePrefix = "Period") {
@@ -7755,6 +8089,8 @@ ${active
         return this._renderDevice(plant);
       case "energy":
         return this._renderEnergy(plant);
+      case "energy_analysis":
+        return this._renderEnergyAnalysis(plant);
       case "settings":
         return this._renderSettings(plant);
       default:
@@ -7825,7 +8161,8 @@ ${active
       this._syncStormTriggerPicker();
     }
     if (
-      (this._view === "overview" || (this._view === "energy" && this._energyPeriod === "day")) &&
+      (this._view === "overview" ||
+        ((this._view === "energy" || this._view === "energy_analysis") && this._energyPeriod === "day")) &&
       this._statisticsChart?.series
     ) {
       this._bindStatisticsChart();
@@ -7836,7 +8173,7 @@ ${active
         this._bindBatterySocChart();
       }
     }
-    if (this._view === "energy") {
+    if (this._view === "energy" || this._view === "energy_analysis") {
       const plant = this._getPlant();
       if (!plant) return;
       const cacheKey = this._energyChartCacheKey(plant);
