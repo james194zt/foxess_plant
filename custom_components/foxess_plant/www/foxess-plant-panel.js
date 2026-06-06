@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.95
+ * @version 0.9.96
  */
 
 const NAV = [
@@ -980,33 +980,176 @@ function tariffSettingsSummary(tariff) {
   return parts.join(" · ");
 }
 
-function overviewWeatherIconSvg(iconKey) {
+function overviewWeatherIconSvg(iconKey, className = "overview-weather-icon") {
   const key = String(iconKey || "unknown");
+  const cls = esc(className);
   if (key === "cloudy") {
-    return `<svg class="overview-weather-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18h11a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6-1.2A3.8 3.8 0 0 0 7 18z" fill="#b0b8c4"/></svg>`;
+    return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18h11a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6-1.2A3.8 3.8 0 0 0 7 18z" fill="#b0b8c4"/></svg>`;
   }
   if (key === "partly-cloudy") {
-    return `<svg class="overview-weather-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8.5" cy="9" r="3.2" fill="#f5bc00"/><g stroke="#f5bc00" stroke-width="1.6" stroke-linecap="round"><path d="M8.5 4.5v2M8.5 11.5v2M4.5 9h2M11.5 9h2"/></g><path d="M7 18h11a4 4 0 0 0 .3-8 5.2 5.2 0 0 0-10.2-1.4A3.8 3.8 0 0 0 7 18z" fill="#b0b8c4"/></svg>`;
+    return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8.5" cy="9" r="3.2" fill="#f5bc00"/><g stroke="#f5bc00" stroke-width="1.6" stroke-linecap="round"><path d="M8.5 4.5v2M8.5 11.5v2M4.5 9h2M11.5 9h2"/></g><path d="M7 18h11a4 4 0 0 0 .3-8 5.2 5.2 0 0 0-10.2-1.4A3.8 3.8 0 0 0 7 18z" fill="#b0b8c4"/></svg>`;
   }
   if (key === "rain") {
-    return `<svg class="overview-weather-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 15h11a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6-1.2A3.8 3.8 0 0 0 7 15z" fill="#8ea0b4"/><g stroke="#5b9bd5" stroke-width="1.8" stroke-linecap="round"><path d="M9 17.5v3M12 17.5v3.5M15 17.5v3"/></g></svg>`;
+    return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 15h11a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6-1.2A3.8 3.8 0 0 0 7 15z" fill="#8ea0b4"/><g stroke="#5b9bd5" stroke-width="1.8" stroke-linecap="round"><path d="M9 17.5v3M12 17.5v3.5M15 17.5v3"/></g></svg>`;
   }
   if (key === "snow") {
-    return `<svg class="overview-weather-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 15h11a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6-1.2A3.8 3.8 0 0 0 7 15z" fill="#b0b8c4"/><g stroke="#dbeafe" stroke-width="1.6" stroke-linecap="round"><path d="M9 17l1.5 2.5M12 16.5v4M15 17l-1.5 2.5"/></g></svg>`;
+    return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 15h11a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6-1.2A3.8 3.8 0 0 0 7 15z" fill="#b0b8c4"/><g stroke="#dbeafe" stroke-width="1.6" stroke-linecap="round"><path d="M9 17l1.5 2.5M12 16.5v4M15 17l-1.5 2.5"/></g></svg>`;
   }
   if (key === "storm") {
-    return `<svg class="overview-weather-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14h11a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6-1.2A3.8 3.8 0 0 0 7 14z" fill="#7a8798"/><path d="M13 15.5l-2.5 4h2l-1 3.5 4-5.5h-2.2l1.7-2z" fill="#f5bc00"/></svg>`;
+    return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14h11a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6-1.2A3.8 3.8 0 0 0 7 14z" fill="#7a8798"/><path d="M13 15.5l-2.5 4h2l-1 3.5 4-5.5h-2.2l1.7-2z" fill="#f5bc00"/></svg>`;
   }
   if (key === "fog") {
-    return `<svg class="overview-weather-icon" viewBox="0 0 24 24" aria-hidden="true"><g stroke="#a8b0bc" stroke-width="1.8" stroke-linecap="round"><path d="M5 10h14M4 14h16M6 18h12"/></g></svg>`;
+    return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true"><g stroke="#a8b0bc" stroke-width="1.8" stroke-linecap="round"><path d="M5 10h14M4 14h16M6 18h12"/></g></svg>`;
   }
   if (key === "wind") {
-    return `<svg class="overview-weather-icon" viewBox="0 0 24 24" aria-hidden="true"><g stroke="#8ea0b4" stroke-width="1.8" stroke-linecap="round" fill="none"><path d="M4 8h11a3 3 0 1 0-3-3M4 13h13a2.5 2.5 0 1 1 0 5H4M4 18h9"/></g></svg>`;
+    return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true"><g stroke="#8ea0b4" stroke-width="1.8" stroke-linecap="round" fill="none"><path d="M4 8h11a3 3 0 1 0-3-3M4 13h13a2.5 2.5 0 1 1 0 5H4M4 18h9"/></g></svg>`;
   }
   if (key === "sunny") {
-    return `<svg class="overview-weather-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="#f5bc00"/><g stroke="#f5bc00" stroke-width="2" stroke-linecap="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></g></svg>`;
+    return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="#f5bc00"/><g stroke="#f5bc00" stroke-width="2" stroke-linecap="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></g></svg>`;
   }
-  return `<svg class="overview-weather-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18h11a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6-1.2A3.8 3.8 0 0 0 7 18z" fill="#b0b8c4"/></svg>`;
+  return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18h11a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6-1.2A3.8 3.8 0 0 0 7 18z" fill="#b0b8c4"/></svg>`;
+}
+
+function haConditionToIconKey(condition) {
+  if (!condition) return "unknown";
+  const token = String(condition).toLowerCase();
+  if (["lightning", "lightning-rainy", "exceptional", "hurricane"].includes(token)) return "storm";
+  if (["rainy", "pouring"].includes(token)) return "rain";
+  if (["snowy", "snowy-rainy"].includes(token)) return "snow";
+  if (token === "fog") return "fog";
+  if (["windy", "windy-variant", "hail"].includes(token)) return "wind";
+  if (["partlycloudy", "partly-cloudy"].includes(token)) return "partly-cloudy";
+  if (token === "cloudy") return "cloudy";
+  if (["sunny", "clear", "clear-night"].includes(token)) return "sunny";
+  return "unknown";
+}
+
+function formatHourlyWeatherTemp(temp, unit) {
+  if (!Number.isFinite(temp)) return "—";
+  const value = Math.round(temp);
+  return `${value}°`;
+}
+
+function formatHourlyWeatherTime(t, isNow) {
+  if (isNow) return "Now";
+  const d = new Date(t);
+  if (Number.isNaN(d.getTime())) return "—";
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function parseHourlyWeatherSlots(forecast, overviewWx, maxHours = 24) {
+  const now = Date.now();
+  const unit = overviewWx?.temperature_unit;
+  const slots = [];
+  for (const row of forecast || []) {
+    if (!row || slots.length >= maxHours) break;
+    const t = new Date(row.datetime).getTime();
+    if (Number.isNaN(t) || t < now - 60 * 60 * 1000) continue;
+    const precipRaw = row.precipitation_probability ?? row.precipitation ?? null;
+    let precipPct = null;
+    if (Number.isFinite(precipRaw)) precipPct = Math.round(precipRaw);
+    else if (precipRaw != null && precipRaw !== "") {
+      const parsed = parseFloat(precipRaw);
+      if (Number.isFinite(parsed)) precipPct = Math.round(parsed);
+    }
+    slots.push({
+      t,
+      tempDisplay: formatHourlyWeatherTemp(row.temperature, unit ?? row.temperature_unit),
+      precipPct,
+      iconKey: haConditionToIconKey(row.condition),
+      isNow: false,
+    });
+  }
+  if (slots.length) {
+    const first = new Date(slots[0].t);
+    const nowDate = new Date(now);
+    slots[0].isNow =
+      first.getHours() === nowDate.getHours() && first.toDateString() === nowDate.toDateString();
+  }
+  return slots;
+}
+
+async function fetchHourlyWeatherOverview(hass, weatherEntityId, overviewWx) {
+  if (!weatherEntityId) {
+    return { empty: "Add Google Weather to show an hourly forecast." };
+  }
+  try {
+    const response = await hass.callService(
+      "weather",
+      "get_forecasts",
+      { type: "hourly", entity_id: weatherEntityId },
+      undefined,
+      true
+    );
+    const block = response?.[weatherEntityId] ?? Object.values(response || {})[0];
+    const forecast = block?.forecast;
+    if (!Array.isArray(forecast) || !forecast.length) {
+      return { empty: "No hourly forecast available yet." };
+    }
+    const slots = parseHourlyWeatherSlots(forecast, overviewWx);
+    if (!slots.length) {
+      return { empty: "No hourly forecast available yet." };
+    }
+    if (slots[0].isNow && Number.isFinite(overviewWx?.temperature)) {
+      slots[0].tempDisplay = formatHourlyWeatherTemp(
+        overviewWx.temperature,
+        overviewWx.temperature_unit
+      );
+      if (overviewWx.icon_key) slots[0].iconKey = overviewWx.icon_key;
+    }
+    return { slots, weatherEntityId };
+  } catch (err) {
+    return { error: err?.message || "Could not load hourly forecast." };
+  }
+}
+
+function renderHourlyWeatherOverviewHtml(data) {
+  if (data?.error) {
+    return `<p class="placeholder hourly-weather-empty">${esc(data.error)}</p>`;
+  }
+  if (data?.empty) {
+    return `<p class="placeholder hourly-weather-empty">${esc(data.empty)}</p>`;
+  }
+  const slots = data?.slots || [];
+  if (!slots.length) {
+    return `<p class="placeholder hourly-weather-empty">No hourly forecast available yet.</p>`;
+  }
+  const cols = slots
+    .map(
+      (slot) => `<div class="hourly-weather-col">
+<div class="hourly-weather-temp">${esc(slot.tempDisplay)}</div>
+<div class="hourly-weather-icon-wrap">${overviewWeatherIconSvg(slot.iconKey, "hourly-weather-icon")}</div>
+<div class="hourly-weather-precip">${slot.precipPct != null ? `${esc(String(slot.precipPct))}%` : "—"}</div>
+<div class="hourly-weather-time${slot.isNow ? " hourly-weather-time--now" : ""}">${esc(formatHourlyWeatherTime(slot.t, slot.isNow))}</div>
+</div>`
+    )
+    .join("");
+  return `<div class="hourly-weather-card-inner" data-hourly-weather="1">
+<div class="hourly-weather-head">
+<h3 class="hourly-weather-title"><svg class="hourly-weather-title-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7v5.2l3.2 1.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Hourly overview</h3>
+<div class="hourly-weather-nav">
+<button type="button" class="hourly-weather-nav-btn" data-hourly-scroll="-1" aria-label="Scroll hourly forecast left">‹</button>
+<button type="button" class="hourly-weather-nav-btn" data-hourly-scroll="1" aria-label="Scroll hourly forecast right">›</button>
+</div>
+</div>
+<div class="hourly-weather-scroll-wrap">
+<div class="hourly-weather-scroll">${cols}</div>
+</div>
+</div>`;
+}
+
+function bindHourlyWeatherOverview(root) {
+  const card = root?.querySelector?.("[data-hourly-weather]");
+  if (!card || card.dataset.bound) return;
+  card.dataset.bound = "1";
+  const scroller = card.querySelector(".hourly-weather-scroll");
+  if (!scroller) return;
+  card.querySelectorAll("[data-hourly-scroll]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const dir = Number(btn.getAttribute("data-hourly-scroll")) || 0;
+      scroller.scrollBy({ left: dir * 220, behavior: "smooth" });
+    });
+  });
 }
 
 function entityUnit(hass, entityId) {
@@ -2951,6 +3094,26 @@ function statisticsPointerScale(svg) {
   };
 }
 
+function syncStatisticsSideLegendOffset(wrap) {
+  if (!wrap?.classList?.contains("statistics-chart-wrap--soc")) return;
+  const plot = wrap.querySelector(".statistics-chart-plot");
+  const legend = wrap.querySelector(".statistics-chart-legend-side");
+  const svg = plot?.querySelector(".statistics-chart-svg");
+  if (!plot || !legend || !svg) return;
+  const sideBySide = getComputedStyle(wrap).gridTemplateColumns.includes(" ");
+  if (!sideBySide) {
+    legend.style.paddingTop = "";
+    return;
+  }
+  const padT = Number(plot.dataset.padT);
+  if (!Number.isFinite(padT)) return;
+  const { scale, offsetY } = statisticsPointerScale(svg);
+  const tickY = offsetY + (padT + 4) * scale;
+  const firstRow = legend.querySelector(".statistics-legend-item--side");
+  const rowH = firstRow?.getBoundingClientRect().height || 16;
+  legend.style.paddingTop = `${Math.max(0, Math.round(tickY - rowH / 2))}px`;
+}
+
 function statisticsClientToTime(svg, clientX, padL, plotW, tMin, daySpan) {
   const rect = svg.getBoundingClientRect();
   const { scale, offsetX } = statisticsPointerScale(svg);
@@ -4176,7 +4339,7 @@ ${xLabels}
 </div>`;
 
   if (sideLegend) {
-    return `<div class="statistics-chart-wrap statistics-chart-wrap--side${hasSoc ? " statistics-chart-wrap--soc" : ""}" data-statistics-chart="1"${hasSoc ? ` style="--stat-legend-top:${pad.t + 4}px"` : ""}>
+    return `<div class="statistics-chart-wrap statistics-chart-wrap--side${hasSoc ? " statistics-chart-wrap--soc" : ""}" data-statistics-chart="1">
 <div class="statistics-chart-main">${plotHtml}</div>
 <aside class="statistics-chart-legend-side">${legendItems}</aside>
 </div>`;
@@ -4274,6 +4437,13 @@ function bindStatisticsChart(root, seriesMeta) {
     }
   }, { passive: false });
   plot.addEventListener("touchend", hideHover);
+
+  syncStatisticsSideLegendOffset(wrap);
+  if (typeof ResizeObserver !== "undefined") {
+    wrap._statLegendRo?.disconnect?.();
+    wrap._statLegendRo = new ResizeObserver(() => syncStatisticsSideLegendOffset(wrap));
+    wrap._statLegendRo.observe(svg);
+  }
 }
 
 function renderBarChartSvg(groups, labels, { height = 200 } = {}) {
@@ -4927,6 +5097,53 @@ const STYLES = `
 .overview-weather-icon { width: 18px; height: 18px; flex-shrink: 0; display: block; }
 .overview-weather-temp { letter-spacing: -0.01em; }
 .overview-weather-label { font-size: 13px; font-weight: 500; color: var(--secondary-text-color); }
+.hourly-weather-card { margin-top: 14px; padding-bottom: 12px; }
+.hourly-weather-card-inner { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.hourly-weather-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.hourly-weather-title {
+  display: inline-flex; align-items: center; gap: 8px; margin: 0;
+  font-size: 15px; font-weight: 600; letter-spacing: 0; text-transform: none;
+  color: var(--primary-text-color);
+}
+.hourly-weather-title-icon { width: 18px; height: 18px; flex-shrink: 0; opacity: 0.85; }
+.hourly-weather-nav { display: inline-flex; gap: 6px; flex-shrink: 0; }
+.hourly-weather-nav-btn {
+  width: 32px; height: 32px; border-radius: 999px; border: none;
+  background: var(--secondary-background-color, rgba(127,127,127,0.12));
+  color: var(--primary-text-color); font-size: 18px; line-height: 1;
+  cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+}
+.hourly-weather-nav-btn:hover { background: color-mix(in srgb, var(--primary-text-color) 8%, var(--secondary-background-color)); }
+.hourly-weather-scroll-wrap {
+  margin: 0 -4px; overflow: hidden;
+}
+.hourly-weather-scroll {
+  display: flex; gap: 0; overflow-x: auto; scroll-snap-type: x proximity;
+  padding: 2px 4px 8px; scrollbar-width: none;
+}
+.hourly-weather-scroll::-webkit-scrollbar { display: none; }
+.hourly-weather-col {
+  flex: 0 0 72px; display: flex; flex-direction: column; align-items: center;
+  gap: 8px; scroll-snap-align: start; text-align: center;
+}
+.hourly-weather-temp {
+  font-size: 18px; font-weight: 600; line-height: 1.1; color: var(--primary-text-color);
+  font-variant-numeric: tabular-nums;
+}
+.hourly-weather-icon-wrap { display: flex; align-items: center; justify-content: center; min-height: 28px; }
+.hourly-weather-icon { width: 28px; height: 28px; display: block; }
+.hourly-weather-precip {
+  font-size: 12px; line-height: 1.2; color: var(--secondary-text-color);
+  font-variant-numeric: tabular-nums; min-height: 14px;
+}
+.hourly-weather-time {
+  font-size: 12px; line-height: 1.2; color: var(--secondary-text-color);
+  font-variant-numeric: tabular-nums;
+}
+.hourly-weather-time--now { color: var(--primary-text-color); font-weight: 600; }
+.hourly-weather-empty { margin: 0; padding: 8px 0 4px; }
 .mode-banner-row {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px;
 }
@@ -5196,7 +5413,7 @@ const STYLES = `
   padding: 8px 4px 8px 0;
 }
 .statistics-chart-wrap--soc .statistics-chart-legend-side {
-  padding-top: var(--stat-legend-top, 26px);
+  padding-top: 0;
 }
 .statistics-legend-section { display: flex; flex-direction: column; gap: 8px; }
 .statistics-legend-heading {
@@ -5652,7 +5869,7 @@ const STYLES = `
     max-width: none; padding: 12px 0 0;
   }
   .statistics-chart-wrap--soc .statistics-chart-legend-side {
-    padding-top: var(--stat-legend-top, 26px);
+    padding-top: 12px;
   }
 }
 .stat { background: var(--card-background-color); border-radius: var(--fp-radius); padding: 16px; border: 1px solid var(--divider-color, transparent); box-shadow: var(--ha-card-box-shadow, 0 1px 2px rgba(0,0,0,0.06)); }
@@ -6235,6 +6452,9 @@ class FoxessPlantPanel extends HTMLElement {
     this._batterySocChart = null;
     this._batterySocChartLoading = false;
     this._batterySocChartPlantId = undefined;
+    this._hourlyWeather = null;
+    this._hourlyWeatherLoading = false;
+    this._hourlyWeatherPlantId = undefined;
     this._overviewDaily = null;
     this._overviewDailyLoading = false;
     this._overviewDailyPlantId = undefined;
@@ -7486,6 +7706,8 @@ Reloading panel registration…
       this._analysisSummarySparkKey = undefined;
       this._batterySocChart = null;
       this._batterySocChartPlantId = undefined;
+      this._hourlyWeather = null;
+      this._hourlyWeatherPlantId = undefined;
       this._settingsView = "main";
       this._deviceSub = "main";
       this._view = "overview";
@@ -7977,6 +8199,52 @@ ${renderSocFeedbackHtml(validateSocLimits(clamped, live), this._socSaveError)}
     return `<div class="overview-weather" role="img" aria-label="${esc(aria || "Weather")}">${icon}${temp}${label}</div>`;
   }
 
+  _resolveOverviewWeatherEntity() {
+    const wx = this._plantState?.overview_weather;
+    if (wx?.weather_entity_id) return wx.weather_entity_id;
+    const storm = this._plantState?.storm_prep;
+    if (storm?.weather_entity_id) return storm.weather_entity_id;
+    return null;
+  }
+
+  _overviewHourlyWeatherEnabled() {
+    return Boolean(this._resolveOverviewWeatherEntity());
+  }
+
+  _renderHourlyWeatherCard() {
+    if (!this._overviewHourlyWeatherEnabled()) return "";
+    if (this._hourlyWeatherLoading) {
+      return `<div class="card hourly-weather-card"><p class="chart-loading">Loading hourly forecast…</p></div>`;
+    }
+    const body = renderHourlyWeatherOverviewHtml(this._hourlyWeather);
+    return `<div class="card hourly-weather-card">${body}</div>`;
+  }
+
+  async _loadHourlyWeather() {
+    const plant = this._getPlant();
+    const weatherEntityId = this._resolveOverviewWeatherEntity();
+    if (!plant || !this._hass || !weatherEntityId) return;
+    const plantId = plant.entry_id;
+    this._hourlyWeatherLoading = true;
+    this._hourlyWeather = null;
+    this._hourlyWeatherPlantId = plantId;
+    this._scheduleRender();
+    try {
+      this._hourlyWeather = await fetchHourlyWeatherOverview(
+        this._hass,
+        weatherEntityId,
+        this._plantState?.overview_weather
+      );
+    } catch (err) {
+      this._hourlyWeather = {
+        error: err?.message || "Could not load hourly forecast.",
+      };
+    } finally {
+      this._hourlyWeatherLoading = false;
+      if (this._getPlant()?.entry_id === plantId) this._scheduleRender();
+    }
+  }
+
   _renderOverviewStatusBlock(plant) {
     const st = this._plantState;
     if (!st) return "";
@@ -8126,7 +8394,8 @@ ${pathsHtml}
   }
 
   _renderOverviewAfterHero(plant) {
-    return `<div class="card statistics-card" style="margin-top:14px">
+    return `${this._renderHourlyWeatherCard()}
+<div class="card statistics-card" style="margin-top:14px">
 <p class="card-title">Statistics</p>
 ${this._renderStatisticsChartBody()}
 </div>
@@ -10163,6 +10432,7 @@ ${active
     }
     if (this._view === "overview") {
       bindOverviewDailyCharts(this._root);
+      bindHourlyWeatherOverview(this._root);
       if (this._batterySocChart?.socPts?.length) {
         this._bindBatterySocChart();
       }
@@ -10215,6 +10485,14 @@ ${active
         (this._overviewDailyPlantId !== plant.entry_id || !this._overviewDaily)
       ) {
         this._loadOverviewDailyCards();
+      }
+      if (
+        plant &&
+        this._overviewHourlyWeatherEnabled() &&
+        !this._hourlyWeatherLoading &&
+        (this._hourlyWeatherPlantId !== plant.entry_id || !this._hourlyWeather)
+      ) {
+        this._loadHourlyWeather();
       }
     }
   }
