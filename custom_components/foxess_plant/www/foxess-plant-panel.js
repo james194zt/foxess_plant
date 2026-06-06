@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.97
+ * @version 0.9.98
  */
 
 const NAV = [
@@ -5881,7 +5881,18 @@ const STYLES = `
   .fox-analysis-summary-row { grid-template-columns: 1fr; }
   .fox-analysis-summary-spark { justify-content: flex-start; }
   .fox-analysis-stat-flow { width: 64px; }
-  .fox-analysis-stat-row { flex-direction: column; min-height: 0; gap: 16px; padding: 16px; }
+  .fox-analysis-stat-row {
+    flex-direction: row;
+    align-items: flex-start;
+    min-height: 0;
+    gap: 4px;
+    padding: 12px 6px;
+  }
+  .fox-analysis-stat-col-nu { font-size: 13px; padding-top: 6px; }
+  .fox-analysis-stat-col-nu span { font-size: 11px; }
+  .fox-analysis-stat-col-na { font-size: 11px; line-height: 1.25; padding: 0 2px; }
+  .fox-analysis-stat-icon { width: 26px; height: 26px; }
+  .fox-analysis-stat-icon svg { width: 26px; height: 26px; }
   .fox-analysis-stat-bridge { height: 64px; }
   .statistics-chart-wrap--side { grid-template-columns: 1fr; }
   .statistics-chart-legend-side {
