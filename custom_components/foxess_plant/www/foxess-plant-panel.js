@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.90
+ * @version 0.9.91
  */
 
 const NAV = [
@@ -1688,8 +1688,9 @@ ${renderFoxAnalysisStatCol("Charged", a.battery_charge_kwh_today, "charged")}
 </div>`;
 }
 
-function renderStatisticsSideLegend(visible) {
+function renderStatisticsSideLegend(visible, { socVisible = false } = {}) {
   const groupsPresent = new Set(visible.map((s) => s.legendGroup || s.id));
+  if (socVisible) groupsPresent.add("soc");
   const section = (heading, items) => {
     const rows = items
       .filter((it) => groupsPresent.has(it.group))
@@ -1703,6 +1704,7 @@ function renderStatisticsSideLegend(visible) {
     return `<div class="statistics-legend-section">${head}${rows}</div>`;
   };
   return (
+    section("SOC", STATISTICS_SIDE_LEGEND.soc) +
     section("SUPPLY", STATISTICS_SIDE_LEGEND.supply) +
     section("USAGE", STATISTICS_SIDE_LEGEND.usage) +
     section("", STATISTICS_SIDE_LEGEND.forecast)
@@ -1812,7 +1814,10 @@ const STATISTICS_LEGEND_COLORS = {
 };
 
 /** Side legend groups (FoxCloud Energy Analysis layout). */
+const STATISTICS_SOC_COLOR = "#7FD47C";
+const STATISTICS_SOC_Y_TICKS = [0, 50, 100];
 const STATISTICS_SIDE_LEGEND = {
+  soc: [{ group: "soc", label: "SoC", color: STATISTICS_SOC_COLOR }],
   supply: [
     { group: "solar", label: "Solar", color: "#19D4DE" },
     { group: "battery", label: "Battery Discharge", color: "#8DB6FF" },
@@ -1835,12 +1840,13 @@ const STATISTICS_CHART_LAYOUT = {
   yTickStepKw: 0.5,
 };
 
-function statisticsChartLayout({ sideLegend = false } = {}) {
+function statisticsChartLayout({ sideLegend = false, hasSoc = false } = {}) {
+  const r = hasSoc ? 44 : sideLegend ? 16 : 8;
   return {
     ...STATISTICS_CHART_LAYOUT,
     pad: {
       l: sideLegend ? 58 : 52,
-      r: sideLegend ? 16 : 8,
+      r,
       t: sideLegend ? 22 : 12,
       b: 40,
     },
@@ -2924,8 +2930,12 @@ function statisticsTooltipRowsHtml(seriesMeta, t, hiddenGroups) {
       const g = s.legendGroup;
       if (g && hiddenGroups.has(g)) return "";
       const v = interpolateSeriesAt(s.points, t);
-      if (v == null || Math.abs(v) < 0.001) return "";
+      if (v == null) return "";
       const label = statisticsSeriesTooltipLabel(s);
+      if (s.yAxis === "soc") {
+        return `<div class="statistics-tooltip-row"><span class="statistics-tooltip-label"><i class="statistics-tooltip-swatch" style="background:${esc(s.color)}"></i>${esc(label)}</span><strong>${esc(formatSocPercent(v))}</strong></div>`;
+      }
+      if (Math.abs(v) < 0.001) return "";
       return `<div class="statistics-tooltip-row"><span class="statistics-tooltip-label"><i class="statistics-tooltip-swatch" style="background:${esc(s.color)}"></i>${esc(label)}</span><strong>${formatStatisticsKw(v)}</strong></div>`;
     })
     .filter(Boolean)
@@ -3354,7 +3364,8 @@ async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset =
   const range = getStatisticsDayRangeForDate(day, { asOf: dayOffset === 0 ? now : endOfLocalDay(day) });
   const fetchEnd = new Date(range.nowMs);
   const start = new Date(range.tMin);
-  const entityIds = specs.map((s) => s.entity_id);
+  const socId = map.battery_soc;
+  const entityIds = [...new Set([...specs.map((s) => s.entity_id), socId].filter(Boolean))];
   const [statsMap, hist] = await Promise.all([
     fetchStatisticsDuring(hass, entityIds, start, fetchEnd),
     fetchHistoryDuring(hass, entityIds, start, fetchEnd),
@@ -3371,6 +3382,23 @@ async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset =
     lineWidth: spec.lineWidth,
     points: buildStatisticsSeriesPoints(hass, spec.entity_id, spec, range, statsMap, hist),
   }));
+  let socSeries = null;
+  if (socId) {
+    const socPoints = buildSocHistoryPoints(hass, socId, range, statsMap, hist);
+    if (socPoints.length) {
+      socSeries = {
+        id: "battery_soc",
+        label: "SoC",
+        tooltipLabel: "SoC",
+        legendGroup: "soc",
+        yAxis: "soc",
+        color: STATISTICS_SOC_COLOR,
+        connectGaps: true,
+        lineWidth: 1.6,
+        points: socPoints,
+      };
+    }
+  }
   if (dayOffset === 0) {
     const fPoints = buildForecastSeriesPoints(forecastState, range, hass);
     if (fPoints.length) {
@@ -3399,7 +3427,7 @@ async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset =
       empty: `No statistics for: ${listed}. Confirm the Recorder stores 5-minute means for these entities (same as your Lovelace plotly-graph card).`,
     };
   }
-  return { series, range, forecastState, dayOffset };
+  return { series, socSeries, range, forecastState, dayOffset };
 }
 
 function buildDailyLabels(startDay, count) {
@@ -3831,11 +3859,14 @@ function formatChartTimeLabel(ms) {
 
 function renderStatisticsChartHtml(series, range, options = {}) {
   const sideLegend = options.sideLegend === true;
+  const includeSoc = options.includeSoc === true;
+  const socSeries = includeSoc ? options.socSeries : null;
+  const hasSoc = !!socSeries?.points?.length;
   const visible = series.filter((s) => s.points?.length);
-  if (!visible.length) {
+  if (!visible.length && !hasSoc) {
     return `<p class="placeholder chart-empty">No power history for today yet.</p>`;
   }
-  const layout = statisticsChartLayout({ sideLegend });
+  const layout = statisticsChartLayout({ sideLegend, hasSoc });
   const { width, height, pad, xTickHours, xTickCount } = layout;
   const w = width - pad.l - pad.r;
   const h = height - pad.t - pad.b;
@@ -3845,10 +3876,13 @@ function renderStatisticsChartHtml(series, range, options = {}) {
   const { yMin, yMax } = computeStatisticsYDomain(visible);
   const ySpan = yMax - yMin || 1;
   const yScale = (v) => pad.t + h - ((v - yMin) / ySpan) * h;
+  const ySocScale = (v) => pad.t + h - (Math.min(100, Math.max(0, v)) / 100) * h;
   const yZero = yScale(0);
   const yTicks = statisticsYTicks(yMin, yMax);
   const yAxisX = pad.l;
   const yLabelX = yAxisX - 10;
+  const yAxisRightX = pad.l + w;
+  const yLabelRightX = yAxisRightX + 8;
   const xTicks = Array.from({ length: xTickCount }, (_, i) => tMin + i * xTickHours * 60 * 60 * 1000);
 
   const plotSeries = visible.map((s) => {
@@ -3881,6 +3915,20 @@ function renderStatisticsChartHtml(series, range, options = {}) {
     return { ...s, segments, isForecast };
   });
 
+  let socPlotSeries = null;
+  if (hasSoc) {
+    const clipped = socSeries.points.filter((p) => p.t >= tMin && p.t <= nowMs);
+    const segmentGroups = socSeries.connectGaps ? [clipped] : splitStatisticsSegments(clipped);
+    const segments = segmentGroups
+      .filter((pts) => pts.length >= 2)
+      .map((pts) => ({
+        timePts: pts,
+        pixelPts: pts.map((p) => ({ x: xScale(p.t), y: ySocScale(p.v), t: p.t, v: p.v })),
+        dash: "",
+      }));
+    socPlotSeries = { ...socSeries, segments };
+  }
+
   const grid = yTicks
     .map((yv) => {
       const y = yScale(yv);
@@ -3894,6 +3942,13 @@ function renderStatisticsChartHtml(series, range, options = {}) {
       return `<text x="${yLabelX}" y="${(y + 4).toFixed(1)}" text-anchor="end" class="statistics-axis-y">${esc(formatStatisticsYTick(yv))}</text>`;
     })
     .join("");
+
+  const ySocLabels = hasSoc
+    ? STATISTICS_SOC_Y_TICKS.map((yv) => {
+        const y = ySocScale(yv);
+        return `<text x="${yLabelRightX}" y="${(y + 4).toFixed(1)}" text-anchor="start" class="statistics-axis-y statistics-axis-y--soc">${yv}%</text>`;
+      }).join("")
+    : "";
 
   const xLabels = xTicks
     .map((xt) => {
@@ -3924,8 +3979,18 @@ function renderStatisticsChartHtml(series, range, options = {}) {
     )
     .join("");
 
+  const socLines = socPlotSeries
+    ? (socPlotSeries.segments || [])
+        .filter((seg) => seg.pixelPts.length >= 2)
+        .map(
+          (seg) =>
+            `<path class="statistics-line statistics-line-soc" data-series-id="${esc(socPlotSeries.id)}" data-legend-group="soc" d="${statisticsLinePath(seg.pixelPts, seg.timePts)}" fill="none" stroke="${socPlotSeries.color}" stroke-width="${socPlotSeries.lineWidth || 1.6}" stroke-linecap="round" stroke-linejoin="round"/>`
+        )
+        .join("")
+    : "";
+
   const legendItems = sideLegend
-    ? renderStatisticsSideLegend(visible)
+    ? renderStatisticsSideLegend(visible, { socVisible: hasSoc })
     : STATISTICS_LEGEND_ORDER.filter((g) => new Set(visible.map((s) => s.legendGroup || s.id)).has(g))
         .map(
           (g) =>
@@ -3933,18 +3998,25 @@ function renderStatisticsChartHtml(series, range, options = {}) {
         )
         .join("");
 
-  const powerAxisLabel = sideLegend ? "Power (kW)" : "kW";
+  const powerAxisLabel = sideLegend || hasSoc ? "Power (kW)" : "kW";
   const leftAxisTitle = `<text x="${yLabelX}" y="${(pad.t - 6).toFixed(1)}" text-anchor="start" class="statistics-y-label statistics-y-label--left">${esc(powerAxisLabel)}</text>`;
+  const rightAxisTitle = hasSoc
+    ? `<text x="${yAxisRightX}" y="${(pad.t - 6).toFixed(1)}" text-anchor="end" class="statistics-y-label statistics-y-label--right">SOC</text>`
+    : "";
 
   const plotHtml = `<div class="statistics-chart-plot" data-pad-l="${pad.l}" data-pad-t="${pad.t}" data-pad-b="${pad.b}" data-plot-w="${w}" data-plot-h="${h}" data-t-min="${tMin}" data-t-max="${tMax}" data-y-min="${yMin}" data-y-max="${yMax}" data-now-ms="${nowMs}">
 <svg class="statistics-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Statistics power chart">
 ${leftAxisTitle}
+${rightAxisTitle}
 ${grid}
 <line x1="${yAxisX}" y1="${pad.t}" x2="${yAxisX}" y2="${(pad.t + h).toFixed(1)}" class="statistics-y-axis"/>
+${hasSoc ? `<line x1="${yAxisRightX}" y1="${pad.t}" x2="${yAxisRightX}" y2="${(pad.t + h).toFixed(1)}" class="statistics-y-axis statistics-y-axis--right"/>` : ""}
 <line x1="${yAxisX}" y1="${yZero.toFixed(1)}" x2="${(pad.l + w).toFixed(1)}" y2="${yZero.toFixed(1)}" class="statistics-zero-line"/>
 ${fills}
 ${lines}
+${socLines}
 ${yLabels}
+${ySocLabels}
 ${xLabels}
 <rect class="statistics-hit" x="${pad.l}" y="${pad.t}" width="${w}" height="${h}" fill="transparent"/>
 </svg>
@@ -5003,7 +5075,11 @@ const STYLES = `
   fill: var(--secondary-text-color); font-size: 12px; font-weight: 600; text-anchor: start;
 }
 .statistics-y-label--left { text-anchor: start; }
+.statistics-y-label--right { text-anchor: end; }
 .statistics-y-axis { stroke: rgba(127,127,127,0.35); stroke-width: 1; }
+.statistics-y-axis--right { stroke: rgba(127,127,127,0.35); stroke-width: 1; }
+.statistics-axis-y--soc { fill: var(--secondary-text-color); }
+.statistics-line-soc { pointer-events: none; }
 .statistics-axis-x, .statistics-axis-y {
   fill: var(--secondary-text-color); font-size: 12px;
   font-variant-numeric: tabular-nums; text-rendering: geometricPrecision;
@@ -8514,16 +8590,24 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
       return `<p class="placeholder chart-empty">${esc(this._statisticsChart.empty)}</p>`;
     }
     const series = this._statisticsSeriesForDisplay();
-    if (series?.length) {
-      return renderStatisticsChartHtml(series, this._statisticsChart.range, options);
+    const includeSoc = options.includeSoc === true;
+    const socSeries = includeSoc ? this._statisticsChart?.socSeries : null;
+    if (series?.length || socSeries?.points?.length) {
+      return renderStatisticsChartHtml(series || [], this._statisticsChart.range, {
+        ...options,
+        socSeries,
+      });
     }
-    return `<p class="placeholder chart-empty">Open Energy or wait for history to load.</p>`;
+    return `<p class="placeholder chart-empty">Open Analysis or wait for history to load.</p>`;
   }
 
   _bindStatisticsChart() {
-    const series = this._statisticsSeriesForDisplay();
-    if (!series?.length) return;
-    bindStatisticsChart(this._root, series);
+    const series = this._statisticsSeriesForDisplay() || [];
+    const includeSoc = this._view === "energy_analysis" && this._energyPeriod === "day";
+    const soc = includeSoc ? this._statisticsChart?.socSeries : null;
+    const meta = soc?.points?.length ? [...series, soc] : series;
+    if (!meta.length) return;
+    bindStatisticsChart(this._root, meta);
   }
 
   async _loadBatterySocChart() {
@@ -8814,8 +8898,9 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
       const chart = this._statisticsChart;
       if (chart?.error) return `stat:err:${chart.error}`;
       if (chart?.empty) return `stat:empty:${chart.empty}`;
-      if (!chart?.series?.length) return "stat:none";
-      return `stat:${this._statisticsChartPlantId ?? ""}|loaded`;
+      if (!chart?.series?.length && !chart?.socSeries?.points?.length) return "stat:none";
+      const socLen = chart?.socSeries?.points?.length ?? 0;
+      return `stat:${this._statisticsChartPlantId ?? ""}|soc:${socLen}|loaded`;
     }
     if (this._energyChartLoading) return "energy:loading";
     return `energy:${this._energyChartPlantId ?? ""}|${this._energyChart?.svg ? 1 : 0}|${this._energyChart?.error ?? ""}`;
@@ -8948,7 +9033,7 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
   _renderEnergyAnalysisCharts() {
     let body;
     if (this._energyPeriod === "day") {
-      body = this._renderStatisticsChartBody({ sideLegend: true });
+      body = this._renderStatisticsChartBody({ sideLegend: true, includeSoc: true });
     } else if (this._energyChartLoading) {
       body = `<p class="chart-loading">Loading chart…</p>`;
     } else if (this._energyChart?.error) {
