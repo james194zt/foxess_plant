@@ -406,15 +406,24 @@ TARIFF_CURRENCIES: dict[str, dict[str, str | int]] = {
 DEFAULT_TARIFF = {
     "kind": TARIFF_KIND_STATIC,
     "currency": "GBP",
-    "import_source": "manual",
+    "import_source": "schedule",
     "import_entity": None,
     "import_p_per_kwh": 0.0,
-    "export_source": "manual",
+    "export_source": "schedule",
     "export_entity": None,
     "export_p_per_kwh": 0.0,
-    "standing_source": "manual",
+    "standing_source": "plugin",
     "standing_entity": None,
     "standing_charge_p_per_day": 0.0,
+    "schedule": {
+        "hours": [0] * 24,
+        "bands": [
+            {"import_p_per_kwh": 0.0, "export_p_per_kwh": 0.0},
+            {"import_p_per_kwh": 0.0, "export_p_per_kwh": 0.0},
+            {"import_p_per_kwh": 0.0, "export_p_per_kwh": 0.0},
+            {"import_p_per_kwh": 0.0, "export_p_per_kwh": 0.0},
+        ],
+    },
     "dynamic": {
         "enabled": False,
         "provider": "",

@@ -9,7 +9,11 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
+from homeassistant.helpers.event import (
+    async_track_point_in_time,
+    async_track_state_change_event,
+    async_track_time_interval,
+)
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .analytics import compute_analytics
@@ -91,6 +95,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._solcast_forecast_chart_points: list[dict[str, float]] = []
         self._tariff_store = None
         self._tariff_history_count = 0
+        self._tariff_rate_sensors: dict[str, Any] = {}
+        self._unsub_tariff_schedule: callable | None = None
+        self._last_tariff_sensor_rates: dict[str, float] = {}
         super().__init__(
             hass,
             _LOGGER,
@@ -161,14 +168,115 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _tariff_state(self) -> dict[str, Any]:
         from .tariff_rates import resolve_tariff_rates
+        from .tariff_schedule import tariff_plugin_entity_id
 
         state = self.plant.tariff.to_dict()
-        resolved = resolve_tariff_rates(self.hass, self.plant.tariff)
+        resolved = resolve_tariff_rates(
+            self.hass, self.plant.tariff, entry_id=self.config_entry.entry_id
+        )
         state["configured"] = self.plant.tariff.configured()
         state["rate_history_count"] = self._tariff_history_count
         state["effective"] = resolved["effective"]
         state["entities"] = resolved["entities"]
+        state["schedule_status"] = resolved.get("schedule") or {}
+        entry_id = self.config_entry.entry_id
+        state["plugin_sensors"] = {
+            kind: tariff_plugin_entity_id(self.hass, entry_id, kind)
+            for kind in ("import", "export", "standing")
+        }
         return state
+
+    def register_tariff_rate_sensor(self, kind: str, sensor: Any) -> None:
+        """Called from sensor platform setup."""
+        self._tariff_rate_sensors[kind] = sensor
+
+    async def async_update_tariff_sensors(self, *, record_history: bool = True) -> None:
+        """Push current tariff rates to plugin sensors (schedule boundaries / save)."""
+        from .tariff_rates import (
+            TARIFF_SOURCE_ENTITY,
+            TARIFF_SOURCE_PLUGIN,
+            TARIFF_SOURCE_SCHEDULE,
+            resolve_tariff_rates,
+        )
+        from .tariff_schedule import scheduled_rates_at
+
+        tariff = self.plant.tariff
+        cfg = tariff.schedule_config()
+        scheduled = scheduled_rates_at(tariff)
+        band_index = scheduled.get("band_index")
+
+        updates: dict[str, tuple[float | None, int | None]] = {}
+        if tariff.import_source == TARIFF_SOURCE_SCHEDULE:
+            updates["import"] = (float(scheduled.get("import_p_per_kwh") or 0), band_index)
+        else:
+            updates["import"] = (None, None)
+
+        if tariff.export_source == TARIFF_SOURCE_SCHEDULE:
+            updates["export"] = (float(scheduled.get("export_p_per_kwh") or 0), band_index)
+        else:
+            updates["export"] = (None, None)
+
+        if tariff.standing_source == TARIFF_SOURCE_PLUGIN:
+            updates["standing"] = (
+                max(0.0, float(tariff.standing_charge_p_per_day or 0)),
+                None,
+            )
+        else:
+            updates["standing"] = (None, None)
+
+        changed = False
+        for kind, (minor, band) in updates.items():
+            sensor = self._tariff_rate_sensors.get(kind)
+            if sensor is None:
+                continue
+            prev = self._last_tariff_sensor_rates.get(kind)
+            if minor is None or minor <= 0:
+                sensor.set_rate(None, band_index=band)
+            else:
+                sensor.set_rate(minor, band_index=band)
+                if prev != minor:
+                    changed = True
+                    self._last_tariff_sensor_rates[kind] = minor
+            await sensor.async_publish()
+
+        if record_history and changed and self._tariff_store is not None:
+            resolved = resolve_tariff_rates(
+                self.hass, tariff, entry_id=self.config_entry.entry_id
+            )
+            effective = resolved["effective"]
+            source_kind = "schedule"
+            if any(
+                getattr(tariff, f"{key}_source") == TARIFF_SOURCE_ENTITY
+                for key in ("import", "export", "standing")
+            ):
+                source_kind = "mixed"
+            from homeassistant.util import dt as dt_util
+
+            self._tariff_history_count = await self._tariff_store.async_record_rates(
+                rates=tariff.rates_snapshot(effective=effective),
+                source=source_kind,
+                recorded_at=dt_util.utcnow().isoformat(),
+            )
+
+    def _setup_tariff_schedule_timer(self) -> None:
+        if self._unsub_tariff_schedule:
+            self._unsub_tariff_schedule()
+            self._unsub_tariff_schedule = None
+        from .tariff_schedule import next_schedule_boundary
+
+        when = next_schedule_boundary()
+        self._unsub_tariff_schedule = async_track_point_in_time(
+            self.hass, self._tariff_schedule_callback, when
+        )
+
+    @callback
+    def _tariff_schedule_callback(self, _now) -> None:
+        self.hass.async_create_task(self._async_tariff_schedule_tick())
+
+    async def _async_tariff_schedule_tick(self) -> None:
+        await self.async_update_tariff_sensors(record_history=True)
+        self._setup_tariff_schedule_timer()
+        await self.async_request_refresh()
 
     async def _rebuild_solcast_forecast_chart(self) -> None:
         from .solcast_forecast_chart import build_forecast_intraday_chart
@@ -215,6 +323,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._setup_drift_timer()
         self._setup_storm_forecast_timer()
         self._setup_solcast_timer()
+        self._setup_tariff_schedule_timer()
         try:
             await self._async_refresh_storm_weather()
             await self._async_refresh_solcast_pv()
@@ -1078,19 +1187,24 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.update_plant_config(PlantConfig.from_entry_data(data))
         if self._tariff_store is None:
             self._tariff_store = TariffRateStore(self.hass, self.config_entry.entry_id)
-        resolved = resolve_tariff_rates(self.hass, cfg)
+        resolved = resolve_tariff_rates(
+            self.hass, cfg, entry_id=self.config_entry.entry_id
+        )
         effective = resolved["effective"]
+        from .tariff_rates import TARIFF_SOURCE_PLUGIN, TARIFF_SOURCE_SCHEDULE
+
         source_kind = cfg.kind
-        if any(
-            getattr(cfg, f"{key}_source") == TARIFF_SOURCE_ENTITY
-            for key in ("import", "export", "standing")
-        ):
-            source_kind = "entity"
+        sources = {cfg.import_source, cfg.export_source, cfg.standing_source}
+        if TARIFF_SOURCE_ENTITY in sources:
+            source_kind = "entity" if sources == {TARIFF_SOURCE_ENTITY} else "mixed"
+        elif TARIFF_SOURCE_SCHEDULE in sources or TARIFF_SOURCE_PLUGIN in sources:
+            source_kind = "schedule"
         self._tariff_history_count = await self._tariff_store.async_record_rates(
             rates=cfg.rates_snapshot(effective=effective),
             source=source_kind,
             recorded_at=cfg.last_updated_at,
         )
+        await self.async_update_tariff_sensors(record_history=False)
         await self.async_request_refresh()
 
     async def async_save_solcast(self, *, solcast: dict[str, Any], fetch_now: bool = True) -> None:
@@ -1234,3 +1348,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._unsub_triggers:
             self._unsub_triggers()
             self._unsub_triggers = None
+        if getattr(self, "_unsub_tariff_schedule", None):
+            self._unsub_tariff_schedule()
+            self._unsub_tariff_schedule = None

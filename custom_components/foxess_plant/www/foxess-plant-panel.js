@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.135
+ * @version 0.9.136
  */
 
 const NAV = [
@@ -52,16 +52,29 @@ const DEFAULT_PV_CONFIG = {
 const DEFAULT_TARIFF = {
   kind: "static",
   currency: "GBP",
-  import_source: "manual",
+  import_source: "schedule",
   import_entity: "",
   import_p_per_kwh: 0,
-  export_source: "manual",
+  export_source: "schedule",
   export_entity: "",
   export_p_per_kwh: 0,
-  standing_source: "manual",
+  standing_source: "plugin",
   standing_entity: "",
   standing_charge_p_per_day: 0,
+  schedule: {
+    hours: Array(24).fill(0),
+    bands: [
+      { import_p_per_kwh: 0, export_p_per_kwh: 0 },
+      { import_p_per_kwh: 0, export_p_per_kwh: 0 },
+      { import_p_per_kwh: 0, export_p_per_kwh: 0 },
+      { import_p_per_kwh: 0, export_p_per_kwh: 0 },
+    ],
+  },
 };
+
+/** Four schedule band colours (00:00–24:00 editor). */
+const TARIFF_BAND_COLORS = ["#43A047", "#1E88E5", "#FB8C00", "#E53935"];
+const TARIFF_BAND_LABELS = ["Band A", "Band B", "Band C", "Band D"];
 
 /** ISO 4217 codes for tariff settings (must match const.py TARIFF_CURRENCIES). */
 const TARIFF_CURRENCIES = {
@@ -145,7 +158,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.39";
+const PANEL_VERSION = "0.9.136";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -1491,25 +1504,96 @@ function parseTariffRate(raw) {
   return Number.isFinite(v) ? Math.max(0, v) : 0;
 }
 
+function normalizeTariffSchedule(raw) {
+  const base = DEFAULT_TARIFF.schedule;
+  const src = raw && typeof raw === "object" ? raw : {};
+  const hoursRaw = Array.isArray(src.hours) ? src.hours : base.hours;
+  const hours = [];
+  for (let i = 0; i < 24; i += 1) {
+    const v = parseInt(String(hoursRaw[i] ?? 0), 10);
+    hours.push(Number.isFinite(v) ? Math.max(0, Math.min(3, v)) : 0);
+  }
+  const bandsRaw = Array.isArray(src.bands) ? src.bands : base.bands;
+  const bands = [];
+  for (let i = 0; i < 4; i += 1) {
+    const b = bandsRaw[i] && typeof bandsRaw[i] === "object" ? bandsRaw[i] : {};
+    bands.push({
+      import_p_per_kwh: parseTariffRate(b.import_p_per_kwh),
+      export_p_per_kwh: parseTariffRate(b.export_p_per_kwh),
+    });
+  }
+  return { hours, bands };
+}
+
+function normalizeTariffImportSource(v) {
+  const s = String(v || "schedule");
+  if (s === "entity") return "entity";
+  if (s === "manual") return "schedule";
+  return "schedule";
+}
+
+function normalizeTariffExportSource(v) {
+  return normalizeTariffImportSource(v);
+}
+
+function normalizeTariffStandingSource(v) {
+  const s = String(v || "plugin");
+  if (s === "entity") return "entity";
+  if (s === "manual") return "plugin";
+  return "plugin";
+}
+
 function normalizeTariffDraft(raw) {
   const t = { ...DEFAULT_TARIFF, ...(raw && typeof raw === "object" ? raw : {}) };
-  const source = (v) => (String(v || "manual") === "entity" ? "entity" : "manual");
   const entity = (v) => {
     const s = v ? String(v).trim() : "";
     return s || null;
   };
+  const schedule = normalizeTariffSchedule(t.schedule);
+  if (parseTariffRate(t.import_p_per_kwh) > 0 && schedule.bands[0].import_p_per_kwh <= 0) {
+    schedule.bands[0].import_p_per_kwh = parseTariffRate(t.import_p_per_kwh);
+  }
+  if (parseTariffRate(t.export_p_per_kwh) > 0 && schedule.bands[0].export_p_per_kwh <= 0) {
+    schedule.bands[0].export_p_per_kwh = parseTariffRate(t.export_p_per_kwh);
+  }
   return {
     kind: t.kind === "dynamic" ? "dynamic" : "static",
     currency: normalizeTariffCurrency(t.currency),
-    import_source: source(t.import_source),
+    import_source: normalizeTariffImportSource(t.import_source),
     import_entity: entity(t.import_entity),
     import_p_per_kwh: parseTariffRate(t.import_p_per_kwh),
-    export_source: source(t.export_source),
+    export_source: normalizeTariffExportSource(t.export_source),
     export_entity: entity(t.export_entity),
     export_p_per_kwh: parseTariffRate(t.export_p_per_kwh),
-    standing_source: source(t.standing_source),
+    standing_source: normalizeTariffStandingSource(t.standing_source),
     standing_entity: entity(t.standing_entity),
     standing_charge_p_per_day: parseTariffRate(t.standing_charge_p_per_day),
+    schedule,
+  };
+}
+
+function tariffScheduleBandIndex(tariff, tMs) {
+  const schedule = normalizeTariffSchedule(tariff?.schedule);
+  const hour = new Date(tMs).getHours();
+  return schedule.hours[hour] ?? 0;
+}
+
+function tariffRatesAtTime(tariff, tMs) {
+  const t = tariff && typeof tariff === "object" ? tariff : {};
+  const schedule = normalizeTariffSchedule(t.schedule);
+  const bandIdx = tariffScheduleBandIndex(t, tMs);
+  const band = schedule.bands[bandIdx] ?? schedule.bands[0];
+  const eff = tariffEffectiveRates(t);
+  return {
+    import_p_per_kwh:
+      normalizeTariffImportSource(t.import_source) === "schedule"
+        ? parseTariffRate(band?.import_p_per_kwh)
+        : eff.import_p_per_kwh,
+    export_p_per_kwh:
+      normalizeTariffExportSource(t.export_source) === "schedule"
+        ? parseTariffRate(band?.export_p_per_kwh)
+        : eff.export_p_per_kwh,
+    standing_charge_p_per_day: eff.standing_charge_p_per_day,
   };
 }
 
@@ -1646,11 +1730,22 @@ function tariffSettingsSummary(tariff) {
   const rates = tariffEffectiveRates(tariff);
   const currency = tariffCurrencyFromTariff(tariff);
   const entityBits = [];
-  if (tariff?.import_source === "entity" && tariff?.import_entity) entityBits.push("Import sensor");
-  if (tariff?.export_source === "entity" && tariff?.export_entity) entityBits.push("Export sensor");
-  if (tariff?.standing_source === "entity" && tariff?.standing_entity) entityBits.push("Standing sensor");
+  if (normalizeTariffImportSource(tariff?.import_source) === "entity" && tariff?.import_entity) {
+    entityBits.push("Import sensor");
+  }
+  if (normalizeTariffExportSource(tariff?.export_source) === "entity" && tariff?.export_entity) {
+    entityBits.push("Export sensor");
+  }
+  if (normalizeTariffStandingSource(tariff?.standing_source) === "entity" && tariff?.standing_entity) {
+    entityBits.push("Standing sensor");
+  }
+  const scheduleBits = [];
+  if (normalizeTariffImportSource(tariff?.import_source) === "schedule") scheduleBits.push("Import schedule");
+  if (normalizeTariffExportSource(tariff?.export_source) === "schedule") scheduleBits.push("Export schedule");
+  if (normalizeTariffStandingSource(tariff?.standing_source) === "plugin") scheduleBits.push("Standing sensor");
   if (!rates.import_p_per_kwh && !rates.export_p_per_kwh && !rates.standing_charge_p_per_day) {
     if (entityBits.length) return `${entityBits.join(" · ")} — awaiting live values`;
+    if (scheduleBits.length) return `${scheduleBits.join(" · ")} — set band rates`;
     return "Not configured — add rates for cost analysis";
   }
   const parts = [];
@@ -1659,7 +1754,8 @@ function tariffSettingsSummary(tariff) {
   if (rates.standing_charge_p_per_day) {
     parts.push(`Standing ${formatTariffMoney(rates.standing_charge_p_per_day, currency)}/day`);
   }
-  return parts.join(" · ");
+  const status = scheduleBits.length ? ` · ${scheduleBits.join(", ")}` : "";
+  return parts.join(" · ") + status;
 }
 
 function overviewWeatherIconSvg(iconKey, className = "overview-weather-icon") {
@@ -2355,9 +2451,11 @@ function renderFoxAnalysisLineSparkline(values, color, { placeholder = false } =
   return `<svg class="fox-analysis-sparkline" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true"><path d="${path}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 }
 
-function buildTariffIntradaySeries(importPts, exportPts, rates, range, currency) {
-  const importRateMajor = minorToMajor(rates.import_p_per_kwh, currency);
-  const exportRateMajor = minorToMajor(rates.export_p_per_kwh, currency);
+function buildTariffIntradaySeries(importPts, exportPts, rates, range, currency, tariff) {
+  const useSchedule =
+    tariff &&
+    (normalizeTariffImportSource(tariff.import_source) === "schedule" ||
+      normalizeTariffExportSource(tariff.export_source) === "schedule");
   const standingDailyMajor = minorToMajor(rates.standing_charge_p_per_day, currency);
   const importKwh = interpolatePointsToPeriod(importPts, ANALYSIS_SPARK_SAMPLE_MS, range.tMin, range.nowMs).map(
     (p) => Math.max(0, p.v)
@@ -2370,10 +2468,13 @@ function buildTariffIntradaySeries(importPts, exportPts, rates, range, currency)
   const importCost = [];
   const exportRevenue = [];
   const totalCost = [];
-  for (let i = 0; i < slots; i++) {
+  for (let i = 0; i < slots; i += 1) {
     const ik = importKwh[i] ?? importKwh[importKwh.length - 1] ?? 0;
     const ek = exportKwh[i] ?? exportKwh[exportKwh.length - 1] ?? 0;
     const t = range.tMin + i * ANALYSIS_SPARK_SAMPLE_MS;
+    const slotRates = useSchedule ? tariffRatesAtTime(tariff, t) : rates;
+    const importRateMajor = minorToMajor(slotRates.import_p_per_kwh, currency);
+    const exportRateMajor = minorToMajor(slotRates.export_p_per_kwh, currency);
     const standing = standingDailyMajor * Math.min(1, Math.max(0, (t - range.tMin) / daySpan));
     const ic = ik * importRateMajor;
     const er = ek * exportRateMajor;
@@ -2415,7 +2516,7 @@ async function fetchAnalysisTariffIntraday(hass, plant, plantState, overviewDail
     importPts = importId ? historyToPoints(historyRowsForEntity(hist, importId)) : [];
     exportPts = exportId ? historyToPoints(historyRowsForEntity(hist, exportId)) : [];
   }
-  const series = buildTariffIntradaySeries(importPts, exportPts, rates, range, currency);
+  const series = buildTariffIntradaySeries(importPts, exportPts, rates, range, currency, tariff);
   const analytics = readLiveAnalytics(hass, plant, plantState, overviewDaily);
   const importKwh = Number(analytics.load_from_grid_kwh_today ?? 0) || 0;
   const exportKwh = Number(analytics.pv_to_grid_kwh_today ?? 0) || 0;
@@ -7007,6 +7108,21 @@ const STYLES = `
 .tariff-entity-picker-host ha-entity-picker { display: block; width: 100%; }
 .tariff-entity-picker-loading { margin: 0; font-size: 13px; color: var(--secondary-text-color); }
 .tariff-entity-picker-error { margin: 0; font-size: 13px; color: var(--error-color, #db4437); }
+.tariff-schedule-card { margin-top: 8px; }
+.tariff-band-picker { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.tariff-band-chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 999px; border: 2px solid transparent; background: var(--card-background-color, #fff); font-size: 13px; cursor: pointer; }
+.tariff-band-chip.is-active { border-color: var(--primary-color, #03a9f4); box-shadow: 0 0 0 1px var(--primary-color, #03a9f4); }
+.tariff-band-swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+.tariff-hour-grid { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 3px; margin: 0 0 6px; }
+.tariff-hour-block { aspect-ratio: 1; min-height: 18px; border: none; border-radius: 3px; padding: 0; cursor: pointer; opacity: 0.92; }
+.tariff-hour-block:hover { opacity: 1; transform: scaleY(1.08); }
+.tariff-hour-labels { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 3px; font-size: 9px; color: var(--secondary-text-color); text-align: center; margin-bottom: 12px; }
+.tariff-band-rates { display: grid; gap: 10px; }
+.tariff-band-rate-row { display: grid; grid-template-columns: auto 1fr 1fr; gap: 10px; align-items: end; }
+@media (max-width: 720px) {
+  .tariff-band-rate-row { grid-template-columns: 1fr; }
+  .tariff-hour-grid, .tariff-hour-labels { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+}
 .field-link { color: var(--fp-accent); text-decoration: none; }
 .field-link:hover { text-decoration: underline; }
 .pv-range-row { display: flex; align-items: center; gap: 12px; }
@@ -7992,6 +8108,7 @@ Reloading panel registration…
       export_entity: raw.export_entity || "",
       standing_entity: raw.standing_entity || "",
     };
+    if (this._tariffActiveBand == null) this._tariffActiveBand = 0;
   }
 
   _enterTariffSettings() {
@@ -8070,6 +8187,12 @@ Reloading panel registration…
     if (missing.length) {
       this._showToast(`${missing.join(", ")} required when using sensor source`, "err");
       return;
+    }
+    if (draft.import_source === "schedule") {
+      draft.import_p_per_kwh = draft.schedule.bands[0]?.import_p_per_kwh ?? 0;
+    }
+    if (draft.export_source === "schedule") {
+      draft.export_p_per_kwh = draft.schedule.bands[0]?.export_p_per_kwh ?? 0;
     }
     this._busy = true;
     this._render();
@@ -8476,6 +8599,25 @@ Reloading panel registration…
       await this._saveTariffSettings();
       return;
     }
+    if (action === "tariff-pick-band") {
+      if (!this._tariffDraft) return;
+      const band = parseInt(btn.dataset.band, 10);
+      if (Number.isFinite(band) && band >= 0 && band <= 3) {
+        this._tariffActiveBand = band;
+        this._render();
+      }
+      return;
+    }
+    if (action === "tariff-hour") {
+      if (!this._tariffDraft?.schedule || this._busy) return;
+      const hour = parseInt(btn.dataset.hour, 10);
+      const band = this._tariffActiveBand ?? 0;
+      if (Number.isFinite(hour) && hour >= 0 && hour <= 23) {
+        this._tariffDraft.schedule.hours[hour] = band;
+        this._render();
+      }
+      return;
+    }
     if (action === "save-solcast-settings") {
       await this._saveSolcastSettings();
       return;
@@ -8629,11 +8771,28 @@ Reloading panel registration…
         }
         if (kind === "import" || kind === "export" || kind === "standing") {
           if (sub === "source") {
-            this._tariffDraft[`${kind}_source`] = el.value === "entity" ? "entity" : "manual";
+            if (kind === "standing") {
+              this._tariffDraft.standing_source = el.value === "entity" ? "entity" : "plugin";
+            } else {
+              this._tariffDraft[`${kind}_source`] = el.value === "entity" ? "entity" : "schedule";
+            }
             this._scheduleRender();
             void this._syncTariffEntityPickers();
             return;
           }
+        }
+        if (kind === "schedule" && sub === "band") {
+          const bandIdx = parseInt(parts[3], 10);
+          const field = parts[4];
+          if (!this._tariffDraft?.schedule || Number.isNaN(bandIdx) || bandIdx < 0 || bandIdx > 3) return;
+          if (field === "import" || field === "export") {
+            const currency = normalizeTariffCurrency(this._tariffDraft.currency);
+            this._tariffDraft.schedule.bands[bandIdx][`${field}_p_per_kwh`] = majorToMinor(
+              parseTariffRate(el.value),
+              currency
+            );
+          }
+          return;
         }
       }
       if (parts[0] === "pv" && ["tilt", "azimuth", "panel_count", "watts_per_panel"].includes(parts[2])) {
@@ -8788,6 +8947,18 @@ Reloading panel registration…
       const rateKind = parts[1];
       const sub = parts[2];
       const currency = normalizeTariffCurrency(this._tariffDraft.currency);
+      if (rateKind === "schedule" && sub === "band") {
+        const bandIdx = parseInt(parts[3], 10);
+        const field = parts[4];
+        if (!this._tariffDraft.schedule || Number.isNaN(bandIdx) || bandIdx < 0 || bandIdx > 3) return;
+        if (field === "import" || field === "export") {
+          this._tariffDraft.schedule.bands[bandIdx][`${field}_p_per_kwh`] = majorToMinor(
+            parseTariffRate(el.value),
+            currency
+          );
+        }
+        return;
+      }
       if ((rateKind === "import" || rateKind === "export") && sub === "p") {
         this._tariffDraft[`${rateKind}_p_per_kwh`] = majorToMinor(parseTariffRate(el.value), currency);
         return;
@@ -8796,10 +8967,10 @@ Reloading panel registration…
         this._tariffDraft.standing_charge_p_per_day = majorToMinor(parseTariffRate(el.value), currency);
         return;
       }
-      const field = parts[1];
-      if (!field) return;
-      this._tariffDraft[field] = parseTariffRate(el.value);
-      return;
+      if (rateKind === "currency") {
+        this._tariffDraft.currency = normalizeTariffCurrency(el.value);
+        return;
+      }
     }
     if (kind === "pv" && this._pvDraft) {
       const which = parts[1];
@@ -11367,30 +11538,28 @@ ${this._renderPvStringBlock("pv2")}
     });
   }
 
-  _renderTariffRateBlock(kind, { label, unitLabel, manualKey, placeholder, liveMeta }) {
+  _renderTariffRateBlock(kind, { label, unitLabel, placeholder, liveMeta, pluginEntityId }) {
     if (!this._tariffDraft) this._initTariffDraft();
     const draft = this._tariffDraft;
     const currency = normalizeTariffCurrency(draft.currency);
     const sourceKey = `${kind}_source`;
     const entityKey = `${kind}_entity`;
-    const source = draft[sourceKey] === "entity" ? "entity" : "manual";
+    const isStanding = kind === "standing";
+    const source = isStanding
+      ? normalizeTariffStandingSource(draft[sourceKey])
+      : draft[sourceKey] === "entity"
+        ? "entity"
+        : "schedule";
+    const manualKey = isStanding ? "standing_charge_p_per_day" : `${kind}_p_per_kwh`;
     const manualMinor = draft[manualKey];
     const manualDisplay = manualMinor > 0 ? minorToMajor(manualMinor, currency) : "";
     const entityId = draft[entityKey] || "";
-    const manualDisabled = this._busy || source !== "manual";
     const inputStep = tariffRateInputStep(currency);
-    const suggestedHint =
-      source === "entity" ? tariffSuggestedEntitiesHint(this._hass, kind) : "";
-    const manualHint =
-      manualMinor > 0
-        ? kind === "standing"
-          ? `≈ ${formatTariffMoney(manualMinor, currency)}/day`
-          : `≈ ${formatTariffMoney(manualMinor, currency)}/kWh`
-        : kind === "standing"
-          ? `Daily standing charge in ${currency}`
-          : kind === "export"
-            ? `Export / feed-in rate in ${currency} per kWh`
-            : `Import rate in ${currency} per kWh`;
+    const suggestedHint = source === "entity" ? tariffSuggestedEntitiesHint(this._hass, kind) : "";
+    const scheduleOption = isStanding ? "plugin" : "schedule";
+    const scheduleLabel = isStanding
+      ? "Plugin sensor (configured below)"
+      : "Time-of-use schedule (plugin sensor)";
     let liveHint = "";
     if (source === "entity") {
       if (liveMeta?.available === false) {
@@ -11406,24 +11575,83 @@ ${this._renderPvStringBlock("pv2")}
       } else {
         liveHint = suggestedHint;
       }
+    } else if (pluginEntityId) {
+      liveHint = `Plugin sensor: ${pluginEntityId} — updated on schedule boundaries for recorder history`;
+    } else if (!isStanding) {
+      liveHint = "Save to create plugin sensors that update each hour (or when the band changes)";
     }
-    const entityHint = source === "entity" ? liveHint || suggestedHint : "";
+    const entityHint = source === "entity" ? liveHint || suggestedHint : liveHint;
+    const standingManualBlock =
+      isStanding && source === "plugin"
+        ? `<div class="field" data-tariff-manual="${esc(kind)}">
+<p class="field-hint">Daily standing charge in ${esc(currency)} — published to the plugin sensor on save</p>
+<input type="number" min="0" max="9999" step="${esc(inputStep)}" inputmode="decimal" data-field="tariff:${esc(kind)}:p" value="${esc(String(manualDisplay || ""))}" placeholder="${esc(placeholder)}" ${this._busy ? "disabled" : ""}>
+</div>`
+        : "";
     return `<div class="tariff-rate-block" data-tariff-kind="${esc(kind)}">
 <div class="field">
 <label>${esc(label)}</label>
 <select data-field="tariff:${esc(kind)}:source" ${this._busy ? "disabled" : ""}>
-<option value="manual" ${source === "manual" ? "selected" : ""}>Enter manually (${esc(unitLabel)})</option>
+<option value="${esc(scheduleOption)}" ${source === scheduleOption ? "selected" : ""}>${esc(scheduleLabel)}</option>
 <option value="entity" ${source === "entity" ? "selected" : ""}>Home Assistant sensor</option>
 </select>
 </div>
-<div class="field" ${source === "manual" ? "" : 'style="display:none"'} data-tariff-manual="${esc(kind)}">
-<p class="field-hint">${esc(manualHint)}</p>
-<input type="number" min="0" max="9999" step="${esc(inputStep)}" inputmode="decimal" data-field="tariff:${esc(kind)}:p" value="${esc(String(manualDisplay || ""))}" placeholder="${esc(placeholder)}" ${manualDisabled ? "disabled" : ""}>
-</div>
+${standingManualBlock}
 <div class="field" ${source === "entity" ? "" : 'style="display:none"'} data-tariff-entity="${esc(kind)}">
 <p class="field-hint">${esc(entityHint || "Use the Home Assistant sensor picker — search by friendly name or entity id.")}</p>
 <div class="tariff-entity-picker-host" data-tariff-picker="${esc(kind)}"></div>
 </div>
+</div>`;
+  }
+
+  _renderTariffScheduleEditor() {
+    if (!this._tariffDraft) this._initTariffDraft();
+    const draft = this._tariffDraft;
+    const showImport = normalizeTariffImportSource(draft.import_source) === "schedule";
+    const showExport = normalizeTariffExportSource(draft.export_source) === "schedule";
+    if (!showImport && !showExport) return "";
+    const currency = normalizeTariffCurrency(draft.currency);
+    const schedule = normalizeTariffSchedule(draft.schedule);
+    const activeBand = this._tariffActiveBand ?? 0;
+    const bandChips = TARIFF_BAND_LABELS.map(
+      (label, idx) =>
+        `<button type="button" class="tariff-band-chip${idx === activeBand ? " is-active" : ""}" data-action="tariff-pick-band" data-band="${idx}" ${this._busy ? "disabled" : ""}><span class="tariff-band-swatch" style="background:${TARIFF_BAND_COLORS[idx]}"></span>${esc(label)}</button>`
+    ).join("");
+    const hourBlocks = schedule.hours
+      .map((bandIdx, hour) => {
+        const color = TARIFF_BAND_COLORS[bandIdx] ?? TARIFF_BAND_COLORS[0];
+        return `<button type="button" class="tariff-hour-block" style="background:${color}" title="${String(hour).padStart(2, "0")}:00–${String((hour + 1) % 24).padStart(2, "0")}:00 · ${esc(TARIFF_BAND_LABELS[bandIdx] || "Band A")}" data-action="tariff-hour" data-hour="${hour}" ${this._busy ? "disabled" : ""} aria-label="Hour ${hour}"></button>`;
+      })
+      .join("");
+    const hourLabels = schedule.hours
+      .map((_, hour) => `<span>${hour % 6 === 0 ? String(hour).padStart(2, "0") : ""}</span>`)
+      .join("");
+    const inputStep = tariffRateInputStep(currency);
+    const bandRows = schedule.bands
+      .map((band, idx) => {
+        const importDisplay =
+          showImport && band.import_p_per_kwh > 0 ? minorToMajor(band.import_p_per_kwh, currency) : "";
+        const exportDisplay =
+          showExport && band.export_p_per_kwh > 0 ? minorToMajor(band.export_p_per_kwh, currency) : "";
+        return `<div class="tariff-band-rate-row">
+<span class="tariff-band-chip" style="cursor:default;border:none;padding:4px 0"><span class="tariff-band-swatch" style="background:${TARIFF_BAND_COLORS[idx]}"></span>${esc(TARIFF_BAND_LABELS[idx])}</span>
+${showImport ? `<div class="field" style="margin:0"><label>Import ${esc(currency)}/kWh</label><input type="number" min="0" max="9999" step="${esc(inputStep)}" inputmode="decimal" data-field="tariff:schedule:band:${idx}:import" value="${esc(String(importDisplay || ""))}" placeholder="${currency === "GBP" ? "e.g. 0.245" : "e.g. 0.25"}" ${this._busy ? "disabled" : ""}></div>` : `<div></div>`}
+${showExport ? `<div class="field" style="margin:0"><label>Export ${esc(currency)}/kWh</label><input type="number" min="0" max="9999" step="${esc(inputStep)}" inputmode="decimal" data-field="tariff:schedule:band:${idx}:export" value="${esc(String(exportDisplay || ""))}" placeholder="${currency === "GBP" ? "e.g. 0.150" : "e.g. 0.15"}" ${this._busy ? "disabled" : ""}></div>` : `<div></div>`}
+</div>`;
+      })
+      .join("");
+    const pluginIds = this._plantState?.tariff?.plugin_sensors ?? {};
+    const pluginHint = pluginIds.import || pluginIds.export
+      ? `<p class="field-hint" style="margin:0 0 12px">Plugin sensors: ${[pluginIds.import, pluginIds.export].filter(Boolean).map((id) => esc(id)).join(" · ") || "—"} — rates update at each hour boundary so the recorder captures when costs change.</p>`
+      : `<p class="field-hint" style="margin:0 0 12px">Plugin sensors are created when you save. They update at each hour boundary so the recorder captures when costs change (same path planned for Agile API tariffs).</p>`;
+    return `<div class="card tariff-schedule-card">
+<p class="card-title">Daily time-of-use schedule</p>
+<p class="field-hint" style="margin:0 0 12px">24 hourly blocks from 00:00 to 24:00, same every day. Pick a band colour, then tap hours to assign it. Use one band for a flat tariff, or two to four for peak/off-peak.</p>
+${pluginHint}
+<div class="tariff-band-picker">${bandChips}</div>
+<div class="tariff-hour-grid">${hourBlocks}</div>
+<div class="tariff-hour-labels">${hourLabels}</div>
+<div class="tariff-band-rates">${bandRows}</div>
 </div>`;
   }
 
@@ -11450,7 +11678,11 @@ ${this._renderPvStringBlock("pv2")}
           `<option value="${esc(code)}" ${code === currency ? "selected" : ""}>${esc(code)} — ${esc(meta.name)}</option>`
       )
       .join("");
-    return `<header class="header"><h1>Tariff</h1><p>Electricity rates for cost and revenue analysis. Choose your currency, enter rates manually, or bind Home Assistant sensors from energy integrations (Octopus, Glow, etc.).</p></header>
+    const pluginSensors = live.plugin_sensors ?? {};
+    const scheduleStatus = live.schedule_status ?? {};
+    const bandLabel =
+      scheduleStatus.band_index != null ? TARIFF_BAND_LABELS[scheduleStatus.band_index] || "" : "";
+    return `<header class="header"><h1>Tariff</h1><p>Electricity rates for cost and revenue analysis. Use the daily schedule with plugin sensors (recorder-friendly), bind external Home Assistant sensors, or combine both.</p></header>
 <div class="card">
 <p class="card-title">Electricity tariff</p>
 <div class="field">
@@ -11458,39 +11690,39 @@ ${this._renderPvStringBlock("pv2")}
 <select data-field="tariff:currency" ${this._busy ? "disabled" : ""}>${currencyOptions}</select>
 <p class="field-hint">Rates are stored in the selected currency. Changing currency does not convert existing values — re-enter rates after switching.</p>
 </div>
-<p class="field-hint" style="margin:0 0 12px">Each rate can be typed in or sourced from a sensor. Sensor values in major units (e.g. ${esc(currency)}/kWh) or minor units are converted automatically.</p>
 ${this._renderTariffRateBlock("import", {
       label: "Import cost",
       unitLabel: `${currency}/kWh`,
-      manualKey: "import_p_per_kwh",
       placeholder: currency === "GBP" ? "e.g. 0.245" : "e.g. 0.25",
       liveMeta: entities.import,
+      pluginEntityId: pluginSensors.import,
     })}
 ${this._renderTariffRateBlock("export", {
       label: "Export revenue",
       unitLabel: `${currency}/kWh`,
-      manualKey: "export_p_per_kwh",
       placeholder: currency === "GBP" ? "e.g. 0.150" : "e.g. 0.15",
       liveMeta: entities.export,
+      pluginEntityId: pluginSensors.export,
     })}
+${this._renderTariffScheduleEditor()}
 ${this._renderTariffRateBlock("standing", {
       label: "Daily standing charge",
       unitLabel: `${currency}/day`,
-      manualKey: "standing_charge_p_per_day",
       placeholder: currency === "GBP" ? "e.g. 0.53" : "e.g. 1.00",
       liveMeta: entities.standing,
+      pluginEntityId: pluginSensors.standing,
     })}
 <div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-tariff-settings" ${this._busy ? "disabled" : ""}>Save tariff</button></div>
 </div>
 <div class="card">
 <p class="card-title">Status</p>
 <p style="margin:0 0 8px;font-size:14px">${live.configured ? "Tariff configured — ready for cost analysis." : "Not configured yet — save at least one rate above."}</p>
-${effectiveBits.length ? `<p class="field-hint" style="margin:0 0 8px">Effective rates now: ${esc(effectiveBits.join(" · "))}</p>` : ""}
+${effectiveBits.length ? `<p class="field-hint" style="margin:0 0 8px">Effective rates now: ${esc(effectiveBits.join(" · "))}${bandLabel ? ` · ${esc(bandLabel)} (hour ${scheduleStatus.hour ?? "—"})` : ""}</p>` : ""}
 <p class="field-hint" style="margin:0">Last saved: ${lastUpdated}${historyCount ? ` · ${esc(String(historyCount))} rate snapshot(s) recorded` : ""}</p>
 </div>
 <div class="card">
 <p class="card-title">Dynamic tariffs (coming soon)</p>
-<p class="field-hint" style="margin:0">API-linked tariffs such as Octopus Agile will update import and export rates throughout the day. Each update will be recorded so historical cost analysis stays accurate, and future automation can charge or discharge based on live grid prices.</p>
+<p class="field-hint" style="margin:0">API-linked tariffs such as Octopus Agile will drive the same plugin import/export sensors throughout the day. Each update will be recorded so historical cost analysis stays accurate, and future automation can charge or discharge based on live grid prices.</p>
 </div>`;
   }
 

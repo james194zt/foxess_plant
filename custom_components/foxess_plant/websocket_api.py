@@ -89,21 +89,36 @@ TARIFF_DYNAMIC_SCHEMA = vol.Schema(
     }
 )
 
+TARIFF_BAND_SCHEMA = vol.Schema(
+    {
+        vol.Optional("import_p_per_kwh", default=0): vol.All(vol.Coerce(float), vol.Range(min=0, max=9999)),
+        vol.Optional("export_p_per_kwh", default=0): vol.All(vol.Coerce(float), vol.Range(min=0, max=9999)),
+    }
+)
+
+TARIFF_SCHEDULE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("hours"): cv.ensure_list,
+        vol.Optional("bands"): cv.ensure_list,
+    }
+)
+
 TARIFF_SCHEMA = vol.Schema(
     {
         vol.Optional("kind", default="static"): vol.In(["static", "dynamic"]),
         vol.Optional("currency", default="GBP"): vol.In(sorted(TARIFF_CURRENCIES)),
-        vol.Optional("import_source", default="manual"): vol.In(["manual", "entity"]),
+        vol.Optional("import_source", default="schedule"): vol.In(["manual", "schedule", "entity"]),
         vol.Optional("import_entity"): vol.Any(str, None),
         vol.Required("import_p_per_kwh"): vol.All(vol.Coerce(float), vol.Range(min=0, max=9999)),
-        vol.Optional("export_source", default="manual"): vol.In(["manual", "entity"]),
+        vol.Optional("export_source", default="schedule"): vol.In(["manual", "schedule", "entity"]),
         vol.Optional("export_entity"): vol.Any(str, None),
         vol.Required("export_p_per_kwh"): vol.All(vol.Coerce(float), vol.Range(min=0, max=9999)),
-        vol.Optional("standing_source", default="manual"): vol.In(["manual", "entity"]),
+        vol.Optional("standing_source", default="plugin"): vol.In(["manual", "plugin", "entity"]),
         vol.Optional("standing_entity"): vol.Any(str, None),
         vol.Required("standing_charge_p_per_day"): vol.All(
             vol.Coerce(float), vol.Range(min=0, max=9999)
         ),
+        vol.Optional("schedule", default={}): TARIFF_SCHEDULE_SCHEMA,
         vol.Optional("dynamic", default={}): TARIFF_DYNAMIC_SCHEMA,
     }
 )

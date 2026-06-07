@@ -78,6 +78,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = {"coordinator": coordinator}
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    await coordinator.async_update_tariff_sensors(record_history=False)
     register_services(hass)
 
     try:
@@ -95,6 +96,8 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
 
     coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     coordinator.update_plant_config(PlantConfig.from_entry_data(entry.data))
+    coordinator._setup_tariff_schedule_timer()
+    await coordinator.async_update_tariff_sensors(record_history=False)
     await coordinator.async_request_refresh()
     try:
         await async_update_panel(hass)

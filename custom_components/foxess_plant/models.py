@@ -460,19 +460,20 @@ class TariffDynamicConfig:
 
 @dataclass
 class TariffConfig:
-    """Electricity tariff for cost analysis (static flat rate now; extensible for dynamic/API)."""
+    """Electricity tariff for cost analysis (schedule, plugin sensors, or external entities)."""
 
     kind: str = "static"
     currency: str = "GBP"
-    import_source: str = "manual"
+    import_source: str = "schedule"
     import_entity: str | None = None
     import_p_per_kwh: float = 0.0
-    export_source: str = "manual"
+    export_source: str = "schedule"
     export_entity: str | None = None
     export_p_per_kwh: float = 0.0
-    standing_source: str = "manual"
+    standing_source: str = "plugin"
     standing_entity: str | None = None
     standing_charge_p_per_day: float = 0.0
+    schedule: Any = None  # TariffScheduleConfig — lazy import to avoid circular refs
     dynamic: TariffDynamicConfig = field(default_factory=TariffDynamicConfig)
     last_updated_at: str | None = None
 
@@ -480,7 +481,16 @@ class TariffConfig:
     def from_dict(cls, data: dict[str, Any] | None) -> TariffConfig:
         from .const import DEFAULT_TARIFF, TARIFF_KIND_STATIC
         from .tariff_currency import normalize_tariff_currency
-        from .tariff_rates import TARIFF_SOURCE_ENTITY, TARIFF_SOURCE_MANUAL
+        from .tariff_rates import (
+            TARIFF_SOURCE_ENTITY,
+            TARIFF_SOURCE_MANUAL,
+            TARIFF_SOURCE_PLUGIN,
+            TARIFF_SOURCE_SCHEDULE,
+        )
+        from .tariff_schedule import (
+            TariffScheduleConfig,
+            migrate_legacy_manual_to_schedule,
+        )
 
         raw = {**DEFAULT_TARIFF, **(data if isinstance(data, dict) else {})}
         kind = str(raw.get("kind") or TARIFF_KIND_STATIC)
@@ -493,31 +503,66 @@ class TariffConfig:
             except (TypeError, ValueError):
                 return 0.0
 
-        def _source(key: str) -> str:
-            value = str(raw.get(key) or TARIFF_SOURCE_MANUAL)
-            return value if value in (TARIFF_SOURCE_MANUAL, TARIFF_SOURCE_ENTITY) else TARIFF_SOURCE_MANUAL
+        def _import_source() -> str:
+            value = str(raw.get("import_source") or TARIFF_SOURCE_SCHEDULE)
+            if value == TARIFF_SOURCE_MANUAL:
+                return TARIFF_SOURCE_SCHEDULE
+            return value if value in (TARIFF_SOURCE_SCHEDULE, TARIFF_SOURCE_ENTITY) else TARIFF_SOURCE_SCHEDULE
+
+        def _export_source() -> str:
+            value = str(raw.get("export_source") or TARIFF_SOURCE_SCHEDULE)
+            if value == TARIFF_SOURCE_MANUAL:
+                return TARIFF_SOURCE_SCHEDULE
+            return value if value in (TARIFF_SOURCE_SCHEDULE, TARIFF_SOURCE_ENTITY) else TARIFF_SOURCE_SCHEDULE
+
+        def _standing_source() -> str:
+            value = str(raw.get("standing_source") or TARIFF_SOURCE_PLUGIN)
+            if value == TARIFF_SOURCE_MANUAL:
+                return TARIFF_SOURCE_PLUGIN
+            return (
+                value
+                if value in (TARIFF_SOURCE_PLUGIN, TARIFF_SOURCE_ENTITY)
+                else TARIFF_SOURCE_PLUGIN
+            )
 
         def _entity(key: str) -> str | None:
             value = raw.get(key)
             return str(value) if value else None
 
+        import_p = _rate("import_p_per_kwh")
+        export_p = _rate("export_p_per_kwh")
+        schedule = migrate_legacy_manual_to_schedule(
+            TariffScheduleConfig.from_dict(raw.get("schedule")),
+            import_p=import_p,
+            export_p=export_p,
+        )
+
         return cls(
             kind=kind,
             currency=normalize_tariff_currency(raw.get("currency")),
-            import_source=_source("import_source"),
+            import_source=_import_source(),
             import_entity=_entity("import_entity"),
-            import_p_per_kwh=_rate("import_p_per_kwh"),
-            export_source=_source("export_source"),
+            import_p_per_kwh=import_p,
+            export_source=_export_source(),
             export_entity=_entity("export_entity"),
-            export_p_per_kwh=_rate("export_p_per_kwh"),
-            standing_source=_source("standing_source"),
+            export_p_per_kwh=export_p,
+            standing_source=_standing_source(),
             standing_entity=_entity("standing_entity"),
             standing_charge_p_per_day=_rate("standing_charge_p_per_day"),
+            schedule=schedule,
             dynamic=TariffDynamicConfig.from_dict(raw.get("dynamic")),
             last_updated_at=raw.get("last_updated_at"),
         )
 
+    def schedule_config(self):
+        from .tariff_schedule import TariffScheduleConfig
+
+        if isinstance(self.schedule, TariffScheduleConfig):
+            return self.schedule
+        return TariffScheduleConfig.from_dict(self.schedule if isinstance(self.schedule, dict) else {})
+
     def to_dict(self) -> dict[str, Any]:
+        schedule = self.schedule_config()
         return {
             "kind": self.kind,
             "currency": self.currency,
@@ -530,28 +575,45 @@ class TariffConfig:
             "standing_source": self.standing_source,
             "standing_entity": self.standing_entity,
             "standing_charge_p_per_day": round(self.standing_charge_p_per_day, 4),
+            "schedule": schedule.to_dict(),
             "dynamic": self.dynamic.to_dict(),
             "last_updated_at": self.last_updated_at,
         }
 
     def _rate_configured(self, source: str, manual_p: float, entity_id: str | None) -> bool:
-        from .tariff_rates import TARIFF_SOURCE_ENTITY, TARIFF_SOURCE_MANUAL
+        from .tariff_rates import TARIFF_SOURCE_ENTITY, TARIFF_SOURCE_PLUGIN, TARIFF_SOURCE_SCHEDULE
 
         if source == TARIFF_SOURCE_ENTITY:
             return bool(entity_id)
-        if source == TARIFF_SOURCE_MANUAL:
+        if source == TARIFF_SOURCE_PLUGIN:
             return manual_p > 0
+        if source == TARIFF_SOURCE_SCHEDULE:
+            schedule = self.schedule_config()
+            if manual_p > 0:
+                return True
+            return any(
+                band.import_p_per_kwh > 0 or band.export_p_per_kwh > 0 for band in schedule.bands
+            )
         return False
 
     def configured(self) -> bool:
-        return (
-            self._rate_configured(self.import_source, self.import_p_per_kwh, self.import_entity)
-            or self._rate_configured(self.export_source, self.export_p_per_kwh, self.export_entity)
-            or self._rate_configured(
-                self.standing_source, self.standing_charge_p_per_day, self.standing_entity
-            )
-            or self.dynamic.enabled
+        from .tariff_rates import TARIFF_SOURCE_SCHEDULE
+
+        schedule = self.schedule_config()
+        import_ok = self._rate_configured(
+            self.import_source, self.import_p_per_kwh, self.import_entity
         )
+        export_ok = self._rate_configured(
+            self.export_source, self.export_p_per_kwh, self.export_entity
+        )
+        standing_ok = self._rate_configured(
+            self.standing_source, self.standing_charge_p_per_day, self.standing_entity
+        )
+        if not import_ok and self.import_source == TARIFF_SOURCE_SCHEDULE:
+            import_ok = any(b.import_p_per_kwh > 0 for b in schedule.bands)
+        if not export_ok and self.export_source == TARIFF_SOURCE_SCHEDULE:
+            export_ok = any(b.export_p_per_kwh > 0 for b in schedule.bands)
+        return import_ok or export_ok or standing_ok or self.dynamic.enabled
 
     def rates_snapshot(self, *, effective: dict[str, float] | None = None) -> dict[str, float | str | None]:
         """Normalized rates for history store / future recorder sensors."""
