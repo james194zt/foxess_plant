@@ -709,13 +709,20 @@ function statisticsRangeForDisplay(range, dayOffset = 0) {
   return { ...range, nowMs: Math.max(range.tMin, nowMs) };
 }
 
+function forecastHasFuturePoints(points, nowMs) {
+  return (
+    Array.isArray(points) &&
+    points.some((p) => Number.isFinite(p?.t) && p.t > nowMs + STATISTICS_PERIOD_MS * 0.5)
+  );
+}
+
 function mergeForecastPointsWithFuture(intradayPts, detailedPts, nowMs) {
   if (!Array.isArray(intradayPts) || intradayPts.length < 2) {
     return Array.isArray(detailedPts) && detailedPts.length >= 2 ? detailedPts : intradayPts || [];
   }
   if (intradayPts.some((p) => p.t > nowMs + STATISTICS_PERIOD_MS * 0.5)) return intradayPts;
   if (!Array.isArray(detailedPts) || detailedPts.length < 2) return intradayPts;
-  const future = detailedPts.filter((p) => p.t >= nowMs);
+  const future = detailedPts.filter((p) => p.t >= nowMs - STATISTICS_PERIOD_MS);
   if (!future.length) return intradayPts;
   const merged = intradayPts.filter((p) => p.t <= nowMs);
   const lastPast = merged[merged.length - 1];
@@ -725,12 +732,46 @@ function mergeForecastPointsWithFuture(intradayPts, detailedPts, nowMs) {
   return merged.length >= 2 ? merged : intradayPts;
 }
 
+function finalizeStatisticsForecastPoints(
+  fPoints,
+  range,
+  plantState,
+  forecastState,
+  hass,
+  serverPoints
+) {
+  const nowMs = range?.nowMs ?? Date.now();
+  let pts = Array.isArray(fPoints) ? fPoints : [];
+  if (pts.length >= 2) {
+    const detailed = detailedForecastToChartPoints(
+      resolveBestSolcastDetailedRows(plantState, forecastState, hass),
+      range
+    );
+    pts = mergeForecastPointsWithFuture(pts, detailed, nowMs);
+  }
+  if (forecastHasFuturePoints(pts, nowMs)) return pts;
+  const server = Array.isArray(serverPoints)
+    ? serverPoints
+        .filter(
+          (p) =>
+            Number.isFinite(p?.t) &&
+            Number.isFinite(p?.v) &&
+            p.t >= range.tMin &&
+            p.t <= range.tMax
+        )
+        .map((p) => ({ t: p.t, v: p.v }))
+        .sort((a, b) => a.t - b.t)
+    : [];
+  if (server.length < 2) return pts;
+  return mergeForecastPointsWithFuture(pts.length >= 2 ? pts : server, server, nowMs);
+}
+
 function mergeStatisticsForecastSeries(
   series,
   range,
   plantState,
   hass,
-  { dayOffset = 0, fallbackPoints = null, forecastState = null } = {}
+  { dayOffset = 0, fallbackPoints = null, forecastState = null, serverForecastPoints = null } = {}
 ) {
   if (!Array.isArray(series) || !range) return series;
   const without = series.filter((s) => s.id !== "forecast");
@@ -738,17 +779,18 @@ function mergeStatisticsForecastSeries(
     const existing = series.find((s) => s.id === "forecast");
     return existing?.points?.length >= 2 ? series : without;
   }
-  let fPoints = buildForecastSeriesPoints(plantState, range, hass, forecastState);
-  if (fPoints.length < 2 && Array.isArray(fallbackPoints) && fallbackPoints.length >= 2) {
-    fPoints = fallbackPoints;
+  let base = buildForecastSeriesPoints(plantState, range, hass, forecastState);
+  if (base.length < 2 && Array.isArray(fallbackPoints) && fallbackPoints.length >= 2) {
+    base = fallbackPoints;
   }
-  if (fPoints.length >= 2) {
-    const detailed = detailedForecastToChartPoints(
-      resolveBestSolcastDetailedRows(plantState, forecastState, hass),
-      range
-    );
-    fPoints = mergeForecastPointsWithFuture(fPoints, detailed, range.nowMs ?? Date.now());
-  }
+  const fPoints = finalizeStatisticsForecastPoints(
+    base,
+    range,
+    plantState,
+    forecastState,
+    hass,
+    serverForecastPoints
+  );
   if (fPoints.length < 2) {
     const existing = series.find((s) => s.id === "forecast");
     return existing?.points?.length >= 2 ? series : without;
@@ -764,6 +806,23 @@ function formatLocalDayKey(dayDate) {
   const m = String(dayDate.getMonth() + 1).padStart(2, "0");
   const d = String(dayDate.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
+}
+
+async function fetchSolcastStatisticsForecastPoints(hass, plant) {
+  if (!hass?.connection || !plant?.entry_id) return [];
+  try {
+    const res = await hass.connection.sendMessagePromise({
+      type: "foxess_plant/solcast_statistics_forecast",
+      plant_id: plant.entry_id,
+    });
+    if (!Array.isArray(res?.points) || res.points.length < 2) return [];
+    return res.points
+      .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v))
+      .map((p) => ({ t: p.t, v: p.v }))
+      .sort((a, b) => a.t - b.t);
+  } catch {
+    return [];
+  }
 }
 
 async function fetchHistoricalSolcastForecastPoints(hass, plant, dayOffset) {
@@ -4230,7 +4289,15 @@ async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset =
     }
   }
   if (dayOffset === 0) {
-    const fPoints = buildForecastSeriesPoints(forecastState, range, hass, forecastState);
+    const serverForecastPoints = await fetchSolcastStatisticsForecastPoints(hass, plant);
+    const fPoints = finalizeStatisticsForecastPoints(
+      buildForecastSeriesPoints(forecastState, range, hass, forecastState),
+      range,
+      forecastState,
+      forecastState,
+      hass,
+      serverForecastPoints
+    );
     if (fPoints.length) {
       series.push({
         id: "forecast",
@@ -4239,7 +4306,7 @@ async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset =
         points: fPoints,
       });
     }
-    return { series, socSeries, range, forecastState, dayOffset };
+    return { series, socSeries, range, forecastState, dayOffset, serverForecastPoints };
   } else {
     const fPoints = await fetchHistoricalSolcastForecastPoints(hass, plant, dayOffset);
     const inRange = fPoints.filter((p) => p.t >= range.tMin && p.t <= range.tMax);
@@ -4258,7 +4325,7 @@ async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset =
       empty: `No statistics for: ${listed}. Confirm the Recorder stores 5-minute means for these entities (same as your Lovelace plotly-graph card).`,
     };
   }
-  return { series, socSeries, range, forecastState, dayOffset };
+  return { series, socSeries, range, forecastState, dayOffset, serverForecastPoints: null };
 }
 
 function buildDailyLabels(startDay, count) {
@@ -7659,6 +7726,7 @@ Reloading panel registration…
         dayOffset,
         fallbackPoints: this._forecastFallbackPointsForStatistics(range),
         forecastState: chart.forecastState,
+        serverForecastPoints: chart.serverForecastPoints,
       }
     );
   }
