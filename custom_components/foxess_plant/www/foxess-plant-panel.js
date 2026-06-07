@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.132
+ * @version 0.9.133
  */
 
 const NAV = [
@@ -732,6 +732,20 @@ function mergeForecastPointsWithFuture(intradayPts, detailedPts, nowMs) {
   return merged.length >= 2 ? merged : intradayPts;
 }
 
+function filterStatisticsForecastServerPoints(serverPoints, range) {
+  if (!Array.isArray(serverPoints) || !range) return [];
+  return serverPoints
+    .filter(
+      (p) =>
+        Number.isFinite(p?.t) &&
+        Number.isFinite(p?.v) &&
+        p.t >= range.tMin &&
+        p.t <= range.tMax
+    )
+    .map((p) => ({ t: p.t, v: p.v }))
+    .sort((a, b) => a.t - b.t);
+}
+
 function finalizeStatisticsForecastPoints(
   fPoints,
   range,
@@ -750,20 +764,22 @@ function finalizeStatisticsForecastPoints(
     pts = mergeForecastPointsWithFuture(pts, detailed, nowMs);
   }
   if (forecastHasFuturePoints(pts, nowMs)) return pts;
-  const server = Array.isArray(serverPoints)
-    ? serverPoints
-        .filter(
-          (p) =>
-            Number.isFinite(p?.t) &&
-            Number.isFinite(p?.v) &&
-            p.t >= range.tMin &&
-            p.t <= range.tMax
-        )
-        .map((p) => ({ t: p.t, v: p.v }))
-        .sort((a, b) => a.t - b.t)
-    : [];
+  const server = filterStatisticsForecastServerPoints(serverPoints, range);
   if (server.length < 2) return pts;
   return mergeForecastPointsWithFuture(pts.length >= 2 ? pts : server, server, nowMs);
+}
+
+function buildStatisticsForecastLine(range, plantState, forecastState, hass, serverPoints, basePoints) {
+  const nowMs = range?.nowMs ?? Date.now();
+  const server = filterStatisticsForecastServerPoints(serverPoints, range);
+  if (server.length >= 2 && forecastHasFuturePoints(server, nowMs)) {
+    return server;
+  }
+  const base =
+    Array.isArray(basePoints) && basePoints.length >= 2
+      ? basePoints
+      : buildForecastSeriesPoints(plantState, range, hass, forecastState);
+  return finalizeStatisticsForecastPoints(base, range, plantState, forecastState, hass, server);
 }
 
 function mergeStatisticsForecastSeries(
@@ -783,14 +799,15 @@ function mergeStatisticsForecastSeries(
   if (base.length < 2 && Array.isArray(fallbackPoints) && fallbackPoints.length >= 2) {
     base = fallbackPoints;
   }
-  const fPoints = finalizeStatisticsForecastPoints(
-    base,
+  const fPoints = buildStatisticsForecastLine(
     range,
     plantState,
     forecastState,
     hass,
-    serverForecastPoints
-  );
+    base.length >= 2 ? base : serverForecastPoints
+  ).length >= 2
+    ? buildStatisticsForecastLine(range, plantState, forecastState, hass, serverForecastPoints)
+    : finalizeStatisticsForecastPoints(base, range, plantState, forecastState, hass, serverForecastPoints);
   if (fPoints.length < 2) {
     const existing = series.find((s) => s.id === "forecast");
     return existing?.points?.length >= 2 ? series : without;

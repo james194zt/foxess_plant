@@ -321,19 +321,53 @@ def build_statistics_forecast_overlay(
     stored: dict[str, Any] | None,
     current_cache: dict[str, Any] | None,
 ) -> list[dict[str, float]]:
-    """Statistics chart: revision past (solid) + latest cached forecast through midnight (dashed)."""
+    """Statistics chart: revision past + cached detailed forecast slots through midnight."""
+    now = dt_util.now()
+    day_start = dt_util.start_of_local_day(now)
+    day_start_ms = day_start.timestamp() * 1000
+    as_of_ms = now.timestamp() * 1000
+    t_max_ms = day_start_ms + 24 * 60 * 60 * 1000
+
+    snapshots = collect_storage_snapshots(stored, current_cache, day_start_ms)
+    detailed_rows = _detailed_rows(current_cache)
+    if len(detailed_rows) < 2 and snapshots:
+        detailed_rows = snapshots[-1][1]
+
+    merged: dict[float, float] = {}
+    if snapshots:
+        past = build_forecast_intraday_chart_for_range(
+            snapshots=snapshots,
+            day_start_ms=day_start_ms,
+            as_of_ms=as_of_ms,
+            include_future=False,
+        )
+        for point in past:
+            t = float(point["t"])
+            if t <= as_of_ms:
+                merged[t] = float(point["v"])
+
+    if len(detailed_rows) >= 2:
+        grace_ms = float(STATISTICS_PERIOD_MS)
+        slot = int(day_start_ms)
+        while slot <= t_max_ms:
+            if slot >= as_of_ms - grace_ms:
+                when = _utc_from_timestamp(slot / 1000)
+                kw = _kw_at_or_after(detailed_rows, when)
+                if kw is not None:
+                    merged[float(slot)] = float(kw)
+            slot += STATISTICS_PERIOD_MS
+
+    if len(merged) >= 2:
+        return [
+            {"t": t, "v": v}
+            for t, v in sorted(merged.items())
+            if day_start_ms <= t <= t_max_ms
+        ]
+
     points = build_forecast_intraday_chart(hass, stored, current_cache)
     if len(points) >= 2:
         return points
 
-    now = dt_util.now()
-    day_start_ms = dt_util.start_of_local_day(now).timestamp() * 1000
-    as_of_ms = now.timestamp() * 1000
-    detailed_rows = _detailed_rows(current_cache)
-    if len(detailed_rows) < 2:
-        snapshots = collect_storage_snapshots(stored, current_cache, day_start_ms)
-        if snapshots:
-            detailed_rows = snapshots[-1][1]
     if len(detailed_rows) < 2:
         return []
     return build_forecast_intraday_chart_for_range(

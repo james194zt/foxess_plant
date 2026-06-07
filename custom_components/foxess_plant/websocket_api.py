@@ -635,9 +635,6 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             await coordinator._rebuild_solcast_forecast_chart()
 
         def _statistics_forecast_points() -> list[dict[str, float]]:
-            cached = coordinator._solcast_forecast_chart_points
-            if len(cached) >= 2:
-                return list(cached)
             return build_statistics_forecast_overlay(
                 hass,
                 stored,
