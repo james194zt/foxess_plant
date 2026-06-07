@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.113
+ * @version 0.9.114
  */
 
 const NAV = [
@@ -926,7 +926,7 @@ function forecastAccuracyPlotSvg(series, range, options = {}) {
   const ySpan = Math.max(yMax - yMin, 0.01);
   const yScale = (v) => plotPad.t + h - ((v - yMin) / ySpan) * h;
   const yCloudScale = (v) => {
-    const inset = hasCloud ? 6 : 0;
+    const inset = hasCloud ? (showLegend ? 10 : 8) : 0;
     const plotH = Math.max(h - inset, 1);
     return plotPad.t + inset + plotH - (Math.min(100, Math.max(0, Number(v))) / 100) * plotH;
   };
@@ -938,29 +938,36 @@ function forecastAccuracyPlotSvg(series, range, options = {}) {
       return `<line x1="${plotPad.l}" y1="${y.toFixed(1)}" x2="${plotPad.l + w}" y2="${y.toFixed(1)}" class="statistics-grid"/>`;
     })
     .join("");
+  const plotBottom = plotPad.t + h;
+  const axisLabelY = (y, yv, ticks, isCloud = false) => {
+    const isBottom = Math.abs(y - plotBottom) < 1.5;
+    if (isBottom && !isCloud && yMinZero && yv <= yMin + 0.001 && ticks.length > 2) return null;
+    return isBottom ? y - 5 : y + 4;
+  };
   const yLabels = yTicks
     .map((yv) => {
       const y = yScale(yv);
+      const labelY = axisLabelY(y, yv, yTicks);
+      if (labelY == null) return "";
       const label = yUnit === "kW" ? formatStatisticsYTick(yv) : yv.toFixed(yv % 1 ? 1 : 0);
-      return `<text x="${plotPad.l - 8}" y="${(y + 4).toFixed(1)}" text-anchor="end" class="statistics-axis-y">${esc(label)}</text>`;
+      return `<text x="${plotPad.l - 8}" y="${labelY.toFixed(1)}" text-anchor="end" class="statistics-axis-y">${esc(label)}</text>`;
     })
     .join("");
   const yCloudLabels = hasCloud
     ? [0, 50, 100]
         .map((yv) => {
           const y = yCloudScale(yv);
-          return `<text x="${(plotPad.l + w + 8).toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="start" class="statistics-axis-y forecast-accuracy-axis-y--cloud">${yv}%</text>`;
+          const labelY = axisLabelY(y, yv, [0, 50, 100], true);
+          if (labelY == null) return "";
+          return `<text x="${(plotPad.l + w + 8).toFixed(1)}" y="${labelY.toFixed(1)}" text-anchor="start" class="statistics-axis-y forecast-accuracy-axis-y--cloud">${yv}%</text>`;
         })
         .join("")
     : "";
-  const cloudAxisTitle =
-    hasCloud && showLegend
-      ? `<text x="${(plotPad.l + w + 8).toFixed(1)}" y="${(plotPad.t - 4).toFixed(1)}" text-anchor="start" class="statistics-y-label forecast-accuracy-y-label--cloud">Cloud</text>`
-      : "";
+  const xLabelY = plotBottom + Math.max(12, Math.round(plotPad.b * 0.55));
   const xLabels = xTicks
     .map((xt) => {
       const x = xScale(xt);
-      return `<text x="${x.toFixed(1)}" y="${height - 6}" text-anchor="middle" class="statistics-axis-x">${esc(formatChartTimeLabel(xt))}</text>`;
+      return `<text x="${x.toFixed(1)}" y="${xLabelY.toFixed(1)}" text-anchor="middle" class="statistics-axis-x">${esc(formatChartTimeLabel(xt))}</text>`;
     })
     .join("");
   let cloudFill = "";
@@ -995,15 +1002,20 @@ function forecastAccuracyPlotSvg(series, range, options = {}) {
         .join("")
     : "";
   const head = showLegend
-    ? `<div class="forecast-accuracy-plot-head">
+    ? hasCloud
+      ? `<div class="forecast-accuracy-plot-head forecast-accuracy-plot-head--stacked">
+<span class="forecast-accuracy-plot-label">${esc(yUnit)}</span>
+<div class="forecast-accuracy-legend forecast-accuracy-legend--inline">${legend}</div>
+</div>`
+      : `<div class="forecast-accuracy-plot-head">
 <span class="forecast-accuracy-plot-label">${esc(yUnit)}</span>
 <div class="forecast-accuracy-legend forecast-accuracy-legend--inline">${legend}</div>
 </div>`
     : `<div class="forecast-accuracy-plot-head forecast-accuracy-plot-head--axis-only"><span class="forecast-accuracy-plot-label">${esc(yUnit)}</span></div>`;
-  return `<div class="forecast-accuracy-plot">
+  return `<div class="forecast-accuracy-plot${hasCloud ? " forecast-accuracy-plot--cloud" : ""}">
 ${head}
 <svg class="forecast-accuracy-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMinYMin meet" role="img" aria-label="${esc(ariaLabel)}">
-${cloudAxisTitle}${grid}${cloudFill}${yLabels}${yCloudLabels}${xLabels}${lines}${cloudLine}
+${grid}${cloudFill}${yLabels}${yCloudLabels}${xLabels}${lines}${cloudLine}
 </svg>
 </div>`;
 }
@@ -1038,8 +1050,8 @@ function renderForecastAccuracyChartHtml(intraday, range, { compact = false } = 
     return `<p class="placeholder chart-empty">No intraday forecast comparison yet.</p>`;
   }
   const pad = compact
-    ? { l: 44, r: 6, t: 4, b: 16 }
-    : { l: 50, r: 10, t: 4, b: 18 };
+    ? { l: 44, r: 6, t: 4, b: 20 }
+    : { l: 50, r: 10, t: 4, b: 22 };
   const cloudPoints = intraday?.cloud_coverage_pct;
   const secondarySeries =
     cloudPoints?.length >= 2
@@ -1051,11 +1063,12 @@ function renderForecastAccuracyChartHtml(intraday, range, { compact = false } = 
         }
       : null;
   if (secondarySeries) {
-    pad.t = compact ? 10 : 14;
-    pad.r = compact ? 30 : 36;
+    pad.t = compact ? 12 : 14;
+    pad.r = compact ? 32 : 36;
+    pad.b = compact ? 24 : 26;
   }
-  const chartHeight = compact ? 164 : 176;
-  const height = secondarySeries ? chartHeight + 8 : chartHeight;
+  const chartHeight = compact ? 168 : 180;
+  const height = secondarySeries ? chartHeight + (compact ? 10 : 8) : chartHeight;
   return `<div class="forecast-accuracy-chart-wrap${secondarySeries ? " forecast-accuracy-chart-wrap--cloud" : ""}">${forecastAccuracyPlotSvg(powerSeries, range, {
     height,
     pad,
@@ -5790,7 +5803,12 @@ const STYLES = `
 .forecast-accuracy-card--compact .forecast-accuracy-empty { padding: 8px 6px; }
 .forecast-accuracy-chart-wrap { width: 100%; margin: 0; }
 .forecast-accuracy-chart-wrap--cloud { margin-top: 6px; }
-.forecast-accuracy-chart-wrap--cloud .forecast-accuracy-plot-head { margin-bottom: 4px; }
+.forecast-accuracy-chart-wrap--cloud .forecast-accuracy-plot-head { margin-bottom: 6px; }
+.forecast-accuracy-plot-head--stacked {
+  flex-direction: column; align-items: flex-start; gap: 5px; margin-bottom: 6px;
+}
+.forecast-accuracy-plot-head--stacked .forecast-accuracy-legend { width: 100%; }
+.forecast-accuracy-plot--cloud .forecast-accuracy-chart-svg { margin-top: 2px; }
 .forecast-accuracy-plot { width: 100%; line-height: 0; }
 .forecast-accuracy-plot-head {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px;
