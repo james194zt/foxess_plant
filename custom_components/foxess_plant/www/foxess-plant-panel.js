@@ -24,6 +24,7 @@ const SETTINGS_NAV = [
   { id: "pv", label: "PV" },
   { id: "solcast", label: "Solcast" },
   { id: "tariff", label: "Tariff" },
+  { id: "smart", label: "Smart charge" },
   { id: "storm", label: "StormSafe" },
   { id: "control", label: "Control" },
 ];
@@ -169,7 +170,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.138";
+const PANEL_VERSION = "0.9.139";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -7528,6 +7529,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._tariffDraft = null;
     this._octopusDraft = null;
     this._octopusPickerMountGen = 0;
+    this._smartChargeDraft = null;
     this._tariffPickerMountGen = 0;
     this._headerHasSubTabs = undefined;
     this._renderRaf = 0;
@@ -7762,6 +7764,7 @@ Reloading panel registration…
       if (this._settingsView !== "workmode") this._workModeDraft = null;
       if (this._settingsView !== "storm") this._stormDraft = null;
       if (this._settingsView !== "tariff") this._tariffDraft = null;
+      if (this._settingsView !== "smart") this._smartChargeDraft = null;
       if (
         this._settingsView === "solcast" &&
         this._solcastDraft &&
@@ -8044,6 +8047,57 @@ Reloading panel registration…
     this._workModeDraft =
       this._plantState?.settings?.work_mode ??
       stateString(this._hass, this._getPlant()?.entity_map?.work_mode);
+  }
+
+  _initSmartChargeDraft() {
+    const sc = this._plantState?.smart_charge ?? {};
+    const periods = JSON.parse(JSON.stringify(sc.charge_periods ?? DEFAULT_PERIODS)).slice(0, 2);
+    while (periods.length < 2) periods.push({ ...DEFAULT_PERIODS[0] });
+    this._smartChargeDraft = {
+      enabled: Boolean(sc.enabled),
+      target_soc: sc.target_soc ?? 100,
+      target_max_soc: sc.target_max_soc ?? null,
+      min_deficit_kwh: sc.min_deficit_kwh ?? 0.5,
+      solar_safety_margin: sc.solar_safety_margin ?? 1.15,
+      round_trip_efficiency: sc.round_trip_efficiency ?? 0.9,
+      min_arbitrage_p_per_kwh: sc.min_arbitrage_p_per_kwh ?? 0.5,
+      charge_periods: periods,
+    };
+  }
+
+  _enterSmartChargeSettings() {
+    this._initSmartChargeDraft();
+  }
+
+  async _saveSmartChargeSettings() {
+    const plant = this._getPlant();
+    if (!plant || !this._smartChargeDraft) return;
+    this._busy = true;
+    this._render();
+    try {
+      const d = this._smartChargeDraft;
+      const target = d.target_max_soc;
+      const state = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/update_smart_charge",
+        plant_id: plant.entry_id,
+        enabled: Boolean(d.enabled),
+        target_soc: Number(d.target_soc) || 100,
+        target_max_soc: target == null || target === "" ? null : Number(target),
+        min_deficit_kwh: Number(d.min_deficit_kwh) || 0.5,
+        solar_safety_margin: Number(d.solar_safety_margin) || 1.15,
+        round_trip_efficiency: Number(d.round_trip_efficiency) || 0.9,
+        min_arbitrage_p_per_kwh: Number(d.min_arbitrage_p_per_kwh) || 0.5,
+        charge_periods: d.charge_periods,
+      });
+      if (state) this._plantState = state;
+      this._initSmartChargeDraft();
+      this._showToast("Smart charge settings saved");
+    } catch (err) {
+      this._showToast(err?.message || "Save failed", "err");
+    } finally {
+      this._busy = false;
+      this._render();
+    }
   }
 
   _initStormDraft() {
@@ -8854,6 +8908,7 @@ Reloading panel registration…
         this._tariffDraft = null;
         this._tariffPickerMountGen += 1;
       }
+      if (btn.dataset.sub !== "smart") this._smartChargeDraft = null;
       this._settingsView = btn.dataset.sub;
       if (btn.dataset.sub === "schedules") this._initChargeDraft();
       if (btn.dataset.sub === "quick") this._initSocDraft();
@@ -8862,6 +8917,7 @@ Reloading panel registration…
       if (btn.dataset.sub === "pv") this._enterPvSettings();
       if (btn.dataset.sub === "solcast") this._enterSolcastSettings();
       if (btn.dataset.sub === "tariff") this._enterTariffSettings();
+      if (btn.dataset.sub === "smart") this._enterSmartChargeSettings();
       this._render();
       return;
     }
@@ -8872,6 +8928,7 @@ Reloading panel registration…
         this._tariffDraft = null;
         this._tariffPickerMountGen += 1;
       }
+      if (btn.dataset.sub !== "smart") this._smartChargeDraft = null;
       this._settingsView = btn.dataset.sub;
       if (btn.dataset.sub === "schedules") this._initChargeDraft();
       if (btn.dataset.sub === "quick") this._initSocDraft();
@@ -8880,6 +8937,7 @@ Reloading panel registration…
       if (btn.dataset.sub === "pv") this._enterPvSettings();
       if (btn.dataset.sub === "solcast") this._enterSolcastSettings();
       if (btn.dataset.sub === "tariff") this._enterTariffSettings();
+      if (btn.dataset.sub === "smart") this._enterSmartChargeSettings();
       this._render();
       return;
     }
@@ -9000,6 +9058,10 @@ Reloading panel registration…
       await this._runPlantService("disarm_storm_prep");
       return;
     }
+    if (action === "save-smart-charge") {
+      await this._saveSmartChargeSettings();
+      return;
+    }
     if (action === "save-storm-prep") {
       await this._saveStormPrep();
       return;
@@ -9069,6 +9131,13 @@ Reloading panel registration…
         }
         if (parts[1] === "fetch_pv_forecast") {
           this._solcastDraft.fetch_pv_forecast = el.checked;
+          this._scheduleRender();
+          return;
+        }
+      }
+      if (parts[0] === "smart-charge" && this._smartChargeDraft) {
+        if (parts[1] === "enabled") {
+          this._smartChargeDraft.enabled = el.checked;
           this._scheduleRender();
           return;
         }
@@ -9219,6 +9288,16 @@ Reloading panel registration…
     if (!el?.dataset?.field) return;
     const parts = el.dataset.field.split(":");
     const kind = parts[0];
+    if (kind === "smart-period" && this._smartChargeDraft) {
+      const i = parseInt(parts[1], 10);
+      const field = parts[2];
+      if (el.type === "checkbox") {
+        this._smartChargeDraft.charge_periods[i][field] = el.checked;
+      } else {
+        this._smartChargeDraft.charge_periods[i][field] = el.value;
+      }
+      return;
+    }
     if (kind === "storm-period" && this._stormDraft) {
       const i = parseInt(parts[1], 10);
       const field = parts[2];
@@ -9243,6 +9322,39 @@ Reloading panel registration…
       this._stormDraft.use_forecast_lead = el.checked;
       this._scheduleRender();
       return;
+    }
+    if (kind === "smart-charge" && this._smartChargeDraft) {
+      const field = parts[1];
+      if (field === "enabled") {
+        this._smartChargeDraft.enabled = el.checked;
+        this._scheduleRender();
+        return;
+      }
+      if (field === "target_soc") {
+        this._smartChargeDraft.target_soc = Math.max(10, Math.min(100, parseFloat(el.value) || 100));
+        return;
+      }
+      if (field === "target_max_soc") {
+        const raw = String(el.value).trim();
+        this._smartChargeDraft.target_max_soc = raw === "" ? null : Math.max(10, Math.min(100, parseFloat(raw) || 100));
+        return;
+      }
+      if (field === "min_deficit_kwh") {
+        this._smartChargeDraft.min_deficit_kwh = Math.max(0, parseFloat(el.value) || 0.5);
+        return;
+      }
+      if (field === "solar_safety_margin") {
+        this._smartChargeDraft.solar_safety_margin = Math.max(1, Math.min(3, parseFloat(el.value) || 1.15));
+        return;
+      }
+      if (field === "round_trip_efficiency") {
+        this._smartChargeDraft.round_trip_efficiency = Math.max(0.5, Math.min(1, parseFloat(el.value) || 0.9));
+        return;
+      }
+      if (field === "min_arbitrage_p_per_kwh") {
+        this._smartChargeDraft.min_arbitrage_p_per_kwh = Math.max(0, parseFloat(el.value) || 0.5);
+        return;
+      }
     }
     if (kind === "octopus" && this._octopusDraft) {
       const field = parts[1];
@@ -11651,6 +11763,14 @@ ${note}${via}
     return `${(storm.trigger_entities ?? []).length} trigger(s)`;
   }
 
+  _smartChargeSettingsSubtitle() {
+    const sc = this._plantState?.smart_charge ?? {};
+    if (!sc.enabled) return "Off";
+    const decision = sc.decision?.reason;
+    if (sc.armed) return decision ? `Armed — ${decision}` : "Armed";
+    return decision || "Enabled";
+  }
+
   _settingsMainSubtitles() {
     const s = this._plantState?.settings ?? {};
     return {
@@ -11659,6 +11779,7 @@ ${note}${via}
       pv: pvConfigSummary(this._plantState?.pv_config),
       solcast: this._solcastSettingsSubtitle(),
       tariff: tariffSettingsSummary(this._plantState?.tariff),
+      smart: this._smartChargeSettingsSubtitle(),
       storm: this._settingsStormSubtitle(),
       control: this._plantState?.control_active ? "Fox Plant manages periods" : "Released to manual",
     };
@@ -11693,6 +11814,7 @@ ${renderListButton({ action: "settings-sub", sub: "workmode" }, "Work mode", sub
 ${renderListButton({ action: "settings-sub", sub: "pv" }, "PV Configuration", subs.pv)}
 ${renderListButton({ action: "settings-sub", sub: "solcast" }, "Solcast", subs.solcast)}
 ${renderListButton({ action: "settings-sub", sub: "tariff" }, "Tariff", subs.tariff)}
+${renderListButton({ action: "settings-sub", sub: "smart" }, "Smart charge", subs.smart)}
 ${renderListButton({ action: "settings-sub", sub: "storm" }, "StormSafe", subs.storm)}
 ${renderListButton({ action: "settings-sub", sub: "control" }, "Plant control", subs.control)}
 </div></div>`;
@@ -11745,6 +11867,62 @@ ${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">
       })
       .join("")}</div>
 <div class="btn-row" style="margin-top:16px"><button type="button" class="btn btn-primary" data-action="save-work-mode" ${this._busy ? "disabled" : ""}>Apply work mode</button></div>`;
+  }
+
+  _renderSettingsSmartCharge() {
+    if (!this._smartChargeDraft) this._initSmartChargeDraft();
+    const draft = this._smartChargeDraft;
+    const live = this._plantState?.smart_charge ?? {};
+    const decision = live.decision ?? {};
+    const armed = Boolean(live.armed);
+    const statusLine = decision.reason
+      ? `${armed ? "Armed" : "Idle"} — ${decision.reason}`
+      : armed
+        ? "Armed"
+        : "Waiting for first evaluation";
+    const metrics = [];
+    if (decision.deficit_kwh != null) metrics.push(`Deficit ${Number(decision.deficit_kwh).toFixed(1)} kWh`);
+    if (decision.forecast_kwh != null) metrics.push(`Solar forecast ${Number(decision.forecast_kwh).toFixed(1)} kWh`);
+    if (decision.windows?.length) {
+      const w = decision.windows[0];
+      metrics.push(`Window ${w.start}-${w.end} @ ${Number(w.import_p_per_kwh).toFixed(2)}p/kWh`);
+    }
+    return `<header class="header"><h1>Smart charge</h1><p>Combines Solcast PV forecast with Octopus or schedule tariffs to grid-charge when solar is insufficient, or during negative Agile import windows.</p></header>
+<div class="card">
+<p class="card-title">Automation</p>
+<div class="toggle-row"><span><strong>Enable smart charge</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Requires Fox Plant control, Solcast PV forecast, and tariff rates</span></span>
+<input type="checkbox" data-field="smart-charge:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+<div class="field"><label>Target battery SOC (%)</label>
+<input type="number" min="10" max="100" step="1" data-field="smart-charge:target_soc" value="${esc(String(draft.target_soc ?? 100))}" ${this._busy ? "disabled" : ""}>
+</div>
+<div class="field"><label>Max SOC when charging (optional)</label>
+<input type="number" min="10" max="100" step="1" data-field="smart-charge:target_max_soc" value="${draft.target_max_soc != null ? esc(String(draft.target_max_soc)) : ""}" placeholder="Same as target" ${this._busy ? "disabled" : ""}>
+</div>
+<div class="field"><label>Solar safety margin</label>
+<input type="number" min="1" max="3" step="0.05" data-field="smart-charge:solar_safety_margin" value="${esc(String(draft.solar_safety_margin ?? 1.15))}" ${this._busy ? "disabled" : ""}>
+<p class="field-hint">Require forecast × margin before skipping grid charge (e.g. 1.15 = 15% headroom).</p>
+</div>
+<div class="field"><label>Minimum deficit (kWh)</label>
+<input type="number" min="0" max="50" step="0.1" data-field="smart-charge:min_deficit_kwh" value="${esc(String(draft.min_deficit_kwh ?? 0.5))}" ${this._busy ? "disabled" : ""}>
+</div>
+<div class="field"><label>Round-trip efficiency</label>
+<input type="number" min="0.5" max="1" step="0.01" data-field="smart-charge:round_trip_efficiency" value="${esc(String(draft.round_trip_efficiency ?? 0.9))}" ${this._busy ? "disabled" : ""}>
+</div>
+<div class="field"><label>Min arbitrage profit (p/kWh)</label>
+<input type="number" min="0" max="50" step="0.1" data-field="smart-charge:min_arbitrage_p_per_kwh" value="${esc(String(draft.min_arbitrage_p_per_kwh ?? 0.5))}" ${this._busy ? "disabled" : ""}>
+<p class="field-hint">For negative import rates — charge only when export later beats this threshold after losses.</p>
+</div>
+<p class="card-title" style="margin-top:16px">Charge period template</p>
+<p class="field-hint">Start/end times are chosen automatically each evaluation — these flags apply to the programmed window.</p>
+${this._renderPeriodCard(0, draft.charge_periods[0], "smart-period", "Charge template")}
+${this._renderPeriodCard(1, draft.charge_periods[1], "smart-period", "Reserve period")}
+<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-smart-charge" ${this._busy ? "disabled" : ""}>Save smart charge</button></div>
+</div>
+<div class="card">
+<p class="card-title">Status</p>
+<p style="margin:0 0 8px;font-size:14px">${esc(statusLine)}</p>
+${metrics.length ? `<p class="field-hint" style="margin:0">${esc(metrics.join(" · "))}</p>` : ""}
+</div>`;
   }
 
   _renderSettingsStorm() {
@@ -12310,6 +12488,8 @@ ${active
         return this._renderSettingsPv();
       case "tariff":
         return this._renderSettingsTariff();
+      case "smart":
+        return this._renderSettingsSmartCharge();
       case "solcast":
         return this._renderSettingsSolcast();
       case "storm":

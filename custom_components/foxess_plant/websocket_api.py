@@ -31,7 +31,7 @@ WS_TYPE_UPDATE_PV_CONFIG = "foxess_plant/update_pv_config"
 WS_TYPE_UPDATE_OCTOPUS = "foxess_plant/update_octopus"
 WS_TYPE_TEST_OCTOPUS = "foxess_plant/test_octopus"
 WS_TYPE_FETCH_OCTOPUS = "foxess_plant/fetch_octopus"
-WS_TYPE_APPLY_OCTOPUS_SCHEDULE = "foxess_plant/apply_octopus_schedule"
+WS_TYPE_UPDATE_SMART_CHARGE = "foxess_plant/update_smart_charge"
 WS_TYPE_TARIFF_ENTITY_CANDIDATES = "foxess_plant/tariff_entity_candidates"
 WS_TYPE_UPDATE_SOLCAST = "foxess_plant/update_solcast"
 WS_TYPE_TEST_SOLCAST = "foxess_plant/test_solcast"
@@ -595,6 +595,54 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
 
     @websocket_api.websocket_command(
         {
+            vol.Required("type"): WS_TYPE_UPDATE_SMART_CHARGE,
+            vol.Optional("plant_id"): str,
+            vol.Required("enabled"): cv.boolean,
+            vol.Optional("target_soc", default=100.0): vol.All(vol.Coerce(float), vol.Range(min=10, max=100)),
+            vol.Optional("target_max_soc"): vol.Any(vol.Coerce(float), None),
+            vol.Optional("min_deficit_kwh", default=0.5): vol.All(vol.Coerce(float), vol.Range(min=0, max=50)),
+            vol.Optional("solar_safety_margin", default=1.15): vol.All(
+                vol.Coerce(float), vol.Range(min=1.0, max=3.0)
+            ),
+            vol.Optional("round_trip_efficiency", default=0.9): vol.All(
+                vol.Coerce(float), vol.Range(min=0.5, max=1.0)
+            ),
+            vol.Optional("min_arbitrage_p_per_kwh", default=0.5): vol.All(
+                vol.Coerce(float), vol.Range(min=0, max=50)
+            ),
+            vol.Required("charge_periods"): [PERIOD_SCHEMA],
+        }
+    )
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def ws_update_smart_charge(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        payload = {
+            key: msg[key]
+            for key in (
+                "enabled",
+                "target_soc",
+                "target_max_soc",
+                "min_deficit_kwh",
+                "solar_safety_margin",
+                "round_trip_efficiency",
+                "min_arbitrage_p_per_kwh",
+                "charge_periods",
+            )
+            if key in msg
+        }
+        await coordinator.async_save_smart_charge(smart_charge=payload)
+        connection.send_result(msg["id"], coordinator.get_plant_state())
+
+    @websocket_api.websocket_command(
+        {
             vol.Required("type"): WS_TYPE_UPDATE_SOLCAST,
             vol.Optional("plant_id"): str,
             vol.Required("solcast"): SOLCAST_SCHEMA,
@@ -877,6 +925,7 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_test_octopus)
     websocket_api.async_register_command(hass, ws_fetch_octopus)
     websocket_api.async_register_command(hass, ws_apply_octopus_schedule)
+    websocket_api.async_register_command(hass, ws_update_smart_charge)
     websocket_api.async_register_command(hass, ws_update_solcast)
     websocket_api.async_register_command(hass, ws_test_solcast)
     websocket_api.async_register_command(hass, ws_fetch_history)

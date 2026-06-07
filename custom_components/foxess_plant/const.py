@@ -14,6 +14,7 @@ CONF_OVERRIDE = "override"
 CONF_STORM_PREP = "storm_prep"
 CONF_OUTAGE_PREP = "outage_prep"
 CONF_FORECAST_PREP = "forecast_prep"
+CONF_SMART_CHARGE = "smart_charge"
 CONF_PANEL_DISPLAY = "panel_display"
 CONF_PV_CONFIG = "pv_config"
 CONF_SOLCAST = "solcast"
@@ -170,6 +171,7 @@ MODE_STORM = "storm"
 MODE_OUTAGE = "outage"
 MODE_TARIFF = "tariff"
 MODE_FORECAST = "forecast"
+MODE_SMART_CHARGE = "smart_charge"
 MODE_MANUAL = "manual"
 
 EVENT_PERIOD_APPLIED = f"{DOMAIN}_period_applied"
@@ -182,6 +184,8 @@ EVENT_OUTAGE_ARMED = f"{DOMAIN}_outage_armed"
 EVENT_OUTAGE_DISARMED = f"{DOMAIN}_outage_disarmed"
 EVENT_FORECAST_ARMED = f"{DOMAIN}_forecast_armed"
 EVENT_FORECAST_DISARMED = f"{DOMAIN}_forecast_disarmed"
+EVENT_SMART_CHARGE_ARMED = f"{DOMAIN}_smart_charge_armed"
+EVENT_SMART_CHARGE_DISARMED = f"{DOMAIN}_smart_charge_disarmed"
 EVENT_TARIFF_APPLIED = f"{DOMAIN}_tariff_applied"
 EVENT_BASELINE_RESTORED = f"{DOMAIN}_baseline_restored"
 
@@ -214,7 +218,7 @@ DEFAULT_OVERRIDE = {
     "saved_max_soc": None,
 }
 
-AUTOMATION_MODES = frozenset({MODE_STORM, MODE_OUTAGE, MODE_FORECAST})
+AUTOMATION_MODES = frozenset({MODE_STORM, MODE_OUTAGE, MODE_FORECAST, MODE_SMART_CHARGE})
 
 GOOGLE_WEATHER_DOMAIN = "google_weather"
 STORM_ALERT_PROVIDER_GOOGLE = "google_weather"
@@ -325,6 +329,30 @@ DEFAULT_FORECAST_PREP = {
         },
     ],
     "target_max_soc": None,
+}
+
+DEFAULT_SMART_CHARGE = {
+    "enabled": False,
+    "target_soc": 100.0,
+    "target_max_soc": None,
+    "min_deficit_kwh": 0.5,
+    "solar_safety_margin": 1.15,
+    "round_trip_efficiency": 0.9,
+    "min_arbitrage_p_per_kwh": 0.5,
+    "charge_periods": [
+        {
+            "enable_force_charge": True,
+            "enable_charge_from_grid": True,
+            "start": "00:30",
+            "end": "05:00",
+        },
+        {
+            "enable_force_charge": False,
+            "enable_charge_from_grid": False,
+            "start": "00:00",
+            "end": "00:00",
+        },
+    ],
 }
 
 DEFAULT_PANEL_DISPLAY = {

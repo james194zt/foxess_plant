@@ -31,6 +31,7 @@ from .const import (
     AUTOMATION_MODES,
     CONF_PANEL_DISPLAY,
     CONF_PV_CONFIG,
+    CONF_SMART_CHARGE,
     CONF_SOLCAST,
     CONF_STORM_PREP,
     CONF_TARIFF,
@@ -40,6 +41,8 @@ from .const import (
     EVENT_EXTERNAL_WRITE,
     EVENT_FORECAST_ARMED,
     EVENT_FORECAST_DISARMED,
+    EVENT_SMART_CHARGE_ARMED,
+    EVENT_SMART_CHARGE_DISARMED,
     EVENT_OUTAGE_ARMED,
     EVENT_OUTAGE_DISARMED,
     EVENT_PERIOD_APPLIED,
@@ -49,6 +52,7 @@ from .const import (
     EVENT_TARIFF_APPLIED,
     MODE_FORECAST,
     MODE_OUTAGE,
+    MODE_SMART_CHARGE,
     MODE_STORM,
     MODE_TARIFF,
     TRIGGER_ON_STATES,
@@ -88,6 +92,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._active_storm_triggers = set()
         self._active_outage_triggers = set()
         self._forecast_armed = False
+        self._smart_charge_armed = False
+        self._smart_charge_decision: dict[str, Any] = {}
         self._storm_forecast_active = False
         self._storm_forecast_detail = {}
         self._solcast_cache: dict[str, Any] = {}
@@ -99,6 +105,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._tariff_rate_sensors: dict[str, Any] = {}
         self._unsub_tariff_schedule: callable | None = None
         self._unsub_octopus: callable | None = None
+        self._unsub_smart_charge: callable | None = None
         self._last_tariff_sensor_rates: dict[str, float] = {}
         self._octopus_cache: dict[str, Any] = {}
         super().__init__(
@@ -338,6 +345,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._setup_octopus_timer()
         if self._octopus_agile_active():
             await self.async_update_tariff_sensors(record_history=True)
+        try:
+            await self._evaluate_smart_charge()
+        except Exception as err:
+            _LOGGER.warning("Smart charge evaluation failed: %s", err)
         await self.async_request_refresh()
 
     @callback
@@ -347,6 +358,35 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_tariff_schedule_tick(self) -> None:
         await self.async_update_tariff_sensors(record_history=True)
         self._setup_tariff_schedule_timer()
+        try:
+            await self._evaluate_smart_charge()
+        except Exception as err:
+            _LOGGER.warning("Smart charge evaluation failed: %s", err)
+        await self.async_request_refresh()
+
+    def _setup_smart_charge_timer(self) -> None:
+        if self._unsub_smart_charge:
+            self._unsub_smart_charge()
+            self._unsub_smart_charge = None
+        if not self.plant.smart_charge.enabled:
+            return
+        from .octopus_tariff import next_octopus_poll_boundary
+
+        when = next_octopus_poll_boundary(agile=True)
+        self._unsub_smart_charge = async_track_point_in_time(
+            self.hass, self._smart_charge_timer_callback, when
+        )
+
+    @callback
+    def _smart_charge_timer_callback(self, _now) -> None:
+        self.hass.async_create_task(self._async_smart_charge_tick())
+
+    async def _async_smart_charge_tick(self) -> None:
+        try:
+            await self._evaluate_smart_charge()
+        except Exception as err:
+            _LOGGER.warning("Smart charge evaluation failed: %s", err)
+        self._setup_smart_charge_timer()
         await self.async_request_refresh()
 
     async def _rebuild_solcast_forecast_chart(self) -> None:
@@ -396,6 +436,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._setup_solcast_timer()
         self._setup_tariff_schedule_timer()
         self._setup_octopus_timer()
+        self._setup_smart_charge_timer()
         try:
             await self._async_refresh_storm_weather()
             await self._async_refresh_solcast_pv()
@@ -641,6 +682,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             return
 
+        if self._smart_charge_armed:
+            return
+
         if self._forecast_armed:
             return
 
@@ -650,8 +694,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 MODE_STORM: EVENT_STORM_DISARMED,
                 MODE_OUTAGE: EVENT_OUTAGE_DISARMED,
                 MODE_FORECAST: EVENT_FORECAST_DISARMED,
-            }[mode]
-            await self._disarm_policy(mode, event)
+                MODE_SMART_CHARGE: EVENT_SMART_CHARGE_DISARMED,
+            }.get(mode)
+            if event:
+                await self._disarm_policy(mode, event)
 
     async def _arm_policy(
         self,
@@ -687,6 +733,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         if self.plant.storm_prep.enabled and self._active_storm_triggers:
             return
+        if self._smart_charge_armed:
+            return
 
         state = self.hass.states.get(cfg.forecast_entity)
         if state is None or state.state in ("unknown", "unavailable"):
@@ -713,6 +761,89 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._forecast_armed = False
             if self.plant.override.active and self.plant.override.mode == MODE_FORECAST:
                 await self._disarm_policy(MODE_FORECAST, EVENT_FORECAST_DISARMED)
+
+    async def _evaluate_smart_charge(self) -> None:
+        from .smart_charge import (
+            evaluate_smart_charge,
+            rate_slots_from_octopus,
+            rate_slots_from_schedule,
+        )
+
+        cfg = self.plant.smart_charge
+        if not cfg.enabled or not self.plant.control_active:
+            return
+        if self.plant.outage_prep.enabled and self._active_outage_triggers:
+            return
+        if self.plant.storm_prep.enabled and self._active_storm_triggers:
+            return
+
+        forecast_rows = self._solcast_detailed_forecast_rows()
+        if not forecast_rows and self._solcast_cache.get("detailed_forecast"):
+            raw = self._solcast_cache.get("detailed_forecast")
+            forecast_rows = raw if isinstance(raw, list) else []
+
+        if self._octopus_agile_active():
+            import_slots = rate_slots_from_octopus(
+                self._octopus_cache.get("import_rates") or [],
+                self._octopus_cache.get("export_rates") or [],
+            )
+            export_slots = import_slots
+        elif self._octopus_cache.get("import_rates"):
+            import_slots = rate_slots_from_octopus(
+                self._octopus_cache.get("import_rates") or [],
+                self._octopus_cache.get("export_rates") or [],
+            )
+            export_slots = import_slots
+        else:
+            import_slots = rate_slots_from_schedule(self.plant.tariff)
+            export_slots = import_slots
+
+        soc_pct = self._entity_float("battery_soc")
+        capacity_kwh = self._entity_float("bms_kwh_nominal")
+        kwh_remaining = self._entity_float("battery_kwh_remaining")
+        if capacity_kwh is None or capacity_kwh <= 0:
+            cap_from_soc = None
+            if soc_pct and soc_pct > 0 and kwh_remaining is not None:
+                cap_from_soc = kwh_remaining * 100.0 / soc_pct
+            capacity_kwh = cap_from_soc
+
+        decision = evaluate_smart_charge(
+            config=cfg,
+            soc_pct=soc_pct,
+            capacity_kwh=capacity_kwh,
+            kwh_remaining=kwh_remaining,
+            forecast_rows=forecast_rows,
+            import_slots=import_slots,
+            export_slots=export_slots,
+        )
+        self._smart_charge_decision = decision.to_dict()
+
+        should_arm = decision.action in ("grid_charge", "arbitrage") and decision.charge_periods
+        if should_arm and not self._smart_charge_armed:
+            self._smart_charge_armed = True
+            if self.plant.override.active and self.plant.override.mode not in AUTOMATION_MODES:
+                return
+            await self._arm_policy(
+                MODE_SMART_CHARGE,
+                decision.charge_periods,
+                f"smart_charge:{decision.action}",
+                decision.target_max_soc,
+                EVENT_SMART_CHARGE_ARMED,
+            )
+        elif not should_arm and self._smart_charge_armed:
+            self._smart_charge_armed = False
+            if self.plant.override.active and self.plant.override.mode == MODE_SMART_CHARGE:
+                await self._disarm_policy(MODE_SMART_CHARGE, EVENT_SMART_CHARGE_DISARMED)
+        elif should_arm and self._smart_charge_armed:
+            if self.plant.override.active and self.plant.override.mode == MODE_SMART_CHARGE:
+                if self.plant.override.reason != f"smart_charge:{decision.action}":
+                    await self._arm_policy(
+                        MODE_SMART_CHARGE,
+                        decision.charge_periods,
+                        f"smart_charge:{decision.action}",
+                        decision.target_max_soc,
+                        EVENT_SMART_CHARGE_ARMED,
+                    )
 
     async def _save_max_soc_if_needed(self, target: float | None) -> None:
         if target is None or self.plant.override.saved_max_soc is not None:
@@ -836,6 +967,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "active_storm_triggers": sorted(self._active_storm_triggers),
             "active_outage_triggers": sorted(self._active_outage_triggers),
             "forecast_armed": self._forecast_armed,
+            "smart_charge_armed": self._smart_charge_armed,
+            "smart_charge": {
+                **self.plant.smart_charge.to_dict(),
+                "armed": self._smart_charge_armed,
+                "decision": self._smart_charge_decision,
+            },
             "tariff_modes": sorted(self.plant.tariff_modes.keys()),
             "storm_prep": self._storm_prep_state(),
             "overview_weather": self._overview_weather_state(),
@@ -877,6 +1014,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_update_data(self) -> dict[str, Any]:
         await self.async_ensure_solcast_cache()
+        try:
+            await self._evaluate_smart_charge()
+        except Exception as err:
+            _LOGGER.warning("Smart charge evaluation failed: %s", err)
         try:
             await self._evaluate_forecast_prep()
         except Exception as err:
@@ -1114,6 +1255,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         saved = self.plant.override.saved_max_soc
         self.plant.override = OverrideState()
         self._forecast_armed = False
+        self._smart_charge_armed = False
         self._active_storm_triggers.clear()
         self._active_outage_triggers.clear()
         await self._persist()
@@ -1126,6 +1268,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._fire(EVENT_OUTAGE_DISARMED, {})
         elif mode == MODE_FORECAST:
             self._fire(EVENT_FORECAST_DISARMED, {})
+        elif mode == MODE_SMART_CHARGE:
+            self._fire(EVENT_SMART_CHARGE_DISARMED, {})
         self._fire(EVENT_BASELINE_RESTORED, {})
 
     async def async_arm_storm_prep(
@@ -1417,6 +1561,25 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.async_request_refresh()
         return self._tariff_state()
 
+    async def async_save_smart_charge(self, *, smart_charge: dict[str, Any]) -> None:
+        """Persist smart charge settings from the panel."""
+        from .const import DEFAULT_SMART_CHARGE
+        from .models import SmartChargeConfig
+
+        merged = {**self.plant.smart_charge.to_dict(), **smart_charge}
+        periods_raw = merged.get("charge_periods") or DEFAULT_SMART_CHARGE["charge_periods"]
+        cfg = SmartChargeConfig.from_dict(merged, periods_raw)
+        data = dict(self.config_entry.data)
+        data[CONF_SMART_CHARGE] = cfg.to_dict()
+        self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+        self.update_plant_config(PlantConfig.from_entry_data(data))
+        self._setup_smart_charge_timer()
+        try:
+            await self._evaluate_smart_charge()
+        except Exception as err:
+            _LOGGER.warning("Smart charge evaluation failed after save: %s", err)
+        await self.async_request_refresh()
+
     async def _async_refresh_octopus(self) -> None:
         from .octopus_api import OctopusApiClient, OctopusApiError
         from .octopus_tariff import fetch_octopus_tariff_snapshot, list_account_meters
@@ -1436,6 +1599,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 export_mpan=dyn.export_mpan,
             )
             self._octopus_cache = snapshot.to_cache_dict()
+            self._octopus_cache["import_rates"] = snapshot.import_rates
+            self._octopus_cache["export_rates"] = snapshot.export_rates
             try:
                 account = await client.get_account(str(dyn.account_number))
                 import_meters, export_meters = list_account_meters(account)
@@ -1615,3 +1780,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if getattr(self, "_unsub_octopus", None):
             self._unsub_octopus()
             self._unsub_octopus = None
+        if getattr(self, "_unsub_smart_charge", None):
+            self._unsub_smart_charge()
+            self._unsub_smart_charge = None

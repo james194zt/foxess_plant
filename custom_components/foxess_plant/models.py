@@ -240,6 +240,47 @@ class ForecastPrepConfig:
 
 
 @dataclass
+class SmartChargeConfig:
+    """Solcast + tariff aware grid charging."""
+
+    enabled: bool = False
+    target_soc: float = 100.0
+    target_max_soc: float | None = None
+    min_deficit_kwh: float = 0.5
+    solar_safety_margin: float = 1.15
+    round_trip_efficiency: float = 0.9
+    min_arbitrage_p_per_kwh: float = 0.5
+    charge_periods: list[ChargePeriodConfig] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any], default_periods: list[dict[str, Any]]) -> SmartChargeConfig:
+        periods_raw = data.get("charge_periods") or default_periods
+        target_max = data.get("target_max_soc")
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            target_soc=float(data.get("target_soc", 100.0) or 100.0),
+            target_max_soc=float(target_max) if target_max is not None else None,
+            min_deficit_kwh=float(data.get("min_deficit_kwh", 0.5) or 0.5),
+            solar_safety_margin=float(data.get("solar_safety_margin", 1.15) or 1.15),
+            round_trip_efficiency=float(data.get("round_trip_efficiency", 0.9) or 0.9),
+            min_arbitrage_p_per_kwh=float(data.get("min_arbitrage_p_per_kwh", 0.5) or 0.5),
+            charge_periods=[ChargePeriodConfig.from_dict(p) for p in periods_raw],
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "target_soc": round(self.target_soc, 1),
+            "target_max_soc": self.target_max_soc,
+            "min_deficit_kwh": round(self.min_deficit_kwh, 2),
+            "solar_safety_margin": round(self.solar_safety_margin, 2),
+            "round_trip_efficiency": round(self.round_trip_efficiency, 2),
+            "min_arbitrage_p_per_kwh": round(self.min_arbitrage_p_per_kwh, 2),
+            "charge_periods": [p.to_dict() for p in self.charge_periods],
+        }
+
+
+@dataclass
 class PanelDisplayConfig:
     """Fox Plant panel display options (charts, etc.)."""
 
@@ -715,6 +756,7 @@ class PlantConfig:
     storm_prep: PrepPolicyConfig = field(default_factory=PrepPolicyConfig)
     outage_prep: PrepPolicyConfig = field(default_factory=PrepPolicyConfig)
     forecast_prep: ForecastPrepConfig = field(default_factory=ForecastPrepConfig)
+    smart_charge: SmartChargeConfig = field(default_factory=SmartChargeConfig)
     panel_display: PanelDisplayConfig = field(default_factory=PanelDisplayConfig)
     pv_config: PvSystemConfig = field(default_factory=PvSystemConfig)
     solcast: SolcastConfig = field(default_factory=SolcastConfig)
@@ -729,6 +771,7 @@ class PlantConfig:
             DEFAULT_OUTAGE_PREP,
             DEFAULT_PANEL_DISPLAY,
             DEFAULT_PV_CONFIG,
+            DEFAULT_SMART_CHARGE,
             DEFAULT_SOLCAST,
             DEFAULT_STORM_PREP,
             DEFAULT_TARIFF,
@@ -754,6 +797,9 @@ class PlantConfig:
             forecast_prep=ForecastPrepConfig.from_dict(
                 data.get("forecast_prep", {}), DEFAULT_FORECAST_PREP["charge_periods"]
             ),
+            smart_charge=SmartChargeConfig.from_dict(
+                data.get("smart_charge", {}), DEFAULT_SMART_CHARGE["charge_periods"]
+            ),
             panel_display=PanelDisplayConfig.from_dict(data.get("panel_display", DEFAULT_PANEL_DISPLAY)),
             pv_config=PvSystemConfig.from_dict(data.get("pv_config", DEFAULT_PV_CONFIG)),
             solcast=SolcastConfig.from_dict(data.get("solcast", DEFAULT_SOLCAST)),
@@ -773,6 +819,7 @@ class PlantConfig:
             "storm_prep": self.storm_prep.to_dict(),
             "outage_prep": self.outage_prep.to_dict(),
             "forecast_prep": self.forecast_prep.to_dict(),
+            "smart_charge": self.smart_charge.to_dict(),
             "panel_display": self.panel_display.to_dict(),
             "pv_config": self.pv_config.to_dict(),
             "solcast": self.solcast.to_dict(),

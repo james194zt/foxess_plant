@@ -28,6 +28,7 @@ async def async_setup_entry(
             FoxessPlantStormActiveBinary(coordinator, entry),
             FoxessPlantOutageActiveBinary(coordinator, entry),
             FoxessPlantForecastActiveBinary(coordinator, entry),
+            FoxessPlantSmartChargeActiveBinary(coordinator, entry),
         ]
     )
 
@@ -107,3 +108,13 @@ class FoxessPlantForecastActiveBinary(_PlantBinary):
     def is_on(self) -> bool:
         data = self.coordinator.data or {}
         return bool(data.get("forecast_armed"))
+
+
+class FoxessPlantSmartChargeActiveBinary(_PlantBinary):
+    def __init__(self, coordinator: FoxessPlantCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator, entry, "smart_charge_active", "smart charge active", "mdi:battery-charging")
+
+    @property
+    def is_on(self) -> bool:
+        data = self.coordinator.data or {}
+        return bool(data.get("smart_charge_armed"))
