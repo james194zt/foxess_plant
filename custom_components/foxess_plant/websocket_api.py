@@ -36,6 +36,7 @@ WS_TYPE_FETCH_HISTORY = "foxess_plant/fetch_history"
 WS_TYPE_FETCH_STATISTICS = "foxess_plant/fetch_statistics"
 WS_TYPE_SOLCAST_FORECAST_INTRADAY = "foxess_plant/solcast_forecast_intraday"
 WS_TYPE_SOLCAST_FORECAST_ACCURACY = "foxess_plant/solcast_forecast_accuracy"
+WS_TYPE_SOLCAST_STATISTICS_FORECAST = "foxess_plant/solcast_statistics_forecast"
 
 PERIOD_SCHEMA = vol.Schema(
     {
@@ -610,6 +611,46 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
 
     @websocket_api.websocket_command(
         {
+            vol.Required("type"): WS_TYPE_SOLCAST_STATISTICS_FORECAST,
+            vol.Required("plant_id"): str,
+        }
+    )
+    @websocket_api.async_response
+    async def ws_solcast_statistics_forecast(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        from .solcast_forecast_chart import build_statistics_forecast_overlay
+
+        stored = {}
+        if coordinator._solcast_store:
+            stored = await coordinator._solcast_store.async_load()
+        await coordinator.async_ensure_solcast_cache()
+        job = partial(
+            build_statistics_forecast_overlay,
+            hass,
+            stored,
+            coordinator._solcast_cache,
+        )
+        try:
+            points = await get_instance(hass).async_add_executor_job(job)
+        except Exception as err:
+            _LOGGER.exception("solcast_statistics_forecast failed")
+            connection.send_error(
+                msg["id"],
+                "statistics_forecast_failed",
+                str(err) or "Statistics forecast overlay failed",
+            )
+            return
+        connection.send_result(msg["id"], {"points": points})
+
+    @websocket_api.websocket_command(
+        {
             vol.Required("type"): WS_TYPE_SOLCAST_FORECAST_ACCURACY,
             vol.Required("plant_id"): str,
             vol.Optional("day"): str,
@@ -676,4 +717,5 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_fetch_statistics)
     websocket_api.async_register_command(hass, ws_solcast_forecast_intraday)
     websocket_api.async_register_command(hass, ws_solcast_forecast_accuracy)
+    websocket_api.async_register_command(hass, ws_solcast_statistics_forecast)
     hass.data["_foxess_plant_ws_registered"] = True

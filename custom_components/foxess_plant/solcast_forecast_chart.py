@@ -314,3 +314,59 @@ def build_forecast_intraday_chart(
         as_of_ms=now_ms,
         include_future=True,
     )
+
+
+def build_statistics_forecast_overlay(
+    hass: HomeAssistant,
+    stored: dict[str, Any] | None,
+    current_cache: dict[str, Any] | None,
+) -> list[dict[str, float]]:
+    """Statistics chart overlay: revision past + cached detailed forecast through end of day."""
+    now = dt_util.now()
+    day_start = dt_util.start_of_local_day(now)
+    day_start_ms = day_start.timestamp() * 1000
+    as_of_ms = now.timestamp() * 1000
+    t_max_ms = day_start_ms + 24 * 60 * 60 * 1000
+
+    snapshots = collect_storage_snapshots(stored, current_cache, day_start_ms)
+    past: list[dict[str, float]] = []
+    if snapshots:
+        past = build_forecast_intraday_chart_for_range(
+            snapshots=snapshots,
+            day_start_ms=day_start_ms,
+            as_of_ms=as_of_ms,
+            include_future=False,
+        )
+
+    detailed_rows = _detailed_rows(current_cache) if current_cache else []
+    if len(detailed_rows) < 2 and snapshots:
+        detailed_rows = snapshots[-1][1]
+
+    detailed_day: list[dict[str, float]] = []
+    if len(detailed_rows) >= 2:
+        slot = int(day_start_ms)
+        while slot <= t_max_ms:
+            when = _utc_from_timestamp(slot / 1000)
+            kw = _kw_at_or_after(detailed_rows, when)
+            if kw is not None:
+                detailed_day.append({"t": float(slot), "v": float(kw)})
+            slot += STATISTICS_PERIOD_MS
+
+    if not past and not detailed_day:
+        return []
+    if not past:
+        return detailed_day
+    if not detailed_day:
+        return past
+
+    merged: dict[float, float] = {}
+    for point in past:
+        t = float(point["t"])
+        if t <= as_of_ms:
+            merged[t] = float(point["v"])
+    grace_ms = float(STATISTICS_PERIOD_MS)
+    for point in detailed_day:
+        t = float(point["t"])
+        if t >= as_of_ms - grace_ms:
+            merged[t] = float(point["v"])
+    return [{"t": t, "v": v} for t, v in sorted(merged.items()) if day_start_ms <= t <= t_max_ms]
