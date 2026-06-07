@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from functools import partial
 from datetime import datetime as dt, timedelta
 from typing import Any
 
@@ -587,7 +588,7 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
         stored = {}
         if coordinator._solcast_store:
             stored = await coordinator._solcast_store.async_load()
-        points = await get_instance(hass).async_add_executor_job(
+        job = partial(
             build_forecast_intraday_chart_for_day,
             hass,
             stored,
@@ -595,6 +596,16 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             target_day,
             entry_id=coordinator.config_entry.entry_id,
         )
+        try:
+            points = await get_instance(hass).async_add_executor_job(job)
+        except Exception as err:
+            _LOGGER.exception("solcast_forecast_intraday failed for %s", target_day.isoformat())
+            connection.send_error(
+                msg["id"],
+                "forecast_intraday_failed",
+                str(err) or "Forecast intraday chart failed",
+            )
+            return
         connection.send_result(msg["id"], {"points": points, "day": target_day.isoformat()})
 
     @websocket_api.websocket_command(
@@ -627,16 +638,17 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
         stored = {}
         if coordinator._solcast_store:
             stored = await coordinator._solcast_store.async_load()
+        job = partial(
+            build_forecast_accuracy_report,
+            hass,
+            stored,
+            coordinator._solcast_cache,
+            coordinator.plant.entity_map,
+            target_day,
+            entry_id=coordinator.config_entry.entry_id,
+        )
         try:
-            report = await get_instance(hass).async_add_executor_job(
-                build_forecast_accuracy_report,
-                hass,
-                stored,
-                coordinator._solcast_cache,
-                coordinator.plant.entity_map,
-                target_day,
-                entry_id=coordinator.config_entry.entry_id,
-            )
+            report = await get_instance(hass).async_add_executor_job(job)
         except Exception as err:
             _LOGGER.exception("solcast_forecast_accuracy failed for %s", target_day.isoformat())
             connection.send_error(
