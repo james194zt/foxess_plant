@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.123
+ * @version 0.9.124
  */
 
 const NAV = [
@@ -694,16 +694,43 @@ function resolveSolcastDetailedForecast(plantState, hass) {
   return solcastDetailedForecastFromHass(hass, plantState);
 }
 
-function mergeStatisticsForecastSeries(series, range, plantState, hass, { dayOffset = 0, fallbackPoints = null } = {}) {
+function resolveBestIntradayPoints(primaryState, extraState, range) {
+  const nowMs = range?.nowMs ?? Date.now();
+  const candidates = [primaryState, extraState].filter(Boolean).map((st) => {
+    const rows = st?.solcast?.forecast_intraday_points;
+    if (!Array.isArray(rows) || rows.length < 2) return [];
+    return rows
+      .filter(
+        (p) =>
+          Number.isFinite(p.t) &&
+          Number.isFinite(p.v) &&
+          p.t >= range.tMin &&
+          p.t <= range.tMax
+      )
+      .sort((a, b) => a.t - b.t);
+  });
+  let best = [];
+  for (const pts of candidates) {
+    if (!pts.length) continue;
+    const futureBonus = forecastPointsHaveFuture(pts, nowMs) ? 1e6 : 0;
+    if (futureBonus + pts.length > (forecastPointsHaveFuture(best, nowMs) ? 1e6 : 0) + best.length) {
+      best = pts;
+    }
+  }
+  return best;
+}
+
+function mergeStatisticsForecastSeries(series, range, plantState, hass, { dayOffset = 0, fallbackPoints = null, forecastState = null } = {}) {
   if (!Array.isArray(series) || !range) return series;
   const without = series.filter((s) => s.id !== "forecast");
   if (dayOffset > 0) {
     const existing = series.find((s) => s.id === "forecast");
     return existing?.points?.length >= 2 ? series : without;
   }
-  let fPoints = buildForecastSeriesPoints(plantState, range, hass);
+  let fPoints = buildForecastSeriesPoints(plantState, range, hass, forecastState);
+  fPoints = ensureForecastFuturePoints(fPoints, plantState, range, hass, forecastState);
   if (fPoints.length < 2 && Array.isArray(fallbackPoints) && fallbackPoints.length >= 2) {
-    fPoints = fallbackPoints;
+    fPoints = ensureForecastFuturePoints(fallbackPoints, plantState, range, hass, forecastState);
   }
   if (fPoints.length < 2) {
     const existing = series.find((s) => s.id === "forecast");
@@ -1358,40 +1385,111 @@ function solcastIntradayForecastPoints(plantState, range) {
 }
 
 function mergeForecastPointsWithFuture(intradayPts, detailedPts, nowMs) {
-  const hasFuture = (pts) =>
-    Array.isArray(pts) && pts.some((p) => p.t > nowMs + STATISTICS_PERIOD_MS * 0.5);
   if (!Array.isArray(detailedPts) || detailedPts.length < 2) {
     return intradayPts?.length >= 2 ? intradayPts : [];
   }
   if (!Array.isArray(intradayPts) || intradayPts.length < 2) {
     return detailedPts;
   }
-  if (hasFuture(intradayPts)) return intradayPts;
+  if (forecastPointsHaveFuture(intradayPts, nowMs)) return intradayPts;
   const past = intradayPts.filter((p) => p.t <= nowMs);
   const futureFromCache = detailedPts.filter((p) => p.t >= nowMs - STATISTICS_PERIOD_MS);
   const merged = [...past];
   for (const p of futureFromCache) {
     if (!merged.length || p.t > merged[merged.length - 1].t) merged.push(p);
   }
-  if (merged.length >= 2 && hasFuture(merged)) return merged;
-  return hasFuture(detailedPts) ? detailedPts : merged.length >= 2 ? merged : detailedPts;
+  if (merged.length >= 2 && forecastPointsHaveFuture(merged, nowMs)) return merged;
+  return forecastPointsHaveFuture(detailedPts, nowMs)
+    ? detailedPts
+    : merged.length >= 2
+      ? merged
+      : detailedPts;
 }
 
-function nativeSolcastForecastPoints(plantState, range, hass) {
+/** PV forecast overlay from Fox Plant native Solcast state only (no third-party HA integration). */
+function resolveBestSolcastDetailedRows(primaryState, extraState, hass) {
+  const primary = resolveSolcastDetailedForecast(primaryState, hass);
+  const extra = extraState ? resolveSolcastDetailedForecast(extraState, hass) : [];
+  return primary.length >= extra.length ? primary : extra;
+}
+
+function detailedForecastFuturePoints(rows, range) {
+  if (!Array.isArray(rows) || rows.length < 2 || !range) return [];
+  const nowMs = range.nowMs ?? Date.now();
+  const raw = rows
+    .map((row) => {
+      const t = parseSolcastPeriodMs(row.period_end ?? row.period_start ?? row.period);
+      let v = Number(row.pv_estimate ?? row.pv_power_rooftop ?? row.power ?? row.pv_power);
+      if (!Number.isFinite(t) || !Number.isFinite(v)) return null;
+      if (Math.abs(v) > 50) v /= 1000;
+      return { t, v };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.t - b.t);
+  if (raw.length < 2) return [];
+
+  const origin = Math.max(range.tMin, nowMs - STATISTICS_PERIOD_MS);
+  const relevant = raw.filter((p) => p.t >= origin - 36e5 && p.t <= range.tMax);
+  if (relevant.length < 1) return [];
+
+  const beforeNow = raw.filter((p) => p.t < origin);
+  const series =
+    beforeNow.length && relevant[0]?.t > beforeNow[beforeNow.length - 1].t
+      ? [beforeNow[beforeNow.length - 1], ...relevant.filter((p) => p.t >= origin)]
+      : relevant.filter((p) => p.t >= origin);
+  if (series.length < 2) return [];
+
+  return interpolatePointsToPeriod(series, STATISTICS_PERIOD_MS, origin, range.tMax, {
+    allowBackfill: true,
+  });
+}
+
+function forecastPointsHaveFuture(pts, nowMs) {
+  return Array.isArray(pts) && pts.some((p) => p.t > nowMs + STATISTICS_PERIOD_MS * 0.5);
+}
+
+function ensureForecastFuturePoints(fPoints, plantState, range, hass, extraState) {
   const nowMs = range?.nowMs ?? Date.now();
-  const intraday = solcastIntradayForecastPoints(plantState, range);
-  if (intraday.length >= 2) {
-    const hasFuture = intraday.some((p) => p.t > nowMs + STATISTICS_PERIOD_MS * 0.5);
-    if (hasFuture) return intraday;
-    const detailed = detailedForecastToChartPoints(resolveSolcastDetailedForecast(plantState, hass), range);
-    if (detailed.length >= 2) {
-      const merged = mergeForecastPointsWithFuture(intraday, detailed, nowMs);
-      return merged.length >= 2 ? merged : intraday;
-    }
-    return intraday;
+  if (!Array.isArray(fPoints) || fPoints.length < 2 || forecastPointsHaveFuture(fPoints, nowMs)) {
+    return fPoints;
   }
-  const rows = resolveSolcastDetailedForecast(plantState, hass);
-  return detailedForecastToChartPoints(rows, range);
+  const extraIntraday = resolveBestIntradayPoints(plantState, extraState, range);
+  if (extraIntraday.length >= 2 && forecastPointsHaveFuture(extraIntraday, nowMs)) {
+    const merged = mergeForecastPointsWithFuture(fPoints, extraIntraday, nowMs);
+    if (forecastPointsHaveFuture(merged, nowMs)) return merged;
+  }
+  const rows = resolveBestSolcastDetailedRows(plantState, extraState, hass);
+  if (rows.length < 2) return fPoints;
+
+  const futurePts = detailedForecastFuturePoints(rows, range);
+  if (futurePts.length >= 2) {
+    const past = fPoints.filter((p) => p.t <= nowMs);
+    const merged = [...past];
+    for (const p of futurePts) {
+      if (!merged.length || p.t > merged[merged.length - 1].t) merged.push(p);
+    }
+    if (forecastPointsHaveFuture(merged, nowMs)) return merged;
+  }
+
+  const detailed = detailedForecastToChartPoints(rows, range);
+  const merged = mergeForecastPointsWithFuture(fPoints, detailed, nowMs);
+  return forecastPointsHaveFuture(merged, nowMs) ? merged : fPoints;
+}
+
+function nativeSolcastForecastPoints(plantState, range, hass, extraState) {
+  const detailedRows = resolveBestSolcastDetailedRows(plantState, extraState, hass);
+  const intraday = resolveBestIntradayPoints(plantState, extraState, range);
+  let base =
+    intraday.length >= 2 ? intraday : detailedForecastToChartPoints(detailedRows, range);
+  if (base.length < 2 && detailedRows.length >= 2) {
+    base = detailedForecastToChartPoints(detailedRows, range);
+  }
+  return ensureForecastFuturePoints(base, plantState, range, hass, extraState);
+}
+
+function buildForecastSeriesPoints(plantState, range, hass, extraState) {
+  if (!statisticsSolcastForecastEnabled(plantState, hass)) return [];
+  return nativeSolcastForecastPoints(plantState, range, hass, extraState);
 }
 
 function pvConfigSummary(pv) {
@@ -3792,12 +3890,6 @@ function interpolatePointsToPeriod(points, periodMs, originMs, endMs, { allowBac
   return out;
 }
 
-/** PV forecast overlay from Fox Plant native Solcast state only (no third-party HA integration). */
-function buildForecastSeriesPoints(plantState, range, hass) {
-  if (!statisticsSolcastForecastEnabled(plantState, hass)) return [];
-  return nativeSolcastForecastPoints(plantState, range, hass);
-}
-
 function clampSocPercent(v) {
   if (!Number.isFinite(v)) return null;
   return Math.min(100, Math.max(0, Number(v)));
@@ -4210,7 +4302,8 @@ async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset =
     }
   }
   if (dayOffset === 0) {
-    const fPoints = buildForecastSeriesPoints(forecastState, range, hass);
+    let fPoints = buildForecastSeriesPoints(forecastState, range, hass, forecastState);
+    fPoints = ensureForecastFuturePoints(fPoints, forecastState, range, hass, forecastState);
     if (fPoints.length) {
       series.push({
         id: "forecast",
@@ -7581,6 +7674,24 @@ Reloading panel registration…
   _pickStatisticsForecastState() {
     const live = this._plantState;
     const cached = this._statisticsChart?.forecastState;
+    const range = this._statisticsChart?.range;
+    const nowMs = range?.nowMs ?? Date.now();
+    const hasFuture = (state) => {
+      const pts = state?.solcast?.forecast_intraday_points;
+      return Array.isArray(pts) && pts.some((p) => p.t > nowMs + STATISTICS_PERIOD_MS * 0.5);
+    };
+    const score = (state) => {
+      if (!state?.solcast) return -1;
+      const detailed = resolveSolcastDetailedForecast(state, this._hass).length;
+      const intraday = state.solcast.forecast_intraday_points?.length ?? 0;
+      const futureBonus = hasFuture(state) ? 100000 : 0;
+      return futureBonus + detailed * 1000 + intraday;
+    };
+    const liveScore = score(live);
+    const cachedScore = score(cached);
+    if (liveScore >= 0 || cachedScore >= 0) {
+      return liveScore >= cachedScore ? live : cached;
+    }
     const liveIntraday = live?.solcast?.forecast_intraday_points;
     if (Array.isArray(liveIntraday) && liveIntraday.length >= 2) return live;
     const cachedIntraday = cached?.solcast?.forecast_intraday_points;
@@ -7634,6 +7745,7 @@ Reloading panel registration…
       {
         dayOffset: this._statisticsChart.dayOffset ?? 0,
         fallbackPoints: this._forecastFallbackPointsForStatistics(range),
+        forecastState: this._statisticsChart?.forecastState,
       }
     );
   }
