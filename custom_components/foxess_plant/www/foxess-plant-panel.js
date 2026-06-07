@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.107
+ * @version 0.9.108
  */
 
 const NAV = [
@@ -787,19 +787,19 @@ function forecastAccuracyRangeFromReport(report) {
   return { tMin, tMax, nowMs, dayStart };
 }
 
-function forecastAccuracyYDomain(values, { minZero = true, padRatio = 0.05 } = {}) {
+function forecastAccuracyYDomain(values, { minZero = true, padRatio = 0.04 } = {}) {
   const data = (values || []).filter((v) => Number.isFinite(Number(v))).map((v) => Number(v));
   if (!data.length) return { yMin: 0, yMax: 1 };
   let yMin = Math.min(...data);
   let yMax = Math.max(...data);
   if (yMax <= yMin) {
-    const bump = Math.max(Math.abs(yMax) * 0.1, 0.15);
+    const bump = Math.max(Math.abs(yMax) * 0.08, 0.12);
     yMin = minZero ? 0 : yMin - bump;
     yMax = yMax + bump;
   } else {
     const span = yMax - yMin;
-    const pad = Math.max(span * padRatio, span * 0.02, 0.08);
-    yMin = minZero ? Math.max(0, yMin - pad * 0.35) : yMin - pad;
+    const pad = Math.max(span * padRatio, 0.05);
+    yMin = minZero ? Math.max(0, yMin - pad * 0.2) : yMin - pad;
     yMax = yMax + pad;
   }
   return { yMin, yMax };
@@ -942,67 +942,20 @@ function renderForecastAccuracyChartHtml(intraday, range, { compact = false } = 
       points: intraday.latest_revision_power_kw,
     });
   }
-  const energySeries = [
-    {
-      id: "actual",
-      label: "Actual total",
-      color: FORECAST_ACCURACY_COLORS.actual,
-      points: intraday?.actual_cumulative,
-    },
-    {
-      id: "predicted",
-      label: "Forecast total",
-      color: FORECAST_ACCURACY_COLORS.predicted,
-      points: intraday?.predicted_cumulative,
-    },
-  ];
-  if (!compact && intraday?.first_revision_cumulative?.length >= 2) {
-    energySeries.push({
-      id: "first",
-      label: "First forecast total",
-      color: FORECAST_ACCURACY_COLORS.firstRevision,
-      dash: "4 4",
-      lineWidth: 1.6,
-      points: intraday.first_revision_cumulative,
-    });
-  }
-  if (intraday?.latest_revision_cumulative?.length >= 2) {
-    energySeries.push({
-      id: "latest",
-      label: "Latest forecast total",
-      color: FORECAST_ACCURACY_COLORS.latestRevision,
-      dash: "5 4",
-      lineWidth: 1.6,
-      points: intraday.latest_revision_cumulative,
-    });
-  }
   const hasPower = powerSeries.some((s) => s.points?.length >= 2);
-  const hasEnergy = energySeries.some((s) => s.points?.length >= 2);
-  if (!hasPower && !hasEnergy) {
+  if (!hasPower) {
     return `<p class="placeholder chart-empty">No intraday forecast comparison yet.</p>`;
   }
   const pad = compact
-    ? { l: 46, r: 8, t: 8, b: 28 }
-    : { l: 52, r: 12, t: 10, b: 32 };
-  const powerPlot = hasPower
-    ? forecastAccuracyPlotSvg(powerSeries, range, {
-        height: compact ? 130 : 150,
-        pad,
-        yUnit: "kW",
-        yMinZero: true,
-        ariaLabel: "PV generation vs forecast power",
-      })
-    : "";
-  const energyPlot = hasEnergy
-    ? forecastAccuracyPlotSvg(energySeries, range, {
-        height: compact ? 140 : 170,
-        pad,
-        yUnit: "kWh",
-        yMinZero: true,
-        ariaLabel: "Cumulative PV production vs forecast",
-      })
-    : "";
-  return `<div class="forecast-accuracy-chart-wrap">${powerPlot}${energyPlot}</div>`;
+    ? { l: 44, r: 6, t: 4, b: 22 }
+    : { l: 50, r: 10, t: 6, b: 26 };
+  return `<div class="forecast-accuracy-chart-wrap">${forecastAccuracyPlotSvg(powerSeries, range, {
+    height: compact ? 210 : 240,
+    pad,
+    yUnit: "kW",
+    yMinZero: true,
+    ariaLabel: "PV generation vs forecast power",
+  })}</div>`;
 }
 
 function formatRevisionClock(iso) {
@@ -5659,13 +5612,13 @@ const STYLES = `
 .breakdown-card { margin-top: 14px; padding-bottom: 8px; }
 .statistics-card { padding-bottom: 16px; }
 .statistics-card .card-title { margin-bottom: 12px; }
-.forecast-accuracy-card { padding-bottom: 14px; }
-.forecast-accuracy-card--compact .card-title { margin-bottom: 4px; }
+.forecast-accuracy-card { padding-bottom: 10px; }
+.forecast-accuracy-card--compact .card-title { margin-bottom: 2px; }
 .forecast-accuracy-sub {
-  margin: 0 0 12px; font-size: 12px; line-height: 1.45; color: var(--secondary-text-color);
+  margin: 0 0 8px; font-size: 12px; line-height: 1.4; color: var(--secondary-text-color);
 }
 .forecast-accuracy-stats {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 14px; margin-bottom: 10px;
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px; margin-bottom: 6px;
 }
 .forecast-accuracy-stat label {
   display: block; font-size: 11px; color: var(--secondary-text-color); margin-bottom: 4px;
@@ -5674,27 +5627,34 @@ const STYLES = `
 .forecast-accuracy-stat--high strong { color: #19D4DE; }
 .forecast-accuracy-stat--low strong { color: #FF9F43; }
 .forecast-accuracy-hint {
-  margin: 0 0 10px; font-size: 11px; color: var(--secondary-text-color); line-height: 1.4;
+  margin: 0 0 6px; font-size: 11px; color: var(--secondary-text-color); line-height: 1.35;
 }
-.forecast-accuracy-chart-wrap { width: 100%; margin-top: 4px; display: flex; flex-direction: column; gap: 10px; }
+.forecast-accuracy-chart-wrap { width: 100%; margin-top: 0; }
 .forecast-accuracy-plot { width: 100%; }
 .forecast-accuracy-plot-head {
-  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px;
-  margin-bottom: 6px;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px;
+  margin-bottom: 2px;
 }
 .forecast-accuracy-plot-label {
   font-size: 11px; font-weight: 600; color: var(--secondary-text-color); letter-spacing: 0.04em;
 }
 .forecast-accuracy-legend--inline { margin-bottom: 0; }
 .forecast-accuracy-legend {
-  display: flex; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 8px; font-size: 11px;
+  display: flex; flex-wrap: wrap; gap: 6px 12px; margin-bottom: 0; font-size: 11px;
   color: var(--secondary-text-color);
 }
 .forecast-accuracy-legend-item { display: inline-flex; align-items: center; gap: 6px; }
 .forecast-accuracy-legend-item i {
   width: 14px; height: 3px; border-radius: 1px; display: inline-block;
 }
-.forecast-accuracy-chart-svg { width: 100%; height: auto; display: block; }
+.forecast-accuracy-chart-svg {
+  width: 100%; height: auto; display: block; min-height: 168px;
+  aspect-ratio: 1000 / 210;
+}
+.forecast-accuracy-card:not(.forecast-accuracy-card--compact) .forecast-accuracy-chart-svg {
+  min-height: 190px;
+  aspect-ratio: 1000 / 240;
+}
 .forecast-accuracy-revisions-wrap { margin-top: 14px; overflow-x: auto; }
 .forecast-accuracy-revisions {
   width: 100%; border-collapse: collapse; font-size: 12px;
