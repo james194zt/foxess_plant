@@ -1204,7 +1204,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             source=source_kind,
             recorded_at=cfg.last_updated_at,
         )
-        await self.async_update_tariff_sensors(record_history=False)
+        try:
+            await self.async_update_tariff_sensors(record_history=False)
+        except Exception:
+            _LOGGER.exception("Tariff plugin sensor update failed after save")
         await self.async_request_refresh()
 
     async def async_save_solcast(self, *, solcast: dict[str, Any], fetch_now: bool = True) -> None:

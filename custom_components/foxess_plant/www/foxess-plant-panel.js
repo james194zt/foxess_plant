@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.136
+ * @version 0.9.137
  */
 
 const NAV = [
@@ -158,7 +158,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.136";
+const PANEL_VERSION = "0.9.137";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -1576,6 +1576,39 @@ function tariffScheduleBandIndex(tariff, tMs) {
   const schedule = normalizeTariffSchedule(tariff?.schedule);
   const hour = new Date(tMs).getHours();
   return schedule.hours[hour] ?? 0;
+}
+
+function buildTariffSavePayload(draft) {
+  const normalized = normalizeTariffDraft(draft);
+  const schedule = normalizeTariffSchedule(normalized.schedule);
+  if (normalized.import_source === "schedule") {
+    normalized.import_p_per_kwh = schedule.bands[0]?.import_p_per_kwh ?? 0;
+  }
+  if (normalized.export_source === "schedule") {
+    normalized.export_p_per_kwh = schedule.bands[0]?.export_p_per_kwh ?? 0;
+  }
+  return {
+    kind: normalized.kind,
+    currency: normalized.currency,
+    import_source: normalized.import_source,
+    import_entity: normalized.import_entity,
+    import_p_per_kwh: normalized.import_p_per_kwh,
+    export_source: normalized.export_source,
+    export_entity: normalized.export_entity,
+    export_p_per_kwh: normalized.export_p_per_kwh,
+    standing_source: normalized.standing_source,
+    standing_entity: normalized.standing_entity,
+    standing_charge_p_per_day: normalized.standing_charge_p_per_day,
+    schedule,
+    dynamic: { enabled: false, provider: "", import_entity: null, export_entity: null },
+  };
+}
+
+function tariffSaveErrorMessage(err) {
+  if (!err) return "Save failed";
+  const bits = [err.message, err.code, err.error?.message, err.error?.code].filter(Boolean);
+  const msg = bits.find((b) => b && b !== "Unknown error") || bits[0];
+  return msg || "Save failed";
 }
 
 function tariffRatesAtTime(tariff, tMs) {
@@ -8124,6 +8157,27 @@ Reloading panel registration…
     }
   }
 
+  _syncTariffScheduleFromDom() {
+    if (!this._tariffDraft?.schedule) return;
+    const currency = normalizeTariffCurrency(this._tariffDraft.currency);
+    for (const el of this._root.querySelectorAll('[data-field^="tariff:schedule:band:"]')) {
+      const parts = String(el.dataset.field || "").split(":");
+      if (parts.length < 5) continue;
+      const bandIdx = parseInt(parts[3], 10);
+      const field = parts[4];
+      if (Number.isNaN(bandIdx) || bandIdx < 0 || bandIdx > 3) continue;
+      if (field !== "import" && field !== "export") continue;
+      this._tariffDraft.schedule.bands[bandIdx][`${field}_p_per_kwh`] = majorToMinor(
+        parseTariffRate(el.value),
+        currency
+      );
+    }
+    const standingEl = this._root.querySelector('[data-field="tariff:standing:p"]');
+    if (standingEl && normalizeTariffStandingSource(this._tariffDraft.standing_source) === "plugin") {
+      this._tariffDraft.standing_charge_p_per_day = majorToMinor(parseTariffRate(standingEl.value), currency);
+    }
+  }
+
   async _syncTariffEntityPickers() {
     if (this._settingsView !== "tariff" || !this._tariffDraft || !this._hass) return;
     const gen = ++this._tariffPickerMountGen;
@@ -8179,7 +8233,8 @@ Reloading panel registration…
     const plant = this._getPlant();
     if (!plant || !this._tariffDraft) return;
     this._syncTariffDraftFromPickers();
-    const draft = normalizeTariffDraft(this._tariffDraft);
+    this._syncTariffScheduleFromDom();
+    const draft = buildTariffSavePayload(this._tariffDraft);
     const missing = [];
     if (draft.import_source === "entity" && !draft.import_entity) missing.push("Import sensor");
     if (draft.export_source === "entity" && !draft.export_entity) missing.push("Export sensor");
@@ -8187,12 +8242,6 @@ Reloading panel registration…
     if (missing.length) {
       this._showToast(`${missing.join(", ")} required when using sensor source`, "err");
       return;
-    }
-    if (draft.import_source === "schedule") {
-      draft.import_p_per_kwh = draft.schedule.bands[0]?.import_p_per_kwh ?? 0;
-    }
-    if (draft.export_source === "schedule") {
-      draft.export_p_per_kwh = draft.schedule.bands[0]?.export_p_per_kwh ?? 0;
     }
     this._busy = true;
     this._render();
@@ -8206,7 +8255,8 @@ Reloading panel registration…
       this._initTariffDraft();
       this._showToast("Tariff settings saved");
     } catch (err) {
-      this._showToast(err?.message || "Save failed", "err");
+      this._showToast(tariffSaveErrorMessage(err), "err");
+      console.error("FoxESS Plant: tariff save failed", err);
     } finally {
       this._busy = false;
       this._render();

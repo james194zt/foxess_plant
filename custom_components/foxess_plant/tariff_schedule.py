@@ -141,7 +141,12 @@ def tariff_sensor_unique_id(entry_id: str, kind: str) -> str:
 def tariff_plugin_entity_id(hass, entry_id: str, kind: str) -> str | None:
     from homeassistant.helpers import entity_registry as er
 
-    reg = er.async_get(hass)
-    if reg is None:
+    try:
+        reg = er.async_get(hass)
+        if reg is None:
+            return None
+        return reg.async_get_entity_id(
+            "sensor", "foxess_plant", tariff_sensor_unique_id(entry_id, kind)
+        )
+    except Exception:
         return None
-    return reg.async_get_entity_id("sensor", "foxess_plant", tariff_sensor_unique_id(entry_id, kind))

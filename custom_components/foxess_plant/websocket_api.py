@@ -89,17 +89,19 @@ TARIFF_DYNAMIC_SCHEMA = vol.Schema(
     }
 )
 
+TARIFF_RATE_MINOR = vol.All(vol.Coerce(float), vol.Range(min=0, max=999999))
+
 TARIFF_BAND_SCHEMA = vol.Schema(
     {
-        vol.Optional("import_p_per_kwh", default=0): vol.All(vol.Coerce(float), vol.Range(min=0, max=9999)),
-        vol.Optional("export_p_per_kwh", default=0): vol.All(vol.Coerce(float), vol.Range(min=0, max=9999)),
+        vol.Optional("import_p_per_kwh", default=0): TARIFF_RATE_MINOR,
+        vol.Optional("export_p_per_kwh", default=0): TARIFF_RATE_MINOR,
     }
 )
 
 TARIFF_SCHEDULE_SCHEMA = vol.Schema(
     {
-        vol.Optional("hours"): cv.ensure_list,
-        vol.Optional("bands"): cv.ensure_list,
+        vol.Optional("hours", default=list): cv.ensure_list,
+        vol.Optional("bands", default=list): vol.All(cv.ensure_list, [TARIFF_BAND_SCHEMA]),
     }
 )
 
@@ -108,16 +110,14 @@ TARIFF_SCHEMA = vol.Schema(
         vol.Optional("kind", default="static"): vol.In(["static", "dynamic"]),
         vol.Optional("currency", default="GBP"): vol.In(sorted(TARIFF_CURRENCIES)),
         vol.Optional("import_source", default="schedule"): vol.In(["manual", "schedule", "entity"]),
-        vol.Optional("import_entity"): vol.Any(str, None),
-        vol.Required("import_p_per_kwh"): vol.All(vol.Coerce(float), vol.Range(min=0, max=9999)),
+        vol.Optional("import_entity", default=None): vol.Any(None, cv.string),
+        vol.Required("import_p_per_kwh"): TARIFF_RATE_MINOR,
         vol.Optional("export_source", default="schedule"): vol.In(["manual", "schedule", "entity"]),
-        vol.Optional("export_entity"): vol.Any(str, None),
-        vol.Required("export_p_per_kwh"): vol.All(vol.Coerce(float), vol.Range(min=0, max=9999)),
+        vol.Optional("export_entity", default=None): vol.Any(None, cv.string),
+        vol.Required("export_p_per_kwh"): TARIFF_RATE_MINOR,
         vol.Optional("standing_source", default="plugin"): vol.In(["manual", "plugin", "entity"]),
-        vol.Optional("standing_entity"): vol.Any(str, None),
-        vol.Required("standing_charge_p_per_day"): vol.All(
-            vol.Coerce(float), vol.Range(min=0, max=9999)
-        ),
+        vol.Optional("standing_entity", default=None): vol.Any(None, cv.string),
+        vol.Required("standing_charge_p_per_day"): TARIFF_RATE_MINOR,
         vol.Optional("schedule", default={}): TARIFF_SCHEDULE_SCHEMA,
         vol.Optional("dynamic", default={}): TARIFF_DYNAMIC_SCHEMA,
     }
@@ -435,12 +435,20 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
         connection: websocket_api.ActiveConnection,
         msg: dict[str, Any],
     ) -> None:
+        from homeassistant.exceptions import HomeAssistantError
+
         coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
         if coordinator is None:
             connection.send_error(msg["id"], err_code, err_msg)
             return
-        await coordinator.async_save_tariff(tariff=msg["tariff"])
-        connection.send_result(msg["id"], coordinator.get_plant_state())
+        try:
+            await coordinator.async_save_tariff(tariff=msg["tariff"])
+            connection.send_result(msg["id"], coordinator.get_plant_state())
+        except HomeAssistantError as err:
+            connection.send_error(msg["id"], "save_failed", str(err))
+        except Exception as err:
+            _LOGGER.exception("Tariff save failed")
+            connection.send_error(msg["id"], "save_failed", str(err) or err.__class__.__name__)
 
     @websocket_api.websocket_command({vol.Required("type"): WS_TYPE_TARIFF_ENTITY_CANDIDATES})
     @websocket_api.async_response
