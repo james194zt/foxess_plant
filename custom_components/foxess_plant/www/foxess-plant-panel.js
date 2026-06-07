@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.133
+ * @version 0.9.134
  */
 
 const NAV = [
@@ -746,40 +746,34 @@ function filterStatisticsForecastServerPoints(serverPoints, range) {
     .sort((a, b) => a.t - b.t);
 }
 
-function finalizeStatisticsForecastPoints(
-  fPoints,
+function augmentForecastWithServerFuture(fPoints, range, serverPoints, nowMs) {
+  if (forecastHasFuturePoints(fPoints, nowMs)) return fPoints || [];
+  const server = filterStatisticsForecastServerPoints(serverPoints, range);
+  if (server.length < 2) return fPoints || [];
+  return mergeForecastPointsWithFuture(fPoints?.length >= 2 ? fPoints : server, server, nowMs);
+}
+
+function buildStatisticsForecastPoints(
   range,
   plantState,
   forecastState,
   hass,
-  serverPoints
+  serverPoints,
+  { fallbackPoints = null } = {}
 ) {
   const nowMs = range?.nowMs ?? Date.now();
-  let pts = Array.isArray(fPoints) ? fPoints : [];
-  if (pts.length >= 2) {
+  let fPoints = buildForecastSeriesPoints(plantState, range, hass, forecastState);
+  if (fPoints.length < 2 && Array.isArray(fallbackPoints) && fallbackPoints.length >= 2) {
+    fPoints = fallbackPoints;
+  }
+  if (fPoints.length >= 2) {
     const detailed = detailedForecastToChartPoints(
       resolveBestSolcastDetailedRows(plantState, forecastState, hass),
       range
     );
-    pts = mergeForecastPointsWithFuture(pts, detailed, nowMs);
+    fPoints = mergeForecastPointsWithFuture(fPoints, detailed, nowMs);
   }
-  if (forecastHasFuturePoints(pts, nowMs)) return pts;
-  const server = filterStatisticsForecastServerPoints(serverPoints, range);
-  if (server.length < 2) return pts;
-  return mergeForecastPointsWithFuture(pts.length >= 2 ? pts : server, server, nowMs);
-}
-
-function buildStatisticsForecastLine(range, plantState, forecastState, hass, serverPoints, basePoints) {
-  const nowMs = range?.nowMs ?? Date.now();
-  const server = filterStatisticsForecastServerPoints(serverPoints, range);
-  if (server.length >= 2 && forecastHasFuturePoints(server, nowMs)) {
-    return server;
-  }
-  const base =
-    Array.isArray(basePoints) && basePoints.length >= 2
-      ? basePoints
-      : buildForecastSeriesPoints(plantState, range, hass, forecastState);
-  return finalizeStatisticsForecastPoints(base, range, plantState, forecastState, hass, server);
+  return augmentForecastWithServerFuture(fPoints, range, serverPoints, nowMs);
 }
 
 function mergeStatisticsForecastSeries(
@@ -795,19 +789,9 @@ function mergeStatisticsForecastSeries(
     const existing = series.find((s) => s.id === "forecast");
     return existing?.points?.length >= 2 ? series : without;
   }
-  let base = buildForecastSeriesPoints(plantState, range, hass, forecastState);
-  if (base.length < 2 && Array.isArray(fallbackPoints) && fallbackPoints.length >= 2) {
-    base = fallbackPoints;
-  }
-  const fPoints = buildStatisticsForecastLine(
-    range,
-    plantState,
-    forecastState,
-    hass,
-    base.length >= 2 ? base : serverForecastPoints
-  ).length >= 2
-    ? buildStatisticsForecastLine(range, plantState, forecastState, hass, serverForecastPoints)
-    : finalizeStatisticsForecastPoints(base, range, plantState, forecastState, hass, serverForecastPoints);
+  const fPoints = buildStatisticsForecastPoints(range, plantState, forecastState, hass, serverForecastPoints, {
+    fallbackPoints,
+  });
   if (fPoints.length < 2) {
     const existing = series.find((s) => s.id === "forecast");
     return existing?.points?.length >= 2 ? series : without;
@@ -4307,8 +4291,7 @@ async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset =
   }
   if (dayOffset === 0) {
     const serverForecastPoints = await fetchSolcastStatisticsForecastPoints(hass, plant);
-    const fPoints = finalizeStatisticsForecastPoints(
-      buildForecastSeriesPoints(forecastState, range, hass, forecastState),
+    const fPoints = buildStatisticsForecastLine(
       range,
       forecastState,
       forecastState,
@@ -4913,18 +4896,27 @@ function renderStatisticsChartHtml(series, range, options = {}) {
     const clipped = s.points.filter((p) => p.t >= tMin && p.t <= clipEnd);
     let segmentGroups;
     if (isForecast && clipped.length >= 2) {
-      const past = clipped.filter((p) => p.t <= nowMs);
-      const future = clipped.filter((p) => p.t >= nowMs);
-      segmentGroups = [];
-      if (past.length >= 2) segmentGroups.push({ pts: past, dash: "" });
-      if (future.length >= 2) {
-        const futurePts =
-          past.length && past[past.length - 1].t < nowMs
-            ? [past[past.length - 1], ...future.filter((p) => p.t > past[past.length - 1].t)]
-            : future;
-        if (futurePts.length >= 2) segmentGroups.push({ pts: futurePts, dash: "5 4" });
+      let pastEndIdx = -1;
+      for (let i = 0; i < clipped.length; i++) {
+        if (clipped[i].t <= nowMs) pastEndIdx = i;
       }
-      if (!segmentGroups.length) segmentGroups.push({ pts: clipped, dash: "" });
+      segmentGroups = [];
+      if (pastEndIdx >= 0 && pastEndIdx < clipped.length - 1) {
+        segmentGroups.push({ pts: clipped.slice(0, pastEndIdx + 1), dash: "" });
+        segmentGroups.push({ pts: clipped.slice(pastEndIdx), dash: "5 4" });
+      } else {
+        const past = clipped.filter((p) => p.t <= nowMs);
+        const future = clipped.filter((p) => p.t >= nowMs);
+        if (past.length >= 2) segmentGroups.push({ pts: past, dash: "" });
+        if (future.length >= 2) {
+          const futurePts =
+            past.length && past[past.length - 1].t < nowMs
+              ? [past[past.length - 1], ...future.filter((p) => p.t > past[past.length - 1].t)]
+              : future;
+          if (futurePts.length >= 2) segmentGroups.push({ pts: futurePts, dash: "5 4" });
+        }
+        if (!segmentGroups.length) segmentGroups.push({ pts: clipped, dash: "" });
+      }
     } else {
       const segmentPoints = s.connectGaps ? [clipped] : splitStatisticsSegments(clipped);
       segmentGroups = segmentPoints.map((pts) => ({ pts, dash: "" }));
