@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.121
+ * @version 0.9.122
  */
 
 const NAV = [
@@ -1302,13 +1302,6 @@ ${revisions}
 </div>`;
 }
 
-function parseSolcastPeriodMs(raw) {
-  if (raw == null || raw === "") return NaN;
-  if (typeof raw === "number") return raw > 1e12 ? raw : raw * 1000;
-  const text = String(raw).trim();
-  if (!text) return NaN;
-  if (/^\d+(\.\d+)?$/.test(text)) {
-    const n = Number(text);
 function parseSolcastPeriodMs(raw) {
   if (raw == null || raw === "") return NaN;
   if (typeof raw === "number") return raw > 1e12 ? raw : raw * 1000;
