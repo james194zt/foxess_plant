@@ -646,7 +646,6 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             coordinator.plant.entity_map,
             target_day,
             entry_id=coordinator.config_entry.entry_id,
-            storm_prep=coordinator.plant.storm_prep,
         )
         try:
             report = await get_instance(hass).async_add_executor_job(job)
