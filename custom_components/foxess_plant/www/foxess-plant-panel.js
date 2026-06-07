@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.119
+ * @version 0.9.120
  */
 
 const NAV = [
@@ -669,6 +669,7 @@ function nativeSolcastPvForecastEnabled(plantState) {
 function statisticsSolcastForecastEnabled(plantState, hass) {
   const sc = plantState?.solcast;
   if (!sc || sc?.fetch_pv_forecast === false) return false;
+  if ((sc.forecast_intraday_points?.length ?? 0) >= 2) return true;
   const rows = resolveSolcastDetailedForecast(plantState, hass);
   if (rows.length >= 2) return true;
   if (sc.forecast_persisted && (sc.pv_forecast_periods ?? 0) >= 2) return true;
@@ -701,12 +702,16 @@ function mergeStatisticsForecastSeries(series, range, plantState, hass, { dayOff
     const existing = series.find((s) => s.id === "forecast");
     return existing?.points?.length >= 2 ? series : without;
   }
+  const existing = series.find((s) => s.id === "forecast");
   const fPoints = buildForecastSeriesPoints(plantState, range, hass);
-  if (!fPoints.length) return series;
-  return [
-    ...without,
-    { id: "forecast", ...FORECAST_CHART_STYLE, connectGaps: true, points: fPoints },
-  ];
+  if (fPoints.length >= 2) {
+    return [
+      ...without,
+      { id: "forecast", ...FORECAST_CHART_STYLE, connectGaps: true, points: fPoints },
+    ];
+  }
+  if (existing?.points?.length >= 2) return series;
+  return without;
 }
 
 function formatLocalDayKey(dayDate) {
@@ -768,9 +773,11 @@ async function fetchForecastAccuracyReport(hass, plant, dayOffset = 0) {
       err?.message ||
       err?.error?.message ||
       err?.body?.message ||
+      (typeof err?.error === "string" ? err.error : "") ||
+      err?.code ||
       (typeof err === "string" ? err : "") ||
       "Failed to load forecast accuracy";
-    return { error: msg };
+    return { error: msg, solcast_enabled: true };
   }
 }
 
@@ -1130,11 +1137,24 @@ function mergeForecastPointsWithFuture(intradayPts, detailedPts, nowMs) {
   return hasFuture(detailedPts) ? detailedPts : merged.length >= 2 ? merged : detailedPts;
 }
 
+function forecastPointsHaveFuture(pts, nowMs) {
+  return Array.isArray(pts) && pts.some((p) => p.t > nowMs + STATISTICS_PERIOD_MS * 0.5);
+}
+
 function nativeSolcastForecastPoints(plantState, range, hass) {
   const nowMs = range?.nowMs ?? Date.now();
-  const detailed = detailedForecastToChartPoints(resolveSolcastDetailedForecast(plantState, hass), range);
   const intraday = solcastIntradayForecastPoints(plantState, range);
-  return mergeForecastPointsWithFuture(intraday, detailed, nowMs);
+  if (intraday.length >= 2) {
+    if (forecastPointsHaveFuture(intraday, nowMs)) return intraday;
+    const detailed = detailedForecastToChartPoints(resolveSolcastDetailedForecast(plantState, hass), range);
+    if (detailed.length >= 2) {
+      const merged = mergeForecastPointsWithFuture(intraday, detailed, nowMs);
+      return merged.length >= 2 ? merged : intraday;
+    }
+    return intraday;
+  }
+  const rows = resolveSolcastDetailedForecast(plantState, hass);
+  return detailedForecastToChartPoints(rows, range);
 }
 
 function pvConfigSummary(pv) {
@@ -7298,17 +7318,14 @@ Reloading panel registration…
   _pickStatisticsForecastState() {
     const live = this._plantState;
     const cached = this._statisticsChart?.forecastState;
-    const score = (state) => {
-      if (!state?.solcast) return -1;
-      const detailed = resolveSolcastDetailedForecast(state, this._hass).length;
-      const intraday = state.solcast.forecast_intraday_points?.length ?? 0;
-      return detailed * 1000 + intraday;
-    };
-    const liveScore = score(live);
-    const cachedScore = score(cached);
-    if (liveScore >= 0 || cachedScore >= 0) {
-      return liveScore >= cachedScore ? live : cached;
-    }
+    const liveIntraday = live?.solcast?.forecast_intraday_points;
+    if (Array.isArray(liveIntraday) && liveIntraday.length >= 2) return live;
+    const cachedIntraday = cached?.solcast?.forecast_intraday_points;
+    if (Array.isArray(cachedIntraday) && cachedIntraday.length >= 2) return cached;
+    const liveRows = resolveSolcastDetailedForecast(live, this._hass);
+    if (liveRows.length >= 2) return live;
+    const cachedRows = resolveSolcastDetailedForecast(cached, this._hass);
+    if (cachedRows.length >= 2) return cached;
     return live ?? cached;
   }
 
@@ -7316,9 +7333,7 @@ Reloading panel registration…
     const state = this._pickStatisticsForecastState();
     const intraday = state?.solcast?.forecast_intraday_points?.length ?? 0;
     const detailed = resolveSolcastDetailedForecast(state, this._hass)?.length ?? 0;
-    const accOverview = this._forecastAccuracyOverview?.intraday?.predicted_power_kw?.length ?? 0;
-    const accAnalysis = this._forecastAccuracyAnalysis?.intraday?.predicted_power_kw?.length ?? 0;
-    return `${intraday}:${detailed}:${accOverview}:${accAnalysis}`;
+    return `${intraday}:${detailed}`;
   }
 
   _statisticsSeriesForDisplay() {

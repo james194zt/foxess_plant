@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
@@ -18,6 +19,8 @@ from .solcast_forecast_chart import (
     _utc_from_timestamp,
 )
 from .solcast_forecast_metrics import _build_intervals, _local_date, _sum_kwh
+
+_LOGGER = logging.getLogger(__name__)
 
 _PV_POWER_KEYS = (
     "pv_power",
@@ -286,17 +289,33 @@ def build_forecast_accuracy_report(
 
     actual_power: list[dict[str, float]] = []
     if pv_entity:
-        actual_power = _actual_power_points(hass, pv_entity, day_start, as_of)
+        try:
+            actual_power = _actual_power_points(hass, pv_entity, day_start, as_of)
+        except Exception:
+            _LOGGER.exception("forecast accuracy actual power failed for %s", pv_entity)
     actual_cumulative = _integrate_kw_to_cumulative(actual_power, day_start_ms, as_of_ms)
 
-    predicted_kw = build_forecast_intraday_chart_for_day(
-        hass,
-        stored,
-        current_cache,
-        target_day,
-        entry_id=entry_id,
-        use_daily_cache=True,
-    )
+    try:
+        predicted_kw = build_forecast_intraday_chart_for_day(
+            hass,
+            stored,
+            current_cache,
+            target_day,
+            entry_id=entry_id,
+            use_daily_cache=True,
+            use_recorder=True,
+        )
+    except Exception:
+        _LOGGER.exception("forecast accuracy predicted chart failed with recorder for %s", target_day)
+        predicted_kw = build_forecast_intraday_chart_for_day(
+            hass,
+            stored,
+            current_cache,
+            target_day,
+            entry_id=entry_id,
+            use_daily_cache=True,
+            use_recorder=False,
+        )
     predicted_in_range = [p for p in predicted_kw if p["t"] <= as_of_ms]
     predicted_cumulative = _integrate_kw_to_cumulative(predicted_in_range, day_start_ms, as_of_ms)
 

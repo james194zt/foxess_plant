@@ -638,23 +638,21 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
         stored = {}
         if coordinator._solcast_store:
             stored = await coordinator._solcast_store.async_load()
-        job = partial(
-            build_forecast_accuracy_report,
-            hass,
-            stored,
-            coordinator._solcast_cache,
-            coordinator.plant.entity_map,
-            target_day,
-            entry_id=coordinator.config_entry.entry_id,
-        )
         try:
-            report = await get_instance(hass).async_add_executor_job(job)
+            report = build_forecast_accuracy_report(
+                hass,
+                stored,
+                coordinator._solcast_cache,
+                coordinator.plant.entity_map,
+                target_day,
+                entry_id=coordinator.config_entry.entry_id,
+            )
         except Exception as err:
             _LOGGER.exception("solcast_forecast_accuracy failed for %s", target_day.isoformat())
             connection.send_error(
                 msg["id"],
                 "forecast_accuracy_failed",
-                str(err) or "Forecast accuracy report failed",
+                str(err) or type(err).__name__ or "Forecast accuracy report failed",
             )
             return
         connection.send_result(msg["id"], report)
