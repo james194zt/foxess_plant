@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.110
+ * @version 0.9.111
  */
 
 const NAV = [
@@ -694,15 +694,21 @@ function resolveSolcastDetailedForecast(plantState, hass) {
   return solcastDetailedForecastFromHass(hass, plantState);
 }
 
-function mergeStatisticsForecastSeries(series, range, plantState, hass, { dayOffset = 0 } = {}) {
+function mergeStatisticsForecastSeries(series, range, plantState, hass, { dayOffset = 0, fallbackPoints = null } = {}) {
   if (!Array.isArray(series) || !range) return series;
   const without = series.filter((s) => s.id !== "forecast");
   if (dayOffset > 0) {
     const existing = series.find((s) => s.id === "forecast");
     return existing?.points?.length >= 2 ? series : without;
   }
-  const fPoints = buildForecastSeriesPoints(plantState, range, hass);
-  if (!fPoints.length) return series;
+  let fPoints = buildForecastSeriesPoints(plantState, range, hass);
+  if (fPoints.length < 2 && Array.isArray(fallbackPoints) && fallbackPoints.length >= 2) {
+    fPoints = fallbackPoints;
+  }
+  if (fPoints.length < 2) {
+    const existing = series.find((s) => s.id === "forecast");
+    return existing?.points?.length >= 2 ? series : without;
+  }
   return [
     ...without,
     { id: "forecast", ...FORECAST_CHART_STYLE, connectGaps: true, points: fPoints },
@@ -2409,15 +2415,17 @@ const STATISTICS_CHART_LAYOUT = {
   yTickStepKw: 0.5,
 };
 
-function statisticsChartLayout({ sideLegend = false, hasSoc = false } = {}) {
+function statisticsChartLayout({ sideLegend = false, hasSoc = false, compact = false } = {}) {
   const r = hasSoc ? 44 : sideLegend ? 16 : 8;
+  const height = compact ? 260 : STATISTICS_CHART_LAYOUT.height;
   return {
     ...STATISTICS_CHART_LAYOUT,
+    height,
     pad: {
       l: sideLegend ? 58 : 52,
       r,
-      t: sideLegend ? 22 : 12,
-      b: 40,
+      t: sideLegend ? 22 : compact ? 8 : 12,
+      b: compact ? 32 : 40,
     },
   };
 }
@@ -4554,13 +4562,14 @@ function formatChartTimeLabel(ms) {
 function renderStatisticsChartHtml(series, range, options = {}) {
   const sideLegend = options.sideLegend === true;
   const includeSoc = options.includeSoc === true;
+  const compact = options.compact === true;
   const socSeries = includeSoc ? options.socSeries : null;
   const hasSoc = !!socSeries?.points?.length;
   const visible = series.filter((s) => s.points?.length);
   if (!visible.length && !hasSoc) {
     return `<p class="placeholder chart-empty">No power history for today yet.</p>`;
   }
-  const layout = statisticsChartLayout({ sideLegend, hasSoc });
+  const layout = statisticsChartLayout({ sideLegend, hasSoc, compact });
   const { width, height, pad, xTickHours, xTickCount } = layout;
   const w = width - pad.l - pad.r;
   const h = height - pad.t - pad.b;
@@ -4699,7 +4708,7 @@ function renderStatisticsChartHtml(series, range, options = {}) {
     : "";
 
   const plotHtml = `<div class="statistics-chart-plot" data-pad-l="${pad.l}" data-pad-t="${pad.t}" data-pad-b="${pad.b}" data-plot-w="${w}" data-plot-h="${h}" data-t-min="${tMin}" data-t-max="${tMax}" data-y-min="${yMin}" data-y-max="${yMax}" data-now-ms="${nowMs}">
-<svg class="statistics-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Statistics power chart">
+<svg class="statistics-chart-svg${compact ? " statistics-chart-svg--compact" : ""}" viewBox="0 0 ${width} ${height}" preserveAspectRatio="${compact ? "xMinYMin meet" : "xMidYMid meet"}" role="img" aria-label="Statistics power chart">
 ${leftAxisTitle}
 ${rightAxisTitle}
 ${grid}
@@ -5667,6 +5676,10 @@ const STYLES = `
 .breakdown-card { margin-top: 14px; padding-bottom: 8px; }
 .statistics-card { padding-bottom: 16px; }
 .statistics-card .card-title { margin-bottom: 12px; }
+.statistics-card .statistics-chart-legend { margin-bottom: 6px; }
+.statistics-card .statistics-chart-svg--compact {
+  height: auto; max-height: none;
+}
 .forecast-accuracy-card { padding-bottom: 6px; }
 .forecast-accuracy-card--compact .card-title { margin-bottom: 2px; }
 .forecast-accuracy-card:not(.forecast-accuracy-card--compact) {
@@ -7361,15 +7374,49 @@ Reloading panel registration…
     return live ?? cached;
   }
 
+  _forecastFallbackPointsForStatistics(range) {
+    if (!range || (this._statisticsChart?.dayOffset ?? 0) > 0) return null;
+    const reports = [this._forecastAccuracyOverview, this._forecastAccuracyAnalysis];
+    for (const report of reports) {
+      if (!report || report.error) continue;
+      const pts = report.intraday?.predicted_power_kw;
+      if (!Array.isArray(pts) || pts.length < 2) continue;
+      const inRange = pts
+        .filter(
+          (p) =>
+            Number.isFinite(p?.t) &&
+            Number.isFinite(p?.v) &&
+            p.t >= range.tMin &&
+            p.t <= range.tMax
+        )
+        .sort((a, b) => a.t - b.t);
+      if (inRange.length >= 2) return inRange;
+    }
+    return null;
+  }
+
+  _forecastStatisticsSlotPart() {
+    const state = this._pickStatisticsForecastState();
+    const intraday = state?.solcast?.forecast_intraday_points?.length ?? 0;
+    const detailed = resolveSolcastDetailedForecast(state, this._hass)?.length ?? 0;
+    const accOverview = this._forecastAccuracyOverview?.intraday?.predicted_power_kw?.length ?? 0;
+    const accAnalysis = this._forecastAccuracyAnalysis?.intraday?.predicted_power_kw?.length ?? 0;
+    return `${intraday}:${detailed}:${accOverview}:${accAnalysis}`;
+  }
+
   _statisticsSeriesForDisplay() {
     if (!this._statisticsChart?.series || !this._statisticsChart?.range) return null;
     const state = this._pickStatisticsForecastState();
+    const range = this._statisticsChart.range;
     return mergeStatisticsForecastSeries(
       this._statisticsChart.series,
-      this._statisticsChart.range,
+      range,
       state,
       this._hass,
-      { dayOffset: this._statisticsChart.dayOffset ?? 0 }
+      {
+        dayOffset: this._statisticsChart.dayOffset ?? 0,
+        fallbackPoints: this._forecastFallbackPointsForStatistics(range),
+      }
     );
   }
 
@@ -9675,10 +9722,12 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     }
     const series = this._statisticsSeriesForDisplay();
     const includeSoc = options.includeSoc === true;
+    const compact = options.compact ?? this._view === "overview";
     const socSeries = includeSoc ? this._statisticsChart?.socSeries : null;
     if (series?.length || socSeries?.points?.length) {
       return renderStatisticsChartHtml(series || [], this._statisticsChart.range, {
         ...options,
+        compact,
         socSeries,
       });
     }
@@ -10079,6 +10128,7 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
       } else {
         this._forecastAccuracyOverviewKey = undefined;
       }
+      this._energyAnalysisChartSlotCache = undefined;
     } catch (err) {
       if (this._forecastAccuracyOverviewCacheKey(this._getPlant()) !== cacheKey) return;
       this._forecastAccuracyOverview = {
@@ -10129,6 +10179,7 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
       } else {
         this._forecastAccuracyAnalysisKey = undefined;
       }
+      this._energyAnalysisChartSlotCache = undefined;
     } catch (err) {
       if (this._forecastAccuracyAnalysisCacheKey(this._getPlant()) !== cacheKey) return;
       this._forecastAccuracyAnalysis = {
@@ -10152,7 +10203,10 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
       if (chart?.empty) return `stat:empty:${chart.empty}`;
       if (!chart?.series?.length && !chart?.socSeries?.points?.length) return "stat:none";
       const socLen = chart?.socSeries?.points?.length ?? 0;
-      return `stat:${this._statisticsChartPlantId ?? ""}|soc:${socLen}|loaded`;
+      const forecastPart = this._forecastStatisticsSlotPart();
+      const displaySeries = this._statisticsSeriesForDisplay();
+      const hasForecast = displaySeries?.some((s) => s.id === "forecast" && s.points?.length >= 2);
+      return `stat:${this._statisticsChartPlantId ?? ""}|soc:${socLen}|fc:${hasForecast ? 1 : 0}|${forecastPart}`;
     }
     if (this._energyChartLoading) return "energy:loading";
     return `energy:${this._energyChartPlantId ?? ""}|${this._energyChart?.svg ? 1 : 0}|${this._energyChart?.error ?? ""}`;
