@@ -213,6 +213,57 @@ def _actual_kwh_from_energy_sensor(
     return round(produced, 3) if produced > 0 else None
 
 
+def _hour_floor_local(when: datetime) -> datetime:
+    local = dt_util.as_local(when)
+    return local.replace(minute=0, second=0, microsecond=0)
+
+
+def _hour_ceil_local(when: datetime) -> datetime:
+    local = dt_util.as_local(when)
+    floored = local.replace(minute=0, second=0, microsecond=0)
+    if local == floored:
+        return floored
+    return floored + timedelta(hours=1)
+
+
+def _chart_window_for_day(hass: HomeAssistant, target_day: date) -> dict[str, Any]:
+    """Daylight chart bounds: hour containing sunrise through hour after sunset."""
+    day_start, _, day_start_ms, _ = _day_bounds(target_day)
+    fallback = {
+        "t_min_ms": day_start_ms + 6 * 3_600_000,
+        "t_max_ms": day_start_ms + 20 * 3_600_000,
+        "sunrise": None,
+        "sunset": None,
+    }
+    try:
+        from homeassistant.const import SUN_EVENT_SUNRISE, SUN_EVENT_SUNSET
+        from homeassistant.helpers.sun import get_astral_event_date
+
+        probe = dt_util.as_local(datetime.combine(target_day, time(12, 0)))
+        sunrise = get_astral_event_date(hass, SUN_EVENT_SUNRISE, probe)
+        sunset = get_astral_event_date(hass, SUN_EVENT_SUNSET, probe)
+    except (TypeError, ValueError, KeyError):
+        return fallback
+    if sunrise is None or sunset is None:
+        return fallback
+    sunrise_local = dt_util.as_local(sunrise)
+    sunset_local = dt_util.as_local(sunset)
+    t_min = _hour_floor_local(sunrise_local)
+    t_max = _hour_ceil_local(sunset_local)
+    if t_max <= t_min:
+        t_max = t_min + timedelta(hours=12)
+    return {
+        "t_min_ms": t_min.timestamp() * 1000,
+        "t_max_ms": t_max.timestamp() * 1000,
+        "sunrise": sunrise_local.isoformat(),
+        "sunset": sunset_local.isoformat(),
+    }
+
+
+def _points_through(points: list[dict[str, float]], end_ms: float) -> list[dict[str, float]]:
+    return [p for p in points if p["t"] <= end_ms]
+
+
 def build_forecast_accuracy_report(
     hass: HomeAssistant,
     stored: dict[str, Any] | None,
@@ -296,6 +347,8 @@ def build_forecast_accuracy_report(
     first_cumulative = _integrate_kw_to_cumulative(first_curve, day_start_ms, as_of_ms)
     latest_cumulative = _integrate_kw_to_cumulative(latest_curve, day_start_ms, as_of_ms)
 
+    chart_window = _chart_window_for_day(hass, target_day)
+
     actual_kwh = actual_cumulative[-1]["v"] if actual_cumulative else None
     if actual_kwh is None and energy_entity:
         actual_kwh = _actual_kwh_from_energy_sensor(hass, energy_entity, day_start, as_of)
@@ -323,11 +376,15 @@ def build_forecast_accuracy_report(
         "error_pct": error_pct,
         "revision_count": len(revisions),
         "revisions": revisions[-12:],
+        "chart_window": chart_window,
         "intraday": {
             "actual_cumulative": actual_cumulative,
             "predicted_cumulative": predicted_cumulative,
             "first_revision_cumulative": first_cumulative,
             "latest_revision_cumulative": latest_cumulative,
+            "actual_power_kw": actual_power,
+            "predicted_power_kw": predicted_in_range,
+            "latest_revision_power_kw": _points_through(latest_curve, as_of_ms),
         },
         "solcast_enabled": bool(snapshots or predicted_kw),
     }

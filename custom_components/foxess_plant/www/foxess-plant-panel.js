@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.106
+ * @version 0.9.107
  */
 
 const NAV = [
@@ -776,93 +776,103 @@ async function fetchForecastAccuracyReport(hass, plant, dayOffset = 0) {
 
 function forecastAccuracyRangeFromReport(report) {
   const day = report?.day ? new Date(`${report.day}T12:00:00`) : new Date();
-  const tMin = startOfLocalDay(day).getTime();
-  const tMax = tMin + 86400000;
+  const dayStart = startOfLocalDay(day).getTime();
+  const win = report?.chart_window;
   const asOf = report?.as_of ? Date.parse(report.as_of) : Date.now();
-  return { tMin, tMax, nowMs: Math.min(Number.isFinite(asOf) ? asOf : Date.now(), tMax - 1) };
+  let tMin = Number(win?.t_min_ms);
+  let tMax = Number(win?.t_max_ms);
+  if (!Number.isFinite(tMin)) tMin = dayStart + 6 * 3600000;
+  if (!Number.isFinite(tMax)) tMax = dayStart + 20 * 3600000;
+  const nowMs = Math.min(Number.isFinite(asOf) ? asOf : Date.now(), tMax);
+  return { tMin, tMax, nowMs, dayStart };
+}
+
+function forecastAccuracyYDomain(values, { minZero = true, padRatio = 0.05 } = {}) {
+  const data = (values || []).filter((v) => Number.isFinite(Number(v))).map((v) => Number(v));
+  if (!data.length) return { yMin: 0, yMax: 1 };
+  let yMin = Math.min(...data);
+  let yMax = Math.max(...data);
+  if (yMax <= yMin) {
+    const bump = Math.max(Math.abs(yMax) * 0.1, 0.15);
+    yMin = minZero ? 0 : yMin - bump;
+    yMax = yMax + bump;
+  } else {
+    const span = yMax - yMin;
+    const pad = Math.max(span * padRatio, span * 0.02, 0.08);
+    yMin = minZero ? Math.max(0, yMin - pad * 0.35) : yMin - pad;
+    yMax = yMax + pad;
+  }
+  return { yMin, yMax };
 }
 
 function forecastAccuracyYTicks(yMin, yMax) {
-  const span = Math.max(yMax - yMin, 0.5);
+  const span = Math.max(yMax - yMin, 0.1);
   let step = 0.5;
-  if (span > 8) step = 2;
+  if (span > 16) step = 4;
+  else if (span > 8) step = 2;
   else if (span > 4) step = 1;
-  else if (span <= 1.5) step = 0.25;
+  else if (span <= 1.2) step = 0.2;
   const start = Math.floor(yMin / step) * step;
   const ticks = [];
   for (let v = start; v <= yMax + step * 0.01; v += step) {
     if (v >= yMin - step * 0.01) ticks.push(Math.round(v * 100) / 100);
   }
-  if (!ticks.length) ticks.push(0, yMax);
+  if (!ticks.length) ticks.push(yMin, yMax);
   return ticks;
 }
 
-function renderForecastAccuracyChartHtml(intraday, range, { height = 220, compact = false } = {}) {
-  const series = [
-    {
-      id: "actual",
-      label: "Actual",
-      color: FORECAST_ACCURACY_COLORS.actual,
-      dash: "",
-      points: intraday?.actual_cumulative,
-    },
-    {
-      id: "predicted",
-      label: "Forecast (as known)",
-      color: FORECAST_ACCURACY_COLORS.predicted,
-      dash: "",
-      points: intraday?.predicted_cumulative,
-    },
-  ];
-  if (!compact && intraday?.first_revision_cumulative?.length >= 2) {
-    series.push({
-      id: "first",
-      label: "First revision",
-      color: FORECAST_ACCURACY_COLORS.firstRevision,
-      dash: "4 4",
-      points: intraday.first_revision_cumulative,
-    });
+function forecastAccuracyXTicks(tMin, tMax, { maxTicks = 7 } = {}) {
+  const spanH = Math.max((tMax - tMin) / 3600000, 1);
+  let stepH = 1;
+  if (spanH / stepH > maxTicks) stepH = 2;
+  if (spanH / stepH > maxTicks) stepH = 3;
+  if (spanH / stepH > maxTicks) stepH = Math.ceil(spanH / maxTicks);
+  const ticks = [];
+  const start = new Date(tMin);
+  start.setMinutes(0, 0, 0);
+  let t = start.getTime();
+  if (t < tMin) t += stepH * 3600000;
+  while (t <= tMax + 1) {
+    if (t >= tMin - 1 && t <= tMax + 1) ticks.push(t);
+    t += stepH * 3600000;
   }
-  if (intraday?.latest_revision_cumulative?.length >= 2) {
-    series.push({
-      id: "latest",
-      label: compact ? "Latest revision" : "Latest revision",
-      color: FORECAST_ACCURACY_COLORS.latestRevision,
-      dash: compact ? "5 4" : "6 4",
-      points: intraday.latest_revision_cumulative,
-    });
-  }
-  const visible = series.filter((s) => Array.isArray(s.points) && s.points.length >= 2);
-  if (!visible.length) {
-    return `<p class="placeholder chart-empty">No intraday forecast comparison yet.</p>`;
-  }
-  const width = 1000;
-  const pad = compact
-    ? { l: 46, r: 8, t: 10, b: 32 }
-    : { l: 52, r: 12, t: 16, b: 38 };
+  return ticks;
+}
+
+function forecastAccuracyClipPoints(points, range) {
+  const { tMin, nowMs } = range;
+  return (points || []).filter(
+    (p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.t >= tMin && p.t <= nowMs
+  );
+}
+
+function forecastAccuracyPlotSvg(series, range, options = {}) {
+  const {
+    height = 160,
+    width = 1000,
+    pad = { l: 46, r: 8, t: 8, b: 28 },
+    yUnit = "kWh",
+    yMinZero = true,
+    ariaLabel = "Forecast chart",
+  } = options;
+  const visible = (series || []).filter((s) => Array.isArray(s.points) && s.points.length >= 2);
+  if (!visible.length) return "";
   const w = width - pad.l - pad.r;
   const h = height - pad.t - pad.b;
   const { tMin, tMax, nowMs } = range;
   const daySpan = Math.max(tMax - tMin, 1);
   const xScale = (t) => pad.l + ((t - tMin) / daySpan) * w;
-  let yMin = 0;
-  let yMax = 0.5;
+  const allValues = [];
   for (const s of visible) {
-    for (const p of s.points) {
-      if (p.t < tMin || p.t > nowMs) continue;
-      yMin = Math.min(yMin, p.v);
-      yMax = Math.max(yMax, p.v);
+    for (const p of forecastAccuracyClipPoints(s.points, range)) {
+      allValues.push(p.v);
     }
   }
-  yMax = Math.max(yMax, 0.5);
-  yMin = Math.min(yMin, 0);
-  const ySpan = Math.max(yMax - yMin, 0.25) * 1.08;
-  const yBase = yMin;
-  const yScale = (v) => pad.t + h - ((v - yBase) / ySpan) * h;
+  const { yMin, yMax } = forecastAccuracyYDomain(allValues, { minZero: yMinZero });
+  const ySpan = Math.max(yMax - yMin, 0.01);
+  const yScale = (v) => pad.t + h - ((v - yMin) / ySpan) * h;
   const yTicks = forecastAccuracyYTicks(yMin, yMax);
-  const xTickHours = 3;
-  const xTickCount = compact ? 5 : 8;
-  const xTicks = Array.from({ length: xTickCount }, (_, i) => tMin + i * xTickHours * 60 * 60 * 1000);
+  const xTicks = forecastAccuracyXTicks(tMin, tMax);
   const grid = yTicks
     .map((yv) => {
       const y = yScale(yv);
@@ -872,21 +882,22 @@ function renderForecastAccuracyChartHtml(intraday, range, { height = 220, compac
   const yLabels = yTicks
     .map((yv) => {
       const y = yScale(yv);
-      return `<text x="${pad.l - 8}" y="${(y + 4).toFixed(1)}" text-anchor="end" class="statistics-axis-y">${esc(yv.toFixed(yv % 1 ? 1 : 0))}</text>`;
+      const label = yUnit === "kW" ? formatStatisticsYTick(yv) : yv.toFixed(yv % 1 ? 1 : 0);
+      return `<text x="${pad.l - 8}" y="${(y + 4).toFixed(1)}" text-anchor="end" class="statistics-axis-y">${esc(label)}</text>`;
     })
     .join("");
   const xLabels = xTicks
     .map((xt) => {
       const x = xScale(xt);
-      return `<text x="${x.toFixed(1)}" y="${height - pad.b + 18}" text-anchor="middle" class="statistics-axis-x">${esc(formatChartTimeLabel(xt))}</text>`;
+      return `<text x="${x.toFixed(1)}" y="${height - 6}" text-anchor="middle" class="statistics-axis-x">${esc(formatChartTimeLabel(xt))}</text>`;
     })
     .join("");
   const lines = visible
     .map((s) => {
-      const pts = s.points.filter((p) => p.t >= tMin && p.t <= nowMs);
+      const pts = forecastAccuracyClipPoints(s.points, range);
       if (pts.length < 2) return "";
       const pixelPts = pts.map((p) => ({ x: xScale(p.t), y: yScale(p.v) }));
-      return `<path class="statistics-line" d="${polylinePath(pixelPts)}" fill="none" stroke="${s.color}" stroke-width="${compact ? 1.6 : 1.8}" stroke-linecap="round" stroke-linejoin="round"${s.dash ? ` stroke-dasharray="${s.dash}"` : ""}/>`;
+      return `<path class="statistics-line" d="${polylinePath(pixelPts)}" fill="none" stroke="${s.color}" stroke-width="${s.lineWidth || 1.8}" stroke-linecap="round" stroke-linejoin="round"${s.dash ? ` stroke-dasharray="${s.dash}"` : ""}/>`;
     })
     .join("");
   const legend = visible
@@ -895,13 +906,103 @@ function renderForecastAccuracyChartHtml(intraday, range, { height = 220, compac
         `<span class="forecast-accuracy-legend-item"><i style="background:${s.color}"></i>${esc(s.label)}</span>`
     )
     .join("");
-  return `<div class="forecast-accuracy-chart-wrap">
-<div class="forecast-accuracy-legend">${legend}</div>
-<svg class="forecast-accuracy-chart-svg statistics-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Forecast vs actual cumulative production">
-<text x="${pad.l - 8}" y="${(pad.t - 4).toFixed(1)}" text-anchor="start" class="statistics-y-label statistics-y-label--left">kWh</text>
+  return `<div class="forecast-accuracy-plot">
+<div class="forecast-accuracy-plot-head">
+<span class="forecast-accuracy-plot-label">${esc(yUnit)}</span>
+<div class="forecast-accuracy-legend forecast-accuracy-legend--inline">${legend}</div>
+</div>
+<svg class="forecast-accuracy-chart-svg statistics-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${esc(ariaLabel)}">
 ${grid}${yLabels}${xLabels}${lines}
 </svg>
 </div>`;
+}
+
+function renderForecastAccuracyChartHtml(intraday, range, { compact = false } = {}) {
+  const powerSeries = [
+    {
+      id: "pv_actual",
+      label: "PV generation",
+      color: FORECAST_ACCURACY_COLORS.actual,
+      points: intraday?.actual_power_kw,
+    },
+    {
+      id: "pv_forecast",
+      label: "Forecast PV",
+      color: FORECAST_ACCURACY_COLORS.predicted,
+      points: intraday?.predicted_power_kw,
+    },
+  ];
+  if (!compact && intraday?.latest_revision_power_kw?.length >= 2) {
+    powerSeries.push({
+      id: "pv_latest",
+      label: "Latest forecast PV",
+      color: FORECAST_ACCURACY_COLORS.latestRevision,
+      dash: "5 4",
+      lineWidth: 1.6,
+      points: intraday.latest_revision_power_kw,
+    });
+  }
+  const energySeries = [
+    {
+      id: "actual",
+      label: "Actual total",
+      color: FORECAST_ACCURACY_COLORS.actual,
+      points: intraday?.actual_cumulative,
+    },
+    {
+      id: "predicted",
+      label: "Forecast total",
+      color: FORECAST_ACCURACY_COLORS.predicted,
+      points: intraday?.predicted_cumulative,
+    },
+  ];
+  if (!compact && intraday?.first_revision_cumulative?.length >= 2) {
+    energySeries.push({
+      id: "first",
+      label: "First forecast total",
+      color: FORECAST_ACCURACY_COLORS.firstRevision,
+      dash: "4 4",
+      lineWidth: 1.6,
+      points: intraday.first_revision_cumulative,
+    });
+  }
+  if (intraday?.latest_revision_cumulative?.length >= 2) {
+    energySeries.push({
+      id: "latest",
+      label: "Latest forecast total",
+      color: FORECAST_ACCURACY_COLORS.latestRevision,
+      dash: "5 4",
+      lineWidth: 1.6,
+      points: intraday.latest_revision_cumulative,
+    });
+  }
+  const hasPower = powerSeries.some((s) => s.points?.length >= 2);
+  const hasEnergy = energySeries.some((s) => s.points?.length >= 2);
+  if (!hasPower && !hasEnergy) {
+    return `<p class="placeholder chart-empty">No intraday forecast comparison yet.</p>`;
+  }
+  const pad = compact
+    ? { l: 46, r: 8, t: 8, b: 28 }
+    : { l: 52, r: 12, t: 10, b: 32 };
+  const powerPlot = hasPower
+    ? forecastAccuracyPlotSvg(powerSeries, range, {
+        height: compact ? 130 : 150,
+        pad,
+        yUnit: "kW",
+        yMinZero: true,
+        ariaLabel: "PV generation vs forecast power",
+      })
+    : "";
+  const energyPlot = hasEnergy
+    ? forecastAccuracyPlotSvg(energySeries, range, {
+        height: compact ? 140 : 170,
+        pad,
+        yUnit: "kWh",
+        yMinZero: true,
+        ariaLabel: "Cumulative PV production vs forecast",
+      })
+    : "";
+  return `<div class="forecast-accuracy-chart-wrap">${powerPlot}${energyPlot}</div>`;
 }
 
 function formatRevisionClock(iso) {
@@ -984,10 +1085,7 @@ function renderForecastAccuracyCard(report, { compact = false, loading = false, 
       ? `<p class="forecast-accuracy-hint">Day total revised from ${esc(formatDailyKwh(report.first_predicted_kwh))} to ${esc(formatDailyKwh(report.latest_predicted_kwh))}</p>`
       : "";
   const range = forecastAccuracyRangeFromReport(report);
-  const chart = renderForecastAccuracyChartHtml(report.intraday, range, {
-    height: compact ? 168 : 240,
-    compact,
-  });
+  const chart = renderForecastAccuracyChartHtml(report.intraday, range, { compact });
   const revisions = compact ? "" : renderForecastAccuracyRevisionsTable(report.revisions);
   return `<div class="card forecast-accuracy-card${compact ? " forecast-accuracy-card--compact" : ""}" style="${margin}" data-forecast-accuracy="1">
 <p class="card-title">${esc(title)}</p>
@@ -5578,7 +5676,16 @@ const STYLES = `
 .forecast-accuracy-hint {
   margin: 0 0 10px; font-size: 11px; color: var(--secondary-text-color); line-height: 1.4;
 }
-.forecast-accuracy-chart-wrap { width: 100%; margin-top: 4px; }
+.forecast-accuracy-chart-wrap { width: 100%; margin-top: 4px; display: flex; flex-direction: column; gap: 10px; }
+.forecast-accuracy-plot { width: 100%; }
+.forecast-accuracy-plot-head {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px;
+  margin-bottom: 6px;
+}
+.forecast-accuracy-plot-label {
+  font-size: 11px; font-weight: 600; color: var(--secondary-text-color); letter-spacing: 0.04em;
+}
+.forecast-accuracy-legend--inline { margin-bottom: 0; }
 .forecast-accuracy-legend {
   display: flex; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 8px; font-size: 11px;
   color: var(--secondary-text-color);
