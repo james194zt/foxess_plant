@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.115
+ * @version 0.9.116
  */
 
 const NAV = [
@@ -705,6 +705,10 @@ function mergeStatisticsForecastSeries(series, range, plantState, hass, { dayOff
   if (fPoints.length < 2 && Array.isArray(fallbackPoints) && fallbackPoints.length >= 2) {
     fPoints = fallbackPoints;
   }
+  if (fPoints.length >= 2) {
+    const detailed = detailedForecastToChartPoints(resolveSolcastDetailedForecast(plantState, hass), range);
+    fPoints = mergeForecastPointsWithFuture(fPoints, detailed, range.nowMs ?? Date.now());
+  }
   if (fPoints.length < 2) {
     const existing = series.find((s) => s.id === "forecast");
     return existing?.points?.length >= 2 ? series : without;
@@ -1356,11 +1360,27 @@ function solcastIntradayForecastPoints(plantState, range) {
     .sort((a, b) => a.t - b.t);
 }
 
+function mergeForecastPointsWithFuture(intradayPts, detailedPts, nowMs) {
+  if (!Array.isArray(intradayPts) || intradayPts.length < 2) {
+    return Array.isArray(detailedPts) && detailedPts.length >= 2 ? detailedPts : intradayPts || [];
+  }
+  if (intradayPts.some((p) => p.t > nowMs + STATISTICS_PERIOD_MS * 0.5)) return intradayPts;
+  if (!Array.isArray(detailedPts) || detailedPts.length < 2) return intradayPts;
+  const future = detailedPts.filter((p) => p.t >= nowMs);
+  if (!future.length) return intradayPts;
+  const merged = intradayPts.filter((p) => p.t <= nowMs);
+  const lastPast = merged[merged.length - 1];
+  for (const p of future) {
+    if (!lastPast || p.t > lastPast.t) merged.push(p);
+  }
+  return merged.length >= 2 ? merged : intradayPts;
+}
+
 function nativeSolcastForecastPoints(plantState, range, hass) {
   const intraday = solcastIntradayForecastPoints(plantState, range);
-  if (intraday.length >= 2) return intraday;
-  const rows = resolveSolcastDetailedForecast(plantState, hass);
-  return detailedForecastToChartPoints(rows, range);
+  const detailed = detailedForecastToChartPoints(resolveSolcastDetailedForecast(plantState, hass), range);
+  const nowMs = range?.nowMs ?? Date.now();
+  return mergeForecastPointsWithFuture(intraday, detailed, nowMs);
 }
 
 function pvConfigSummary(pv) {
@@ -2610,7 +2630,7 @@ function statisticsChartLayout({ sideLegend = false, hasSoc = false, compact = f
     pad: {
       l: sideLegend ? 58 : 52,
       r,
-      t: sideLegend ? 22 : compact ? 8 : 12,
+      t: sideLegend ? 22 : compact ? 18 : 12,
       b: compact ? 32 : 40,
     },
   };
@@ -5862,7 +5882,7 @@ const STYLES = `
 .breakdown-card { margin-top: 14px; padding-bottom: 8px; }
 .statistics-card { padding-bottom: 16px; }
 .statistics-card .card-title { margin-bottom: 12px; }
-.statistics-card .statistics-chart-legend { margin-bottom: 6px; }
+.statistics-card .statistics-chart-legend { margin-bottom: 14px; }
 .statistics-card .statistics-chart-svg--compact {
   height: auto; max-height: none;
 }
