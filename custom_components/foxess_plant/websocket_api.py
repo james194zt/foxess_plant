@@ -646,6 +646,7 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
                 coordinator.plant.entity_map,
                 target_day,
                 entry_id=coordinator.config_entry.entry_id,
+                storm_prep=coordinator.plant.storm_prep,
             )
         except Exception as err:
             _LOGGER.exception("solcast_forecast_accuracy failed for %s", target_day.isoformat())

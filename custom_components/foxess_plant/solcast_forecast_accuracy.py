@@ -275,6 +275,7 @@ def build_forecast_accuracy_report(
     target_day: date,
     *,
     entry_id: str | None = None,
+    storm_prep: Any | None = None,
 ) -> dict[str, Any]:
     """Actual vs Solcast forecast with per-poll revision history for one local day."""
     day_start, day_end, day_start_ms, day_end_ms = _day_bounds(target_day)
@@ -368,6 +369,24 @@ def build_forecast_accuracy_report(
 
     chart_window = _chart_window_for_day(hass, target_day)
 
+    cloud_coverage_pct: list[dict[str, float]] = []
+    weather_entity_id: str | None = None
+    try:
+        from .storm_weather import build_cloud_coverage_points, resolve_overview_weather_entities
+
+        _, weather_entity_id = resolve_overview_weather_entities(hass, storm_prep)
+        cloud_end_ms = chart_window["t_max_ms"] if is_today else as_of_ms
+        cloud_coverage_pct = build_cloud_coverage_points(
+            hass,
+            weather_entity_id,
+            day_start_ms=chart_window["t_min_ms"],
+            as_of_ms=min(as_of_ms, chart_window["t_max_ms"]),
+            t_max_ms=cloud_end_ms,
+            period_ms=STATISTICS_PERIOD_MS,
+        )
+    except Exception:
+        _LOGGER.exception("forecast accuracy cloud coverage failed for %s", target_day)
+
     actual_kwh = actual_cumulative[-1]["v"] if actual_cumulative else None
     if actual_kwh is None and energy_entity:
         actual_kwh = _actual_kwh_from_energy_sensor(hass, energy_entity, day_start, as_of)
@@ -404,6 +423,9 @@ def build_forecast_accuracy_report(
             "actual_power_kw": actual_power,
             "predicted_power_kw": predicted_in_range,
             "latest_revision_power_kw": _points_through(latest_curve, as_of_ms),
+            "cloud_coverage_pct": cloud_coverage_pct,
         },
+        "weather_entity_id": weather_entity_id,
+        "cloud_coverage_available": len(cloud_coverage_pct) >= 2,
         "solcast_enabled": bool(snapshots or predicted_kw),
     }
