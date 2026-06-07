@@ -67,23 +67,24 @@ STORM_GOOGLE_TYPE_LABELS: dict[str, str] = {
     "FREEZING_RAIN": "Freezing rain",
 }
 
-# Fox-app style warning groups mapped to Google Weather condition / alert types.
+# Fox-app style warning groups mapped to Google Weather sources.
+# condition_types → sensor.*_weather_condition attribute "type" + hourly forecast (WeatherCondition enum)
+# alert_event_types → binary_sensor.*_weather_alert attributes "event_type" (publicAlerts WeatherEventType)
 STORM_WEATHER_CATEGORIES: tuple[dict[str, Any], ...] = (
     {
         "id": "extreme_heat",
         "label": "Extreme heat",
         "icon": "storm_weather_extreme_heat.png",
-        "google_types": frozenset({"HEAT"}),
-        "ha_conditions": frozenset({"exceptional"}),
+        "condition_types": frozenset(),
+        "alert_event_types": frozenset({"HEAT"}),
+        "ha_conditions": frozenset(),
     },
     {
         "id": "extreme_cold",
         "label": "Extreme cold",
         "icon": "storm_weather_extreme_cold.png",
-        "google_types": frozenset(
+        "condition_types": frozenset(
             {
-                "COLD",
-                "WIND_CHILL",
                 "BLIZZARD",
                 "BLOWING_SNOW",
                 "HEAVY_SNOW",
@@ -94,13 +95,14 @@ STORM_WEATHER_CATEGORIES: tuple[dict[str, Any], ...] = (
                 "SNOW_PERIODICALLY_HEAVY",
             }
         ),
-        "ha_conditions": frozenset({"snowy", "exceptional"}),
+        "alert_event_types": frozenset({"COLD", "WIND_CHILL", "BLIZZARD", "BLOWING_SNOW"}),
+        "ha_conditions": frozenset({"snowy"}),
     },
     {
         "id": "heavy_rain",
         "label": "Heavy rain",
         "icon": "storm_weather_heavy_rain.png",
-        "google_types": frozenset(
+        "condition_types": frozenset(
             {
                 "HEAVY_RAIN",
                 "HEAVY_RAIN_SHOWERS",
@@ -109,13 +111,15 @@ STORM_WEATHER_CATEGORIES: tuple[dict[str, Any], ...] = (
                 "WIND_AND_RAIN",
             }
         ),
+        "alert_event_types": frozenset({"RAIN", "FLASH_FLOOD", "FLOOD", "MUDDY_FLOOD"}),
         "ha_conditions": frozenset({"pouring", "rainy"}),
     },
     {
         "id": "typhoons",
         "label": "Typhoons",
         "icon": "storm_weather_typhoons.png",
-        "google_types": frozenset(
+        "condition_types": frozenset({"HURRICANE", "TROPICAL_STORM", "WINDY", "TORNADO"}),
+        "alert_event_types": frozenset(
             {
                 "TYPHOON",
                 "HURRICANE",
@@ -123,23 +127,24 @@ STORM_WEATHER_CATEGORIES: tuple[dict[str, Any], ...] = (
                 "CYCLONE",
                 "TROPICAL_CYCLONE",
                 "EXTRATROPICAL_CYCLONE",
-                "WINDY",
+                "TROPICAL_CYCLONE_WARNINGS_AND_WATCHES",
             }
         ),
-        "ha_conditions": frozenset({"exceptional", "hurricane", "windy"}),
+        "ha_conditions": frozenset({"hurricane", "windy", "exceptional"}),
     },
     {
         "id": "dust_storm",
         "label": "Dust storm",
         "icon": "storm_weather_dust_storm.png",
-        "google_types": frozenset({"DUST_STORM"}),
-        "ha_conditions": frozenset({"windy-variant"}),
+        "condition_types": frozenset(),
+        "alert_event_types": frozenset({"DUST_STORM"}),
+        "ha_conditions": frozenset(),
     },
     {
         "id": "thunderstorms",
         "label": "Thunderstorms",
         "icon": "storm_weather_thunderstorms.png",
-        "google_types": frozenset(
+        "condition_types": frozenset(
             {
                 "THUNDERSTORM",
                 "THUNDERSHOWER",
@@ -150,35 +155,45 @@ STORM_WEATHER_CATEGORIES: tuple[dict[str, Any], ...] = (
                 "TORNADO",
             }
         ),
+        "alert_event_types": frozenset(
+            {"THUNDERSTORM", "THUNDER", "TORNADO", "TORNADO_WARNING", "SEVERE_THUNDERSTORM_WARNING"}
+        ),
         "ha_conditions": frozenset({"lightning", "lightning-rainy"}),
     },
     {
         "id": "wildfires",
         "label": "Wildfires",
         "icon": "storm_weather_wildfires.png",
-        "google_types": frozenset({"WILDFIRE", "FIRE", "BUSHFIRE", "FIRE_WEATHER"}),
-        "ha_conditions": frozenset({"exceptional"}),
+        "condition_types": frozenset(),
+        "alert_event_types": frozenset({"WILDFIRE", "FIRE", "BUSHFIRE", "FIRE_WEATHER"}),
+        "ha_conditions": frozenset(),
     },
     {
         "id": "hailstorms",
         "label": "Hailstorms",
         "icon": "storm_weather_hailstorms.png",
-        "google_types": frozenset({"HAIL", "HAIL_SHOWERS"}),
+        "condition_types": frozenset({"HAIL", "HAIL_SHOWERS"}),
+        "alert_event_types": frozenset({"HAIL"}),
         "ha_conditions": frozenset({"hail"}),
     },
     {
         "id": "ice_storms",
         "label": "Ice storms",
         "icon": "storm_weather_ice_storms.png",
-        "google_types": frozenset({"ICE_STORM", "WINTER_STORM", "GLAZE", "FREEZING_RAIN"}),
-        "ha_conditions": frozenset({"snowy-rainy", "exceptional"}),
+        "condition_types": frozenset({"RAIN_AND_SNOW", "SLEET"}),
+        "alert_event_types": frozenset({"ICE_STORM", "WINTER_STORM", "GLAZE", "FREEZING_RAIN"}),
+        "ha_conditions": frozenset({"snowy-rainy"}),
     },
 )
 
 STORM_WEATHER_CATEGORY_BY_ID = {row["id"]: row for row in STORM_WEATHER_CATEGORIES}
 
 DEFAULT_STORM_GOOGLE_WEATHER_TYPES: frozenset[str] = frozenset(
-    {t for row in STORM_WEATHER_CATEGORIES for t in row["google_types"]}
+    {t for row in STORM_WEATHER_CATEGORIES for t in row["condition_types"]}
+)
+
+DEFAULT_STORM_ALERT_EVENT_TYPES: frozenset[str] = frozenset(
+    {t for row in STORM_WEATHER_CATEGORIES for t in row["alert_event_types"]}
 )
 
 def storm_google_types(storm_types: list[str] | None) -> frozenset[str]:
@@ -208,27 +223,119 @@ def default_storm_category_ids() -> list[str]:
     return [row["id"] for row in STORM_WEATHER_CATEGORIES]
 
 
-def storm_weather_category_catalog() -> list[dict[str, Any]]:
-    return [
-        {
+def _category_support(
+    row: dict[str, Any],
+    *,
+    alerts_supported: bool,
+    condition_supported: bool,
+) -> tuple[bool, str | None, list[str]]:
+    via: list[str] = []
+    if condition_supported and row["condition_types"]:
+        via.append("forecast")
+    if alerts_supported and row["alert_event_types"]:
+        via.append("alerts")
+    if via:
+        return True, None, via
+    if row["alert_event_types"] and not row["condition_types"]:
+        return False, "Requires Google Weather alerts (not published for this location)", via
+    if row["condition_types"] and not condition_supported:
+        return False, "Requires the Google Weather condition sensor", via
+    return False, "Not available for this location", via
+
+
+def storm_weather_category_catalog(
+    *,
+    alerts_supported: bool | None = None,
+    condition_supported: bool | None = None,
+) -> list[dict[str, Any]]:
+    """Fox categories with optional per-location support flags."""
+    rows: list[dict[str, Any]] = []
+    for row in STORM_WEATHER_CATEGORIES:
+        item: dict[str, Any] = {
             "id": row["id"],
             "label": row["label"],
             "icon": row["icon"],
-            "google_types": sorted(row["google_types"]),
+            "condition_types": sorted(row["condition_types"]),
+            "alert_event_types": sorted(row["alert_event_types"]),
+            "google_types": sorted(row["condition_types"] | row["alert_event_types"]),
         }
-        for row in STORM_WEATHER_CATEGORIES
+        if alerts_supported is not None and condition_supported is not None:
+            supported, reason, via = _category_support(
+                row,
+                alerts_supported=alerts_supported,
+                condition_supported=condition_supported,
+            )
+            item["supported"] = supported
+            item["unsupported_reason"] = reason
+            item["support_via"] = via
+        else:
+            item["supported"] = True
+            item["unsupported_reason"] = None
+            item["support_via"] = sorted(
+                {
+                    *(["forecast"] if row["condition_types"] else []),
+                    *(["alerts"] if row["alert_event_types"] else []),
+                }
+            )
+        rows.append(item)
+    return rows
+
+
+def supported_storm_category_ids(
+    *,
+    alerts_supported: bool,
+    condition_supported: bool,
+) -> list[str]:
+    return [
+        row["id"]
+        for row in storm_weather_category_catalog(
+            alerts_supported=alerts_supported,
+            condition_supported=condition_supported,
+        )
+        if row["supported"]
     ]
 
 
-def google_types_from_categories(category_ids: list[str] | None) -> list[str] | None:
+def filter_supported_storm_categories(
+    category_ids: list[str] | None,
+    *,
+    alerts_supported: bool,
+    condition_supported: bool,
+) -> list[str] | None:
+    if category_ids is None:
+        return None
+    allowed = set(supported_storm_category_ids(
+        alerts_supported=alerts_supported,
+        condition_supported=condition_supported,
+    ))
+    return [cid for cid in category_ids if cid in allowed]
+
+
+def condition_types_from_categories(category_ids: list[str] | None) -> list[str] | None:
     if category_ids is None:
         return None
     merged: set[str] = set()
     for cid in category_ids:
         row = STORM_WEATHER_CATEGORY_BY_ID.get(cid)
         if row:
-            merged |= set(row["google_types"])
+            merged |= set(row["condition_types"])
     return sorted(merged)
+
+
+def alert_event_types_from_categories(category_ids: list[str] | None) -> frozenset[str]:
+    if category_ids is None:
+        return DEFAULT_STORM_ALERT_EVENT_TYPES
+    merged: set[str] = set()
+    for cid in category_ids:
+        row = STORM_WEATHER_CATEGORY_BY_ID.get(cid)
+        if row:
+            merged |= set(row["alert_event_types"])
+    return frozenset(merged)
+
+
+def google_types_from_categories(category_ids: list[str] | None) -> list[str] | None:
+    """Persisted storm_google_types — condition sensor / forecast codes only."""
+    return condition_types_from_categories(category_ids)
 
 
 def categories_from_google_types(storm_types: list[str] | None) -> list[str]:
@@ -239,18 +346,20 @@ def categories_from_google_types(storm_types: list[str] | None) -> list[str]:
         return []
     selected: list[str] = []
     for row in STORM_WEATHER_CATEGORIES:
-        if row["google_types"] & allowed:
+        if row["condition_types"] & allowed or row["alert_event_types"] & allowed:
             selected.append(row["id"])
     return selected
 
 
 def ha_conditions_for_storm_types(storm_types: list[str] | None) -> frozenset[str]:
-    allowed = storm_google_types(storm_types)
+    if storm_types is None:
+        return DEFAULT_STORM_HA_WEATHER_CONDITIONS
+    allowed = frozenset(storm_types)
     merged: set[str] = set()
     for row in STORM_WEATHER_CATEGORIES:
-        if row["google_types"] & allowed:
+        if row["condition_types"] & allowed:
             merged |= set(row["ha_conditions"])
-    return frozenset(merged) if merged else DEFAULT_STORM_HA_WEATHER_CONDITIONS
+    return frozenset(merged)
 
 
 def is_storm_ha_condition_for_types(condition: str | None, storm_types: list[str] | None) -> bool:
@@ -260,6 +369,41 @@ def is_storm_ha_condition_for_types(condition: str | None, storm_types: list[str
     if storm_types is None:
         return is_storm_ha_condition(token)
     return token in ha_conditions_for_storm_types(storm_types)
+
+
+def _alert_event_types_from_state_attributes(attrs: dict[str, Any]) -> set[str]:
+    events: set[str] = set()
+    for key in ("alerts", "urgent_alerts"):
+        block = attrs.get(key)
+        if not isinstance(block, list):
+            continue
+        for alert in block:
+            if not isinstance(alert, dict):
+                continue
+            event = alert.get("event_type")
+            if event:
+                events.add(str(event).upper())
+    return events
+
+
+def is_storm_google_alert_active(
+    hass: HomeAssistant,
+    entity_id: str,
+    category_ids: list[str] | None,
+) -> bool:
+    """True when a Google Weather alert binary is on and matches selected categories."""
+    state = hass.states.get(entity_id)
+    if state is None or state.state.lower() not in {"on", "true", "1"}:
+        return False
+    allowed = alert_event_types_from_categories(category_ids)
+    if not allowed:
+        return False
+    attrs = state.attributes or {}
+    events = _alert_event_types_from_state_attributes(attrs)
+    if events:
+        return bool(events & allowed)
+    # Alert is on but event types not exposed — only arm when all default alert categories apply.
+    return category_ids is None
 
 
 def read_condition_snapshot(

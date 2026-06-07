@@ -340,10 +340,21 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._active_storm_triggers.add(cfg.weather_entity_id)
 
     def _is_binary_trigger_active(self, entity_id: str) -> bool:
+        from .panel_config import is_google_weather_alert_entity
+        from .storm_weather import is_storm_google_alert_active
+
         state = self.hass.states.get(entity_id)
         if state is None:
             return False
-        return state.state.lower() in TRIGGER_ON_STATES
+        if state.state.lower() not in TRIGGER_ON_STATES:
+            return False
+        if is_google_weather_alert_entity(self.hass, entity_id):
+            return is_storm_google_alert_active(
+                self.hass,
+                entity_id,
+                self.plant.storm_prep.storm_weather_categories,
+            )
+        return True
 
     def _is_storm_condition_active(self) -> bool:
         from .storm_weather import is_storm_weather_active
@@ -538,11 +549,17 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     def _storm_prep_state(self) -> dict[str, Any]:
+        from .panel_config import resolve_google_weather_entry
         from .storm_weather import read_condition_snapshot, storm_weather_category_catalog
 
-        out = self.plant.storm_prep.to_dict()
+        cfg = self.plant.storm_prep
+        out = cfg.to_dict()
         out["weather_provider"] = "google_weather"
-        out["storm_weather_category_catalog"] = storm_weather_category_catalog()
+        gw = resolve_google_weather_entry(self.hass, cfg.google_weather_entry_id)
+        out["storm_weather_category_catalog"] = storm_weather_category_catalog(
+            alerts_supported=bool(gw.get("alerts_supported")),
+            condition_supported=bool(gw.get("condition_supported")),
+        )
         out["current_condition"] = read_condition_snapshot(
             self.hass,
             self.plant.storm_prep.condition_entity_id,
@@ -915,7 +932,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> None:
         """Persist storm prep from the Fox Plant panel."""
         from .panel_config import resolve_google_weather_entry
-        from .storm_weather import google_types_from_categories
+        from .storm_weather import filter_supported_storm_categories, google_types_from_categories
 
         periods = [ChargePeriodConfig.from_dict(p) for p in charge_periods]
         triggers = list(trigger_entities)
@@ -924,15 +941,26 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         lead_hours = 4 if forecast_lead_hours is None else max(1, min(int(forecast_lead_hours), 48))
         condition_entity_id: str | None = None
         weather_entity_id: str | None = None
+        alerts_supported = False
+        condition_supported = False
         if google_weather_entry_id:
             sources = resolve_google_weather_entry(self.hass, google_weather_entry_id)
             if sources["alert_trigger_ids"]:
                 triggers = sources["alert_trigger_ids"]
             condition_entity_id = sources["condition_entity_id"]
             weather_entity_id = sources["weather_entity_id"]
+            alerts_supported = bool(sources.get("alerts_supported"))
+            condition_supported = bool(sources.get("condition_supported"))
             use_weather_condition = bool(condition_entity_id)
             if use_forecast_lead is None:
                 use_forecast = bool(weather_entity_id)
+        filtered_categories = storm_weather_categories
+        if google_weather_entry_id:
+            filtered_categories = filter_supported_storm_categories(
+                storm_weather_categories,
+                alerts_supported=alerts_supported,
+                condition_supported=condition_supported,
+            )
         data = dict(self.config_entry.data)
         storm_data: dict[str, Any] = {
             "enabled": enabled,
@@ -951,9 +979,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             storm_data["condition_entity_id"] = condition_entity_id
         if weather_entity_id:
             storm_data["weather_entity_id"] = weather_entity_id
-        storm_google_types = google_types_from_categories(storm_weather_categories)
-        if storm_weather_categories is not None:
-            storm_data["storm_weather_categories"] = list(storm_weather_categories)
+        storm_google_types = google_types_from_categories(filtered_categories)
+        if filtered_categories is not None:
+            storm_data["storm_weather_categories"] = list(filtered_categories)
         if storm_google_types is not None:
             storm_data["storm_google_types"] = storm_google_types
         data[CONF_STORM_PREP] = storm_data

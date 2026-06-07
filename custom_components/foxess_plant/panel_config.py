@@ -66,6 +66,10 @@ def _entities_for_config_entry(hass: HomeAssistant, entry_id: str) -> list[str]:
     ]
 
 
+def is_google_weather_alert_entity(hass: HomeAssistant, entity_id: str) -> bool:
+    return _is_google_weather_alert_entity(hass, entity_id)
+
+
 def _is_google_weather_alert_entity(hass: HomeAssistant, entity_id: str) -> bool:
     if not entity_id.startswith("binary_sensor."):
         return False
@@ -155,6 +159,10 @@ def _build_google_weather_entry(hass: HomeAssistant, cfg: ConfigEntry) -> dict[s
         "setup_status": setup_status,
         "forecast_entities": sorted(forecast_entities),
         "has_daytime_sensor": has_daytime,
+        "storm_weather_categories": storm_weather_category_catalog(
+            alerts_supported=bool(alert_trigger_ids),
+            condition_supported=bool(condition_entity),
+        ),
     }
 
 
@@ -165,6 +173,8 @@ def resolve_google_weather_entry(hass: HomeAssistant, entry_id: str | None) -> d
             "alert_trigger_ids": [],
             "condition_entity_id": None,
             "weather_entity_id": None,
+            "alerts_supported": False,
+            "condition_supported": False,
         }
     cfg = hass.config_entries.async_get_entry(entry_id)
     if not cfg or cfg.domain != GOOGLE_WEATHER_DOMAIN:
@@ -172,6 +182,8 @@ def resolve_google_weather_entry(hass: HomeAssistant, entry_id: str | None) -> d
             "alert_trigger_ids": [],
             "condition_entity_id": None,
             "weather_entity_id": None,
+            "alerts_supported": False,
+            "condition_supported": False,
         }
     weather_entity: str | None = None
     condition_entity = _find_weather_condition_entity(hass, entry_id)
@@ -188,6 +200,8 @@ def resolve_google_weather_entry(hass: HomeAssistant, entry_id: str | None) -> d
         "alert_trigger_ids": alert_ids,
         "condition_entity_id": condition_entity,
         "weather_entity_id": weather_entity,
+        "alerts_supported": bool(alert_ids),
+        "condition_supported": bool(condition_entity),
     }
 
 

@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.99
+ * @version 0.9.101
  */
 
 const NAV = [
@@ -1150,6 +1150,13 @@ function bindHourlyWeatherOverview(root) {
       scroller.scrollBy({ left: dir * 220, behavior: "smooth" });
     });
   });
+  scroller.addEventListener(
+    "scroll",
+    () => {
+      card.dataset.scrollLeft = String(Math.round(scroller.scrollLeft));
+    },
+    { passive: true }
+  );
 }
 
 function entityUnit(hass, entityId) {
@@ -5155,13 +5162,15 @@ const STYLES = `
   margin: 0 -4px; overflow: hidden;
 }
 .hourly-weather-scroll {
-  display: flex; gap: 0; overflow-x: auto; scroll-snap-type: x proximity;
+  display: flex; gap: 0; overflow-x: auto; overflow-y: hidden;
   padding: 2px 4px 8px; scrollbar-width: none;
+  -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain;
+  touch-action: pan-x;
 }
 .hourly-weather-scroll::-webkit-scrollbar { display: none; }
 .hourly-weather-col {
   flex: 0 0 72px; display: flex; flex-direction: column; align-items: center;
-  gap: 8px; scroll-snap-align: start; text-align: center;
+  gap: 8px; text-align: center;
 }
 .hourly-weather-temp {
   font-size: 18px; font-weight: 600; line-height: 1.1; color: var(--primary-text-color);
@@ -6418,6 +6427,11 @@ const STYLES = `
 .storm-weather-category-icon { width: 40px; height: 40px; flex-shrink: 0; object-fit: contain; }
 .storm-weather-category-label { flex: 1; font-size: 15px; font-weight: 500; }
 .storm-weather-category-row input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--fp-accent); flex-shrink: 0; }
+.storm-weather-category-row--disabled { opacity: 0.45; }
+.storm-weather-category-row--disabled .storm-weather-category-icon { filter: grayscale(1); }
+.storm-weather-category-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.storm-weather-category-note { font-size: 11px; line-height: 1.35; color: var(--secondary-text-color); }
+.storm-weather-category-via { font-size: 11px; color: var(--secondary-text-color); opacity: 0.85; }
 .trigger-row.google-weather { background: color-mix(in srgb, var(--fp-accent) 10%, transparent); }
 .trigger-role { display: inline-block; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 6px; border-radius: 6px; margin-left: 6px; background: var(--secondary-background-color); color: var(--fp-accent); }
 @container fp-main (min-width: 560px) {
@@ -6515,6 +6529,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._overviewDailyLoading = false;
     this._overviewDailyPlantId = undefined;
     this._overviewDailySlotCache = undefined;
+    this._overviewHourlyWeatherSlotCache = undefined;
     this._overviewBreakdownSlotCache = undefined;
     this._overviewSummarySlotCache = undefined;
     this._overviewEnergyBandCache = undefined;
@@ -6981,10 +6996,13 @@ Reloading panel registration…
     const periods = JSON.parse(JSON.stringify(storm.charge_periods ?? DEFAULT_PERIODS)).slice(0, 2);
     while (periods.length < 2) periods.push({ ...DEFAULT_PERIODS[0] });
     const catalog = this._getStormWeatherCategoryCatalog();
-    const defaultCategoryIds = catalog.map((row) => row.id);
+    const supportedIds = catalog.filter((row) => row.supported !== false).map((row) => row.id);
+    const fallbackIds = STORM_WEATHER_CATEGORY_FALLBACK.map((r) => r.id);
     let stormCategories = storm.storm_weather_categories;
     if (stormCategories == null) {
-      stormCategories = defaultCategoryIds.length ? defaultCategoryIds : STORM_WEATHER_CATEGORY_FALLBACK.map((r) => r.id);
+      stormCategories = supportedIds.length ? supportedIds : fallbackIds;
+    } else {
+      stormCategories = stormCategories.filter((id) => supportedIds.includes(id));
     }
     this._stormDraft = {
       enabled: Boolean(storm.enabled),
@@ -7003,11 +7021,27 @@ Reloading panel registration…
   }
 
   _getStormWeatherCategoryCatalog() {
+    const entry = this._getSelectedGoogleWeatherEntry();
+    if (entry?.storm_weather_categories?.length) {
+      return entry.storm_weather_categories;
+    }
     return (
       this._plantState?.storm_prep?.storm_weather_category_catalog ??
       this._triggerMeta?.google_weather?.storm_weather_categories ??
-      STORM_WEATHER_CATEGORY_FALLBACK
+      STORM_WEATHER_CATEGORY_FALLBACK.map((row) => ({ ...row, supported: true, unsupported_reason: null, support_via: [] }))
     );
+  }
+
+  _pruneUnsupportedStormCategories() {
+    if (!this._stormDraft) return;
+    const supported = new Set(
+      this._getStormWeatherCategoryCatalog()
+        .filter((row) => row.supported !== false)
+        .map((row) => row.id)
+    );
+    this._stormDraft.storm_weather_categories = (
+      this._stormDraft.storm_weather_categories ?? []
+    ).filter((id) => supported.has(id));
   }
 
   _getGoogleWeatherEntries() {
@@ -7015,7 +7049,9 @@ Reloading panel registration…
   }
 
   _getSelectedGoogleWeatherEntry() {
-    const id = this._stormDraft?.google_weather_entry_id;
+    const id =
+      this._stormDraft?.google_weather_entry_id ??
+      this._plantState?.storm_prep?.google_weather_entry_id;
     if (!id) return null;
     return this._getGoogleWeatherEntries().find((e) => e.entry_id === id) ?? null;
   }
@@ -7042,6 +7078,7 @@ Reloading panel registration…
     } else {
       this._stormDraft.trigger_entities = [];
     }
+    this._pruneUnsupportedStormCategories();
   }
 
   _inferGoogleWeatherEntryId() {
@@ -7757,7 +7794,11 @@ Reloading panel registration…
       if (!this._stormDraft) this._initStormDraft();
       const categoryId = el.dataset.category;
       if (!categoryId) return;
-      const catalogIds = this._getStormWeatherCategoryCatalog().map((row) => row.id);
+      const row = this._getStormWeatherCategoryCatalog().find((c) => c.id === categoryId);
+      if (row && row.supported === false) return;
+      const catalogIds = this._getStormWeatherCategoryCatalog()
+        .filter((c) => c.supported !== false)
+        .map((row) => row.id);
       let list = this._stormDraft.storm_weather_categories ?? [...catalogIds];
       if (el.checked) {
         if (!list.includes(categoryId)) list.push(categoryId);
@@ -8479,8 +8520,7 @@ ${pathsHtml}
   }
 
   _renderOverviewAfterHero(plant) {
-    return `${this._renderHourlyWeatherCard()}
-<div class="card statistics-card" style="margin-top:14px">
+    return `<div class="card statistics-card" style="margin-top:14px">
 <p class="card-title">Statistics</p>
 ${this._renderStatisticsChartBody()}
 </div>
@@ -8489,6 +8529,33 @@ ${this._renderStatisticsChartBody()}
 ${this._renderBatterySocChartBody(plant)}
 </div>
 ${this._renderImpactPanel()}`;
+  }
+
+  _overviewHourlyWeatherSlotKey() {
+    if (!this._overviewHourlyWeatherEnabled()) return "";
+    if (this._hourlyWeatherLoading) return "loading";
+    if (!this._hourlyWeather) return "pending";
+    const data = this._hourlyWeather;
+    if (data.error) return `err:${data.error}`;
+    if (data.empty) return `empty:${data.empty}`;
+    const slots = data.slots || [];
+    return `ok:${slots.map((s) => s.t).join(",")}`;
+  }
+
+  _patchOverviewHourlyWeatherSlot(mainEl) {
+    const slot = mainEl.querySelector(".overview-hourly-weather-slot");
+    if (!slot) return;
+    const key = this._overviewHourlyWeatherSlotKey();
+    if (key === this._overviewHourlyWeatherSlotCache) return;
+    const prevCard = slot.querySelector("[data-hourly-weather]");
+    const scrollLeft = prevCard?.dataset?.scrollLeft
+      ? Number(prevCard.dataset.scrollLeft)
+      : slot.querySelector(".hourly-weather-scroll")?.scrollLeft ?? 0;
+    slot.innerHTML = this._renderHourlyWeatherCard();
+    this._overviewHourlyWeatherSlotCache = key;
+    const scroller = slot.querySelector(".hourly-weather-scroll");
+    if (scroller && scrollLeft > 0) scroller.scrollLeft = scrollLeft;
+    bindHourlyWeatherOverview(mainEl);
   }
 
   /** Refresh overview without disconnecting the flow scene (CSS animations keep running). */
@@ -8500,6 +8567,7 @@ ${this._renderImpactPanel()}`;
       this._flowSceneKeyPending = undefined;
       this._flowSceneKeyPendingN = 0;
       this._overviewDailySlotCache = undefined;
+      this._overviewHourlyWeatherSlotCache = undefined;
       this._overviewBreakdownSlotCache = undefined;
       this._overviewSummarySlotCache = undefined;
       this._overviewEnergyBandCache = undefined;
@@ -8517,6 +8585,7 @@ ${this._renderImpactPanel()}`;
 <div class="overview-hero-daily-slot"></div>
 </div>
 <div class="overview-energy-band-slot"></div>
+<div class="overview-hourly-weather-slot"></div>
 <div class="overview-after-hero"></div>
 </div>`;
     }
@@ -8537,6 +8606,7 @@ ${this._renderImpactPanel()}`;
       this._overviewBreakdownSlotCache = breakdownKey;
       this._overviewSummarySlotCache = breakdownKey;
     }
+    this._patchOverviewHourlyWeatherSlot(mainEl);
     mainEl.querySelector(".overview-after-hero").innerHTML = this._renderOverviewAfterHero(plant);
 
     const sceneSlot = mainEl.querySelector(".overview-hero-scene-slot");
@@ -9759,25 +9829,49 @@ ${detail}${quickBtn}</div>`;
   _renderStormWeatherCategories() {
     const draft = this._stormDraft;
     const catalog = this._getStormWeatherCategoryCatalog();
+    const gwEntry = this._getSelectedGoogleWeatherEntry();
     if (!catalog.length) {
       return `<div class="card"><p class="card-title">Weather warnings</p>
 <p class="storm-hint">Choose which Google Weather conditions trigger StormSafe pre-charge.</p>
 <p class="placeholder" style="margin:8px 0 0">Loading categories…</p></div>`;
     }
-    const selected = new Set(draft?.storm_weather_categories ?? catalog.map((row) => row.id));
+    if (!gwEntry) {
+      return `<div class="card"><p class="card-title">Weather warnings</p>
+<p class="storm-hint">Select a Google Weather location above to see which Fox-style warning categories Google publishes for your area.</p></div>`;
+    }
+    const supportedIds = catalog.filter((row) => row.supported !== false).map((row) => row.id);
+    const selected = new Set(
+      (draft?.storm_weather_categories ?? supportedIds).filter((id) => supportedIds.includes(id))
+    );
+    const gatedCount = catalog.filter((row) => row.supported === false).length;
     const rows = catalog
       .map((cat) => {
-        const on = selected.has(cat.id);
-        return `<div class="storm-weather-category-row">
-<img class="storm-weather-category-icon" src="${esc(stormWeatherIconUrl(cat.icon))}" alt="" width="40" height="40" loading="lazy">
+        const supported = cat.supported !== false;
+        const on = supported && selected.has(cat.id);
+        const disabled = !supported || this._busy;
+        const note = cat.unsupported_reason
+          ? `<span class="storm-weather-category-note">${esc(cat.unsupported_reason)}</span>`
+          : "";
+        const via =
+          supported && cat.support_via?.length
+            ? `<span class="storm-weather-category-via">via ${esc(cat.support_via.join(" + "))}</span>`
+            : "";
+        return `<div class="storm-weather-category-row${supported ? "" : " storm-weather-category-row--disabled"}">
+<img class="storm-weather-category-icon" src="${esc(stormWeatherIconUrl(cat.icon))}" alt="" width="40" height="40" loading="lazy" ${supported ? "" : 'style="opacity:0.7"'}>
+<div class="storm-weather-category-body">
 <span class="storm-weather-category-label">${esc(cat.label)}</span>
-<input type="checkbox" data-action="toggle-storm-category" data-category="${esc(cat.id)}" ${on ? "checked" : ""} ${this._busy ? "disabled" : ""}>
+${note}${via}
+</div>
+<input type="checkbox" data-action="toggle-storm-category" data-category="${esc(cat.id)}" ${on ? "checked" : ""} ${disabled ? "disabled" : ""} aria-label="${esc(cat.label)}">
 </div>`;
       })
       .join("");
+    const gatedHint = gatedCount
+      ? `<p class="storm-hint" style="margin:12px 0 0">${gatedCount} categor${gatedCount === 1 ? "y is" : "ies are"} unavailable for <strong>${esc(gwEntry.title)}</strong> — Google does not publish those alerts or forecast types there.</p>`
+      : "";
     return `<div class="card"><p class="card-title">Weather warnings</p>
-<p class="storm-hint">Choose which severe weather conditions trigger StormSafe — same categories as the Fox app.</p>
-<div class="storm-weather-category-list">${rows}</div></div>`;
+<p class="storm-hint">Toggle the severe weather types that should trigger StormSafe for <strong>${esc(gwEntry.title)}</strong>. Grey rows are not offered by Google Weather in this region.</p>
+<div class="storm-weather-category-list">${rows}</div>${gatedHint}</div>`;
   }
 
   _renderStormAdvancedTriggers() {
@@ -10542,7 +10636,9 @@ ${active
     }
     if (this._view === "overview") {
       bindOverviewDailyCharts(this._root);
-      bindHourlyWeatherOverview(this._root);
+      if (!mainEl?.querySelector?.(".overview-hourly-weather-slot [data-hourly-weather][data-bound]")) {
+        bindHourlyWeatherOverview(this._root);
+      }
       if (this._batterySocChart?.socPts?.length) {
         this._bindBatterySocChart();
       }
