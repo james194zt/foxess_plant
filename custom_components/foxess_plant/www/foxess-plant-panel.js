@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.131
+ * @version 0.9.132
  */
 
 const NAV = [
@@ -709,131 +709,20 @@ function statisticsRangeForDisplay(range, dayOffset = 0) {
   return { ...range, nowMs: Math.max(range.tMin, nowMs) };
 }
 
-function forecastPointsIncludeFuture(points, nowMs) {
-  return (
-    Array.isArray(points) &&
-    points.some((p) => Number.isFinite(p?.t) && p.t > nowMs + STATISTICS_PERIOD_MS * 0.5)
-  );
-}
-
-function buildSolcastForecastIntervals(rows) {
-  const ordered = rows
-    .map((row) => {
-      const startMs = parseSolcastPeriodMs(row.period_start ?? row.period_end ?? row.period);
-      let kw = Number(row.pv_estimate ?? row.pv_power_rooftop ?? row.power ?? row.pv_power);
-      if (!Number.isFinite(startMs) || !Number.isFinite(kw)) return null;
-      if (Math.abs(kw) > 50) kw /= 1000;
-      return { startMs, kw };
-    })
-    .filter(Boolean)
-    .sort((a, b) => a.startMs - b.startMs);
-  if (ordered.length < 1) return [];
-  const intervals = [];
-  for (let i = 0; i < ordered.length; i++) {
-    const startMs = ordered[i].startMs;
-    let endMs = i + 1 < ordered.length ? ordered[i + 1].startMs : startMs + 30 * 60 * 1000;
-    if (endMs <= startMs) endMs = startMs + 30 * 60 * 1000;
-    intervals.push({ startMs, endMs, kw: ordered[i].kw });
-  }
-  return intervals;
-}
-
-function kwAtOrAfterSolcastInterval(intervals, slotMs) {
-  if (!intervals.length) return null;
-  let chosen = null;
-  for (const interval of intervals) {
-    if (interval.startMs <= slotMs) chosen = interval.kw;
-    else if (chosen == null) return interval.kw;
-    else break;
-  }
-  return chosen != null ? chosen : intervals[intervals.length - 1].kw;
-}
-
-/** Full-day 5-minute slots from cached detailed_forecast (matches backend overlay builder). */
-function buildSolcastDetailedSlotPoints(rows, range, { fromMs = null } = {}) {
-  const intervals = buildSolcastForecastIntervals(rows);
-  if (!intervals.length || !range) return [];
-  const slotStart =
-    fromMs != null ? Math.max(range.tMin, fromMs - STATISTICS_PERIOD_MS) : range.tMin;
-  const out = [];
-  for (let t = slotStart; t <= range.tMax; t += STATISTICS_PERIOD_MS) {
-    const v = kwAtOrAfterSolcastInterval(intervals, t);
-    if (v != null) out.push({ t, v });
-  }
-  return out;
-}
-
-function detailedForecastPointsForStatistics(plantState, forecastState, hass, range) {
-  const rows = resolveBestSolcastDetailedRows(plantState, forecastState, hass);
-  if (rows.length < 2) return [];
-  const interpolated = detailedForecastToChartPoints(rows, range);
-  if (interpolated.length >= 2) return interpolated;
-  return buildSolcastDetailedSlotPoints(rows, range);
-}
-
 function mergeForecastPointsWithFuture(intradayPts, detailedPts, nowMs) {
-  if (!Array.isArray(detailedPts) || detailedPts.length < 2) {
-    return Array.isArray(intradayPts) && intradayPts.length >= 2 ? intradayPts : [];
+  if (!Array.isArray(intradayPts) || intradayPts.length < 2) {
+    return Array.isArray(detailedPts) && detailedPts.length >= 2 ? detailedPts : intradayPts || [];
   }
-  if (!Array.isArray(intradayPts) || intradayPts.length < 2) return detailedPts;
-  if (forecastPointsIncludeFuture(intradayPts, nowMs)) return intradayPts;
-  const future = detailedPts.filter((p) => p.t >= nowMs - STATISTICS_PERIOD_MS);
+  if (intradayPts.some((p) => p.t > nowMs + STATISTICS_PERIOD_MS * 0.5)) return intradayPts;
+  if (!Array.isArray(detailedPts) || detailedPts.length < 2) return intradayPts;
+  const future = detailedPts.filter((p) => p.t >= nowMs);
   if (!future.length) return intradayPts;
   const merged = intradayPts.filter((p) => p.t <= nowMs);
   const lastPast = merged[merged.length - 1];
   for (const p of future) {
     if (!lastPast || p.t > lastPast.t) merged.push(p);
   }
-  return merged.length >= 2 ? merged : detailedPts;
-}
-
-function ensureStatisticsForecastFuture(fPoints, plantState, forecastState, hass, range, nowMs) {
-  if (!Array.isArray(fPoints) || fPoints.length < 2) return fPoints || [];
-  if (forecastPointsIncludeFuture(fPoints, nowMs)) return fPoints;
-  const detailed = detailedForecastPointsForStatistics(plantState, forecastState, hass, range);
-  const merged = mergeForecastPointsWithFuture(fPoints, detailed, nowMs);
-  if (forecastPointsIncludeFuture(merged, nowMs)) return merged;
-  const live = bestLiveIntradayForecastPoints(plantState, forecastState, range, nowMs);
-  if (live.length >= 2) return live;
-  return merged.length >= 2 ? merged : fPoints;
-}
-
-function bestLiveIntradayForecastPoints(plantState, forecastState, range, nowMs) {
-  let best = [];
-  for (const st of [plantState, forecastState].filter(Boolean)) {
-    const pts = solcastIntradayForecastPoints(st, range);
-    if (forecastPointsIncludeFuture(pts, nowMs)) return pts;
-    if (pts.length > best.length) best = pts;
-  }
-  return best;
-}
-
-function resolveStatisticsForecastBasePoints(
-  overlay,
-  plantState,
-  forecastState,
-  range,
-  hass,
-  nowMs
-) {
-  const live = bestLiveIntradayForecastPoints(plantState, forecastState, range, nowMs);
-  if (forecastPointsIncludeFuture(live, nowMs)) return live;
-  const overlayPts = Array.isArray(overlay)
-    ? overlay
-        .filter(
-          (p) =>
-            Number.isFinite(p?.t) &&
-            Number.isFinite(p?.v) &&
-            p.t >= range.tMin &&
-            p.t <= range.tMax
-        )
-        .map((p) => ({ t: p.t, v: p.v }))
-        .sort((a, b) => a.t - b.t)
-    : [];
-  if (forecastPointsIncludeFuture(overlayPts, nowMs)) return overlayPts;
-  if (overlayPts.length >= 2) return overlayPts;
-  if (live.length >= 2) return live;
-  return buildForecastSeriesPoints(plantState, range, hass, forecastState);
+  return merged.length >= 2 ? merged : intradayPts;
 }
 
 function mergeStatisticsForecastSeries(
@@ -841,7 +730,7 @@ function mergeStatisticsForecastSeries(
   range,
   plantState,
   hass,
-  { dayOffset = 0, fallbackPoints = null, forecastState = null, forecastOverlayPoints = null } = {}
+  { dayOffset = 0, fallbackPoints = null, forecastState = null } = {}
 ) {
   if (!Array.isArray(series) || !range) return series;
   const without = series.filter((s) => s.id !== "forecast");
@@ -849,23 +738,17 @@ function mergeStatisticsForecastSeries(
     const existing = series.find((s) => s.id === "forecast");
     return existing?.points?.length >= 2 ? series : without;
   }
-  const nowMs = range.nowMs ?? Date.now();
-  let fPoints = resolveStatisticsForecastBasePoints(
-    forecastOverlayPoints,
-    plantState,
-    forecastState,
-    range,
-    hass,
-    nowMs
-  );
-  fPoints = ensureStatisticsForecastFuture(
-    fPoints,
-    plantState,
-    forecastState,
-    hass,
-    range,
-    nowMs
-  );
+  let fPoints = buildForecastSeriesPoints(plantState, range, hass, forecastState);
+  if (fPoints.length < 2 && Array.isArray(fallbackPoints) && fallbackPoints.length >= 2) {
+    fPoints = fallbackPoints;
+  }
+  if (fPoints.length >= 2) {
+    const detailed = detailedForecastToChartPoints(
+      resolveBestSolcastDetailedRows(plantState, forecastState, hass),
+      range
+    );
+    fPoints = mergeForecastPointsWithFuture(fPoints, detailed, range.nowMs ?? Date.now());
+  }
   if (fPoints.length < 2) {
     const existing = series.find((s) => s.id === "forecast");
     return existing?.points?.length >= 2 ? series : without;
@@ -892,23 +775,6 @@ async function fetchHistoricalSolcastForecastPoints(hass, plant, dayOffset) {
       type: "foxess_plant/solcast_forecast_intraday",
       plant_id: plant.entry_id,
       day: formatLocalDayKey(day),
-    });
-    if (!Array.isArray(res?.points) || res.points.length < 2) return [];
-    return res.points
-      .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v))
-      .map((p) => ({ t: p.t, v: p.v }))
-      .sort((a, b) => a.t - b.t);
-  } catch {
-    return [];
-  }
-}
-
-async function fetchStatisticsForecastOverlay(hass, plant) {
-  if (!hass?.connection || !plant?.entry_id) return [];
-  try {
-    const res = await hass.connection.sendMessagePromise({
-      type: "foxess_plant/solcast_statistics_forecast",
-      plant_id: plant.entry_id,
     });
     if (!Array.isArray(res?.points) || res.points.length < 2) return [];
     return res.points
@@ -1536,15 +1402,16 @@ function solcastIntradayForecastPoints(plantState, range) {
 }
 
 function nativeSolcastForecastPoints(plantState, range, hass, extraState) {
-  const states = [plantState, extraState].filter(Boolean);
-  let intraday = [];
-  for (const st of states) {
-    const pts = solcastIntradayForecastPoints(st, range);
-    if (pts.length > intraday.length) intraday = pts;
+  let intraday = solcastIntradayForecastPoints(plantState, range);
+  if (extraState) {
+    const extra = solcastIntradayForecastPoints(extraState, range);
+    if (extra.length > intraday.length) intraday = extra;
   }
+  const detailed = detailedForecastToChartPoints(
+    resolveBestSolcastDetailedRows(plantState, extraState, hass),
+    range
+  );
   const nowMs = range?.nowMs ?? Date.now();
-  if (forecastPointsIncludeFuture(intraday, nowMs)) return intraday;
-  const detailed = detailedForecastPointsForStatistics(plantState, extraState, hass, range);
   return mergeForecastPointsWithFuture(intraday, detailed, nowMs);
 }
 
@@ -4363,24 +4230,7 @@ async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset =
     }
   }
   if (dayOffset === 0) {
-    const forecastOverlayPoints = await fetchStatisticsForecastOverlay(hass, plant);
-    const nowMs = range.nowMs ?? Date.now();
-    let fPoints = resolveStatisticsForecastBasePoints(
-      forecastOverlayPoints,
-      forecastState,
-      forecastState,
-      range,
-      hass,
-      nowMs
-    );
-    fPoints = ensureStatisticsForecastFuture(
-      fPoints,
-      forecastState,
-      forecastState,
-      hass,
-      range,
-      nowMs
-    );
+    const fPoints = buildForecastSeriesPoints(forecastState, range, hass, forecastState);
     if (fPoints.length) {
       series.push({
         id: "forecast",
@@ -4389,7 +4239,7 @@ async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset =
         points: fPoints,
       });
     }
-    return { series, socSeries, range, forecastState, dayOffset, forecastOverlayPoints };
+    return { series, socSeries, range, forecastState, dayOffset };
   } else {
     const fPoints = await fetchHistoricalSolcastForecastPoints(hass, plant, dayOffset);
     const inRange = fPoints.filter((p) => p.t >= range.tMin && p.t <= range.tMax);
@@ -4408,7 +4258,7 @@ async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset =
       empty: `No statistics for: ${listed}. Confirm the Recorder stores 5-minute means for these entities (same as your Lovelace plotly-graph card).`,
     };
   }
-  return { series, socSeries, range, forecastState, dayOffset, forecastOverlayPoints: null };
+  return { series, socSeries, range, forecastState, dayOffset };
 }
 
 function buildDailyLabels(startDay, count) {
@@ -4979,25 +4829,16 @@ function renderStatisticsChartHtml(series, range, options = {}) {
     const clipped = s.points.filter((p) => p.t >= tMin && p.t <= clipEnd);
     let segmentGroups;
     if (isForecast && clipped.length >= 2) {
-      const splitMs = nowMs;
-      const past = clipped.filter((p) => p.t <= splitMs);
-      const future = clipped.filter((p) => p.t > splitMs - STATISTICS_PERIOD_MS * 0.01);
+      const past = clipped.filter((p) => p.t <= nowMs);
+      const future = clipped.filter((p) => p.t >= nowMs);
       segmentGroups = [];
       if (past.length >= 2) segmentGroups.push({ pts: past, dash: "" });
       if (future.length >= 2) {
         const futurePts =
-          past.length && past[past.length - 1].t < splitMs
+          past.length && past[past.length - 1].t < nowMs
             ? [past[past.length - 1], ...future.filter((p) => p.t > past[past.length - 1].t)]
             : future;
         if (futurePts.length >= 2) segmentGroups.push({ pts: futurePts, dash: "5 4" });
-      } else if (past.length >= 2 && clipped.length > past.length) {
-        const tail = clipped.filter((p) => p.t > past[past.length - 1].t);
-        if (tail.length >= 2) {
-          segmentGroups.push({
-            pts: [past[past.length - 1], ...tail],
-            dash: "5 4",
-          });
-        }
       }
       if (!segmentGroups.length) segmentGroups.push({ pts: clipped, dash: "" });
     } else {
@@ -7379,7 +7220,6 @@ class FoxessPlantPanel extends HTMLElement {
     this._statisticsChart = null;
     this._statisticsChartLoading = false;
     this._statisticsChartPlantId = undefined;
-    this._statisticsForecastOverlayRefreshing = false;
     this._batterySocChart = null;
     this._batterySocChartLoading = false;
     this._batterySocChartPlantId = undefined;
@@ -7762,24 +7602,6 @@ Reloading panel registration…
   _pickStatisticsForecastState() {
     const live = this._plantState;
     const cached = this._statisticsChart?.forecastState;
-    const range = this._statisticsChart?.range;
-    const nowMs = range?.nowMs ?? Date.now();
-    const hasFuture = (state) => {
-      const pts = state?.solcast?.forecast_intraday_points;
-      return Array.isArray(pts) && pts.some((p) => p.t > nowMs + STATISTICS_PERIOD_MS * 0.5);
-    };
-    const score = (state) => {
-      if (!state?.solcast) return -1;
-      const detailed = resolveSolcastDetailedForecast(state, this._hass).length;
-      const intraday = state.solcast.forecast_intraday_points?.length ?? 0;
-      const futureBonus = hasFuture(state) ? 100000 : 0;
-      return futureBonus + detailed * 1000 + intraday;
-    };
-    const liveScore = score(live);
-    const cachedScore = score(cached);
-    if (liveScore >= 0 || cachedScore >= 0) {
-      return liveScore >= cachedScore ? live : cached;
-    }
     const liveIntraday = live?.solcast?.forecast_intraday_points;
     if (Array.isArray(liveIntraday) && liveIntraday.length >= 2) return live;
     const cachedIntraday = cached?.solcast?.forecast_intraday_points;
@@ -7818,8 +7640,7 @@ Reloading panel registration…
     const detailed = resolveSolcastDetailedForecast(state, this._hass)?.length ?? 0;
     const accOverview = this._forecastAccuracyOverview?.intraday?.predicted_power_kw?.length ?? 0;
     const accAnalysis = this._forecastAccuracyAnalysis?.intraday?.predicted_power_kw?.length ?? 0;
-    const overlayLen = this._statisticsChart?.forecastOverlayPoints?.length ?? 0;
-    return `${intraday}:${detailed}:${accOverview}:${accAnalysis}:${overlayLen}`;
+    return `${intraday}:${detailed}:${accOverview}:${accAnalysis}`;
   }
 
   _statisticsSeriesForDisplay() {
@@ -7836,8 +7657,8 @@ Reloading panel registration…
       this._hass,
       {
         dayOffset,
+        fallbackPoints: this._forecastFallbackPointsForStatistics(range),
         forecastState: chart.forecastState,
-        forecastOverlayPoints: chart.forecastOverlayPoints,
       }
     );
   }
@@ -7850,50 +7671,13 @@ Reloading panel registration…
       const cacheKey = `${plant.entry_id}:overview`;
       if (this._statisticsChartPlantId !== cacheKey || !this._statisticsChart?.range) {
         void this._loadOverviewStatisticsChart();
-      } else {
-        this._maybeRefreshStatisticsForecastOverlay();
       }
       return;
     }
     const cacheKey = this._energyChartCacheKey(plant);
     if (this._statisticsChartPlantId !== cacheKey || !this._statisticsChart?.range) {
       void this._loadStatisticsChart();
-    } else {
-      this._maybeRefreshStatisticsForecastOverlay();
     }
-  }
-
-  _maybeRefreshStatisticsForecastOverlay() {
-    const chart = this._statisticsChart;
-    if (!chart?.range || this._statisticsForecastOverlayRefreshing || (chart.dayOffset ?? 0) > 0) {
-      return;
-    }
-    const plant = this._getPlant();
-    if (!plant?.entry_id || !this._hass) return;
-    const range = statisticsRangeForDisplay(chart.range, 0);
-    if (!range) return;
-    const nowMs = range.nowMs;
-    const preview = ensureStatisticsForecastFuture(
-      chart.forecastOverlayPoints?.length >= 2
-        ? chart.forecastOverlayPoints
-        : chart.series?.find((s) => s.id === "forecast")?.points,
-      this._pickStatisticsForecastState(),
-      chart.forecastState,
-      this._hass,
-      range,
-      nowMs
-    );
-    if (forecastPointsIncludeFuture(preview, nowMs)) return;
-    this._statisticsForecastOverlayRefreshing = true;
-    void fetchStatisticsForecastOverlay(this._hass, plant)
-      .then((overlay) => {
-        if (!overlay?.length || !this._statisticsChart) return;
-        this._statisticsChart.forecastOverlayPoints = overlay;
-        if (forecastPointsIncludeFuture(overlay, nowMs)) this._scheduleRender();
-      })
-      .finally(() => {
-        this._statisticsForecastOverlayRefreshing = false;
-      });
   }
 
   _reloadStatisticsChartWhenVisible() {
