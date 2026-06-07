@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.109
+ * @version 0.9.110
  */
 
 const NAV = [
@@ -950,7 +950,7 @@ function forecastAccuracyPlotSvg(series, range, options = {}) {
     : `<div class="forecast-accuracy-plot-head forecast-accuracy-plot-head--axis-only"><span class="forecast-accuracy-plot-label">${esc(yUnit)}</span></div>`;
   return `<div class="forecast-accuracy-plot">
 ${head}
-<svg class="forecast-accuracy-chart-svg statistics-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${esc(ariaLabel)}">
+<svg class="forecast-accuracy-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMinYMin meet" role="img" aria-label="${esc(ariaLabel)}">
 ${grid}${yLabels}${xLabels}${lines}
 </svg>
 </div>`;
@@ -986,10 +986,10 @@ function renderForecastAccuracyChartHtml(intraday, range, { compact = false } = 
     return `<p class="placeholder chart-empty">No intraday forecast comparison yet.</p>`;
   }
   const pad = compact
-    ? { l: 44, r: 6, t: 2, b: 18 }
-    : { l: 50, r: 10, t: 2, b: 20 };
+    ? { l: 44, r: 6, t: 4, b: 16 }
+    : { l: 50, r: 10, t: 4, b: 18 };
   return `<div class="forecast-accuracy-chart-wrap">${forecastAccuracyPlotSvg(powerSeries, range, {
-    height: compact ? 188 : 200,
+    height: compact ? 164 : 176,
     pad,
     yUnit: "kW",
     yMinZero: true,
@@ -5669,17 +5669,22 @@ const STYLES = `
 .statistics-card .card-title { margin-bottom: 12px; }
 .forecast-accuracy-card { padding-bottom: 6px; }
 .forecast-accuracy-card--compact .card-title { margin-bottom: 2px; }
-.forecast-accuracy-card:not(.forecast-accuracy-card--compact) { padding-bottom: 4px; }
-.forecast-accuracy-card:not(.forecast-accuracy-card--compact) .card-title { margin-bottom: 2px; }
+.forecast-accuracy-card:not(.forecast-accuracy-card--compact) {
+  padding: 14px 16px;
+  margin-bottom: 14px;
+}
+.forecast-accuracy-card:not(.forecast-accuracy-card--compact) .card-title {
+  margin: 0 0 8px;
+}
 .forecast-accuracy-sub {
   margin: 0 0 6px; font-size: 12px; line-height: 1.35; color: var(--secondary-text-color);
 }
 .forecast-accuracy-card:not(.forecast-accuracy-card--compact) .forecast-accuracy-sub {
-  margin: 0 0 4px;
+  margin: 0 0 6px;
 }
 .forecast-accuracy-stats-row {
   display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 6px 12px;
-  margin-bottom: 2px;
+  margin-bottom: 4px;
 }
 .forecast-accuracy-stats {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 12px; margin-bottom: 0;
@@ -5704,13 +5709,13 @@ const STYLES = `
   border: 1px dashed var(--divider-color); background: var(--card-background-color);
 }
 .forecast-accuracy-card--compact .forecast-accuracy-empty { padding: 8px 6px; }
-.forecast-accuracy-chart-wrap { width: 100%; margin-top: 0; }
-.forecast-accuracy-plot { width: 100%; }
+.forecast-accuracy-chart-wrap { width: 100%; margin: 0; }
+.forecast-accuracy-plot { width: 100%; line-height: 0; }
 .forecast-accuracy-plot-head {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px;
-  margin-bottom: 0; min-height: 0;
+  margin: 0 0 2px; min-height: 0; line-height: 1.2;
 }
-.forecast-accuracy-plot-head--axis-only { justify-content: flex-start; margin-bottom: 0; }
+.forecast-accuracy-plot-head--axis-only { justify-content: flex-start; margin: 0 0 2px; }
 .forecast-accuracy-plot-label {
   font-size: 11px; font-weight: 600; color: var(--secondary-text-color); letter-spacing: 0.04em;
 }
@@ -5724,16 +5729,13 @@ const STYLES = `
   width: 14px; height: 3px; border-radius: 1px; display: inline-block;
 }
 .forecast-accuracy-chart-svg {
-  width: 100%; height: auto; display: block;
+  width: 100%; height: auto; display: block; vertical-align: top;
 }
-.forecast-accuracy-card--compact .forecast-accuracy-chart-svg {
-  aspect-ratio: 1000 / 188;
-}
-.forecast-accuracy-card:not(.forecast-accuracy-card--compact) .forecast-accuracy-chart-svg {
-  aspect-ratio: 1000 / 200;
+.forecast-accuracy-plot .forecast-accuracy-chart-svg {
+  height: auto; max-height: none;
 }
 .fox-analysis-forecast-accuracy-row { margin-top: 10px; margin-bottom: 0; }
-.fox-analysis-forecast-accuracy-row .forecast-accuracy-card { margin-top: 0; margin-bottom: 0; }
+.fox-analysis-forecast-accuracy-row .forecast-accuracy-card { margin-top: 0; margin-bottom: 14px; }
 .forecast-accuracy-revisions {
   width: 100%; border-collapse: collapse; font-size: 12px;
 }
@@ -5746,7 +5748,7 @@ const STYLES = `
 }
 .forecast-accuracy-delta--up { color: #19D4DE; }
 .forecast-accuracy-delta--down { color: #FF9F43; }
-.forecast-accuracy-revisions-wrap { margin-top: 10px; overflow-x: auto; }
+.forecast-accuracy-revisions-wrap { margin-top: 8px; overflow-x: auto; }
 .soc-chart-card { padding-bottom: 16px; }
 .soc-chart-card .card-title { margin-bottom: 8px; }
 .soc-chart-wrap {
