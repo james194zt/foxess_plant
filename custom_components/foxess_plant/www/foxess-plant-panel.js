@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.122
+ * @version 0.9.123
  */
 
 const NAV = [
@@ -10344,40 +10344,38 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
     const plant = this._getPlant();
     if (!plant || !this._hass || !statisticsSolcastForecastEnabled(this._plantState, this._hass)) return;
     const cacheKey = this._forecastAccuracyOverviewCacheKey(plant);
-    if (
-      this._forecastAccuracyOverviewKey === cacheKey &&
-      this._forecastAccuracyOverview &&
-      !this._forecastAccuracyOverview.error
-    ) {
-      return;
-    }
+    if (this._forecastAccuracyOverviewKey === cacheKey) return;
+    if (this._forecastAccuracyOverviewInflight) return this._forecastAccuracyOverviewInflight;
     this._forecastAccuracyOverviewLoading = true;
     this._scheduleRender();
-    try {
-      if (!this._plantState) await this._refreshPlantState();
-      const result = await fetchForecastAccuracyReport(this._hass, plant, 0);
-      if (this._forecastAccuracyOverviewCacheKey(this._getPlant()) !== cacheKey) return;
-      this._forecastAccuracyOverview = result;
-      if (result && !result.error) {
+    this._forecastAccuracyOverviewInflight = (async () => {
+      try {
+        if (!this._plantState) await this._refreshPlantState();
+        const result = await fetchForecastAccuracyReport(this._hass, plant, 0);
+        if (this._forecastAccuracyOverviewCacheKey(this._getPlant()) !== cacheKey) return;
+        this._forecastAccuracyOverview = result;
         this._forecastAccuracyOverviewKey = cacheKey;
-        this._syncForecastAccuracyToday(plant, result, 0);
-      } else {
-        this._forecastAccuracyOverviewKey = undefined;
+        if (result && !result.error) {
+          this._syncForecastAccuracyToday(plant, result, 0);
+        } else {
+          this._energyAnalysisChartSlotCache = undefined;
+        }
+      } catch (err) {
+        if (this._forecastAccuracyOverviewCacheKey(this._getPlant()) !== cacheKey) return;
+        this._forecastAccuracyOverview = {
+          error: err?.message || "Failed to load forecast accuracy",
+          solcast_enabled: true,
+        };
+        this._forecastAccuracyOverviewKey = cacheKey;
+      } finally {
+        this._forecastAccuracyOverviewLoading = false;
+        this._forecastAccuracyOverviewInflight = null;
+        if (this._forecastAccuracyOverviewCacheKey(this._getPlant()) === cacheKey) {
+          this._scheduleRender();
+        }
       }
-      this._energyAnalysisChartSlotCache = undefined;
-    } catch (err) {
-      if (this._forecastAccuracyOverviewCacheKey(this._getPlant()) !== cacheKey) return;
-      this._forecastAccuracyOverview = {
-        error: err?.message || "Failed to load forecast accuracy",
-        solcast_enabled: true,
-      };
-      this._forecastAccuracyOverviewKey = undefined;
-    } finally {
-      this._forecastAccuracyOverviewLoading = false;
-      if (this._forecastAccuracyOverviewCacheKey(this._getPlant()) === cacheKey) {
-        this._scheduleRender();
-      }
-    }
+    })();
+    return this._forecastAccuracyOverviewInflight;
   }
 
   async _loadForecastAccuracyAnalysis() {
@@ -10391,44 +10389,42 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
       return;
     }
     const cacheKey = this._forecastAccuracyAnalysisCacheKey(plant);
-    if (
-      this._forecastAccuracyAnalysisKey === cacheKey &&
-      this._forecastAccuracyAnalysis &&
-      !this._forecastAccuracyAnalysis.error
-    ) {
-      return;
-    }
+    if (this._forecastAccuracyAnalysisKey === cacheKey) return;
+    if (this._forecastAccuracyAnalysisInflight) return this._forecastAccuracyAnalysisInflight;
     this._forecastAccuracyAnalysisLoading = true;
     this._scheduleRender();
-    try {
-      if (!this._plantState) await this._refreshPlantState();
-      const result = await fetchForecastAccuracyReport(
-        this._hass,
-        plant,
-        this._energyPeriodOffset
-      );
-      if (this._forecastAccuracyAnalysisCacheKey(this._getPlant()) !== cacheKey) return;
-      this._forecastAccuracyAnalysis = result;
-      if (result && !result.error) {
+    this._forecastAccuracyAnalysisInflight = (async () => {
+      try {
+        if (!this._plantState) await this._refreshPlantState();
+        const result = await fetchForecastAccuracyReport(
+          this._hass,
+          plant,
+          this._energyPeriodOffset
+        );
+        if (this._forecastAccuracyAnalysisCacheKey(this._getPlant()) !== cacheKey) return;
+        this._forecastAccuracyAnalysis = result;
         this._forecastAccuracyAnalysisKey = cacheKey;
-        this._syncForecastAccuracyToday(plant, result, this._energyPeriodOffset);
-      } else {
-        this._forecastAccuracyAnalysisKey = undefined;
+        if (result && !result.error) {
+          this._syncForecastAccuracyToday(plant, result, this._energyPeriodOffset);
+        } else {
+          this._energyAnalysisChartSlotCache = undefined;
+        }
+      } catch (err) {
+        if (this._forecastAccuracyAnalysisCacheKey(this._getPlant()) !== cacheKey) return;
+        this._forecastAccuracyAnalysis = {
+          error: err?.message || "Failed to load forecast accuracy",
+          solcast_enabled: true,
+        };
+        this._forecastAccuracyAnalysisKey = cacheKey;
+      } finally {
+        this._forecastAccuracyAnalysisLoading = false;
+        this._forecastAccuracyAnalysisInflight = null;
+        if (this._forecastAccuracyAnalysisCacheKey(this._getPlant()) === cacheKey) {
+          this._scheduleRender();
+        }
       }
-      this._energyAnalysisChartSlotCache = undefined;
-    } catch (err) {
-      if (this._forecastAccuracyAnalysisCacheKey(this._getPlant()) !== cacheKey) return;
-      this._forecastAccuracyAnalysis = {
-        error: err?.message || "Failed to load forecast accuracy",
-        solcast_enabled: true,
-      };
-      this._forecastAccuracyAnalysisKey = undefined;
-    } finally {
-      this._forecastAccuracyAnalysisLoading = false;
-      if (this._forecastAccuracyAnalysisCacheKey(this._getPlant()) === cacheKey) {
-        this._scheduleRender();
-      }
-    }
+    })();
+    return this._forecastAccuracyAnalysisInflight;
   }
 
   _energyAnalysisChartSlotKey() {
@@ -10440,9 +10436,7 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
       if (!chart?.series?.length && !chart?.socSeries?.points?.length) return "stat:none";
       const socLen = chart?.socSeries?.points?.length ?? 0;
       const forecastPart = this._forecastStatisticsSlotPart();
-      const displaySeries = this._statisticsSeriesForDisplay();
-      const hasForecast = displaySeries?.some((s) => s.id === "forecast" && s.points?.length >= 2);
-      return `stat:${this._statisticsChartPlantId ?? ""}|soc:${socLen}|fc:${hasForecast ? 1 : 0}|${forecastPart}`;
+      return `stat:${this._statisticsChartPlantId ?? ""}|soc:${socLen}|${forecastPart}`;
     }
     if (this._energyChartLoading) return "energy:loading";
     return `energy:${this._energyChartPlantId ?? ""}|${this._energyChart?.svg ? 1 : 0}|${this._energyChart?.error ?? ""}`;
@@ -11639,11 +11633,11 @@ ${active
         void this._loadAnalysisSummarySpark();
       }
       if (
-        this._energyPeriod === "day" &&
+        plant &&
         statisticsSolcastForecastEnabled(this._plantState, this._hass) &&
         !this._forecastAccuracyAnalysisLoading &&
-        (this._forecastAccuracyAnalysisKey !== this._forecastAccuracyAnalysisCacheKey(plant) ||
-          !this._forecastAccuracyAnalysis)
+        !this._forecastAccuracyAnalysisInflight &&
+        this._forecastAccuracyAnalysisKey !== this._forecastAccuracyAnalysisCacheKey(plant)
       ) {
         void this._loadForecastAccuracyAnalysis();
       }
@@ -11661,8 +11655,8 @@ ${active
         plant &&
         statisticsSolcastForecastEnabled(this._plantState, this._hass) &&
         !this._forecastAccuracyOverviewLoading &&
-        (this._forecastAccuracyOverviewKey !== this._forecastAccuracyOverviewCacheKey(plant) ||
-          !this._forecastAccuracyOverview)
+        !this._forecastAccuracyOverviewInflight &&
+        this._forecastAccuracyOverviewKey !== this._forecastAccuracyOverviewCacheKey(plant)
       ) {
         void this._loadForecastAccuracyOverview();
       }
