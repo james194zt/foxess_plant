@@ -63,6 +63,22 @@ def _kw_at_time(rows: list[dict[str, Any]], when: datetime) -> float | None:
     return None
 
 
+def _kw_at_or_after(rows: list[dict[str, Any]], when: datetime) -> float | None:
+    """Latest forecast kW at or before *when*, else first interval kW (future slots)."""
+    intervals = _build_intervals(rows)
+    if not intervals:
+        return None
+    chosen: float | None = None
+    for interval in intervals:
+        if interval.start <= when:
+            chosen = interval.kw
+        elif chosen is None:
+            return interval.kw
+        else:
+            break
+    return chosen if chosen is not None else intervals[-1].kw
+
+
 def _snapshot_for_time(
     snapshots: list[tuple[float, list[dict[str, Any]]]],
     slot_ms: float,
@@ -195,10 +211,12 @@ def build_forecast_intraday_chart_for_range(
         when = _utc_from_timestamp(slot / 1000)
         if include_future and slot > as_of_ms:
             rows = latest_rows
+            kw_fn = _kw_at_or_after
         else:
             rows = _snapshot_for_time(snapshots, slot)
+            kw_fn = _kw_at_time
         if rows:
-            kw = _kw_at_time(rows, when)
+            kw = kw_fn(rows, when)
             if kw is not None:
                 out.append({"t": float(slot), "v": float(kw)})
         slot += STATISTICS_PERIOD_MS
