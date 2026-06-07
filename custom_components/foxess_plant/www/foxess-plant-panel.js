@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.104
+ * @version 0.9.105
  */
 
 const NAV = [
@@ -764,7 +764,13 @@ async function fetchForecastAccuracyReport(hass, plant, dayOffset = 0) {
       day: formatLocalDayKey(day),
     });
   } catch (err) {
-    return { error: err?.message || "Failed to load forecast accuracy" };
+    const msg =
+      err?.message ||
+      err?.error?.message ||
+      err?.body?.message ||
+      (typeof err === "string" ? err : "") ||
+      "Failed to load forecast accuracy";
+    return { error: msg };
   }
 }
 

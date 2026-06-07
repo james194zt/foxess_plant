@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime as dt, timedelta
 from typing import Any
 
@@ -15,6 +16,8 @@ from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, STORM_ALERT_PROVIDER_GOOGLE, TARIFF_CURRENCIES
 from .panel_config import list_forecast_entity_candidates, list_tariff_entity_candidates, list_trigger_candidates
+
+_LOGGER = logging.getLogger(__name__)
 
 WS_TYPE_PLANT_STATE = "foxess_plant/plant_state"
 WS_TYPE_PLANT_LIST = "foxess_plant/plant_list"
@@ -624,15 +627,24 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
         stored = {}
         if coordinator._solcast_store:
             stored = await coordinator._solcast_store.async_load()
-        report = await get_instance(hass).async_add_executor_job(
-            build_forecast_accuracy_report,
-            hass,
-            stored,
-            coordinator._solcast_cache,
-            coordinator.plant.entity_map,
-            target_day,
-            entry_id=coordinator.config_entry.entry_id,
-        )
+        try:
+            report = await get_instance(hass).async_add_executor_job(
+                build_forecast_accuracy_report,
+                hass,
+                stored,
+                coordinator._solcast_cache,
+                coordinator.plant.entity_map,
+                target_day,
+                entry_id=coordinator.config_entry.entry_id,
+            )
+        except Exception as err:
+            _LOGGER.exception("solcast_forecast_accuracy failed for %s", target_day.isoformat())
+            connection.send_error(
+                msg["id"],
+                "forecast_accuracy_failed",
+                str(err) or "Forecast accuracy report failed",
+            )
+            return
         connection.send_result(msg["id"], report)
 
     websocket_api.async_register_command(hass, ws_plant_list)

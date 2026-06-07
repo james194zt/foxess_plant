@@ -12,10 +12,10 @@ from .solcast_forecast_chart import (
     STATISTICS_PERIOD_MS,
     build_forecast_intraday_chart_for_day,
     build_forecast_intraday_chart_for_range,
-    collect_recorder_snapshots,
     collect_storage_snapshots,
     find_solcast_forecast_entity,
     _merge_snapshots,
+    _utc_from_timestamp,
 )
 from .solcast_forecast_metrics import _build_intervals, _local_date, _sum_kwh
 
@@ -123,11 +123,14 @@ def _snapshots_for_target_day(
     target_day: date,
     *,
     entry_id: str | None,
+    use_recorder: bool = False,
 ) -> list[tuple[float, list[dict[str, Any]]]]:
     day_start, day_end, day_start_ms, _ = _day_bounds(target_day)
     storage_snaps = collect_storage_snapshots(stored, current_cache, day_start_ms)
     recorder_snaps: list[tuple[float, list[dict[str, Any]]]] = []
-    if entry_id:
+    if use_recorder and entry_id:
+        from .solcast_forecast_chart import collect_recorder_snapshots
+
         entity_id = find_solcast_forecast_entity(hass, entry_id)
         if entity_id:
             recorder_snaps = collect_recorder_snapshots(hass, entity_id, day_start, day_end)
@@ -252,7 +255,7 @@ def build_forecast_accuracy_report(
     revisions: list[dict[str, Any]] = []
     prev_total: float | None = None
     for fetched_ms, rows in snapshots:
-        when = dt_util.utc_from_timestamp(fetched_ms / 1000)
+        when = _utc_from_timestamp(fetched_ms / 1000)
         when_local = dt_util.as_local(when)
         if _local_date(when_local) != target_day:
             continue

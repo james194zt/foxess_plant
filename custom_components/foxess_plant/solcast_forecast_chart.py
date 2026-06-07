@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -15,6 +15,11 @@ from .solcast_store import _snapshot_has_forecast, get_daily_intraday_points
 STATISTICS_PERIOD_MS = 5 * 60 * 1000
 # Include polls from the previous evening when rebuilding a local day chart.
 SNAPSHOT_GRACE_MS = 24 * 3_600_000
+
+
+def _utc_from_timestamp(ts: float) -> datetime:
+    """UTC datetime from epoch seconds (HA removed dt_util.utc_from_timestamp)."""
+    return datetime.fromtimestamp(ts, tz=timezone.utc)
 
 
 def _parse_fetched_at_ms(value: Any) -> float | None:
@@ -187,7 +192,7 @@ def build_forecast_intraday_chart_for_range(
     while slot <= t_max_ms:
         if not include_future and slot > as_of_ms:
             break
-        when = dt_util.utc_from_timestamp(slot / 1000)
+        when = _utc_from_timestamp(slot / 1000)
         if include_future and slot > as_of_ms:
             rows = latest_rows
         else:
