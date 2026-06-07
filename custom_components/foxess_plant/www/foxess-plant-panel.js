@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.125
+ * @version 0.9.126
  */
 
 const NAV = [
@@ -10008,7 +10008,10 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     if (this._statisticsChart?.empty) {
       return `<p class="placeholder chart-empty">${esc(this._statisticsChart.empty)}</p>`;
     }
-    const dayOffset = this._statisticsChart?.dayOffset ?? 0;
+    if (!this._statisticsChart?.range) {
+      return `<p class="placeholder chart-empty">Open Analysis or wait for history to load.</p>`;
+    }
+    const dayOffset = this._statisticsChart.dayOffset ?? 0;
     const range = statisticsRangeForDisplay(this._statisticsChart.range, dayOffset);
     const series = this._statisticsSeriesForDisplay();
     const includeSoc = options.includeSoc === true;
