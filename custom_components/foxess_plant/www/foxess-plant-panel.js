@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.126
+ * @version 0.9.127
  */
 
 const NAV = [
@@ -721,7 +721,7 @@ function resolveBestIntradayPoints(primaryState, extraState, range) {
 }
 
 function statisticsRangeForDisplay(range, dayOffset = 0) {
-  if (!range || dayOffset > 0) return range;
+  if (!range || dayOffset > 0) return range ?? null;
   const nowMs = Math.min(Date.now(), range.tMax);
   return { ...range, nowMs: Math.max(range.tMin, nowMs) };
 }
@@ -7691,21 +7691,40 @@ Reloading panel registration…
   }
 
   _statisticsSeriesForDisplay() {
-    if (!this._statisticsChart?.series || !this._statisticsChart?.range) return null;
+    const chart = this._statisticsChart;
+    if (!chart?.series || !chart?.range) return null;
     const state = this._pickStatisticsForecastState();
-    const dayOffset = this._statisticsChart.dayOffset ?? 0;
-    const range = statisticsRangeForDisplay(this._statisticsChart.range, dayOffset);
+    const dayOffset = chart.dayOffset ?? 0;
+    const range = statisticsRangeForDisplay(chart.range, dayOffset);
+    if (!range) return null;
     return mergeStatisticsForecastSeries(
-      this._statisticsChart.series,
+      chart.series,
       range,
       state,
       this._hass,
       {
         dayOffset,
         fallbackPoints: this._forecastFallbackPointsForStatistics(range),
-        forecastState: this._statisticsChart?.forecastState,
+        forecastState: chart.forecastState,
       }
     );
+  }
+
+  _ensureStatisticsChartLoaded() {
+    if (!this._statisticsChartVisible()) return;
+    const plant = this._getPlant();
+    if (!plant || this._statisticsChartLoading) return;
+    if (this._view === "overview") {
+      const cacheKey = `${plant.entry_id}:overview`;
+      if (this._statisticsChartPlantId !== cacheKey || !this._statisticsChart?.range) {
+        void this._loadOverviewStatisticsChart();
+      }
+      return;
+    }
+    const cacheKey = this._energyChartCacheKey(plant);
+    if (this._statisticsChartPlantId !== cacheKey || !this._statisticsChart?.range) {
+      void this._loadStatisticsChart();
+    }
   }
 
   _reloadStatisticsChartWhenVisible() {
@@ -10002,20 +10021,25 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     if (this._statisticsChartLoading) {
       return `<p class="chart-loading">Loading statistics…</p>`;
     }
-    if (this._statisticsChart?.error) {
-      return `<p class="placeholder chart-empty">${esc(this._statisticsChart.error)}</p>`;
+    const chart = this._statisticsChart;
+    if (chart?.error) {
+      return `<p class="placeholder chart-empty">${esc(chart.error)}</p>`;
     }
-    if (this._statisticsChart?.empty) {
-      return `<p class="placeholder chart-empty">${esc(this._statisticsChart.empty)}</p>`;
+    if (chart?.empty) {
+      return `<p class="placeholder chart-empty">${esc(chart.empty)}</p>`;
     }
-    if (!this._statisticsChart?.range) {
+    const dayOffset = chart?.dayOffset ?? 0;
+    const range = statisticsRangeForDisplay(chart?.range, dayOffset);
+    if (!range) {
+      if (this._statisticsChartVisible()) {
+        this._ensureStatisticsChartLoaded();
+        return `<p class="chart-loading">Loading statistics…</p>`;
+      }
       return `<p class="placeholder chart-empty">Open Analysis or wait for history to load.</p>`;
     }
-    const dayOffset = this._statisticsChart.dayOffset ?? 0;
-    const range = statisticsRangeForDisplay(this._statisticsChart.range, dayOffset);
     const series = this._statisticsSeriesForDisplay();
     const includeSoc = options.includeSoc === true;
-    const socSeries = includeSoc ? this._statisticsChart?.socSeries : null;
+    const socSeries = includeSoc ? chart?.socSeries : null;
     if (series?.length || socSeries?.points?.length) {
       return renderStatisticsChartHtml(series || [], range, {
         ...options,
