@@ -631,12 +631,20 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
         if coordinator._solcast_store:
             stored = await coordinator._solcast_store.async_load()
         await coordinator.async_ensure_solcast_cache()
-        job = partial(
-            build_statistics_forecast_overlay,
-            hass,
-            stored,
-            coordinator._solcast_cache,
-        )
+        if len(coordinator._solcast_forecast_chart_points) < 2:
+            await coordinator._rebuild_solcast_forecast_chart()
+
+        def _statistics_forecast_points() -> list[dict[str, float]]:
+            cached = coordinator._solcast_forecast_chart_points
+            if len(cached) >= 2:
+                return list(cached)
+            return build_statistics_forecast_overlay(
+                hass,
+                stored,
+                coordinator._solcast_cache,
+            )
+
+        job = _statistics_forecast_points
         try:
             points = await get_instance(hass).async_add_executor_job(job)
         except Exception as err:

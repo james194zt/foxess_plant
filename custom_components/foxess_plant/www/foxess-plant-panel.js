@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.130
+ * @version 0.9.131
  */
 
 const NAV = [
@@ -791,7 +791,49 @@ function ensureStatisticsForecastFuture(fPoints, plantState, forecastState, hass
   if (!Array.isArray(fPoints) || fPoints.length < 2) return fPoints || [];
   if (forecastPointsIncludeFuture(fPoints, nowMs)) return fPoints;
   const detailed = detailedForecastPointsForStatistics(plantState, forecastState, hass, range);
-  return mergeForecastPointsWithFuture(fPoints, detailed, nowMs);
+  const merged = mergeForecastPointsWithFuture(fPoints, detailed, nowMs);
+  if (forecastPointsIncludeFuture(merged, nowMs)) return merged;
+  const live = bestLiveIntradayForecastPoints(plantState, forecastState, range, nowMs);
+  if (live.length >= 2) return live;
+  return merged.length >= 2 ? merged : fPoints;
+}
+
+function bestLiveIntradayForecastPoints(plantState, forecastState, range, nowMs) {
+  let best = [];
+  for (const st of [plantState, forecastState].filter(Boolean)) {
+    const pts = solcastIntradayForecastPoints(st, range);
+    if (forecastPointsIncludeFuture(pts, nowMs)) return pts;
+    if (pts.length > best.length) best = pts;
+  }
+  return best;
+}
+
+function resolveStatisticsForecastBasePoints(
+  overlay,
+  plantState,
+  forecastState,
+  range,
+  hass,
+  nowMs
+) {
+  const live = bestLiveIntradayForecastPoints(plantState, forecastState, range, nowMs);
+  if (forecastPointsIncludeFuture(live, nowMs)) return live;
+  const overlayPts = Array.isArray(overlay)
+    ? overlay
+        .filter(
+          (p) =>
+            Number.isFinite(p?.t) &&
+            Number.isFinite(p?.v) &&
+            p.t >= range.tMin &&
+            p.t <= range.tMax
+        )
+        .map((p) => ({ t: p.t, v: p.v }))
+        .sort((a, b) => a.t - b.t)
+    : [];
+  if (forecastPointsIncludeFuture(overlayPts, nowMs)) return overlayPts;
+  if (overlayPts.length >= 2) return overlayPts;
+  if (live.length >= 2) return live;
+  return buildForecastSeriesPoints(plantState, range, hass, forecastState);
 }
 
 function mergeStatisticsForecastSeries(
@@ -808,24 +850,14 @@ function mergeStatisticsForecastSeries(
     return existing?.points?.length >= 2 ? series : without;
   }
   const nowMs = range.nowMs ?? Date.now();
-  let fPoints = Array.isArray(forecastOverlayPoints)
-    ? forecastOverlayPoints
-        .filter(
-          (p) =>
-            Number.isFinite(p?.t) &&
-            Number.isFinite(p?.v) &&
-            p.t >= range.tMin &&
-            p.t <= range.tMax
-        )
-        .map((p) => ({ t: p.t, v: p.v }))
-        .sort((a, b) => a.t - b.t)
-    : [];
-  if (fPoints.length < 2) {
-    fPoints = buildForecastSeriesPoints(plantState, range, hass, forecastState);
-  }
-  if (fPoints.length < 2 && Array.isArray(fallbackPoints) && fallbackPoints.length >= 2) {
-    fPoints = fallbackPoints;
-  }
+  let fPoints = resolveStatisticsForecastBasePoints(
+    forecastOverlayPoints,
+    plantState,
+    forecastState,
+    range,
+    hass,
+    nowMs
+  );
   fPoints = ensureStatisticsForecastFuture(
     fPoints,
     plantState,
@@ -4333,10 +4365,14 @@ async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset =
   if (dayOffset === 0) {
     const forecastOverlayPoints = await fetchStatisticsForecastOverlay(hass, plant);
     const nowMs = range.nowMs ?? Date.now();
-    let fPoints = forecastOverlayPoints.length >= 2 ? forecastOverlayPoints : [];
-    if (fPoints.length < 2) {
-      fPoints = buildForecastSeriesPoints(forecastState, range, hass, forecastState);
-    }
+    let fPoints = resolveStatisticsForecastBasePoints(
+      forecastOverlayPoints,
+      forecastState,
+      forecastState,
+      range,
+      hass,
+      nowMs
+    );
     fPoints = ensureStatisticsForecastFuture(
       fPoints,
       forecastState,
@@ -4943,16 +4979,25 @@ function renderStatisticsChartHtml(series, range, options = {}) {
     const clipped = s.points.filter((p) => p.t >= tMin && p.t <= clipEnd);
     let segmentGroups;
     if (isForecast && clipped.length >= 2) {
-      const past = clipped.filter((p) => p.t <= nowMs);
-      const future = clipped.filter((p) => p.t >= nowMs);
+      const splitMs = nowMs;
+      const past = clipped.filter((p) => p.t <= splitMs);
+      const future = clipped.filter((p) => p.t > splitMs - STATISTICS_PERIOD_MS * 0.01);
       segmentGroups = [];
       if (past.length >= 2) segmentGroups.push({ pts: past, dash: "" });
       if (future.length >= 2) {
         const futurePts =
-          past.length && past[past.length - 1].t < nowMs
+          past.length && past[past.length - 1].t < splitMs
             ? [past[past.length - 1], ...future.filter((p) => p.t > past[past.length - 1].t)]
             : future;
         if (futurePts.length >= 2) segmentGroups.push({ pts: futurePts, dash: "5 4" });
+      } else if (past.length >= 2 && clipped.length > past.length) {
+        const tail = clipped.filter((p) => p.t > past[past.length - 1].t);
+        if (tail.length >= 2) {
+          segmentGroups.push({
+            pts: [past[past.length - 1], ...tail],
+            dash: "5 4",
+          });
+        }
       }
       if (!segmentGroups.length) segmentGroups.push({ pts: clipped, dash: "" });
     } else {
@@ -7791,7 +7836,6 @@ Reloading panel registration…
       this._hass,
       {
         dayOffset,
-        fallbackPoints: this._forecastFallbackPointsForStatistics(range),
         forecastState: chart.forecastState,
         forecastOverlayPoints: chart.forecastOverlayPoints,
       }
