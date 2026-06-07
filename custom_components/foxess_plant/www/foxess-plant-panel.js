@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.108
+ * @version 0.9.109
  */
 
 const NAV = [
@@ -770,11 +770,11 @@ async function fetchForecastAccuracyReport(hass, plant, dayOffset = 0) {
       err?.body?.message ||
       (typeof err === "string" ? err : "") ||
       "Failed to load forecast accuracy";
-    return { error: msg };
+    return { error: msg, solcast_enabled: true };
   }
 }
 
-function forecastAccuracyRangeFromReport(report) {
+function forecastAccuracyRangeFromReport(report, intraday) {
   const day = report?.day ? new Date(`${report.day}T12:00:00`) : new Date();
   const dayStart = startOfLocalDay(day).getTime();
   const win = report?.chart_window;
@@ -783,8 +783,41 @@ function forecastAccuracyRangeFromReport(report) {
   let tMax = Number(win?.t_max_ms);
   if (!Number.isFinite(tMin)) tMin = dayStart + 6 * 3600000;
   if (!Number.isFinite(tMax)) tMax = dayStart + 20 * 3600000;
-  const nowMs = Math.min(Number.isFinite(asOf) ? asOf : Date.now(), tMax);
+  let nowMs = Math.min(Number.isFinite(asOf) ? asOf : Date.now(), tMax);
+  if (report?.is_today) {
+    let dataEnd = tMin;
+    for (const key of ["actual_power_kw", "predicted_power_kw", "latest_revision_power_kw"]) {
+      for (const p of intraday?.[key] || []) {
+        if (Number.isFinite(p?.t) && p.t > dataEnd) dataEnd = p.t;
+      }
+    }
+    const endRef = Math.max(dataEnd, nowMs, tMin + 3600000);
+    const endCeil = ceilToLocalHourMs(endRef + 3600000);
+    tMax = Math.min(tMax, Math.max(endCeil, tMin + 2 * 3600000));
+    nowMs = Math.min(nowMs, tMax);
+  }
   return { tMin, tMax, nowMs, dayStart };
+}
+
+function ceilToLocalHourMs(ms) {
+  const d = new Date(ms);
+  d.setMinutes(0, 0, 0);
+  if (ms > d.getTime()) d.setHours(d.getHours() + 1);
+  return d.getTime();
+}
+
+function renderForecastAccuracyLegendHtml(extraItems = []) {
+  const items = [
+    { label: "PV generation", color: FORECAST_ACCURACY_COLORS.actual },
+    { label: "Forecast PV", color: FORECAST_ACCURACY_COLORS.predicted },
+    ...extraItems,
+  ];
+  return items
+    .map(
+      (item) =>
+        `<span class="forecast-accuracy-legend-item"><i style="background:${item.color}"></i>${esc(item.label)}</span>`
+    )
+    .join("");
 }
 
 function forecastAccuracyYDomain(values, { minZero = true, padRatio = 0.04 } = {}) {
@@ -854,6 +887,7 @@ function forecastAccuracyPlotSvg(series, range, options = {}) {
     yUnit = "kWh",
     yMinZero = true,
     ariaLabel = "Forecast chart",
+    showLegend = true,
   } = options;
   const visible = (series || []).filter((s) => Array.isArray(s.points) && s.points.length >= 2);
   if (!visible.length) return "";
@@ -900,17 +934,22 @@ function forecastAccuracyPlotSvg(series, range, options = {}) {
       return `<path class="statistics-line" d="${polylinePath(pixelPts)}" fill="none" stroke="${s.color}" stroke-width="${s.lineWidth || 1.8}" stroke-linecap="round" stroke-linejoin="round"${s.dash ? ` stroke-dasharray="${s.dash}"` : ""}/>`;
     })
     .join("");
-  const legend = visible
-    .map(
-      (s) =>
-        `<span class="forecast-accuracy-legend-item"><i style="background:${s.color}"></i>${esc(s.label)}</span>`
-    )
-    .join("");
-  return `<div class="forecast-accuracy-plot">
-<div class="forecast-accuracy-plot-head">
+  const legend = showLegend
+    ? visible
+        .map(
+          (s) =>
+            `<span class="forecast-accuracy-legend-item"><i style="background:${s.color}"></i>${esc(s.label)}</span>`
+        )
+        .join("")
+    : "";
+  const head = showLegend
+    ? `<div class="forecast-accuracy-plot-head">
 <span class="forecast-accuracy-plot-label">${esc(yUnit)}</span>
 <div class="forecast-accuracy-legend forecast-accuracy-legend--inline">${legend}</div>
-</div>
+</div>`
+    : `<div class="forecast-accuracy-plot-head forecast-accuracy-plot-head--axis-only"><span class="forecast-accuracy-plot-label">${esc(yUnit)}</span></div>`;
+  return `<div class="forecast-accuracy-plot">
+${head}
 <svg class="forecast-accuracy-chart-svg statistics-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="${esc(ariaLabel)}">
 ${grid}${yLabels}${xLabels}${lines}
 </svg>
@@ -947,13 +986,14 @@ function renderForecastAccuracyChartHtml(intraday, range, { compact = false } = 
     return `<p class="placeholder chart-empty">No intraday forecast comparison yet.</p>`;
   }
   const pad = compact
-    ? { l: 44, r: 6, t: 4, b: 22 }
-    : { l: 50, r: 10, t: 6, b: 26 };
+    ? { l: 44, r: 6, t: 2, b: 18 }
+    : { l: 50, r: 10, t: 2, b: 20 };
   return `<div class="forecast-accuracy-chart-wrap">${forecastAccuracyPlotSvg(powerSeries, range, {
-    height: compact ? 210 : 240,
+    height: compact ? 188 : 200,
     pad,
     yUnit: "kW",
     yMinZero: true,
+    showLegend: compact,
     ariaLabel: "PV generation vs forecast power",
   })}</div>`;
 }
@@ -1007,13 +1047,18 @@ function renderForecastAccuracyCard(report, { compact = false, loading = false, 
   if (loading) {
     return `<div class="card forecast-accuracy-card${compact ? " forecast-accuracy-card--compact" : ""}" style="${margin}">
 <p class="card-title">${esc(title)}</p>
-<p class="chart-loading">Loading forecast analysis…</p>
+<p class="forecast-accuracy-empty chart-loading">Loading forecast analysis…</p>
 </div>`;
   }
   if (!report || report.error) {
+    const errText = report?.error || "Forecast data not available yet.";
+    const retryHint = report?.error
+      ? `<p class="forecast-accuracy-hint">Check FoxESS Plant is loaded, then refresh the page.</p>`
+      : "";
     return `<div class="card forecast-accuracy-card${compact ? " forecast-accuracy-card--compact" : ""}" style="${margin}">
 <p class="card-title">${esc(title)}</p>
-<p class="placeholder">${esc(report?.error || "Forecast data not available yet.")}</p>
+<p class="forecast-accuracy-empty">${esc(errText)}</p>
+${retryHint}
 </div>`;
   }
   const actual = formatDailyKwh(report.actual_kwh);
@@ -1037,16 +1082,26 @@ function renderForecastAccuracyCard(report, { compact = false, loading = false, 
     Math.abs(report.latest_predicted_kwh - report.first_predicted_kwh) >= 0.05
       ? `<p class="forecast-accuracy-hint">Day total revised from ${esc(formatDailyKwh(report.first_predicted_kwh))} to ${esc(formatDailyKwh(report.latest_predicted_kwh))}</p>`
       : "";
-  const range = forecastAccuracyRangeFromReport(report);
+  const range = forecastAccuracyRangeFromReport(report, report.intraday);
+  const legendExtra =
+    !compact && report.intraday?.latest_revision_power_kw?.length >= 2
+      ? [{ label: "Latest forecast PV", color: FORECAST_ACCURACY_COLORS.latestRevision }]
+      : [];
   const chart = renderForecastAccuracyChartHtml(report.intraday, range, { compact });
   const revisions = compact ? "" : renderForecastAccuracyRevisionsTable(report.revisions);
+  const statsLegend = compact
+    ? ""
+    : `<div class="forecast-accuracy-stats-legend">${renderForecastAccuracyLegendHtml(legendExtra)}</div>`;
   return `<div class="card forecast-accuracy-card${compact ? " forecast-accuracy-card--compact" : ""}" style="${margin}" data-forecast-accuracy="1">
 <p class="card-title">${esc(title)}</p>
 <p class="forecast-accuracy-sub">${compact ? "Solcast revisions compared with measured solar output" : "Measured production vs Solcast predictions and intraday revisions"}</p>
+<div class="forecast-accuracy-stats-row">
 <div class="forecast-accuracy-stats">
 <div class="forecast-accuracy-stat"><label>Actual</label><strong>${esc(actual)}</strong></div>
 <div class="forecast-accuracy-stat"><label>Forecast</label><strong>${esc(predicted)}</strong></div>
 <div class="forecast-accuracy-stat ${errCls}"><label>Variance</label><strong>${esc(errText)}</strong></div>
+</div>
+${statsLegend}
 </div>
 ${revisionShift}${revisionHint}
 ${chart}
@@ -5612,13 +5667,27 @@ const STYLES = `
 .breakdown-card { margin-top: 14px; padding-bottom: 8px; }
 .statistics-card { padding-bottom: 16px; }
 .statistics-card .card-title { margin-bottom: 12px; }
-.forecast-accuracy-card { padding-bottom: 10px; }
+.forecast-accuracy-card { padding-bottom: 6px; }
 .forecast-accuracy-card--compact .card-title { margin-bottom: 2px; }
+.forecast-accuracy-card:not(.forecast-accuracy-card--compact) { padding-bottom: 4px; }
+.forecast-accuracy-card:not(.forecast-accuracy-card--compact) .card-title { margin-bottom: 2px; }
 .forecast-accuracy-sub {
-  margin: 0 0 8px; font-size: 12px; line-height: 1.4; color: var(--secondary-text-color);
+  margin: 0 0 6px; font-size: 12px; line-height: 1.35; color: var(--secondary-text-color);
+}
+.forecast-accuracy-card:not(.forecast-accuracy-card--compact) .forecast-accuracy-sub {
+  margin: 0 0 4px;
+}
+.forecast-accuracy-stats-row {
+  display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 6px 12px;
+  margin-bottom: 2px;
 }
 .forecast-accuracy-stats {
-  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px; margin-bottom: 6px;
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 12px; margin-bottom: 0;
+  flex: 1 1 240px;
+}
+.forecast-accuracy-stats-legend {
+  display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 11px;
+  color: var(--secondary-text-color); padding-bottom: 2px;
 }
 .forecast-accuracy-stat label {
   display: block; font-size: 11px; color: var(--secondary-text-color); margin-bottom: 4px;
@@ -5629,12 +5698,19 @@ const STYLES = `
 .forecast-accuracy-hint {
   margin: 0 0 6px; font-size: 11px; color: var(--secondary-text-color); line-height: 1.35;
 }
+.forecast-accuracy-empty {
+  margin: 0; padding: 10px 8px; text-align: center; font-size: 12px; line-height: 1.4;
+  color: var(--secondary-text-color); border-radius: var(--fp-radius);
+  border: 1px dashed var(--divider-color); background: var(--card-background-color);
+}
+.forecast-accuracy-card--compact .forecast-accuracy-empty { padding: 8px 6px; }
 .forecast-accuracy-chart-wrap { width: 100%; margin-top: 0; }
 .forecast-accuracy-plot { width: 100%; }
 .forecast-accuracy-plot-head {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px;
-  margin-bottom: 2px;
+  margin-bottom: 0; min-height: 0;
 }
+.forecast-accuracy-plot-head--axis-only { justify-content: flex-start; margin-bottom: 0; }
 .forecast-accuracy-plot-label {
   font-size: 11px; font-weight: 600; color: var(--secondary-text-color); letter-spacing: 0.04em;
 }
@@ -5648,14 +5724,16 @@ const STYLES = `
   width: 14px; height: 3px; border-radius: 1px; display: inline-block;
 }
 .forecast-accuracy-chart-svg {
-  width: 100%; height: auto; display: block; min-height: 168px;
-  aspect-ratio: 1000 / 210;
+  width: 100%; height: auto; display: block;
+}
+.forecast-accuracy-card--compact .forecast-accuracy-chart-svg {
+  aspect-ratio: 1000 / 188;
 }
 .forecast-accuracy-card:not(.forecast-accuracy-card--compact) .forecast-accuracy-chart-svg {
-  min-height: 190px;
-  aspect-ratio: 1000 / 240;
+  aspect-ratio: 1000 / 200;
 }
-.forecast-accuracy-revisions-wrap { margin-top: 14px; overflow-x: auto; }
+.fox-analysis-forecast-accuracy-row { margin-top: 10px; margin-bottom: 0; }
+.fox-analysis-forecast-accuracy-row .forecast-accuracy-card { margin-top: 0; margin-bottom: 0; }
 .forecast-accuracy-revisions {
   width: 100%; border-collapse: collapse; font-size: 12px;
 }
@@ -5668,8 +5746,7 @@ const STYLES = `
 }
 .forecast-accuracy-delta--up { color: #19D4DE; }
 .forecast-accuracy-delta--down { color: #FF9F43; }
-.fox-analysis-forecast-accuracy-row { margin-top: 14px; }
-.fox-analysis-forecast-accuracy-row .forecast-accuracy-card { margin-top: 0; }
+.forecast-accuracy-revisions-wrap { margin-top: 10px; overflow-x: auto; }
 .soc-chart-card { padding-bottom: 16px; }
 .soc-chart-card .card-title { margin-bottom: 8px; }
 .soc-chart-wrap {
@@ -8931,11 +9008,12 @@ ${pathsHtml}
   }
 
   _renderOverviewAfterHero(plant) {
+    const forecastSlot = this._forecastAccuracyForOverview();
     const forecastCard =
       statisticsSolcastForecastEnabled(this._plantState, this._hass)
-        ? renderForecastAccuracyCard(this._forecastAccuracyOverview, {
+        ? renderForecastAccuracyCard(forecastSlot.report, {
             compact: true,
-            loading: this._forecastAccuracyOverviewLoading,
+            loading: forecastSlot.loading,
           })
         : "";
     return `${forecastCard}<div class="card statistics-card" style="margin-top:14px">
@@ -9929,6 +10007,32 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
     return this._forecastAccuracyReportCacheKey(plant, 0);
   }
 
+  _syncForecastAccuracyToday(plant, result, dayOffset) {
+    if (!plant || dayOffset !== 0 || !result || result.error) return;
+    const todayKey = this._forecastAccuracyOverviewCacheKey(plant);
+    this._forecastAccuracyOverview = result;
+    this._forecastAccuracyOverviewKey = todayKey;
+    if (this._energyPeriod === "day" && this._energyPeriodOffset === 0) {
+      this._forecastAccuracyAnalysis = result;
+      this._forecastAccuracyAnalysisKey = this._forecastAccuracyAnalysisCacheKey(plant);
+    }
+  }
+
+  _forecastAccuracyForOverview() {
+    const overview = this._forecastAccuracyOverview;
+    if (this._forecastAccuracyOverviewLoading) {
+      return { report: overview, loading: true };
+    }
+    if (overview && !overview.error) {
+      return { report: overview, loading: false };
+    }
+    const analysis = this._forecastAccuracyAnalysis;
+    if (analysis && !analysis.error && analysis.is_today) {
+      return { report: analysis, loading: this._forecastAccuracyAnalysisLoading };
+    }
+    return { report: overview, loading: false };
+  }
+
   _forecastAccuracyAnalysisCacheKey(plant) {
     return this._forecastAccuracyReportCacheKey(plant, this._energyPeriodOffset);
   }
@@ -9961,16 +10065,25 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
       return;
     }
     this._forecastAccuracyOverviewLoading = true;
-    this._forecastAccuracyOverviewKey = cacheKey;
     this._scheduleRender();
     try {
       if (!this._plantState) await this._refreshPlantState();
-      this._forecastAccuracyOverview = await fetchForecastAccuracyReport(this._hass, plant, 0);
+      const result = await fetchForecastAccuracyReport(this._hass, plant, 0);
+      if (this._forecastAccuracyOverviewCacheKey(this._getPlant()) !== cacheKey) return;
+      this._forecastAccuracyOverview = result;
+      if (result && !result.error) {
+        this._forecastAccuracyOverviewKey = cacheKey;
+        this._syncForecastAccuracyToday(plant, result, 0);
+      } else {
+        this._forecastAccuracyOverviewKey = undefined;
+      }
     } catch (err) {
+      if (this._forecastAccuracyOverviewCacheKey(this._getPlant()) !== cacheKey) return;
       this._forecastAccuracyOverview = {
         error: err?.message || "Failed to load forecast accuracy",
         solcast_enabled: true,
       };
+      this._forecastAccuracyOverviewKey = undefined;
     } finally {
       this._forecastAccuracyOverviewLoading = false;
       if (this._forecastAccuracyOverviewCacheKey(this._getPlant()) === cacheKey) {
@@ -9998,20 +10111,29 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
       return;
     }
     this._forecastAccuracyAnalysisLoading = true;
-    this._forecastAccuracyAnalysisKey = cacheKey;
     this._scheduleRender();
     try {
       if (!this._plantState) await this._refreshPlantState();
-      this._forecastAccuracyAnalysis = await fetchForecastAccuracyReport(
+      const result = await fetchForecastAccuracyReport(
         this._hass,
         plant,
         this._energyPeriodOffset
       );
+      if (this._forecastAccuracyAnalysisCacheKey(this._getPlant()) !== cacheKey) return;
+      this._forecastAccuracyAnalysis = result;
+      if (result && !result.error) {
+        this._forecastAccuracyAnalysisKey = cacheKey;
+        this._syncForecastAccuracyToday(plant, result, this._energyPeriodOffset);
+      } else {
+        this._forecastAccuracyAnalysisKey = undefined;
+      }
     } catch (err) {
+      if (this._forecastAccuracyAnalysisCacheKey(this._getPlant()) !== cacheKey) return;
       this._forecastAccuracyAnalysis = {
         error: err?.message || "Failed to load forecast accuracy",
         solcast_enabled: true,
       };
+      this._forecastAccuracyAnalysisKey = undefined;
     } finally {
       this._forecastAccuracyAnalysisLoading = false;
       if (this._forecastAccuracyAnalysisCacheKey(this._getPlant()) === cacheKey) {
@@ -11229,7 +11351,8 @@ ${active
         statisticsSolcastForecastEnabled(this._plantState, this._hass) &&
         !this._forecastAccuracyAnalysisLoading &&
         (this._forecastAccuracyAnalysisKey !== this._forecastAccuracyAnalysisCacheKey(plant) ||
-          !this._forecastAccuracyAnalysis)
+          !this._forecastAccuracyAnalysis ||
+          this._forecastAccuracyAnalysis.error)
       ) {
         void this._loadForecastAccuracyAnalysis();
       }
@@ -11277,10 +11400,23 @@ ${active
         statisticsSolcastForecastEnabled(this._plantState, this._hass) &&
         !this._forecastAccuracyOverviewLoading &&
         (this._forecastAccuracyOverviewKey !== this._forecastAccuracyOverviewCacheKey(plant) ||
-          !this._forecastAccuracyOverview)
+          !this._forecastAccuracyOverview ||
+          this._forecastAccuracyOverview.error)
       ) {
         void this._loadForecastAccuracyOverview();
       }
+    }
+    const preloadPlant = this._getPlant();
+    if (
+      preloadPlant &&
+      this._view !== "overview" &&
+      statisticsSolcastForecastEnabled(this._plantState, this._hass) &&
+      !this._forecastAccuracyOverviewLoading &&
+      (this._forecastAccuracyOverviewKey !== this._forecastAccuracyOverviewCacheKey(preloadPlant) ||
+        !this._forecastAccuracyOverview ||
+        this._forecastAccuracyOverview.error)
+    ) {
+      void this._loadForecastAccuracyOverview();
     }
   }
 }
