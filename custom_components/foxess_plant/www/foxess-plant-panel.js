@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.129
+ * @version 0.9.130
  */
 
 const NAV = [
@@ -669,6 +669,7 @@ function nativeSolcastPvForecastEnabled(plantState) {
 function statisticsSolcastForecastEnabled(plantState, hass) {
   const sc = plantState?.solcast;
   if (!sc || sc?.fetch_pv_forecast === false) return false;
+  if ((sc.forecast_intraday_points?.length ?? 0) >= 2) return true;
   const rows = resolveSolcastDetailedForecast(plantState, hass);
   if (rows.length >= 2) return true;
   if (sc.forecast_persisted && (sc.pv_forecast_periods ?? 0) >= 2) return true;
@@ -708,20 +709,89 @@ function statisticsRangeForDisplay(range, dayOffset = 0) {
   return { ...range, nowMs: Math.max(range.tMin, nowMs) };
 }
 
-function mergeForecastPointsWithFuture(intradayPts, detailedPts, nowMs) {
-  if (!Array.isArray(intradayPts) || intradayPts.length < 2) {
-    return Array.isArray(detailedPts) && detailedPts.length >= 2 ? detailedPts : intradayPts || [];
+function forecastPointsIncludeFuture(points, nowMs) {
+  return (
+    Array.isArray(points) &&
+    points.some((p) => Number.isFinite(p?.t) && p.t > nowMs + STATISTICS_PERIOD_MS * 0.5)
+  );
+}
+
+function buildSolcastForecastIntervals(rows) {
+  const ordered = rows
+    .map((row) => {
+      const startMs = parseSolcastPeriodMs(row.period_start ?? row.period_end ?? row.period);
+      let kw = Number(row.pv_estimate ?? row.pv_power_rooftop ?? row.power ?? row.pv_power);
+      if (!Number.isFinite(startMs) || !Number.isFinite(kw)) return null;
+      if (Math.abs(kw) > 50) kw /= 1000;
+      return { startMs, kw };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.startMs - b.startMs);
+  if (ordered.length < 1) return [];
+  const intervals = [];
+  for (let i = 0; i < ordered.length; i++) {
+    const startMs = ordered[i].startMs;
+    let endMs = i + 1 < ordered.length ? ordered[i + 1].startMs : startMs + 30 * 60 * 1000;
+    if (endMs <= startMs) endMs = startMs + 30 * 60 * 1000;
+    intervals.push({ startMs, endMs, kw: ordered[i].kw });
   }
-  if (intradayPts.some((p) => p.t > nowMs + STATISTICS_PERIOD_MS * 0.5)) return intradayPts;
-  if (!Array.isArray(detailedPts) || detailedPts.length < 2) return intradayPts;
-  const future = detailedPts.filter((p) => p.t >= nowMs);
+  return intervals;
+}
+
+function kwAtOrAfterSolcastInterval(intervals, slotMs) {
+  if (!intervals.length) return null;
+  let chosen = null;
+  for (const interval of intervals) {
+    if (interval.startMs <= slotMs) chosen = interval.kw;
+    else if (chosen == null) return interval.kw;
+    else break;
+  }
+  return chosen != null ? chosen : intervals[intervals.length - 1].kw;
+}
+
+/** Full-day 5-minute slots from cached detailed_forecast (matches backend overlay builder). */
+function buildSolcastDetailedSlotPoints(rows, range, { fromMs = null } = {}) {
+  const intervals = buildSolcastForecastIntervals(rows);
+  if (!intervals.length || !range) return [];
+  const slotStart =
+    fromMs != null ? Math.max(range.tMin, fromMs - STATISTICS_PERIOD_MS) : range.tMin;
+  const out = [];
+  for (let t = slotStart; t <= range.tMax; t += STATISTICS_PERIOD_MS) {
+    const v = kwAtOrAfterSolcastInterval(intervals, t);
+    if (v != null) out.push({ t, v });
+  }
+  return out;
+}
+
+function detailedForecastPointsForStatistics(plantState, forecastState, hass, range) {
+  const rows = resolveBestSolcastDetailedRows(plantState, forecastState, hass);
+  if (rows.length < 2) return [];
+  const interpolated = detailedForecastToChartPoints(rows, range);
+  if (interpolated.length >= 2) return interpolated;
+  return buildSolcastDetailedSlotPoints(rows, range);
+}
+
+function mergeForecastPointsWithFuture(intradayPts, detailedPts, nowMs) {
+  if (!Array.isArray(detailedPts) || detailedPts.length < 2) {
+    return Array.isArray(intradayPts) && intradayPts.length >= 2 ? intradayPts : [];
+  }
+  if (!Array.isArray(intradayPts) || intradayPts.length < 2) return detailedPts;
+  if (forecastPointsIncludeFuture(intradayPts, nowMs)) return intradayPts;
+  const future = detailedPts.filter((p) => p.t >= nowMs - STATISTICS_PERIOD_MS);
   if (!future.length) return intradayPts;
   const merged = intradayPts.filter((p) => p.t <= nowMs);
   const lastPast = merged[merged.length - 1];
   for (const p of future) {
     if (!lastPast || p.t > lastPast.t) merged.push(p);
   }
-  return merged.length >= 2 ? merged : intradayPts;
+  return merged.length >= 2 ? merged : detailedPts;
+}
+
+function ensureStatisticsForecastFuture(fPoints, plantState, forecastState, hass, range, nowMs) {
+  if (!Array.isArray(fPoints) || fPoints.length < 2) return fPoints || [];
+  if (forecastPointsIncludeFuture(fPoints, nowMs)) return fPoints;
+  const detailed = detailedForecastPointsForStatistics(plantState, forecastState, hass, range);
+  return mergeForecastPointsWithFuture(fPoints, detailed, nowMs);
 }
 
 function mergeStatisticsForecastSeries(
@@ -756,13 +826,14 @@ function mergeStatisticsForecastSeries(
   if (fPoints.length < 2 && Array.isArray(fallbackPoints) && fallbackPoints.length >= 2) {
     fPoints = fallbackPoints;
   }
-  if (fPoints.length >= 2) {
-    const detailed = detailedForecastToChartPoints(
-      resolveBestSolcastDetailedRows(plantState, forecastState, hass),
-      range
-    );
-    fPoints = mergeForecastPointsWithFuture(fPoints, detailed, nowMs);
-  }
+  fPoints = ensureStatisticsForecastFuture(
+    fPoints,
+    plantState,
+    forecastState,
+    hass,
+    range,
+    nowMs
+  );
   if (fPoints.length < 2) {
     const existing = series.find((s) => s.id === "forecast");
     return existing?.points?.length >= 2 ? series : without;
@@ -1439,11 +1510,9 @@ function nativeSolcastForecastPoints(plantState, range, hass, extraState) {
     const pts = solcastIntradayForecastPoints(st, range);
     if (pts.length > intraday.length) intraday = pts;
   }
-  const detailed = detailedForecastToChartPoints(
-    resolveBestSolcastDetailedRows(plantState, extraState, hass),
-    range
-  );
   const nowMs = range?.nowMs ?? Date.now();
+  if (forecastPointsIncludeFuture(intraday, nowMs)) return intraday;
+  const detailed = detailedForecastPointsForStatistics(plantState, extraState, hass, range);
   return mergeForecastPointsWithFuture(intraday, detailed, nowMs);
 }
 
@@ -4268,13 +4337,14 @@ async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset =
     if (fPoints.length < 2) {
       fPoints = buildForecastSeriesPoints(forecastState, range, hass, forecastState);
     }
-    if (fPoints.length >= 2) {
-      const detailed = detailedForecastToChartPoints(
-        resolveBestSolcastDetailedRows(forecastState, forecastState, hass),
-        range
-      );
-      fPoints = mergeForecastPointsWithFuture(fPoints, detailed, nowMs);
-    }
+    fPoints = ensureStatisticsForecastFuture(
+      fPoints,
+      forecastState,
+      forecastState,
+      hass,
+      range,
+      nowMs
+    );
     if (fPoints.length) {
       series.push({
         id: "forecast",
@@ -7264,6 +7334,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._statisticsChart = null;
     this._statisticsChartLoading = false;
     this._statisticsChartPlantId = undefined;
+    this._statisticsForecastOverlayRefreshing = false;
     this._batterySocChart = null;
     this._batterySocChartLoading = false;
     this._batterySocChartPlantId = undefined;
@@ -7735,13 +7806,50 @@ Reloading panel registration…
       const cacheKey = `${plant.entry_id}:overview`;
       if (this._statisticsChartPlantId !== cacheKey || !this._statisticsChart?.range) {
         void this._loadOverviewStatisticsChart();
+      } else {
+        this._maybeRefreshStatisticsForecastOverlay();
       }
       return;
     }
     const cacheKey = this._energyChartCacheKey(plant);
     if (this._statisticsChartPlantId !== cacheKey || !this._statisticsChart?.range) {
       void this._loadStatisticsChart();
+    } else {
+      this._maybeRefreshStatisticsForecastOverlay();
     }
+  }
+
+  _maybeRefreshStatisticsForecastOverlay() {
+    const chart = this._statisticsChart;
+    if (!chart?.range || this._statisticsForecastOverlayRefreshing || (chart.dayOffset ?? 0) > 0) {
+      return;
+    }
+    const plant = this._getPlant();
+    if (!plant?.entry_id || !this._hass) return;
+    const range = statisticsRangeForDisplay(chart.range, 0);
+    if (!range) return;
+    const nowMs = range.nowMs;
+    const preview = ensureStatisticsForecastFuture(
+      chart.forecastOverlayPoints?.length >= 2
+        ? chart.forecastOverlayPoints
+        : chart.series?.find((s) => s.id === "forecast")?.points,
+      this._pickStatisticsForecastState(),
+      chart.forecastState,
+      this._hass,
+      range,
+      nowMs
+    );
+    if (forecastPointsIncludeFuture(preview, nowMs)) return;
+    this._statisticsForecastOverlayRefreshing = true;
+    void fetchStatisticsForecastOverlay(this._hass, plant)
+      .then((overlay) => {
+        if (!overlay?.length || !this._statisticsChart) return;
+        this._statisticsChart.forecastOverlayPoints = overlay;
+        if (forecastPointsIncludeFuture(overlay, nowMs)) this._scheduleRender();
+      })
+      .finally(() => {
+        this._statisticsForecastOverlayRefreshing = false;
+      });
   }
 
   _reloadStatisticsChartWhenVisible() {

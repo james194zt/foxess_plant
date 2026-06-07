@@ -352,6 +352,14 @@ def build_statistics_forecast_overlay(
                 detailed_day.append({"t": float(slot), "v": float(kw)})
             slot += STATISTICS_PERIOD_MS
 
+    if not detailed_day and len(detailed_rows) >= 2:
+        detailed_day = build_forecast_intraday_chart_for_range(
+            snapshots=[(as_of_ms, detailed_rows)],
+            day_start_ms=day_start_ms,
+            as_of_ms=as_of_ms,
+            include_future=True,
+        )
+
     if not past and not detailed_day:
         return []
     if not past:
