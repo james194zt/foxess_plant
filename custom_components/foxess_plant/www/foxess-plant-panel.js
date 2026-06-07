@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.112
+ * @version 0.9.113
  */
 
 const NAV = [
@@ -925,8 +925,11 @@ function forecastAccuracyPlotSvg(series, range, options = {}) {
   const { yMin, yMax } = forecastAccuracyYDomain(allValues, { minZero: yMinZero });
   const ySpan = Math.max(yMax - yMin, 0.01);
   const yScale = (v) => plotPad.t + h - ((v - yMin) / ySpan) * h;
-  const yCloudScale = (v) =>
-    plotPad.t + h - (Math.min(100, Math.max(0, Number(v))) / 100) * h;
+  const yCloudScale = (v) => {
+    const inset = hasCloud ? 6 : 0;
+    const plotH = Math.max(h - inset, 1);
+    return plotPad.t + inset + plotH - (Math.min(100, Math.max(0, Number(v))) / 100) * plotH;
+  };
   const yTicks = forecastAccuracyYTicks(yMin, yMax);
   const xTicks = forecastAccuracyXTicks(tMin, tMax);
   const grid = yTicks
@@ -950,9 +953,10 @@ function forecastAccuracyPlotSvg(series, range, options = {}) {
         })
         .join("")
     : "";
-  const cloudAxisTitle = hasCloud
-    ? `<text x="${(plotPad.l + w + 8).toFixed(1)}" y="${(plotPad.t - 6).toFixed(1)}" text-anchor="start" class="statistics-y-label forecast-accuracy-y-label--cloud">Cloud</text>`
-    : "";
+  const cloudAxisTitle =
+    hasCloud && showLegend
+      ? `<text x="${(plotPad.l + w + 8).toFixed(1)}" y="${(plotPad.t - 4).toFixed(1)}" text-anchor="start" class="statistics-y-label forecast-accuracy-y-label--cloud">Cloud</text>`
+      : "";
   const xLabels = xTicks
     .map((xt) => {
       const x = xScale(xt);
@@ -1046,9 +1050,14 @@ function renderForecastAccuracyChartHtml(intraday, range, { compact = false } = 
           fillColor: FORECAST_ACCURACY_COLORS.cloudFill,
         }
       : null;
-  if (secondarySeries) pad.r = compact ? 30 : 36;
-  return `<div class="forecast-accuracy-chart-wrap">${forecastAccuracyPlotSvg(powerSeries, range, {
-    height: compact ? 164 : 176,
+  if (secondarySeries) {
+    pad.t = compact ? 10 : 14;
+    pad.r = compact ? 30 : 36;
+  }
+  const chartHeight = compact ? 164 : 176;
+  const height = secondarySeries ? chartHeight + 8 : chartHeight;
+  return `<div class="forecast-accuracy-chart-wrap${secondarySeries ? " forecast-accuracy-chart-wrap--cloud" : ""}">${forecastAccuracyPlotSvg(powerSeries, range, {
+    height,
     pad,
     yUnit: "kW",
     yMinZero: true,
@@ -5754,7 +5763,7 @@ const STYLES = `
 }
 .forecast-accuracy-stats-row {
   display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 6px 12px;
-  margin-bottom: 4px;
+  margin-bottom: 8px;
 }
 .forecast-accuracy-stats {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 12px; margin-bottom: 0;
@@ -5762,7 +5771,7 @@ const STYLES = `
 }
 .forecast-accuracy-stats-legend {
   display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 11px;
-  color: var(--secondary-text-color); padding-bottom: 2px;
+  color: var(--secondary-text-color); padding-bottom: 6px;
 }
 .forecast-accuracy-stat label {
   display: block; font-size: 11px; color: var(--secondary-text-color); margin-bottom: 4px;
@@ -5780,6 +5789,8 @@ const STYLES = `
 }
 .forecast-accuracy-card--compact .forecast-accuracy-empty { padding: 8px 6px; }
 .forecast-accuracy-chart-wrap { width: 100%; margin: 0; }
+.forecast-accuracy-chart-wrap--cloud { margin-top: 6px; }
+.forecast-accuracy-chart-wrap--cloud .forecast-accuracy-plot-head { margin-bottom: 4px; }
 .forecast-accuracy-plot { width: 100%; line-height: 0; }
 .forecast-accuracy-plot-head {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px;
