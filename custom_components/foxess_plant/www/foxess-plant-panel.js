@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.127
+ * @version 0.9.128
  */
 
 const NAV = [
@@ -4027,10 +4027,10 @@ async function fetchBatterySocChartSeries(hass, plant, plantState) {
 }
 
 function renderBatterySocChartHtml(chart, liveSocPct) {
-  const { socPts, segments, activityBars, range } = chart;
-  if (!socPts?.length) {
+  if (!chart?.range || !chart?.socPts?.length) {
     return `<p class="placeholder chart-empty">No battery SOC history for today yet.</p>`;
   }
+  const { socPts, segments, activityBars, range } = chart;
   const { width, height, pad, xTickHours, xTickCount, yTicks } = BATTERY_SOC_CHART_LAYOUT;
   const w = width - pad.l - pad.r;
   const h = height - pad.t - pad.b;
@@ -7694,8 +7694,8 @@ Reloading panel registration…
     const chart = this._statisticsChart;
     if (!chart?.series || !chart?.range) return null;
     const state = this._pickStatisticsForecastState();
-    const dayOffset = chart.dayOffset ?? 0;
-    const range = statisticsRangeForDisplay(chart.range, dayOffset);
+    const dayOffset = chart?.dayOffset ?? 0;
+    const range = statisticsRangeForDisplay(chart?.range, dayOffset);
     if (!range) return null;
     return mergeStatisticsForecastSeries(
       chart.series,
@@ -10018,6 +10018,16 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
   }
 
   _renderStatisticsChartBody(options = {}) {
+    try {
+      return this._renderStatisticsChartBodyInner(options);
+    } catch (err) {
+      console.error("FoxESS Plant statistics chart render failed", err);
+      if (this._statisticsChartVisible()) this._ensureStatisticsChartLoaded();
+      return `<p class="placeholder chart-empty">Statistics chart unavailable. Reload the panel or refresh the page.</p>`;
+    }
+  }
+
+  _renderStatisticsChartBodyInner(options = {}) {
     if (this._statisticsChartLoading) {
       return `<p class="chart-loading">Loading statistics…</p>`;
     }
@@ -11633,7 +11643,8 @@ ${active
       this._renderPanel();
     } catch (err) {
       console.error("FoxESS Plant panel render failed", err);
-      this._root.innerHTML = `<div class="main"><p class="placeholder">Fox Plant panel error: ${esc(err?.message || String(err))}</p></div>`;
+      const ver = panelVersionFromModuleUrl() || PANEL_VERSION;
+      this._root.innerHTML = `<div class="main"><p class="placeholder">Fox Plant panel error: ${esc(err?.message || String(err))}</p><p class="placeholder" style="margin-top:8px;font-size:12px;opacity:0.75">Panel JS ${esc(ver)} — update FoxESS Plant in HACS, restart Home Assistant, then call <code>foxess_plant.reload_panel</code> or hard-refresh the browser.</p></div>`;
     }
   }
 
@@ -11700,7 +11711,8 @@ ${active
     if (
       (this._view === "overview" ||
         ((this._view === "energy_analysis") && this._energyPeriod === "day")) &&
-      this._statisticsChart?.series
+      this._statisticsChart?.series &&
+      this._statisticsChart?.range
     ) {
       this._bindStatisticsChart();
     }
