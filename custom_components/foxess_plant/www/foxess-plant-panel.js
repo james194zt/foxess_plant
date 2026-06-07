@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.134
+ * @version 0.9.135
  */
 
 const NAV = [
@@ -4290,8 +4290,13 @@ async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset =
     }
   }
   if (dayOffset === 0) {
-    const serverForecastPoints = await fetchSolcastStatisticsForecastPoints(hass, plant);
-    const fPoints = buildStatisticsForecastLine(
+    let serverForecastPoints = [];
+    try {
+      serverForecastPoints = await fetchSolcastStatisticsForecastPoints(hass, plant);
+    } catch {
+      serverForecastPoints = [];
+    }
+    const fPoints = buildStatisticsForecastPoints(
       range,
       forecastState,
       forecastState,
@@ -4896,27 +4901,18 @@ function renderStatisticsChartHtml(series, range, options = {}) {
     const clipped = s.points.filter((p) => p.t >= tMin && p.t <= clipEnd);
     let segmentGroups;
     if (isForecast && clipped.length >= 2) {
-      let pastEndIdx = -1;
-      for (let i = 0; i < clipped.length; i++) {
-        if (clipped[i].t <= nowMs) pastEndIdx = i;
-      }
+      const past = clipped.filter((p) => p.t <= nowMs);
+      const future = clipped.filter((p) => p.t >= nowMs);
       segmentGroups = [];
-      if (pastEndIdx >= 0 && pastEndIdx < clipped.length - 1) {
-        segmentGroups.push({ pts: clipped.slice(0, pastEndIdx + 1), dash: "" });
-        segmentGroups.push({ pts: clipped.slice(pastEndIdx), dash: "5 4" });
-      } else {
-        const past = clipped.filter((p) => p.t <= nowMs);
-        const future = clipped.filter((p) => p.t >= nowMs);
-        if (past.length >= 2) segmentGroups.push({ pts: past, dash: "" });
-        if (future.length >= 2) {
-          const futurePts =
-            past.length && past[past.length - 1].t < nowMs
-              ? [past[past.length - 1], ...future.filter((p) => p.t > past[past.length - 1].t)]
-              : future;
-          if (futurePts.length >= 2) segmentGroups.push({ pts: futurePts, dash: "5 4" });
-        }
-        if (!segmentGroups.length) segmentGroups.push({ pts: clipped, dash: "" });
+      if (past.length >= 2) segmentGroups.push({ pts: past, dash: "" });
+      if (future.length >= 2) {
+        const futurePts =
+          past.length && past[past.length - 1].t < nowMs
+            ? [past[past.length - 1], ...future.filter((p) => p.t > past[past.length - 1].t)]
+            : future;
+        if (futurePts.length >= 2) segmentGroups.push({ pts: futurePts, dash: "5 4" });
       }
+      if (!segmentGroups.length) segmentGroups.push({ pts: clipped, dash: "" });
     } else {
       const segmentPoints = s.connectGaps ? [clipped] : splitStatisticsSegments(clipped);
       segmentGroups = segmentPoints.map((pts) => ({ pts, dash: "" }));
