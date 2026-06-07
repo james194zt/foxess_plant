@@ -666,3 +666,141 @@ def read_overview_weather(hass: HomeAssistant, storm_prep: Any) -> dict[str, Any
         "weather_entity_id": weather_entity_id,
         "condition_entity_id": condition_entity_id,
     }
+
+
+def _parse_cloud_coverage(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        pct = float(value)
+    except (TypeError, ValueError):
+        return None
+    if pct < 0 or pct > 100:
+        return None
+    return round(pct, 1)
+
+
+def _cloud_samples_from_hourly_forecast(
+    hass: HomeAssistant,
+    weather_entity_id: str,
+    window_start_ms: float,
+    window_end_ms: float,
+) -> list[tuple[float, float]]:
+    from .storm_forecast import _parse_forecast_time
+
+    samples: list[tuple[float, float]] = []
+    try:
+        response = hass.services.call(
+            "weather",
+            "get_forecasts",
+            {"type": "hourly", "entity_id": weather_entity_id},
+            blocking=True,
+            return_response=True,
+        )
+    except Exception:
+        return samples
+    if not isinstance(response, dict):
+        return samples
+    block = response.get(weather_entity_id) or next(iter(response.values()), None)
+    if not isinstance(block, dict):
+        return samples
+    for row in block.get("forecast") or []:
+        if not isinstance(row, dict):
+            continue
+        pct = _parse_cloud_coverage(row.get("cloud_coverage"))
+        if pct is None:
+            continue
+        when = _parse_forecast_time(row.get("datetime"))
+        if when is None:
+            continue
+        t_ms = when.timestamp() * 1000
+        if t_ms < window_start_ms - 3_600_000 or t_ms > window_end_ms + 3_600_000:
+            continue
+        samples.append((t_ms, pct))
+    return samples
+
+
+def _cloud_samples_from_recorder(
+    hass: HomeAssistant,
+    weather_entity_id: str,
+    window_start,
+    window_end,
+) -> list[tuple[float, float]]:
+    from homeassistant.components.recorder import history
+    from homeassistant.components.recorder.util import session_scope
+
+    samples: list[tuple[float, float]] = []
+    try:
+        with session_scope(hass=hass, read_only=True) as session:
+            states_map = history.get_significant_states_with_session(
+                hass,
+                session,
+                window_start,
+                window_end,
+                [weather_entity_id],
+                None,
+                include_start_time_state=True,
+                significant_changes_only=False,
+                minimal_response=False,
+                no_attributes=False,
+            )
+    except Exception:
+        return samples
+    for state in states_map.get(weather_entity_id) or []:
+        attrs = getattr(state, "attributes", None) or {}
+        pct = _parse_cloud_coverage(attrs.get("cloud_coverage"))
+        if pct is None:
+            continue
+        samples.append((state.last_updated.timestamp() * 1000, pct))
+    return samples
+
+
+def build_cloud_coverage_points(
+    hass: HomeAssistant,
+    weather_entity_id: str | None,
+    *,
+    day_start_ms: float,
+    as_of_ms: float,
+    t_max_ms: float | None = None,
+    period_ms: int = 300_000,
+) -> list[dict[str, float]]:
+    """Resampled Google Weather cloud coverage (%), for forecast vs production charts."""
+    if not weather_entity_id:
+        return []
+    from homeassistant.util import dt as dt_util
+
+    end_ms = float(min(as_of_ms, t_max_ms if t_max_ms is not None else as_of_ms))
+    if end_ms <= day_start_ms:
+        return []
+
+    window_start = dt_util.as_local(dt_util.utc_from_timestamp(day_start_ms / 1000))
+    window_end = dt_util.as_local(dt_util.utc_from_timestamp(end_ms / 1000))
+    forecast_end_ms = float(t_max_ms if t_max_ms is not None else end_ms)
+
+    merged: dict[int, float] = {}
+    for t_ms, pct in _cloud_samples_from_recorder(hass, weather_entity_id, window_start, window_end):
+        merged[int(t_ms)] = pct
+    for t_ms, pct in _cloud_samples_from_hourly_forecast(
+        hass, weather_entity_id, day_start_ms, forecast_end_ms
+    ):
+        hour_key = int(t_ms // 3_600_000) * 3_600_000
+        if hour_key not in merged:
+            merged[hour_key] = pct
+
+    if not merged:
+        return []
+
+    points = sorted((float(t), v) for t, v in merged.items())
+    out: list[dict[str, float]] = []
+    slot = int(day_start_ms)
+    end_slot = int(end_ms)
+    idx = 0
+    current: float | None = None
+    while slot <= end_slot:
+        while idx < len(points) and points[idx][0] <= slot:
+            current = points[idx][1]
+            idx += 1
+        if current is not None:
+            out.append({"t": float(slot), "v": current})
+        slot += period_ms
+    return out

@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.111
+ * @version 0.9.112
  */
 
 const NAV = [
@@ -747,6 +747,8 @@ const FORECAST_ACCURACY_COLORS = {
   predicted: "#FFD700",
   firstRevision: "rgba(255,215,0,0.42)",
   latestRevision: "#FFD700",
+  cloud: "rgba(168,178,198,0.85)",
+  cloudFill: "rgba(168,178,198,0.24)",
 };
 
 async function fetchPlantList(hass) {
@@ -885,6 +887,13 @@ function forecastAccuracyClipPoints(points, range) {
   );
 }
 
+function forecastAccuracyClipCloudPoints(points, range) {
+  const { tMin, tMax } = range;
+  return (points || []).filter(
+    (p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.t >= tMin && p.t <= tMax
+  );
+}
+
 function forecastAccuracyPlotSvg(series, range, options = {}) {
   const {
     height = 160,
@@ -894,14 +903,19 @@ function forecastAccuracyPlotSvg(series, range, options = {}) {
     yMinZero = true,
     ariaLabel = "Forecast chart",
     showLegend = true,
+    secondarySeries = null,
   } = options;
   const visible = (series || []).filter((s) => Array.isArray(s.points) && s.points.length >= 2);
-  if (!visible.length) return "";
-  const w = width - pad.l - pad.r;
-  const h = height - pad.t - pad.b;
+  const cloudPts = forecastAccuracyClipCloudPoints(secondarySeries?.points, range);
+  const hasCloud = cloudPts.length >= 2;
+  if (!visible.length && !hasCloud) return "";
+  const plotPad = { ...pad };
+  if (hasCloud) plotPad.r = Math.max(plotPad.r, 34);
+  const w = width - plotPad.l - plotPad.r;
+  const h = height - plotPad.t - plotPad.b;
   const { tMin, tMax, nowMs } = range;
   const daySpan = Math.max(tMax - tMin, 1);
-  const xScale = (t) => pad.l + ((t - tMin) / daySpan) * w;
+  const xScale = (t) => plotPad.l + ((t - tMin) / daySpan) * w;
   const allValues = [];
   for (const s of visible) {
     for (const p of forecastAccuracyClipPoints(s.points, range)) {
@@ -910,28 +924,49 @@ function forecastAccuracyPlotSvg(series, range, options = {}) {
   }
   const { yMin, yMax } = forecastAccuracyYDomain(allValues, { minZero: yMinZero });
   const ySpan = Math.max(yMax - yMin, 0.01);
-  const yScale = (v) => pad.t + h - ((v - yMin) / ySpan) * h;
+  const yScale = (v) => plotPad.t + h - ((v - yMin) / ySpan) * h;
+  const yCloudScale = (v) =>
+    plotPad.t + h - (Math.min(100, Math.max(0, Number(v))) / 100) * h;
   const yTicks = forecastAccuracyYTicks(yMin, yMax);
   const xTicks = forecastAccuracyXTicks(tMin, tMax);
   const grid = yTicks
     .map((yv) => {
       const y = yScale(yv);
-      return `<line x1="${pad.l}" y1="${y.toFixed(1)}" x2="${pad.l + w}" y2="${y.toFixed(1)}" class="statistics-grid"/>`;
+      return `<line x1="${plotPad.l}" y1="${y.toFixed(1)}" x2="${plotPad.l + w}" y2="${y.toFixed(1)}" class="statistics-grid"/>`;
     })
     .join("");
   const yLabels = yTicks
     .map((yv) => {
       const y = yScale(yv);
       const label = yUnit === "kW" ? formatStatisticsYTick(yv) : yv.toFixed(yv % 1 ? 1 : 0);
-      return `<text x="${pad.l - 8}" y="${(y + 4).toFixed(1)}" text-anchor="end" class="statistics-axis-y">${esc(label)}</text>`;
+      return `<text x="${plotPad.l - 8}" y="${(y + 4).toFixed(1)}" text-anchor="end" class="statistics-axis-y">${esc(label)}</text>`;
     })
     .join("");
+  const yCloudLabels = hasCloud
+    ? [0, 50, 100]
+        .map((yv) => {
+          const y = yCloudScale(yv);
+          return `<text x="${(plotPad.l + w + 8).toFixed(1)}" y="${(y + 4).toFixed(1)}" text-anchor="start" class="statistics-axis-y forecast-accuracy-axis-y--cloud">${yv}%</text>`;
+        })
+        .join("")
+    : "";
+  const cloudAxisTitle = hasCloud
+    ? `<text x="${(plotPad.l + w + 8).toFixed(1)}" y="${(plotPad.t - 6).toFixed(1)}" text-anchor="start" class="statistics-y-label forecast-accuracy-y-label--cloud">Cloud</text>`
+    : "";
   const xLabels = xTicks
     .map((xt) => {
       const x = xScale(xt);
       return `<text x="${x.toFixed(1)}" y="${height - 6}" text-anchor="middle" class="statistics-axis-x">${esc(formatChartTimeLabel(xt))}</text>`;
     })
     .join("");
+  let cloudFill = "";
+  let cloudLine = "";
+  if (hasCloud) {
+    const pixelPts = cloudPts.map((p) => ({ x: xScale(p.t), y: yCloudScale(p.v), t: p.t, v: p.v }));
+    const baseline = plotPad.t + h;
+    cloudFill = `<path class="forecast-accuracy-cloud-fill" d="${fillToZeroPath(pixelPts, baseline, cloudPts)}" fill="${secondarySeries.fillColor || FORECAST_ACCURACY_COLORS.cloudFill}" stroke="none"/>`;
+    cloudLine = `<path class="statistics-line forecast-accuracy-cloud-line" d="${polylinePath(pixelPts)}" fill="none" stroke="${secondarySeries.color || FORECAST_ACCURACY_COLORS.cloud}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>`;
+  }
   const lines = visible
     .map((s) => {
       const pts = forecastAccuracyClipPoints(s.points, range);
@@ -940,8 +975,15 @@ function forecastAccuracyPlotSvg(series, range, options = {}) {
       return `<path class="statistics-line" d="${polylinePath(pixelPts)}" fill="none" stroke="${s.color}" stroke-width="${s.lineWidth || 1.8}" stroke-linecap="round" stroke-linejoin="round"${s.dash ? ` stroke-dasharray="${s.dash}"` : ""}/>`;
     })
     .join("");
+  const legendItems = [...visible];
+  if (hasCloud) {
+    legendItems.push({
+      label: secondarySeries.label || "Cloud cover",
+      color: secondarySeries.color || FORECAST_ACCURACY_COLORS.cloud,
+    });
+  }
   const legend = showLegend
-    ? visible
+    ? legendItems
         .map(
           (s) =>
             `<span class="forecast-accuracy-legend-item"><i style="background:${s.color}"></i>${esc(s.label)}</span>`
@@ -957,7 +999,7 @@ function forecastAccuracyPlotSvg(series, range, options = {}) {
   return `<div class="forecast-accuracy-plot">
 ${head}
 <svg class="forecast-accuracy-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMinYMin meet" role="img" aria-label="${esc(ariaLabel)}">
-${grid}${yLabels}${xLabels}${lines}
+${cloudAxisTitle}${grid}${cloudFill}${yLabels}${yCloudLabels}${xLabels}${lines}${cloudLine}
 </svg>
 </div>`;
 }
@@ -994,13 +1036,25 @@ function renderForecastAccuracyChartHtml(intraday, range, { compact = false } = 
   const pad = compact
     ? { l: 44, r: 6, t: 4, b: 16 }
     : { l: 50, r: 10, t: 4, b: 18 };
+  const cloudPoints = intraday?.cloud_coverage_pct;
+  const secondarySeries =
+    cloudPoints?.length >= 2
+      ? {
+          points: cloudPoints,
+          label: "Cloud cover",
+          color: FORECAST_ACCURACY_COLORS.cloud,
+          fillColor: FORECAST_ACCURACY_COLORS.cloudFill,
+        }
+      : null;
+  if (secondarySeries) pad.r = compact ? 30 : 36;
   return `<div class="forecast-accuracy-chart-wrap">${forecastAccuracyPlotSvg(powerSeries, range, {
     height: compact ? 164 : 176,
     pad,
     yUnit: "kW",
     yMinZero: true,
     showLegend: compact,
-    ariaLabel: "PV generation vs forecast power",
+    secondarySeries,
+    ariaLabel: "PV generation vs forecast power and cloud cover",
   })}</div>`;
 }
 
@@ -1089,10 +1143,13 @@ ${retryHint}
       ? `<p class="forecast-accuracy-hint">Day total revised from ${esc(formatDailyKwh(report.first_predicted_kwh))} to ${esc(formatDailyKwh(report.latest_predicted_kwh))}</p>`
       : "";
   const range = forecastAccuracyRangeFromReport(report, report.intraday);
-  const legendExtra =
-    !compact && report.intraday?.latest_revision_power_kw?.length >= 2
-      ? [{ label: "Latest forecast PV", color: FORECAST_ACCURACY_COLORS.latestRevision }]
-      : [];
+  const legendExtra = [];
+  if (!compact && report.intraday?.latest_revision_power_kw?.length >= 2) {
+    legendExtra.push({ label: "Latest forecast PV", color: FORECAST_ACCURACY_COLORS.latestRevision });
+  }
+  if (!compact && report.intraday?.cloud_coverage_pct?.length >= 2) {
+    legendExtra.push({ label: "Cloud cover", color: FORECAST_ACCURACY_COLORS.cloud });
+  }
   const chart = renderForecastAccuracyChartHtml(report.intraday, range, { compact });
   const revisions = compact ? "" : renderForecastAccuracyRevisionsTable(report.revisions);
   const statsLegend = compact
@@ -5747,6 +5804,13 @@ const STYLES = `
 .forecast-accuracy-plot .forecast-accuracy-chart-svg {
   height: auto; max-height: none;
 }
+.forecast-accuracy-cloud-fill { pointer-events: none; }
+.forecast-accuracy-cloud-line { pointer-events: none; }
+.forecast-accuracy-axis-y--cloud,
+.forecast-accuracy-y-label--cloud {
+  fill: rgba(168, 178, 198, 0.95); font-size: 11px;
+}
+.forecast-accuracy-y-label--cloud { font-weight: 600; letter-spacing: 0.04em; }
 .fox-analysis-forecast-accuracy-row { margin-top: 10px; margin-bottom: 0; }
 .fox-analysis-forecast-accuracy-row .forecast-accuracy-card { margin-top: 0; margin-bottom: 14px; }
 .forecast-accuracy-revisions {
@@ -10100,6 +10164,7 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
       report?.predicted_kwh ?? "",
       report?.error_kwh ?? "",
       report?.revision_count ?? 0,
+      report?.intraday?.cloud_coverage_pct?.length ?? 0,
       (report?.revisions || []).map((r) => `${r.fetched_at_ms}:${r.forecast_today_kwh}`).join("|"),
     ].join(":");
   }
