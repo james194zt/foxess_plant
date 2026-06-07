@@ -208,6 +208,7 @@ def build_forecast_intraday_chart_for_day(
     *,
     entry_id: str | None = None,
     use_daily_cache: bool = True,
+    use_recorder: bool = True,
 ) -> list[dict[str, float]]:
     """Historical day chart: each slot uses the forecast known at that time."""
     day_key = target_day.isoformat()
@@ -225,7 +226,7 @@ def build_forecast_intraday_chart_for_day(
 
     storage_snaps = collect_storage_snapshots(stored, current_cache, day_start_ms)
     recorder_snaps: list[tuple[float, list[dict[str, Any]]]] = []
-    if entry_id:
+    if use_recorder and entry_id:
         entity_id = find_solcast_forecast_entity(hass, entry_id)
         if entity_id:
             recorder_snaps = collect_recorder_snapshots(hass, entity_id, day_start, day_end)
@@ -246,6 +247,7 @@ def archive_daily_intraday_forecasts(
     *,
     entry_id: str | None = None,
     days_back: int = 14,
+    use_recorder: bool = True,
 ) -> dict[str, list[dict[str, float]]]:
     """Build and return per-day chart lines to persist for Analysis history navigation."""
     updates: dict[str, list[dict[str, float]]] = {}
@@ -265,6 +267,7 @@ def archive_daily_intraday_forecasts(
             target,
             entry_id=entry_id,
             use_daily_cache=False,
+            use_recorder=use_recorder,
         )
         if len(points) >= 2:
             updates[key] = points

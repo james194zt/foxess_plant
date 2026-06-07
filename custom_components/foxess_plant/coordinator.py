@@ -103,18 +103,32 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Restore forecast cache from HA .storage (parsed + raw API documents)."""
         from .solcast_store import SolcastForecastStore, cache_from_storage
 
-        self._solcast_store = SolcastForecastStore(self.hass, self.config_entry.entry_id)
-        stored = await self._solcast_store.async_load()
-        self._solcast_cache = cache_from_storage(stored)
-        self._solcast_history_count = SolcastForecastStore.history_count(stored)
-        if self._solcast_detailed_forecast_rows():
-            _LOGGER.debug(
-                "Restored Solcast forecast from storage (%s history snapshots)",
-                self._solcast_history_count,
-            )
-            await self._maybe_repair_solcast_storage(stored)
-        await self._archive_solcast_daily_forecasts()
-        await self._rebuild_solcast_forecast_chart()
+        try:
+            self._solcast_store = SolcastForecastStore(self.hass, self.config_entry.entry_id)
+            stored = await self._solcast_store.async_load()
+            self._solcast_cache = cache_from_storage(stored)
+            self._solcast_history_count = SolcastForecastStore.history_count(stored)
+            if self._solcast_detailed_forecast_rows():
+                _LOGGER.debug(
+                    "Restored Solcast forecast from storage (%s history snapshots)",
+                    self._solcast_history_count,
+                )
+                await self._maybe_repair_solcast_storage(stored)
+            await self._rebuild_solcast_forecast_chart()
+            self.hass.async_create_task(self._safe_archive_solcast_daily_forecasts())
+        except Exception:
+            _LOGGER.exception("Solcast storage load failed; continuing without persisted forecast")
+            self._solcast_store = None
+            self._solcast_cache = {}
+            self._solcast_history_count = 0
+            self._solcast_forecast_chart_points = []
+
+    async def _safe_archive_solcast_daily_forecasts(self) -> None:
+        """Archive daily charts without blocking or breaking coordinator startup."""
+        try:
+            await self._archive_solcast_daily_forecasts()
+        except Exception:
+            _LOGGER.exception("Solcast daily forecast archive failed")
 
     async def _archive_solcast_daily_forecasts(self) -> None:
         """Persist per-day forecast chart lines so Analysis can show past days."""
@@ -129,6 +143,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             stored,
             self._solcast_cache,
             entry_id=self.config_entry.entry_id,
+            use_recorder=False,
         )
         if updates:
             await self._solcast_store.async_merge_daily_intraday(updates)
@@ -280,7 +295,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._solcast_history_count = await self._solcast_store.async_record_poll(
                 self._solcast_cache
             )
-            await self._archive_solcast_daily_forecasts()
+            await self._safe_archive_solcast_daily_forecasts()
             await self._rebuild_solcast_forecast_chart()
             _LOGGER.debug(
                 "Persisted Solcast forecast to storage (%s periods)",

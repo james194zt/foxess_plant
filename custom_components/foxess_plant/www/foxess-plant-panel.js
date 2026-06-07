@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.103
+ * @version 0.9.104
  */
 
 const NAV = [
@@ -742,6 +742,16 @@ const FORECAST_ACCURACY_COLORS = {
   firstRevision: "rgba(255,215,0,0.42)",
   latestRevision: "#FFD700",
 };
+
+async function fetchPlantList(hass) {
+  if (!hass?.connection) return [];
+  try {
+    const res = await hass.connection.sendMessagePromise({ type: "foxess_plant/plant_list" });
+    return Array.isArray(res?.plants) ? res.plants : [];
+  } catch {
+    return [];
+  }
+}
 
 async function fetchForecastAccuracyReport(hass, plant, dayOffset = 0) {
   if (!hass?.connection || !plant?.entry_id) return null;
@@ -6844,6 +6854,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._energyAnalysisToolbarCache = undefined;
     this._energyBalanceHelpOpen = false;
     this._panelSyncBusy = false;
+    this._panelRecoverBusy = false;
     this._panelStale = false;
     this._flowSceneKey = undefined;
     this._flowScenePlantId = undefined;
@@ -6985,6 +6996,24 @@ class FoxessPlantPanel extends HTMLElement {
 Browser ${esc(jsVer)} · HA registered ${esc(regVer)} · files on disk ${esc(runtime.manifest_version || "—")}.
 Reloading panel registration…
 </div>`;
+  }
+
+  async _recoverEmptyPanelConfig() {
+    if (this._panelRecoverBusy || !this._hass) return;
+    const configured = this._panel?.config?.plants ?? [];
+    if (configured.length) return;
+    this._panelRecoverBusy = true;
+    try {
+      const plants = await fetchPlantList(this._hass);
+      if (!plants.length) return;
+      this._root.innerHTML = `<div class="main"><p class="placeholder">FoxESS Plant found — reloading panel registration…</p></div>`;
+      await this._hass.callService("foxess_plant", "reload_panel", {}, undefined, true, true);
+      window.setTimeout(() => window.location.reload(), 400);
+    } catch (err) {
+      console.warn("FoxESS Plant: panel recovery failed", err);
+    } finally {
+      this._panelRecoverBusy = false;
+    }
   }
 
   async _syncPanelIfStale() {
@@ -11037,6 +11066,7 @@ ${active
     const plant = this._getPlant();
     if (!plant) {
       this._headerHasSubTabs = undefined;
+      void this._recoverEmptyPanelConfig();
       this._root.innerHTML = `<div class="main"><p class="placeholder">Add FoxESS Plant and select your inverter device.</p></div>`;
       return;
     }
