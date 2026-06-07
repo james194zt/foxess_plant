@@ -28,7 +28,10 @@ WS_TYPE_SET_SOC_LIMITS = "foxess_plant/set_soc_limits"
 WS_TYPE_FORECAST_ENTITY_CANDIDATES = "foxess_plant/forecast_entity_candidates"
 WS_TYPE_UPDATE_PANEL_DISPLAY = "foxess_plant/update_panel_display"
 WS_TYPE_UPDATE_PV_CONFIG = "foxess_plant/update_pv_config"
-WS_TYPE_UPDATE_TARIFF = "foxess_plant/update_tariff"
+WS_TYPE_UPDATE_OCTOPUS = "foxess_plant/update_octopus"
+WS_TYPE_TEST_OCTOPUS = "foxess_plant/test_octopus"
+WS_TYPE_FETCH_OCTOPUS = "foxess_plant/fetch_octopus"
+WS_TYPE_APPLY_OCTOPUS_SCHEDULE = "foxess_plant/apply_octopus_schedule"
 WS_TYPE_TARIFF_ENTITY_CANDIDATES = "foxess_plant/tariff_entity_candidates"
 WS_TYPE_UPDATE_SOLCAST = "foxess_plant/update_solcast"
 WS_TYPE_TEST_SOLCAST = "foxess_plant/test_solcast"
@@ -84,8 +87,15 @@ TARIFF_DYNAMIC_SCHEMA = vol.Schema(
     {
         vol.Optional("enabled", default=False): cv.boolean,
         vol.Optional("provider", default=""): str,
+        vol.Optional("source", default="native"): vol.In(["native", "entity"]),
+        vol.Optional("api_key"): vol.Any(str, None),
+        vol.Optional("account_number"): vol.Any(str, None),
+        vol.Optional("import_mpan"): vol.Any(str, None),
+        vol.Optional("export_mpan"): vol.Any(str, None),
         vol.Optional("import_entity"): vol.Any(str, None),
         vol.Optional("export_entity"): vol.Any(str, None),
+        vol.Optional("fetch_now", default=True): cv.boolean,
+        vol.Optional("apply_schedule", default=False): cv.boolean,
     }
 )
 
@@ -461,6 +471,130 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
 
     @websocket_api.websocket_command(
         {
+            vol.Required("type"): WS_TYPE_UPDATE_OCTOPUS,
+            vol.Optional("plant_id"): str,
+            vol.Required("octopus"): TARIFF_DYNAMIC_SCHEMA,
+        }
+    )
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def ws_update_octopus(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        from homeassistant.exceptions import HomeAssistantError
+
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        payload = dict(msg["octopus"])
+        if payload.get("enabled") and not payload.get("provider"):
+            payload["provider"] = "octopus"
+        try:
+            await coordinator.async_save_octopus(dynamic=payload)
+            connection.send_result(msg["id"], coordinator.get_plant_state())
+        except HomeAssistantError as err:
+            connection.send_error(msg["id"], "save_failed", str(err))
+        except Exception as err:
+            _LOGGER.exception("Octopus save failed")
+            connection.send_error(msg["id"], "save_failed", str(err) or err.__class__.__name__)
+
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): WS_TYPE_TEST_OCTOPUS,
+            vol.Optional("plant_id"): str,
+            vol.Optional("api_key"): str,
+            vol.Optional("account_number"): str,
+        }
+    )
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def ws_test_octopus(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        from homeassistant.exceptions import HomeAssistantError
+
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        try:
+            result = await coordinator.async_test_octopus(
+                api_key=msg.get("api_key"),
+                account_number=msg.get("account_number"),
+            )
+        except HomeAssistantError as err:
+            connection.send_error(msg["id"], "octopus_test_failed", str(err))
+            return
+        connection.send_result(
+            msg["id"],
+            {"octopus": result, "plant_state": coordinator.get_plant_state()},
+        )
+
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): WS_TYPE_FETCH_OCTOPUS,
+            vol.Optional("plant_id"): str,
+        }
+    )
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def ws_fetch_octopus(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        from homeassistant.exceptions import HomeAssistantError
+
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        try:
+            octopus = await coordinator.async_fetch_octopus()
+        except HomeAssistantError as err:
+            connection.send_error(msg["id"], "octopus_fetch_failed", str(err))
+            return
+        connection.send_result(
+            msg["id"],
+            {"octopus": octopus, "plant_state": coordinator.get_plant_state()},
+        )
+
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): WS_TYPE_APPLY_OCTOPUS_SCHEDULE,
+            vol.Optional("plant_id"): str,
+        }
+    )
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def ws_apply_octopus_schedule(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        from homeassistant.exceptions import HomeAssistantError
+
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        try:
+            tariff = await coordinator.async_apply_octopus_schedule()
+        except HomeAssistantError as err:
+            connection.send_error(msg["id"], "apply_failed", str(err))
+            return
+        connection.send_result(
+            msg["id"],
+            {"tariff": tariff, "plant_state": coordinator.get_plant_state()},
+        )
+
+    @websocket_api.websocket_command(
+        {
             vol.Required("type"): WS_TYPE_UPDATE_SOLCAST,
             vol.Optional("plant_id"): str,
             vol.Required("solcast"): SOLCAST_SCHEMA,
@@ -739,6 +873,10 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_update_pv_config)
     websocket_api.async_register_command(hass, ws_update_tariff)
     websocket_api.async_register_command(hass, ws_tariff_entity_candidates)
+    websocket_api.async_register_command(hass, ws_update_octopus)
+    websocket_api.async_register_command(hass, ws_test_octopus)
+    websocket_api.async_register_command(hass, ws_fetch_octopus)
+    websocket_api.async_register_command(hass, ws_apply_octopus_schedule)
     websocket_api.async_register_command(hass, ws_update_solcast)
     websocket_api.async_register_command(hass, ws_test_solcast)
     websocket_api.async_register_command(hass, ws_fetch_history)

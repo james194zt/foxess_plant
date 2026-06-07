@@ -430,10 +430,15 @@ class SolcastConfig:
 
 @dataclass
 class TariffDynamicConfig:
-    """Future API / entity-backed tariffs (e.g. Octopus Agile)."""
+    """Octopus API or external entity-backed dynamic tariffs (e.g. Agile)."""
 
     enabled: bool = False
     provider: str = ""
+    source: str = "native"
+    api_key: str | None = None
+    account_number: str | None = None
+    import_mpan: str | None = None
+    export_mpan: str | None = None
     import_entity: str | None = None
     export_entity: str | None = None
 
@@ -442,20 +447,52 @@ class TariffDynamicConfig:
         raw = data if isinstance(data, dict) else {}
         import_entity = raw.get("import_entity")
         export_entity = raw.get("export_entity")
+        import_mpan = raw.get("import_mpan")
+        export_mpan = raw.get("export_mpan")
+        account_number = raw.get("account_number")
+        source = str(raw.get("source") or "native").strip().lower()
+        if source not in ("native", "entity"):
+            source = "native"
         return cls(
             enabled=bool(raw.get("enabled", False)),
             provider=str(raw.get("provider") or "").strip(),
+            source=source,
+            api_key=str(raw["api_key"]) if raw.get("api_key") else None,
+            account_number=str(account_number).strip().upper() if account_number else None,
+            import_mpan=str(import_mpan).strip() if import_mpan else None,
+            export_mpan=str(export_mpan).strip() if export_mpan else None,
             import_entity=str(import_entity) if import_entity else None,
             export_entity=str(export_entity) if export_entity else None,
         )
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
+    def api_key_configured(self) -> bool:
+        return bool(self.api_key and str(self.api_key).strip())
+
+    def native_octopus(self) -> bool:
+        from .octopus_tariff import OCTOPUS_PROVIDER, OCTOPUS_SOURCE_NATIVE
+
+        return (
+            self.enabled
+            and self.provider == OCTOPUS_PROVIDER
+            and self.source == OCTOPUS_SOURCE_NATIVE
+        )
+
+    def to_dict(self, *, include_api_key: bool = True) -> dict[str, Any]:
+        out: dict[str, Any] = {
             "enabled": self.enabled,
             "provider": self.provider,
+            "source": self.source,
+            "account_number": self.account_number,
+            "import_mpan": self.import_mpan,
+            "export_mpan": self.export_mpan,
             "import_entity": self.import_entity,
             "export_entity": self.export_entity,
         }
+        if include_api_key:
+            out["api_key"] = self.api_key
+        else:
+            out["api_key_set"] = self.api_key_configured()
+        return out
 
 
 @dataclass
@@ -561,7 +598,7 @@ class TariffConfig:
             return self.schedule
         return TariffScheduleConfig.from_dict(self.schedule if isinstance(self.schedule, dict) else {})
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, *, include_secrets: bool = False) -> dict[str, Any]:
         schedule = self.schedule_config()
         return {
             "kind": self.kind,
@@ -576,7 +613,7 @@ class TariffConfig:
             "standing_entity": self.standing_entity,
             "standing_charge_p_per_day": round(self.standing_charge_p_per_day, 4),
             "schedule": schedule.to_dict(),
-            "dynamic": self.dynamic.to_dict(),
+            "dynamic": self.dynamic.to_dict(include_api_key=include_secrets),
             "last_updated_at": self.last_updated_at,
         }
 
@@ -739,7 +776,7 @@ class PlantConfig:
             "panel_display": self.panel_display.to_dict(),
             "pv_config": self.pv_config.to_dict(),
             "solcast": self.solcast.to_dict(),
-            "tariff": self.tariff.to_dict(),
+            "tariff": self.tariff.to_dict(include_secrets=True),
             "tariff_modes": {
                 name: [p.to_dict() for p in periods] for name, periods in self.tariff_modes.items()
             },

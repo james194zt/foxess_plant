@@ -427,6 +427,10 @@ DEFAULT_TARIFF = {
     "dynamic": {
         "enabled": False,
         "provider": "",
+        "source": "native",
+        "account_number": None,
+        "import_mpan": None,
+        "export_mpan": None,
         "import_entity": None,
         "export_entity": None,
     },

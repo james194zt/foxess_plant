@@ -70,6 +70,16 @@ const DEFAULT_TARIFF = {
       { import_p_per_kwh: 0, export_p_per_kwh: 0 },
     ],
   },
+  dynamic: {
+    enabled: false,
+    provider: "",
+    source: "native",
+    account_number: "",
+    import_mpan: "",
+    export_mpan: "",
+    import_entity: "",
+    export_entity: "",
+  },
 };
 
 /** Four schedule band colours (00:00–24:00 editor). */
@@ -141,6 +151,7 @@ const PV_EFFICIENCY_FACTOR_URL = "https://kb.solcast.com.au/what-is-the-efficien
 const SOLCAST_API_DOCS_URL = "https://docs.solcast.com.au/";
 const SOLCAST_HOBBYIST_URL = "https://solcast.com/free-rooftop-solar-forecasting";
 const SOLCAST_ACCOUNT_LOCATIONS_URL = "https://toolkit.solcast.com.au/account/locations";
+const OCTOPUS_API_DOCS_URL = "https://octopus.energy/dashboard/new/accounts/personal-access-token/";
 const SOLCAST_COORD_DECIMALS = 4;
 
 /** Fox hub-and-spoke flow (viewBox 0 0 1024 1017). Anchors sync with tools/compose_flow_layers.py */
@@ -158,7 +169,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.137";
+const PANEL_VERSION = "0.9.138";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -1485,7 +1496,7 @@ function nativeSolcastForecastPoints(plantState, range, hass, extraState) {
     range
   );
   const nowMs = range?.nowMs ?? Date.now();
-  return mergeForecastPointsWithFuture(intraday, detailed, nowMs);
+This   return mergeForecastPointsWithFuture(intraday, detailed, nowMs);
 }
 
 function buildForecastSeriesPoints(plantState, range, hass, extraState) {
@@ -1543,6 +1554,28 @@ function normalizeTariffStandingSource(v) {
   return "plugin";
 }
 
+function normalizeOctopusDraft(raw, octopusLive) {
+  const base = DEFAULT_TARIFF.dynamic;
+  const t = raw && typeof raw === "object" ? raw : {};
+  const live = octopusLive && typeof octopusLive === "object" ? octopusLive : {};
+  const entity = (v) => {
+    const s = v ? String(v).trim() : "";
+    return s || "";
+  };
+  return {
+    enabled: Boolean(t.enabled),
+    provider: t.provider ? String(t.provider) : "octopus",
+    source: t.source === "entity" ? "entity" : "native",
+    api_key: "",
+    api_key_set: Boolean(t.api_key_set ?? live.api_key_set),
+    account_number: entity(t.account_number ?? live.account_number),
+    import_mpan: entity(t.import_mpan ?? live.import_mpan),
+    export_mpan: entity(t.export_mpan ?? live.export_mpan),
+    import_entity: entity(t.import_entity),
+    export_entity: entity(t.export_entity),
+  };
+}
+
 function normalizeTariffDraft(raw) {
   const t = { ...DEFAULT_TARIFF, ...(raw && typeof raw === "object" ? raw : {}) };
   const entity = (v) => {
@@ -1569,6 +1602,7 @@ function normalizeTariffDraft(raw) {
     standing_entity: entity(t.standing_entity),
     standing_charge_p_per_day: parseTariffRate(t.standing_charge_p_per_day),
     schedule,
+    dynamic: normalizeOctopusDraft(t.dynamic, null),
   };
 }
 
@@ -1600,7 +1634,16 @@ function buildTariffSavePayload(draft) {
     standing_entity: normalized.standing_entity,
     standing_charge_p_per_day: normalized.standing_charge_p_per_day,
     schedule,
-    dynamic: { enabled: false, provider: "", import_entity: null, export_entity: null },
+    dynamic: {
+      enabled: Boolean(normalized.dynamic?.enabled),
+      provider: normalized.dynamic?.provider || "",
+      source: normalized.dynamic?.source === "entity" ? "entity" : "native",
+      account_number: normalized.dynamic?.account_number || null,
+      import_mpan: normalized.dynamic?.import_mpan || null,
+      export_mpan: normalized.dynamic?.export_mpan || null,
+      import_entity: normalized.dynamic?.import_entity || null,
+      export_entity: normalized.dynamic?.export_entity || null,
+    },
   };
 }
 
@@ -1720,7 +1763,7 @@ function tariffCurrencyFromTariff(tariff) {
 
 function formatTariffMoney(minor, currency) {
   const v = parseTariffRate(minor);
-  if (v <= 0) return "—";
+  if (!Number.isFinite(v)) return "—";
   const code = normalizeTariffCurrency(currency);
   const major = minorToMajor(v, code);
   const decimals = tariffCurrencyMeta(code).decimals;
@@ -7483,6 +7526,8 @@ class FoxessPlantPanel extends HTMLElement {
     this._pvDraft = null;
     this._solcastDraft = null;
     this._tariffDraft = null;
+    this._octopusDraft = null;
+    this._octopusPickerMountGen = 0;
     this._tariffPickerMountGen = 0;
     this._headerHasSubTabs = undefined;
     this._renderRaf = 0;
@@ -8142,11 +8187,18 @@ Reloading panel registration…
       standing_entity: raw.standing_entity || "",
     };
     if (this._tariffActiveBand == null) this._tariffActiveBand = 0;
+    this._initOctopusDraft();
+  }
+
+  _initOctopusDraft() {
+    const raw = this._tariffDraft?.dynamic ?? this._plantState?.tariff?.dynamic ?? {};
+    this._octopusDraft = normalizeOctopusDraft(raw, this._plantState?.tariff?.octopus ?? {});
   }
 
   _enterTariffSettings() {
     this._initTariffDraft();
     this._tariffPickerMountGen += 1;
+    this._octopusPickerMountGen += 1;
   }
 
   _syncTariffDraftFromPickers() {
@@ -8260,6 +8312,196 @@ Reloading panel registration…
     } finally {
       this._busy = false;
       this._render();
+    }
+  }
+
+  _syncOctopusDraftFromPickers() {
+    if (!this._octopusDraft) return;
+    for (const kind of ["import", "export"]) {
+      const picker = this._root.querySelector(`[data-octopus-picker="${kind}"] ha-entity-picker`);
+      if (picker) this._octopusDraft[`${kind}_entity`] = picker.value || "";
+    }
+  }
+
+  _buildOctopusSavePayload() {
+    if (!this._octopusDraft) return null;
+    const d = this._octopusDraft;
+    return {
+      enabled: Boolean(d.enabled),
+      provider: d.enabled ? "octopus" : d.provider || "",
+      source: d.source === "entity" ? "entity" : "native",
+      api_key: d.api_key || undefined,
+      account_number: d.account_number || null,
+      import_mpan: d.import_mpan || null,
+      export_mpan: d.export_mpan || null,
+      import_entity: d.import_entity || null,
+      export_entity: d.export_entity || null,
+    };
+  }
+
+  async _saveOctopusSettings(applySchedule = false) {
+    const plant = this._getPlant();
+    if (!plant || !this._octopusDraft) return;
+    this._syncOctopusDraftFromPickers();
+    const payload = this._buildOctopusSavePayload();
+    if (!payload) return;
+    if (payload.enabled && payload.source === "native") {
+      if (!payload.api_key && !this._octopusDraft.api_key_set) {
+        this._showToast("Octopus API key is required", "err");
+        return;
+      }
+      if (!payload.account_number) {
+        this._showToast("Octopus account number is required (e.g. A-12345678)", "err");
+        return;
+      }
+    }
+    if (payload.enabled && payload.source === "entity" && !payload.import_entity && !payload.export_entity) {
+      this._showToast("Choose at least one import or export sensor for external mode", "err");
+      return;
+    }
+    this._busy = true;
+    this._render();
+    try {
+      const state = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/update_octopus",
+        plant_id: plant.entry_id,
+        octopus: { ...payload, fetch_now: true, apply_schedule: applySchedule },
+      });
+      if (state) this._plantState = state;
+      this._initTariffDraft();
+      this._showToast(applySchedule ? "Octopus schedule applied" : "Octopus settings saved");
+    } catch (err) {
+      this._showToast(tariffSaveErrorMessage(err), "err");
+      console.error("FoxESS Plant: octopus save failed", err);
+    } finally {
+      this._busy = false;
+      this._render();
+    }
+  }
+
+  async _testOctopusConnection() {
+    const plant = this._getPlant();
+    if (!plant || !this._octopusDraft) return;
+    const key = this._octopusDraft.api_key || undefined;
+    if (!key && !this._octopusDraft.api_key_set) {
+      this._showToast("Enter an Octopus API key to test", "err");
+      return;
+    }
+    if (!this._octopusDraft.account_number) {
+      this._showToast("Enter your Octopus account number to test", "err");
+      return;
+    }
+    this._busy = true;
+    this._render();
+    try {
+      const result = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/test_octopus",
+        plant_id: plant.entry_id,
+        api_key: key,
+        account_number: this._octopusDraft.account_number,
+      });
+      if (result?.plant_state) this._plantState = result.plant_state;
+      const imp = result?.octopus?.import_meters?.length ?? 0;
+      const exp = result?.octopus?.export_meters?.length ?? 0;
+      this._showToast(`Connected — ${imp} import meter(s), ${exp} export meter(s)`);
+      this._initOctopusDraft();
+      this._octopusPickerMountGen += 1;
+      this._scheduleRender();
+    } catch (err) {
+      this._showToast(tariffSaveErrorMessage(err), "err");
+    } finally {
+      this._busy = false;
+      this._render();
+    }
+  }
+
+  async _fetchOctopusRates() {
+    const plant = this._getPlant();
+    if (!plant) return;
+    this._busy = true;
+    this._render();
+    try {
+      const result = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/fetch_octopus",
+        plant_id: plant.entry_id,
+      });
+      if (result?.plant_state) this._plantState = result.plant_state;
+      this._initOctopusDraft();
+      this._showToast("Octopus rates refreshed");
+    } catch (err) {
+      this._showToast(tariffSaveErrorMessage(err), "err");
+    } finally {
+      this._busy = false;
+      this._render();
+    }
+  }
+
+  async _applyOctopusSchedule() {
+    const plant = this._getPlant();
+    if (!plant) return;
+    this._busy = true;
+    this._render();
+    try {
+      const result = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/apply_octopus_schedule",
+        plant_id: plant.entry_id,
+      });
+      if (result?.plant_state) this._plantState = result.plant_state;
+      this._initTariffDraft();
+      this._showToast("Daily schedule filled from Octopus rates");
+    } catch (err) {
+      this._showToast(tariffSaveErrorMessage(err), "err");
+    } finally {
+      this._busy = false;
+      this._render();
+    }
+  }
+
+  async _syncOctopusEntityPickers() {
+    if (this._settingsView !== "tariff" || !this._octopusDraft || this._octopusDraft.source !== "entity" || !this._hass) {
+      return;
+    }
+    const gen = ++this._octopusPickerMountGen;
+    for (const kind of ["import", "export"]) {
+      const host = this._root.querySelector(`[data-octopus-picker="${kind}"]`);
+      if (!host) continue;
+      if (!host.querySelector("ha-entity-picker")) {
+        host.innerHTML = `<p class="field-hint tariff-entity-picker-loading">Loading entity picker…</p>`;
+      }
+    }
+    try {
+      await ensureHaEntityPickerLoaded();
+    } catch (err) {
+      if (gen !== this._octopusPickerMountGen) return;
+      for (const kind of ["import", "export"]) {
+        const host = this._root.querySelector(`[data-octopus-picker="${kind}"]`);
+        if (!host) continue;
+        host.innerHTML = `<p class="tariff-entity-picker-error">${esc(err?.message || "Entity picker unavailable")}</p>`;
+      }
+      return;
+    }
+    if (gen !== this._octopusPickerMountGen) return;
+    for (const kind of ["import", "export"]) {
+      const host = this._root.querySelector(`[data-octopus-picker="${kind}"]`);
+      if (!host) continue;
+      let picker = host.querySelector("ha-entity-picker");
+      if (!picker) {
+        host.replaceChildren();
+        picker = document.createElement("ha-entity-picker");
+        picker.setAttribute("allow-custom-entity", "");
+        if (this._hass.userData?.showEntityIdPicker) picker.setAttribute("show-entity-id", "");
+        picker.includeDomains = ["sensor"];
+        picker.entityFilter = tariffSensorEntityFilter;
+        picker.addEventListener("value-changed", (ev) => {
+          if (this._busy || !this._octopusDraft) return;
+          this._octopusDraft[`${kind}_entity`] = ev.detail?.value || "";
+        });
+        host.appendChild(picker);
+      }
+      picker.hass = this._hass;
+      picker.disabled = this._busy;
+      const value = this._octopusDraft[`${kind}_entity`] || "";
+      if (picker.value !== value) picker.value = value || undefined;
     }
   }
 
@@ -8649,6 +8891,26 @@ Reloading panel registration…
       await this._saveTariffSettings();
       return;
     }
+    if (action === "save-octopus-settings") {
+      await this._saveOctopusSettings(false);
+      return;
+    }
+    if (action === "save-octopus-apply") {
+      await this._saveOctopusSettings(true);
+      return;
+    }
+    if (action === "test-octopus") {
+      await this._testOctopusConnection();
+      return;
+    }
+    if (action === "fetch-octopus") {
+      await this._fetchOctopusRates();
+      return;
+    }
+    if (action === "apply-octopus-schedule") {
+      await this._applyOctopusSchedule();
+      return;
+    }
     if (action === "tariff-pick-band") {
       if (!this._tariffDraft) return;
       const band = parseInt(btn.dataset.band, 10);
@@ -8811,6 +9073,31 @@ Reloading panel registration…
           return;
         }
       }
+      if (parts[0] === "octopus" && this._octopusDraft) {
+        if (parts[1] === "enabled") {
+          this._octopusDraft.enabled = el.checked;
+          if (this._octopusDraft.enabled && !this._octopusDraft.provider) {
+            this._octopusDraft.provider = "octopus";
+          }
+          this._scheduleRender();
+          return;
+        }
+        if (parts[1] === "source") {
+          this._octopusDraft.source = el.value === "entity" ? "entity" : "native";
+          this._octopusPickerMountGen += 1;
+          this._scheduleRender();
+          void this._syncOctopusEntityPickers();
+          return;
+        }
+        if (parts[1] === "import_mpan") {
+          this._octopusDraft.import_mpan = el.value || "";
+          return;
+        }
+        if (parts[1] === "export_mpan") {
+          this._octopusDraft.export_mpan = el.value || "";
+          return;
+        }
+      }
       if (parts[0] === "tariff" && this._tariffDraft) {
         const kind = parts[1];
         const sub = parts[2];
@@ -8956,6 +9243,17 @@ Reloading panel registration…
       this._stormDraft.use_forecast_lead = el.checked;
       this._scheduleRender();
       return;
+    }
+    if (kind === "octopus" && this._octopusDraft) {
+      const field = parts[1];
+      if (field === "api_key") {
+        this._octopusDraft.api_key = el.value;
+        return;
+      }
+      if (field === "account_number") {
+        this._octopusDraft.account_number = el.value;
+        return;
+      }
     }
     if (kind === "solcast" && this._solcastDraft) {
       const field = parts[1];
@@ -11770,9 +12068,101 @@ ${this._renderTariffRateBlock("standing", {
 ${effectiveBits.length ? `<p class="field-hint" style="margin:0 0 8px">Effective rates now: ${esc(effectiveBits.join(" · "))}${bandLabel ? ` · ${esc(bandLabel)} (hour ${scheduleStatus.hour ?? "—"})` : ""}</p>` : ""}
 <p class="field-hint" style="margin:0">Last saved: ${lastUpdated}${historyCount ? ` · ${esc(String(historyCount))} rate snapshot(s) recorded` : ""}</p>
 </div>
-<div class="card">
-<p class="card-title">Dynamic tariffs (coming soon)</p>
-<p class="field-hint" style="margin:0">API-linked tariffs such as Octopus Agile will drive the same plugin import/export sensors throughout the day. Each update will be recorded so historical cost analysis stays accurate, and future automation can charge or discharge based on live grid prices.</p>
+${this._renderOctopusSettings()}`;
+  }
+
+  _renderOctopusSettings() {
+    if (!this._octopusDraft) this._initOctopusDraft();
+    const draft = this._octopusDraft;
+    const live = this._plantState?.tariff?.octopus ?? {};
+    const currency = tariffCurrencyFromTariff(this._plantState?.tariff ?? {});
+    const keyPlaceholder = draft.api_key_set ? "••••••••  (leave blank to keep)" : "Paste Octopus API key";
+    const native = draft.source !== "entity";
+    const connected = Boolean(live.connected);
+    const tariffType = live.tariff_type ? String(live.tariff_type) : "";
+    const agile = tariffType === "agile" || tariffType === "tracker";
+    const lastFetch = live.last_fetch_at ? esc(formatSolcastTimestamp(live.last_fetch_at)) : "Never";
+    const lastErr = live.last_error ? esc(String(live.last_error)) : "";
+    const importMeters = live.import_meters ?? [];
+    const exportMeters = live.export_meters ?? [];
+    const importOptions = importMeters
+      .map(
+        (m) =>
+          `<option value="${esc(m.mpan)}" ${draft.import_mpan === m.mpan ? "selected" : ""}>${esc(m.display_name || m.mpan)}</option>`
+      )
+      .join("");
+    const exportOptions = exportMeters
+      .map(
+        (m) =>
+          `<option value="${esc(m.mpan)}" ${draft.export_mpan === m.mpan ? "selected" : ""}>${esc(m.display_name || m.mpan)}</option>`
+      )
+      .join("");
+    const rateBits = [];
+    if (live.current_import_p_per_kwh != null) {
+      rateBits.push(`Import ${formatTariffMoney(live.current_import_p_per_kwh, currency)}/kWh`);
+    }
+    if (live.current_export_p_per_kwh != null) {
+      rateBits.push(`Export ${formatTariffMoney(live.current_export_p_per_kwh, currency)}/kWh`);
+    }
+    const statusLines = [];
+    if (connected && live.import_tariff_code) {
+      statusLines.push(`Import tariff: ${esc(live.import_tariff_code)}`);
+    }
+    if (live.export_tariff_code) {
+      statusLines.push(`Export tariff: ${esc(live.export_tariff_code)}`);
+    }
+    if (tariffType) {
+      statusLines.push(`Type: ${esc(tariffType)}${agile ? " — live half-hourly plugin sensors" : " — daily schedule"}`);
+    }
+    if (rateBits.length) statusLines.push(`Current: ${esc(rateBits.join(" · "))}`);
+    statusLines.push(`Last fetch: ${lastFetch}`);
+    if (lastErr) statusLines.push(`Error: ${lastErr}`);
+    const entityBlock =
+      draft.source === "entity"
+        ? `<div class="field"><label>External import rate sensor</label>
+<div class="tariff-entity-picker-host" data-octopus-picker="import"></div>
+</div>
+<div class="field"><label>External export rate sensor</label>
+<div class="tariff-entity-picker-host" data-octopus-picker="export"></div>
+<p class="field-hint">Use this if you already run the official <code>octopus_energy</code> integration — Fox Plant reads those entities instead of polling Octopus directly.</p>
+</div>`
+        : `<div class="field"><label>API key</label>
+<input type="password" autocomplete="off" data-field="octopus:api_key" value="${esc(String(draft.api_key || ""))}" placeholder="${esc(keyPlaceholder)}" ${this._busy ? "disabled" : ""}>
+<p class="field-hint">Create a key in your <a class="field-link" href="${esc(OCTOPUS_API_DOCS_URL)}" target="_blank" rel="noopener noreferrer">Octopus dashboard</a> (Developer settings → API access).</p>
+</div>
+<div class="field"><label>Account number</label>
+<input type="text" data-field="octopus:account_number" value="${esc(String(draft.account_number || ""))}" placeholder="A-12345678" ${this._busy ? "disabled" : ""}>
+</div>
+${importMeters.length > 1 ? `<div class="field"><label>Import MPAN</label><select data-field="octopus:import_mpan" ${this._busy ? "disabled" : ""}><option value="">Select meter…</option>${importOptions}</select></div>` : ""}
+${exportMeters.length > 1 ? `<div class="field"><label>Export MPAN (SEG)</label><select data-field="octopus:export_mpan" ${this._busy ? "disabled" : ""}><option value="">None / auto</option>${exportOptions}</select></div>` : ""}`;
+    const applyBtn =
+      connected && live.schedule_ready && !agile
+        ? `<button type="button" class="btn btn-secondary" data-action="apply-octopus-schedule" ${this._busy ? "disabled" : ""}>Apply schedule to editor</button>`
+        : "";
+    const saveApplyBtn =
+      native && draft.enabled && !agile
+        ? `<button type="button" class="btn btn-secondary" data-action="save-octopus-apply" ${this._busy ? "disabled" : ""}>Save &amp; apply schedule</button>`
+        : "";
+    return `<div class="card">
+<p class="card-title">Octopus Energy</p>
+<p class="field-hint" style="margin:0 0 12px">Native Octopus polling for Go, Economy 7, flat SVT, and Agile. Fixed tariffs can auto-fill the 24-hour schedule; Agile updates plugin import/export sensors every 30 minutes (including negative rates).</p>
+<div class="toggle-row"><span><strong>Enable Octopus tariff link</strong></span>
+<input type="checkbox" data-field="octopus:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+<div class="field"><label>Rate source</label>
+<select data-field="octopus:source" ${this._busy ? "disabled" : ""}>
+<option value="native" ${native ? "selected" : ""}>Native API (recommended)</option>
+<option value="entity" ${!native ? "selected" : ""}>External Home Assistant sensors</option>
+</select>
+</div>
+${entityBlock}
+<div class="btn-row">
+<button type="button" class="btn btn-secondary" data-action="test-octopus" ${this._busy || !native ? "disabled" : ""}>Test connection</button>
+<button type="button" class="btn btn-secondary" data-action="fetch-octopus" ${this._busy || !draft.enabled || !native ? "disabled" : ""}>Fetch rates now</button>
+${applyBtn}
+<button type="button" class="btn btn-primary" data-action="save-octopus-settings" ${this._busy ? "disabled" : ""}>Save Octopus</button>
+${saveApplyBtn}
+</div>
+${statusLines.length ? `<p class="field-hint" style="margin:12px 0 0">${statusLines.map((l) => esc(l)).join("<br>")}</p>` : ""}
 </div>`;
   }
 
@@ -12015,6 +12405,7 @@ ${active
     }
     if (this._view === "settings" && this._settingsView === "tariff" && this._tariffDraft) {
       void this._syncTariffEntityPickers();
+      void this._syncOctopusEntityPickers();
     }
     if (
       (this._view === "overview" ||

@@ -224,8 +224,8 @@ def resolve_tariff_rates(
     from .tariff_schedule import tariff_plugin_entity_id
 
     currency = normalize_tariff_currency(getattr(tariff, "currency", None))
-    import_p = max(0.0, float(getattr(tariff, "import_p_per_kwh", 0) or 0))
-    export_p = max(0.0, float(getattr(tariff, "export_p_per_kwh", 0) or 0))
+    import_p = float(getattr(tariff, "import_p_per_kwh", 0) or 0)
+    export_p = float(getattr(tariff, "export_p_per_kwh", 0) or 0)
     standing_p = max(0.0, float(getattr(tariff, "standing_charge_p_per_day", 0) or 0))
 
     entities: dict[str, Any] = {}

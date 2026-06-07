@@ -97,6 +97,9 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
     coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     coordinator.update_plant_config(PlantConfig.from_entry_data(entry.data))
     coordinator._setup_tariff_schedule_timer()
+    coordinator._setup_octopus_timer()
+    if coordinator._octopus_native_active():
+        await coordinator._async_refresh_octopus()
     await coordinator.async_update_tariff_sensors(record_history=False)
     await coordinator.async_request_refresh()
     try:

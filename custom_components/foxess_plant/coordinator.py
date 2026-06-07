@@ -61,6 +61,7 @@ from .models import (
     PvSystemConfig,
     SolcastConfig,
     TariffConfig,
+    TariffDynamicConfig,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -97,7 +98,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._tariff_history_count = 0
         self._tariff_rate_sensors: dict[str, Any] = {}
         self._unsub_tariff_schedule: callable | None = None
+        self._unsub_octopus: callable | None = None
         self._last_tariff_sensor_rates: dict[str, float] = {}
+        self._octopus_cache: dict[str, Any] = {}
         super().__init__(
             hass,
             _LOGGER,
@@ -184,7 +187,43 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             kind: tariff_plugin_entity_id(self.hass, entry_id, kind)
             for kind in ("import", "export", "standing")
         }
+        state["octopus"] = self._octopus_status()
         return state
+
+    def _octopus_native_active(self) -> bool:
+        return self.plant.tariff.dynamic.native_octopus() and self.plant.tariff.dynamic.api_key_configured()
+
+    def _octopus_agile_active(self) -> bool:
+        from .octopus_tariff import is_variable_tariff_type
+
+        if not self._octopus_native_active():
+            return False
+        tariff_type = self._octopus_cache.get("tariff_type")
+        return bool(tariff_type and is_variable_tariff_type(str(tariff_type)))
+
+    def _octopus_status(self) -> dict[str, Any]:
+        dyn = self.plant.tariff.dynamic.to_dict(include_api_key=False)
+        cache = self._octopus_cache
+        import_meters = cache.get("import_meters") or []
+        export_meters = cache.get("export_meters") or []
+        return {
+            **dyn,
+            "connected": bool(cache.get("import_tariff_code")),
+            "tariff_type": cache.get("tariff_type"),
+            "import_tariff_code": cache.get("import_tariff_code"),
+            "export_tariff_code": cache.get("export_tariff_code"),
+            "import_product_code": cache.get("import_product_code"),
+            "export_product_code": cache.get("export_product_code"),
+            "last_fetch_at": cache.get("last_fetch_at"),
+            "last_error": cache.get("last_error"),
+            "current_import_p_per_kwh": cache.get("current_import_p_per_kwh"),
+            "current_export_p_per_kwh": cache.get("current_export_p_per_kwh"),
+            "schedule_ready": bool(cache.get("schedule")),
+            "import_meters": import_meters,
+            "export_meters": export_meters,
+            "import_meter": cache.get("import_meter"),
+            "export_meter": cache.get("export_meter"),
+        }
 
     def register_tariff_rate_sensor(self, kind: str, sensor: Any) -> None:
         """Called from sensor platform setup."""
@@ -201,20 +240,28 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         from .tariff_schedule import scheduled_rates_at
 
         tariff = self.plant.tariff
-        cfg = tariff.schedule_config()
         scheduled = scheduled_rates_at(tariff)
         band_index = scheduled.get("band_index")
+        agile = self._octopus_agile_active()
 
         updates: dict[str, tuple[float | None, int | None]] = {}
-        if tariff.import_source == TARIFF_SOURCE_SCHEDULE:
+        if agile:
+            updates["import"] = (
+                self._octopus_cache.get("current_import_p_per_kwh"),
+                None,
+            )
+            export_p = self._octopus_cache.get("current_export_p_per_kwh")
+            updates["export"] = (export_p, None) if export_p is not None else (None, None)
+        elif tariff.import_source == TARIFF_SOURCE_SCHEDULE:
             updates["import"] = (float(scheduled.get("import_p_per_kwh") or 0), band_index)
         else:
             updates["import"] = (None, None)
 
-        if tariff.export_source == TARIFF_SOURCE_SCHEDULE:
-            updates["export"] = (float(scheduled.get("export_p_per_kwh") or 0), band_index)
-        else:
-            updates["export"] = (None, None)
+        if not agile:
+            if tariff.export_source == TARIFF_SOURCE_SCHEDULE:
+                updates["export"] = (float(scheduled.get("export_p_per_kwh") or 0), band_index)
+            else:
+                updates["export"] = (None, None)
 
         if tariff.standing_source == TARIFF_SOURCE_PLUGIN:
             updates["standing"] = (
@@ -230,13 +277,13 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if sensor is None:
                 continue
             prev = self._last_tariff_sensor_rates.get(kind)
-            if minor is None or minor <= 0:
+            if minor is None:
                 sensor.set_rate(None, band_index=band)
             else:
-                sensor.set_rate(minor, band_index=band)
+                sensor.set_rate(float(minor), band_index=band)
                 if prev != minor:
                     changed = True
-                    self._last_tariff_sensor_rates[kind] = minor
+                    self._last_tariff_sensor_rates[kind] = float(minor)
             await sensor.async_publish()
 
         if record_history and changed and self._tariff_store is not None:
@@ -262,12 +309,36 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._unsub_tariff_schedule:
             self._unsub_tariff_schedule()
             self._unsub_tariff_schedule = None
+        if self._octopus_agile_active():
+            return
         from .tariff_schedule import next_schedule_boundary
 
         when = next_schedule_boundary()
         self._unsub_tariff_schedule = async_track_point_in_time(
             self.hass, self._tariff_schedule_callback, when
         )
+
+    def _setup_octopus_timer(self) -> None:
+        if self._unsub_octopus:
+            self._unsub_octopus()
+            self._unsub_octopus = None
+        if not self._octopus_native_active():
+            return
+        from .octopus_tariff import next_octopus_poll_boundary
+
+        when = next_octopus_poll_boundary(agile=self._octopus_agile_active())
+        self._unsub_octopus = async_track_point_in_time(self.hass, self._octopus_timer_callback, when)
+
+    @callback
+    def _octopus_timer_callback(self, _now) -> None:
+        self.hass.async_create_task(self._async_octopus_tick())
+
+    async def _async_octopus_tick(self) -> None:
+        await self._async_refresh_octopus()
+        self._setup_octopus_timer()
+        if self._octopus_agile_active():
+            await self.async_update_tariff_sensors(record_history=True)
+        await self.async_request_refresh()
 
     @callback
     def _tariff_schedule_callback(self, _now) -> None:
@@ -324,9 +395,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._setup_storm_forecast_timer()
         self._setup_solcast_timer()
         self._setup_tariff_schedule_timer()
+        self._setup_octopus_timer()
         try:
             await self._async_refresh_storm_weather()
             await self._async_refresh_solcast_pv()
+            if self._octopus_native_active():
+                await self._async_refresh_octopus()
             await self._sync_automation_policy()
         except Exception as err:
             _LOGGER.warning("Initial automation policy sync failed: %s", err)
@@ -1182,7 +1256,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 raise HomeAssistantError(f"{label} entity {entity_id} must be a sensor")
         cfg.last_updated_at = dt_util.utcnow().isoformat()
         data = dict(self.config_entry.data)
-        data[CONF_TARIFF] = cfg.to_dict()
+        data[CONF_TARIFF] = cfg.to_dict(include_secrets=True)
         self.hass.config_entries.async_update_entry(self.config_entry, data=data)
         self.update_plant_config(PlantConfig.from_entry_data(data))
         if self._tariff_store is None:
@@ -1208,7 +1282,191 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.async_update_tariff_sensors(record_history=False)
         except Exception:
             _LOGGER.exception("Tariff plugin sensor update failed after save")
+        self._setup_tariff_schedule_timer()
+        self._setup_octopus_timer()
         await self.async_request_refresh()
+
+    async def async_save_octopus(
+        self,
+        *,
+        dynamic: dict[str, Any],
+        fetch_now: bool = True,
+        apply_schedule: bool = False,
+    ) -> None:
+        """Persist Octopus dynamic tariff settings from the panel."""
+        from .octopus_tariff import OCTOPUS_PROVIDER, OCTOPUS_SOURCE_ENTITY, OCTOPUS_SOURCE_NATIVE
+        from .tariff_rates import TARIFF_SOURCE_ENTITY
+
+        fetch_now = bool(dynamic.pop("fetch_now", fetch_now))
+        apply_schedule = bool(dynamic.pop("apply_schedule", apply_schedule))
+        current = self.plant.tariff.dynamic.to_dict(include_api_key=True)
+        merged = {**current, **dynamic}
+        if "api_key" in dynamic:
+            raw_key = dynamic.get("api_key")
+            if raw_key and str(raw_key).strip() and str(raw_key) not in ("********", "••••••••"):
+                merged["api_key"] = str(raw_key).strip()
+            else:
+                merged["api_key"] = current.get("api_key")
+        if merged.get("enabled") and not merged.get("provider"):
+            merged["provider"] = OCTOPUS_PROVIDER
+        cfg = TariffConfig.from_dict(self.plant.tariff.to_dict(include_secrets=True))
+        cfg.dynamic = TariffDynamicConfig.from_dict(merged)
+        if cfg.dynamic.enabled and cfg.dynamic.source == OCTOPUS_SOURCE_NATIVE:
+            if not cfg.dynamic.api_key_configured():
+                raise HomeAssistantError("Octopus API key is required for native mode")
+            if not cfg.dynamic.account_number:
+                raise HomeAssistantError("Octopus account number is required (e.g. A-12345678)")
+        elif cfg.dynamic.enabled and cfg.dynamic.source == OCTOPUS_SOURCE_ENTITY:
+            if not cfg.dynamic.import_entity and not cfg.dynamic.export_entity:
+                raise HomeAssistantError(
+                    "Choose at least one external import or export rate sensor for entity mode"
+                )
+            if cfg.dynamic.import_entity:
+                cfg.import_source = TARIFF_SOURCE_ENTITY
+                cfg.import_entity = cfg.dynamic.import_entity
+            if cfg.dynamic.export_entity:
+                cfg.export_source = TARIFF_SOURCE_ENTITY
+                cfg.export_entity = cfg.dynamic.export_entity
+            cfg.kind = "dynamic"
+        from homeassistant.util import dt as dt_util
+
+        cfg.last_updated_at = dt_util.utcnow().isoformat()
+        data = dict(self.config_entry.data)
+        data[CONF_TARIFF] = cfg.to_dict(include_secrets=True)
+        self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+        self.update_plant_config(PlantConfig.from_entry_data(data))
+        if fetch_now and cfg.dynamic.native_octopus():
+            await self._async_refresh_octopus()
+            if apply_schedule and self._octopus_cache.get("schedule"):
+                await self.async_apply_octopus_schedule()
+            elif self._octopus_agile_active():
+                cfg = TariffConfig.from_dict(self.plant.tariff.to_dict(include_secrets=True))
+                cfg.kind = "dynamic"
+                data = dict(self.config_entry.data)
+                data[CONF_TARIFF] = cfg.to_dict(include_secrets=True)
+                self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+                self.update_plant_config(PlantConfig.from_entry_data(data))
+                await self.async_update_tariff_sensors(record_history=True)
+        self._setup_tariff_schedule_timer()
+        self._setup_octopus_timer()
+        await self.async_request_refresh()
+
+    async def async_test_octopus(
+        self,
+        *,
+        api_key: str | None = None,
+        account_number: str | None = None,
+    ) -> dict[str, Any]:
+        from .octopus_api import OctopusApiClient, OctopusApiError
+        from .octopus_tariff import test_octopus_connection
+
+        dyn = self.plant.tariff.dynamic
+        key = (api_key or dyn.api_key or "").strip()
+        account = (account_number or dyn.account_number or "").strip()
+        if not key:
+            raise HomeAssistantError("Octopus API key is required")
+        if not account:
+            raise HomeAssistantError("Octopus account number is required")
+        client = OctopusApiClient(self.hass, api_key=key)
+        try:
+            result = await test_octopus_connection(client, account_number=account)
+            self._octopus_cache["import_meters"] = result.get("import_meters") or []
+            self._octopus_cache["export_meters"] = result.get("export_meters") or []
+            return result
+        except OctopusApiError as err:
+            raise HomeAssistantError(str(err)) from err
+
+    async def async_fetch_octopus(self) -> dict[str, Any]:
+        await self._async_refresh_octopus()
+        if self._octopus_agile_active():
+            await self.async_update_tariff_sensors(record_history=True)
+        self._setup_octopus_timer()
+        await self.async_request_refresh()
+        return self._octopus_status()
+
+    async def async_apply_octopus_schedule(self) -> dict[str, Any]:
+        """Apply the last fetched fixed-tariff schedule to tariff config."""
+        from .const import TARIFF_KIND_STATIC
+        from .octopus_tariff import is_variable_tariff_type
+        from .tariff_schedule import TariffScheduleConfig
+
+        schedule_raw = self._octopus_cache.get("schedule")
+        if not schedule_raw:
+            raise HomeAssistantError("No Octopus schedule available — fetch rates first")
+        tariff_type = str(self._octopus_cache.get("tariff_type") or "")
+        if is_variable_tariff_type(tariff_type):
+            raise HomeAssistantError(
+                f"{tariff_type.title()} tariffs use live half-hourly rates, not a daily schedule"
+            )
+        schedule = TariffScheduleConfig.from_dict(schedule_raw)
+        cfg = TariffConfig.from_dict(self.plant.tariff.to_dict(include_secrets=True))
+        cfg.schedule = schedule
+        cfg.kind = TARIFF_KIND_STATIC
+        standing = self._octopus_cache.get("import_standing_p_per_day")
+        if standing is not None:
+            cfg.standing_charge_p_per_day = max(0.0, float(standing))
+        from homeassistant.util import dt as dt_util
+
+        cfg.last_updated_at = dt_util.utcnow().isoformat()
+        data = dict(self.config_entry.data)
+        data[CONF_TARIFF] = cfg.to_dict(include_secrets=True)
+        self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+        self.update_plant_config(PlantConfig.from_entry_data(data))
+        await self.async_update_tariff_sensors(record_history=True)
+        self._setup_tariff_schedule_timer()
+        await self.async_request_refresh()
+        return self._tariff_state()
+
+    async def _async_refresh_octopus(self) -> None:
+        from .octopus_api import OctopusApiClient, OctopusApiError
+        from .octopus_tariff import fetch_octopus_tariff_snapshot, list_account_meters
+
+        dyn = self.plant.tariff.dynamic
+        if not dyn.native_octopus():
+            return
+        if not dyn.api_key_configured() or not dyn.account_number:
+            self._octopus_cache["last_error"] = "Octopus API key and account number required"
+            return
+        client = OctopusApiClient(self.hass, api_key=str(dyn.api_key))
+        try:
+            snapshot = await fetch_octopus_tariff_snapshot(
+                client,
+                account_number=str(dyn.account_number),
+                import_mpan=dyn.import_mpan,
+                export_mpan=dyn.export_mpan,
+            )
+            self._octopus_cache = snapshot.to_cache_dict()
+            try:
+                account = await client.get_account(str(dyn.account_number))
+                import_meters, export_meters = list_account_meters(account)
+                self._octopus_cache["import_meters"] = [
+                    {
+                        "mpan": m.mpan,
+                        "serial": m.serial,
+                        "tariff_code": m.tariff_code,
+                        "display_name": m.display_name,
+                    }
+                    for m in import_meters
+                ]
+                self._octopus_cache["export_meters"] = [
+                    {
+                        "mpan": m.mpan,
+                        "serial": m.serial,
+                        "tariff_code": m.tariff_code,
+                        "display_name": m.display_name,
+                    }
+                    for m in export_meters
+                ]
+            except OctopusApiError:
+                pass
+            _LOGGER.debug(
+                "Octopus tariff refreshed (%s, import %s)",
+                snapshot.tariff_type,
+                snapshot.import_meter.tariff_code if snapshot.import_meter else "—",
+            )
+        except OctopusApiError as err:
+            self._octopus_cache["last_error"] = str(err)
+            _LOGGER.warning("Octopus tariff fetch failed: %s", err)
 
     async def async_save_solcast(self, *, solcast: dict[str, Any], fetch_now: bool = True) -> None:
         """Persist Solcast API settings from the panel."""
@@ -1354,3 +1612,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if getattr(self, "_unsub_tariff_schedule", None):
             self._unsub_tariff_schedule()
             self._unsub_tariff_schedule = None
+        if getattr(self, "_unsub_octopus", None):
+            self._unsub_octopus()
+            self._unsub_octopus = None
