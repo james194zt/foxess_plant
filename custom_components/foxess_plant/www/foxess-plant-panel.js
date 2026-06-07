@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.114
+ * @version 0.9.115
  */
 
 const NAV = [
@@ -814,6 +814,106 @@ function ceilToLocalHourMs(ms) {
   return d.getTime();
 }
 
+function buildForecastAccuracySeriesMeta(intraday, { compact = false } = {}) {
+  if (!intraday) return [];
+  const meta = [];
+  const add = (id, label, color, points, yAxis = "kw") => {
+    if (!Array.isArray(points) || points.length < 2) return;
+    meta.push({
+      id,
+      label,
+      color,
+      yAxis,
+      points: [...points].sort((a, b) => a.t - b.t),
+    });
+  };
+  add("pv_actual", "PV generation", FORECAST_ACCURACY_COLORS.actual, intraday.actual_power_kw);
+  add("pv_forecast", "Forecast PV", FORECAST_ACCURACY_COLORS.predicted, intraday.predicted_power_kw);
+  if (!compact) {
+    add(
+      "pv_latest",
+      "Latest forecast PV",
+      FORECAST_ACCURACY_COLORS.latestRevision,
+      intraday.latest_revision_power_kw
+    );
+  }
+  add("cloud", "Cloud cover", FORECAST_ACCURACY_COLORS.cloud, intraday.cloud_coverage_pct, "pct");
+  return meta;
+}
+
+function forecastAccuracyTooltipRowsHtml(seriesMeta, t) {
+  return seriesMeta
+    .map((s) => {
+      const v = interpolateSeriesAt(s.points, t);
+      if (v == null) return "";
+      const value =
+        s.yAxis === "pct"
+          ? `${Math.round(Math.min(100, Math.max(0, v)))}%`
+          : formatStatisticsKw(v);
+      return `<div class="statistics-tooltip-row"><span class="statistics-tooltip-label"><i class="statistics-tooltip-swatch" style="background:${esc(s.color)}"></i>${esc(s.label)}</span><strong>${esc(value)}</strong></div>`;
+    })
+    .filter(Boolean)
+    .join("");
+}
+
+function bindForecastAccuracyChart(scope, seriesMeta) {
+  const plot = scope?.querySelector?.("[data-forecast-accuracy-chart]:not([data-bound])");
+  if (!plot || plot.dataset.bound || !seriesMeta?.length) return;
+  plot.dataset.bound = "1";
+
+  const padL = Number(plot.dataset.padL);
+  const padT = Number(plot.dataset.padT);
+  const padB = Number(plot.dataset.padB);
+  const plotW = Number(plot.dataset.plotW);
+  const tMin = Number(plot.dataset.tMin);
+  const tMax = Number(plot.dataset.tMax);
+  const daySpan = tMax - tMin;
+  const svg = plot.querySelector(".forecast-accuracy-chart-svg");
+  const hit = plot.querySelector(".forecast-accuracy-hit");
+  const crosshair = plot.querySelector(".statistics-crosshair");
+  const tooltip = plot.querySelector(".statistics-tooltip");
+  if (!svg || !hit || !crosshair || !tooltip) return;
+
+  const showHover = (clientX) => {
+    const t = Math.min(statisticsClientToTime(svg, clientX, padL, plotW, tMin, daySpan), tMax);
+    const { scale, offsetX, offsetY } = statisticsPointerScale(svg);
+    const xPx = padL + ((t - tMin) / daySpan) * plotW;
+    const screenX = offsetX + xPx * scale;
+    crosshair.hidden = false;
+    crosshair.style.left = `${screenX}px`;
+    crosshair.style.top = `${offsetY + padT * scale}px`;
+    crosshair.style.bottom = `${offsetY + padB * scale}px`;
+
+    const rows = forecastAccuracyTooltipRowsHtml(seriesMeta, t);
+    tooltip.hidden = false;
+    tooltip.innerHTML = `<div class="statistics-tooltip-time">${esc(formatStatisticsHoverTime(t))}</div>${rows}`;
+    const plotRect = plot.getBoundingClientRect();
+    let left = screenX + 12;
+    if (left + 200 > plotRect.width) left = screenX - 212;
+    tooltip.style.left = `${Math.max(8, left)}px`;
+    tooltip.style.top = "12px";
+  };
+
+  const hideHover = () => {
+    crosshair.hidden = true;
+    tooltip.hidden = true;
+  };
+
+  hit.addEventListener("mousemove", (ev) => showHover(ev.clientX));
+  hit.addEventListener("mouseleave", hideHover);
+  plot.addEventListener(
+    "touchmove",
+    (ev) => {
+      if (ev.touches[0]) {
+        ev.preventDefault();
+        showHover(ev.touches[0].clientX);
+      }
+    },
+    { passive: false }
+  );
+  plot.addEventListener("touchend", hideHover);
+}
+
 function renderForecastAccuracyLegendHtml(extraItems = []) {
   const items = [
     { label: "PV generation", color: FORECAST_ACCURACY_COLORS.actual },
@@ -953,13 +1053,14 @@ function forecastAccuracyPlotSvg(series, range, options = {}) {
       return `<text x="${plotPad.l - 8}" y="${labelY.toFixed(1)}" text-anchor="end" class="statistics-axis-y">${esc(label)}</text>`;
     })
     .join("");
+  const cloudLabelX = width - 8;
   const yCloudLabels = hasCloud
     ? [0, 50, 100]
         .map((yv) => {
           const y = yCloudScale(yv);
           const labelY = axisLabelY(y, yv, [0, 50, 100], true);
           if (labelY == null) return "";
-          return `<text x="${(plotPad.l + w + 8).toFixed(1)}" y="${labelY.toFixed(1)}" text-anchor="start" class="statistics-axis-y forecast-accuracy-axis-y--cloud">${yv}%</text>`;
+          return `<text x="${cloudLabelX.toFixed(1)}" y="${labelY.toFixed(1)}" text-anchor="end" class="statistics-axis-y forecast-accuracy-axis-y--cloud">${yv}%</text>`;
         })
         .join("")
     : "";
@@ -1012,11 +1113,17 @@ function forecastAccuracyPlotSvg(series, range, options = {}) {
 <div class="forecast-accuracy-legend forecast-accuracy-legend--inline">${legend}</div>
 </div>`
     : `<div class="forecast-accuracy-plot-head forecast-accuracy-plot-head--axis-only"><span class="forecast-accuracy-plot-label">${esc(yUnit)}</span></div>`;
+  const plotAttrs = `data-pad-l="${plotPad.l}" data-pad-t="${plotPad.t}" data-pad-b="${plotPad.b}" data-plot-w="${w}" data-plot-h="${h}" data-t-min="${tMin}" data-t-max="${tMax}"`;
   return `<div class="forecast-accuracy-plot${hasCloud ? " forecast-accuracy-plot--cloud" : ""}">
 ${head}
+<div class="forecast-accuracy-chart-plot" data-forecast-accuracy-chart="1" ${plotAttrs}>
 <svg class="forecast-accuracy-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMinYMin meet" role="img" aria-label="${esc(ariaLabel)}">
 ${grid}${cloudFill}${yLabels}${yCloudLabels}${xLabels}${lines}${cloudLine}
+<rect class="forecast-accuracy-hit statistics-hit" x="${plotPad.l}" y="${plotPad.t}" width="${w}" height="${h}" fill="transparent"/>
 </svg>
+<div class="statistics-crosshair" hidden><div class="statistics-spike"></div></div>
+<div class="statistics-tooltip" hidden role="tooltip"></div>
+</div>
 </div>`;
 }
 
@@ -5810,6 +5917,8 @@ const STYLES = `
 .forecast-accuracy-plot-head--stacked .forecast-accuracy-legend { width: 100%; }
 .forecast-accuracy-plot--cloud .forecast-accuracy-chart-svg { margin-top: 2px; }
 .forecast-accuracy-plot { width: 100%; line-height: 0; }
+.forecast-accuracy-chart-plot { position: relative; width: 100%; margin: 0; line-height: 0; }
+.forecast-accuracy-hit { cursor: crosshair; }
 .forecast-accuracy-plot-head {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px;
   margin: 0 0 2px; min-height: 0; line-height: 1.2;
@@ -5828,7 +5937,7 @@ const STYLES = `
   width: 14px; height: 3px; border-radius: 1px; display: inline-block;
 }
 .forecast-accuracy-chart-svg {
-  width: 100%; height: auto; display: block; vertical-align: top;
+  width: 100%; height: auto; display: block; vertical-align: top; overflow: visible;
 }
 .forecast-accuracy-plot .forecast-accuracy-chart-svg {
   height: auto; max-height: none;
@@ -9836,6 +9945,19 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     bindStatisticsChart(this._root, meta);
   }
 
+  _bindForecastAccuracyChart() {
+    const cards = this._root?.querySelectorAll?.("[data-forecast-accuracy]");
+    if (!cards?.length) return;
+    cards.forEach((card) => {
+      const compact = card.classList.contains("forecast-accuracy-card--compact");
+      const intraday = compact
+        ? this._forecastAccuracyForOverview().report?.intraday
+        : this._forecastAccuracyAnalysis?.intraday;
+      const meta = buildForecastAccuracySeriesMeta(intraday, { compact });
+      bindForecastAccuracyChart(card, meta);
+    });
+  }
+
   async _loadBatterySocChart() {
     const plant = this._getPlant();
     if (!plant || !this._hass) return;
@@ -10439,6 +10561,7 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
         forecastRow.remove();
       }
       this._forecastAccuracyAnalysisSlotCache = forecastKey;
+      this._bindForecastAccuracyChart();
     }
 
     let chartUpdated = false;
@@ -11468,6 +11591,9 @@ ${active
       this._statisticsChart?.series
     ) {
       this._bindStatisticsChart();
+    }
+    if (this._view === "overview" || (this._view === "energy_analysis" && this._energyPeriod === "day")) {
+      this._bindForecastAccuracyChart();
     }
     if (this._view === "overview") {
       bindOverviewDailyCharts(this._root);
