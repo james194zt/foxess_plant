@@ -113,7 +113,29 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._solcast_history_count,
             )
             await self._maybe_repair_solcast_storage(stored)
+        await self._archive_solcast_daily_forecasts()
         await self._rebuild_solcast_forecast_chart()
+
+    async def _archive_solcast_daily_forecasts(self) -> None:
+        """Persist per-day forecast chart lines so Analysis can show past days."""
+        if not self._solcast_store:
+            return
+        from .solcast_forecast_chart import archive_daily_intraday_forecasts
+
+        stored = await self._solcast_store.async_load()
+        updates = await self.hass.async_add_executor_job(
+            archive_daily_intraday_forecasts,
+            self.hass,
+            stored,
+            self._solcast_cache,
+            entry_id=self.config_entry.entry_id,
+        )
+        if updates:
+            await self._solcast_store.async_merge_daily_intraday(updates)
+            _LOGGER.debug(
+                "Archived Solcast daily forecast charts for %s",
+                ", ".join(sorted(updates.keys())),
+            )
 
     async def _async_load_tariff_storage(self) -> None:
         from .tariff_store import TariffRateStore
@@ -248,18 +270,17 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         from .solcast_poll import async_refresh_solcast
 
-        cache_before_updated = self._solcast_cache.get("updated_at")
         self._solcast_cache = await async_refresh_solcast(
             self.hass, self.plant, self._solcast_cache, force=force
         )
         if (
             self._solcast_store
             and self._solcast_cache.get("pv_forecast_parsed")
-            and self._solcast_cache.get("updated_at") != cache_before_updated
         ):
             self._solcast_history_count = await self._solcast_store.async_record_poll(
                 self._solcast_cache
             )
+            await self._archive_solcast_daily_forecasts()
             await self._rebuild_solcast_forecast_chart()
             _LOGGER.debug(
                 "Persisted Solcast forecast to storage (%s periods)",

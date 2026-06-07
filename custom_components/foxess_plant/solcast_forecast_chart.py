@@ -10,10 +10,11 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
 from .solcast_forecast_metrics import _build_intervals
-from .solcast_store import _snapshot_has_forecast
+from .solcast_store import _snapshot_has_forecast, get_daily_intraday_points
 
 STATISTICS_PERIOD_MS = 5 * 60 * 1000
-SNAPSHOT_GRACE_MS = 3_600_000
+# Include polls from the previous evening when rebuilding a local day chart.
+SNAPSHOT_GRACE_MS = 24 * 3_600_000
 
 
 def _parse_fetched_at_ms(value: Any) -> float | None:
@@ -206,8 +207,15 @@ def build_forecast_intraday_chart_for_day(
     target_day: date,
     *,
     entry_id: str | None = None,
+    use_daily_cache: bool = True,
 ) -> list[dict[str, float]]:
     """Historical day chart: each slot uses the forecast known at that time."""
+    day_key = target_day.isoformat()
+    if use_daily_cache:
+        cached = get_daily_intraday_points(stored, day_key)
+        if cached:
+            return cached
+
     day_start = dt_util.start_of_local_day(
         dt_util.as_local(datetime.combine(target_day, time.min))
     )
@@ -229,6 +237,38 @@ def build_forecast_intraday_chart_for_day(
         as_of_ms=as_of_ms,
         include_future=False,
     )
+
+
+def archive_daily_intraday_forecasts(
+    hass: HomeAssistant,
+    stored: dict[str, Any] | None,
+    current_cache: dict[str, Any] | None,
+    *,
+    entry_id: str | None = None,
+    days_back: int = 14,
+) -> dict[str, list[dict[str, float]]]:
+    """Build and return per-day chart lines to persist for Analysis history navigation."""
+    updates: dict[str, list[dict[str, float]]] = {}
+    today = dt_util.as_local(dt_util.utcnow()).date()
+    existing_daily = (stored or {}).get("daily_intraday") if isinstance(stored, dict) else {}
+    if not isinstance(existing_daily, dict):
+        existing_daily = {}
+    for offset in range(0, max(0, days_back) + 1):
+        target = today - timedelta(days=offset)
+        key = target.isoformat()
+        if offset > 0 and isinstance(existing_daily.get(key), list) and len(existing_daily[key]) >= 24:
+            continue
+        points = build_forecast_intraday_chart_for_day(
+            hass,
+            stored,
+            current_cache,
+            target,
+            entry_id=entry_id,
+            use_daily_cache=False,
+        )
+        if len(points) >= 2:
+            updates[key] = points
+    return updates
 
 
 def build_forecast_intraday_chart(

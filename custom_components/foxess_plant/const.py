@@ -232,6 +232,8 @@ SOLCAST_POLL_END_BEFORE_SUNSET = timedelta(hours=1)
 SOLCAST_MIN_POLL_INTERVAL = timedelta(minutes=15)
 # Snapshots per successful poll (parsed + raw API bodies); ~7–14 days at typical intervals.
 SOLCAST_FORECAST_HISTORY_MAX = 200
+# Completed 5-minute forecast lines per local calendar day (Analysis history).
+SOLCAST_DAILY_INTRADAY_RETENTION_DAYS = 90
 DEFAULT_STORM_SOLCAST_CAPE_THRESHOLD = 800.0
 DEFAULT_STORM_SOLCAST_PRECIP_MM_H = 2.0
 DEFAULT_STORM_SOLCAST_WEATHER_KEYWORDS: frozenset[str] = frozenset(
