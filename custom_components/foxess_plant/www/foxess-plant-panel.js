@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.146
+ * @version 0.9.148
  */
 
 const NAV = [
@@ -170,7 +170,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.146";
+const PANEL_VERSION = "0.9.148";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -1128,20 +1128,6 @@ function bindForecastAccuracyChart(scope, seriesMeta) {
   plot.addEventListener("touchend", hideHover);
 }
 
-function renderForecastAccuracyLegendHtml(extraItems = []) {
-  const items = [
-    { label: "PV generation", color: FORECAST_ACCURACY_COLORS.actual },
-    { label: "Forecast PV", color: FORECAST_ACCURACY_COLORS.predicted },
-    ...extraItems,
-  ];
-  return items
-    .map(
-      (item) =>
-        `<span class="forecast-accuracy-legend-item"><i style="background:${item.color}"></i>${esc(item.label)}</span>`
-    )
-    .join("");
-}
-
 function forecastAccuracyYDomain(values, { minZero = true, padRatio = 0.04 } = {}) {
   const data = (values || []).filter((v) => Number.isFinite(Number(v))).map((v) => Number(v));
   if (!data.length) return { yMin: 0, yMax: 1 };
@@ -1317,12 +1303,7 @@ function forecastAccuracyPlotSvg(series, range, options = {}) {
         .join("")
     : "";
   const head = showLegend
-    ? hasCloud
-      ? `<div class="forecast-accuracy-plot-head forecast-accuracy-plot-head--stacked">
-<span class="forecast-accuracy-plot-label">${esc(yUnit)}</span>
-<div class="forecast-accuracy-legend forecast-accuracy-legend--inline">${legend}</div>
-</div>`
-      : `<div class="forecast-accuracy-plot-head">
+    ? `<div class="forecast-accuracy-plot-head forecast-accuracy-plot-head--stacked">
 <span class="forecast-accuracy-plot-label">${esc(yUnit)}</span>
 <div class="forecast-accuracy-legend forecast-accuracy-legend--inline">${legend}</div>
 </div>`
@@ -1395,7 +1376,7 @@ function renderForecastAccuracyChartHtml(intraday, range, { compact = false } = 
     pad,
     yUnit: "kW",
     yMinZero: true,
-    showLegend: compact,
+    showLegend: true,
     secondarySeries,
     ariaLabel: "PV generation vs forecast power and cloud cover",
   })}</div>`;
@@ -1446,10 +1427,13 @@ function renderForecastAccuracyCard(report, { compact = false, loading = false, 
   if (period !== "day") return "";
   if (!loading && report && report.solcast_enabled === false) return "";
   const title = compact ? "Forecast vs production" : "Solar forecast accuracy";
+  const titleHtml = compact
+    ? `<p class="card-title">${esc(title)}</p>`
+    : `<h3 class="fox-analysis-summary-title fox-analysis-chart-title">${esc(title)}</h3>`;
   const margin = compact ? "margin-top:14px" : "";
   if (loading) {
     return `<div class="card forecast-accuracy-card${compact ? " forecast-accuracy-card--compact" : ""}" style="${margin}">
-<p class="card-title">${esc(title)}</p>
+${titleHtml}
 <p class="forecast-accuracy-empty chart-loading">Loading forecast analysis…</p>
 </div>`;
   }
@@ -1459,7 +1443,7 @@ function renderForecastAccuracyCard(report, { compact = false, loading = false, 
       ? `<p class="forecast-accuracy-hint">Check FoxESS Plant is loaded, then refresh the page.</p>`
       : "";
     return `<div class="card forecast-accuracy-card${compact ? " forecast-accuracy-card--compact" : ""}" style="${margin}">
-<p class="card-title">${esc(title)}</p>
+${titleHtml}
 <p class="forecast-accuracy-empty">${esc(errText)}</p>
 ${retryHint}
 </div>`;
@@ -1486,28 +1470,15 @@ ${retryHint}
       ? `<p class="forecast-accuracy-hint">Day total revised from ${esc(formatDailyKwh(report.first_predicted_kwh))} to ${esc(formatDailyKwh(report.latest_predicted_kwh))}</p>`
       : "";
   const range = forecastAccuracyRangeFromReport(report, report.intraday);
-  const legendExtra = [];
-  if (!compact && report.intraday?.latest_revision_power_kw?.length >= 2) {
-    legendExtra.push({ label: "Latest forecast PV", color: FORECAST_ACCURACY_COLORS.latestRevision });
-  }
-  if (!compact && report.intraday?.cloud_coverage_pct?.length >= 2) {
-    legendExtra.push({ label: "Cloud cover", color: FORECAST_ACCURACY_COLORS.cloud });
-  }
   const chart = renderForecastAccuracyChartHtml(report.intraday, range, { compact });
   const revisions = compact ? "" : renderForecastAccuracyRevisionsTable(report.revisions);
-  const statsLegend = compact
-    ? ""
-    : `<div class="forecast-accuracy-stats-legend">${renderForecastAccuracyLegendHtml(legendExtra)}</div>`;
   return `<div class="card forecast-accuracy-card${compact ? " forecast-accuracy-card--compact" : ""}" style="${margin}" data-forecast-accuracy="1">
-<p class="card-title">${esc(title)}</p>
+${titleHtml}
 <p class="forecast-accuracy-sub">${compact ? "Solcast revisions compared with measured solar output" : "Measured production vs Solcast predictions and intraday revisions"}</p>
-<div class="forecast-accuracy-stats-row">
 <div class="forecast-accuracy-stats">
 <div class="forecast-accuracy-stat"><label>Actual</label><strong>${esc(actual)}</strong></div>
 <div class="forecast-accuracy-stat"><label>Forecast</label><strong>${esc(predicted)}</strong></div>
 <div class="forecast-accuracy-stat ${errCls}"><label>Variance</label><strong>${esc(errText)}</strong></div>
-</div>
-${statsLegend}
 </div>
 ${revisionShift}${revisionHint}
 ${chart}
@@ -6270,9 +6241,10 @@ const STYLES = `
 .forecast-accuracy-chart-wrap--cloud { margin-top: 6px; }
 .forecast-accuracy-chart-wrap--cloud .forecast-accuracy-plot-head { margin-bottom: 6px; }
 .forecast-accuracy-plot-head--stacked {
-  flex-direction: column; align-items: flex-start; gap: 5px; margin-bottom: 6px;
+  flex-direction: column; align-items: flex-start; gap: 4px; margin-bottom: 4px;
 }
 .forecast-accuracy-plot-head--stacked .forecast-accuracy-legend { width: 100%; }
+.forecast-accuracy-card--compact .forecast-accuracy-plot-head--stacked { margin-bottom: 6px; gap: 5px; }
 .forecast-accuracy-plot--cloud .forecast-accuracy-chart-svg { margin-top: 2px; }
 .forecast-accuracy-chart-plot { position: relative; width: 100%; margin: 0; line-height: 0; }
 .forecast-accuracy-hit { cursor: crosshair; }
@@ -6283,11 +6255,7 @@ const STYLES = `
   fill: rgba(168, 178, 198, 0.95); font-size: 11px;
 }
 .forecast-accuracy-y-label--cloud { font-weight: 600; letter-spacing: 0.04em; }
-.forecast-accuracy-stats-row {
-  display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 16px;
-}
-.forecast-accuracy-stats-legend { flex: 1 1 auto; min-width: 0; }
-.forecast-accuracy-chart-wrap { width: 100%; margin: 0; }
+.forecast-accuracy-chart-wrap { width: 100%; margin: 0; margin-top: 2px; }
 .forecast-accuracy-plot { width: 100%; }
 .forecast-accuracy-plot-head {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px;
@@ -6298,12 +6266,12 @@ const STYLES = `
 }
 .forecast-accuracy-legend--inline { margin-bottom: 0; }
 .forecast-accuracy-legend {
-  display: flex; flex-wrap: wrap; gap: 6px 12px; margin-bottom: 0; font-size: 11px;
+  display: flex; flex-wrap: wrap; gap: 4px 10px; margin-bottom: 0; font-size: 10px;
   color: var(--secondary-text-color);
 }
-.forecast-accuracy-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.forecast-accuracy-legend-item { display: inline-flex; align-items: center; gap: 5px; }
 .forecast-accuracy-legend-item i {
-  width: 14px; height: 3px; border-radius: 1px; display: inline-block;
+  width: 12px; height: 2px; border-radius: 1px; display: inline-block;
 }
 .forecast-accuracy-chart-svg {
   width: 100%; height: auto; display: block; min-height: 168px;
