@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.143
+ * @version 0.9.144
  */
 
 const NAV = [
@@ -170,7 +170,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.143";
+const PANEL_VERSION = "0.9.144";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -741,21 +741,35 @@ function forecastHasFuturePoints(points, nowMs) {
   );
 }
 
-/** kW for the Solcast interval containing *tMs* (uses period_start, not period_end). */
-function solcastKwAtTime(rows, tMs) {
-  if (!Array.isArray(rows) || !Number.isFinite(tMs)) return null;
-  const intervals = rows
+/** Solcast 30-min (or API) intervals from detailed_forecast rows. */
+function buildSolcastIntervalSeries(rows) {
+  if (!Array.isArray(rows) || !rows.length) return [];
+  const parsed = rows
     .map((row) => {
       const start = parseSolcastPeriodMs(row.period_start ?? row.period);
-      let end = parseSolcastPeriodMs(row.period_end);
-      if (!Number.isFinite(end) && Number.isFinite(start)) end = start + 30 * 60 * 1000;
       let v = Number(row.pv_estimate ?? row.pv_power_rooftop ?? row.power ?? row.pv_power);
       if (!Number.isFinite(start) || !Number.isFinite(v)) return null;
       if (Math.abs(v) > 50) v /= 1000;
-      return { start, end, v };
+      return { start, v };
     })
     .filter(Boolean)
     .sort((a, b) => a.start - b.start);
+  const intervals = [];
+  for (let i = 0; i < parsed.length; i += 1) {
+    const start = parsed[i].start;
+    let end = parseSolcastPeriodMs(rows[i]?.period_end);
+    if (!Number.isFinite(end) || end <= start) {
+      end = i + 1 < parsed.length ? parsed[i + 1].start : start + 30 * 60 * 1000;
+    }
+    if (end > start) intervals.push({ start, end, v: parsed[i].v });
+  }
+  return intervals;
+}
+
+/** kW for the Solcast interval containing *tMs*. */
+function solcastKwAtTime(rows, tMs) {
+  if (!Number.isFinite(tMs)) return null;
+  const intervals = buildSolcastIntervalSeries(rows);
   for (const iv of intervals) {
     if (tMs >= iv.start && tMs < iv.end) return iv.v;
   }
@@ -819,10 +833,13 @@ function filterStatisticsForecastServerPoints(serverPoints, range) {
 }
 
 function augmentForecastWithServerFuture(fPoints, range, serverPoints, nowMs) {
-  if (forecastHasFuturePoints(fPoints, nowMs)) return fPoints || [];
+  const client = Array.isArray(fPoints) ? fPoints : [];
+  if (forecastHasFuturePoints(client, nowMs)) return client;
   const server = filterStatisticsForecastServerPoints(serverPoints, range);
-  if (server.length < 2) return fPoints || [];
-  return mergeForecastPointsWithFuture(fPoints?.length >= 2 ? fPoints : server, server, nowMs);
+  if (server.length < 2) return client;
+  const base = client.length >= 2 ? client : server;
+  const merged = mergeForecastPointsWithFuture(base, server, nowMs);
+  return forecastHasFuturePoints(merged, nowMs) ? merged : client.length >= 2 ? client : merged;
 }
 
 function buildStatisticsForecastPoints(
@@ -839,9 +856,12 @@ function buildStatisticsForecastPoints(
     fPoints = fallbackPoints;
   }
   const detailedRows = resolveBestSolcastDetailedRows(plantState, forecastState, hass);
-  if (fPoints.length >= 2) {
-    const detailed = detailedForecastToChartPoints(detailedRows, range);
-    fPoints = mergeForecastPointsWithFuture(fPoints, detailed, nowMs);
+  const detailed = detailedForecastToChartPoints(detailedRows, range);
+  if (detailed.length >= 2) {
+    fPoints =
+      fPoints.length >= 2
+        ? mergeForecastPointsWithFuture(fPoints, detailed, nowMs)
+        : detailed;
   }
   fPoints = augmentForecastWithServerFuture(fPoints, range, serverPoints, nowMs);
   const nowKw = plantState?.solcast?.pv_power_now_kw;
@@ -1504,29 +1524,19 @@ function parseSolcastPeriodMs(raw) {
 }
 
 function detailedForecastToChartPoints(rows, range) {
-  if (!Array.isArray(rows) || rows.length < 2) return [];
-  const raw = rows
-    .map((row) => {
-      const t = parseSolcastPeriodMs(row.period_start ?? row.period_end ?? row.period);
-      let v = Number(row.pv_estimate ?? row.pv_power_rooftop ?? row.power ?? row.pv_power);
-      if (!Number.isFinite(t) || !Number.isFinite(v)) return null;
-      if (Math.abs(v) > 50) v /= 1000;
-      return { t, v };
-    })
-    .filter(Boolean)
-    .sort((a, b) => a.t - b.t);
-  if (raw.length < 2) return [];
-
-  const graceMs = 36e5;
-  let relevant = raw.filter((p) => p.t >= range.tMin - graceMs && p.t <= range.tMax);
-  if (relevant.length < 2) {
-    relevant = raw.filter((p) => p.t >= range.nowMs - STATISTICS_PERIOD_MS * 2 && p.t <= range.tMax);
+  const intervals = buildSolcastIntervalSeries(rows);
+  if (!intervals.length) return [];
+  const nowMs = range?.nowMs ?? Date.now();
+  const out = [];
+  for (let t = range.tMin; t <= range.tMax; t += STATISTICS_PERIOD_MS) {
+    const kw = solcastKwAtTime(rows, t);
+    if (kw != null) out.push({ t, v: kw });
   }
-  if (relevant.length < 2) return [];
-
-  return interpolatePointsToPeriod(relevant, STATISTICS_PERIOD_MS, range.tMin, range.tMax, {
-    allowBackfill: false,
-  });
+  const nowKw = solcastKwAtTime(rows, nowMs);
+  if (nowKw != null && !out.some((p) => Math.abs(p.t - nowMs) <= STATISTICS_PERIOD_MS * 0.6)) {
+    out.push({ t: nowMs, v: nowKw });
+  }
+  return out.sort((a, b) => a.t - b.t);
 }
 
 function solcastIntradayForecastPoints(plantState, range) {
@@ -5135,13 +5145,12 @@ function renderStatisticsChartHtml(series, range, options = {}) {
       const future = clipped.filter((p) => p.t >= nowMs);
       segmentGroups = [];
       if (past.length >= 2) segmentGroups.push({ pts: past, dash: "" });
-      if (future.length >= 2) {
-        const futurePts =
-          past.length && past[past.length - 1].t < nowMs
-            ? [past[past.length - 1], ...future.filter((p) => p.t > past[past.length - 1].t)]
-            : future;
-        if (futurePts.length >= 2) segmentGroups.push({ pts: futurePts, dash: "5 4" });
-      }
+      const futurePts =
+        past.length && past[past.length - 1].t < nowMs
+          ? [past[past.length - 1], ...future.filter((p) => p.t > past[past.length - 1].t)]
+          : future;
+      if (futurePts.length >= 2) segmentGroups.push({ pts: futurePts, dash: "5 4" });
+      else if (!past.length && future.length >= 2) segmentGroups.push({ pts: future, dash: "5 4" });
       if (!segmentGroups.length) segmentGroups.push({ pts: clipped, dash: "" });
     } else {
       const segmentPoints = s.connectGaps ? [clipped] : splitStatisticsSegments(clipped);
