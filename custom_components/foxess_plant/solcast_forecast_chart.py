@@ -347,12 +347,14 @@ def build_statistics_forecast_overlay(
                 merged[t] = float(point["v"])
 
     if len(detailed_rows) >= 2:
-        grace_ms = float(STATISTICS_PERIOD_MS)
+        now_kw = _kw_at_time(detailed_rows, now)
+        if now_kw is not None:
+            merged[float(as_of_ms)] = float(now_kw)
         slot = int(day_start_ms)
         while slot <= t_max_ms:
-            if slot >= as_of_ms - grace_ms:
+            if slot > as_of_ms:
                 when = _utc_from_timestamp(slot / 1000)
-                kw = _kw_at_or_after(detailed_rows, when)
+                kw = _kw_at_time(detailed_rows, when)
                 if kw is not None:
                     merged[float(slot)] = float(kw)
             slot += STATISTICS_PERIOD_MS

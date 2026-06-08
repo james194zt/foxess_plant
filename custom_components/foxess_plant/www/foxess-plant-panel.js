@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.142
+ * @version 0.9.143
  */
 
 const NAV = [
@@ -170,7 +170,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.142";
+const PANEL_VERSION = "0.9.143";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -741,6 +741,53 @@ function forecastHasFuturePoints(points, nowMs) {
   );
 }
 
+/** kW for the Solcast interval containing *tMs* (uses period_start, not period_end). */
+function solcastKwAtTime(rows, tMs) {
+  if (!Array.isArray(rows) || !Number.isFinite(tMs)) return null;
+  const intervals = rows
+    .map((row) => {
+      const start = parseSolcastPeriodMs(row.period_start ?? row.period);
+      let end = parseSolcastPeriodMs(row.period_end);
+      if (!Number.isFinite(end) && Number.isFinite(start)) end = start + 30 * 60 * 1000;
+      let v = Number(row.pv_estimate ?? row.pv_power_rooftop ?? row.power ?? row.pv_power);
+      if (!Number.isFinite(start) || !Number.isFinite(v)) return null;
+      if (Math.abs(v) > 50) v /= 1000;
+      return { start, end, v };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.start - b.start);
+  for (const iv of intervals) {
+    if (tMs >= iv.start && tMs < iv.end) return iv.v;
+  }
+  const last = intervals[intervals.length - 1];
+  return last && tMs >= last.start ? last.v : null;
+}
+
+/** Insert a forecast point at *nowMs* when revision history and future slots do not meet. */
+function bridgeForecastGapAtNow(points, nowMs, preferKw, detailedRows) {
+  if (!Array.isArray(points) || points.length < 2 || !Number.isFinite(nowMs)) return points || [];
+  const sorted = [...points].sort((a, b) => a.t - b.t);
+  if (sorted.some((p) => Math.abs(p.t - nowMs) <= STATISTICS_PERIOD_MS * 0.6)) return sorted;
+
+  const lastBefore = [...sorted].filter((p) => p.t <= nowMs).pop();
+  const firstAfter = sorted.find((p) => p.t > nowMs);
+  if (!firstAfter) return sorted;
+
+  const gap = firstAfter.t - (lastBefore?.t ?? nowMs);
+  if (gap <= STATISTICS_PERIOD_MS * 1.5) return sorted;
+
+  let v = Number.isFinite(preferKw) ? preferKw : null;
+  if (v == null && detailedRows?.length) v = solcastKwAtTime(detailedRows, nowMs);
+  if (v == null) v = interpolateSeriesAt(sorted, nowMs, { allowBackfill: true });
+  if (v == null && lastBefore) v = lastBefore.v;
+  if (v == null) v = firstAfter.v;
+  if (!Number.isFinite(v)) return sorted;
+
+  const out = sorted.filter((p) => Math.abs(p.t - nowMs) > 500);
+  out.push({ t: nowMs, v });
+  return out.sort((a, b) => a.t - b.t);
+}
+
 function mergeForecastPointsWithFuture(intradayPts, detailedPts, nowMs) {
   if (!Array.isArray(intradayPts) || intradayPts.length < 2) {
     return Array.isArray(detailedPts) && detailedPts.length >= 2 ? detailedPts : intradayPts || [];
@@ -791,14 +838,19 @@ function buildStatisticsForecastPoints(
   if (fPoints.length < 2 && Array.isArray(fallbackPoints) && fallbackPoints.length >= 2) {
     fPoints = fallbackPoints;
   }
+  const detailedRows = resolveBestSolcastDetailedRows(plantState, forecastState, hass);
   if (fPoints.length >= 2) {
-    const detailed = detailedForecastToChartPoints(
-      resolveBestSolcastDetailedRows(plantState, forecastState, hass),
-      range
-    );
+    const detailed = detailedForecastToChartPoints(detailedRows, range);
     fPoints = mergeForecastPointsWithFuture(fPoints, detailed, nowMs);
   }
-  return augmentForecastWithServerFuture(fPoints, range, serverPoints, nowMs);
+  fPoints = augmentForecastWithServerFuture(fPoints, range, serverPoints, nowMs);
+  const nowKw = plantState?.solcast?.pv_power_now_kw;
+  return bridgeForecastGapAtNow(
+    fPoints,
+    nowMs,
+    nowKw != null ? Number(nowKw) : null,
+    detailedRows
+  );
 }
 
 function mergeStatisticsForecastSeries(
@@ -1455,7 +1507,7 @@ function detailedForecastToChartPoints(rows, range) {
   if (!Array.isArray(rows) || rows.length < 2) return [];
   const raw = rows
     .map((row) => {
-      const t = parseSolcastPeriodMs(row.period_end ?? row.period_start ?? row.period);
+      const t = parseSolcastPeriodMs(row.period_start ?? row.period_end ?? row.period);
       let v = Number(row.pv_estimate ?? row.pv_power_rooftop ?? row.power ?? row.pv_power);
       if (!Number.isFinite(t) || !Number.isFinite(v)) return null;
       if (Math.abs(v) > 50) v /= 1000;
