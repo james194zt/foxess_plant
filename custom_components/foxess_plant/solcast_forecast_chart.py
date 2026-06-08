@@ -347,9 +347,6 @@ def build_statistics_forecast_overlay(
                 merged[t] = float(point["v"])
 
     if len(detailed_rows) >= 2:
-        now_kw = _kw_at_time(detailed_rows, now)
-        if now_kw is not None:
-            merged[float(as_of_ms)] = float(now_kw)
         grace_ms = float(STATISTICS_PERIOD_MS)
         slot = int(day_start_ms)
         while slot <= t_max_ms:

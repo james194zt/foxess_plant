@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.144
+ * @version 0.9.145
  */
 
 const NAV = [
@@ -170,7 +170,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.144";
+const PANEL_VERSION = "0.9.145";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -750,14 +750,14 @@ function buildSolcastIntervalSeries(rows) {
       let v = Number(row.pv_estimate ?? row.pv_power_rooftop ?? row.power ?? row.pv_power);
       if (!Number.isFinite(start) || !Number.isFinite(v)) return null;
       if (Math.abs(v) > 50) v /= 1000;
-      return { start, v };
+      return { start, v, row };
     })
     .filter(Boolean)
     .sort((a, b) => a.start - b.start);
   const intervals = [];
   for (let i = 0; i < parsed.length; i += 1) {
     const start = parsed[i].start;
-    let end = parseSolcastPeriodMs(rows[i]?.period_end);
+    let end = parseSolcastPeriodMs(parsed[i].row?.period_end);
     if (!Number.isFinite(end) || end <= start) {
       end = i + 1 < parsed.length ? parsed[i + 1].start : start + 30 * 60 * 1000;
     }
@@ -833,13 +833,10 @@ function filterStatisticsForecastServerPoints(serverPoints, range) {
 }
 
 function augmentForecastWithServerFuture(fPoints, range, serverPoints, nowMs) {
-  const client = Array.isArray(fPoints) ? fPoints : [];
-  if (forecastHasFuturePoints(client, nowMs)) return client;
+  if (forecastHasFuturePoints(fPoints, nowMs)) return fPoints || [];
   const server = filterStatisticsForecastServerPoints(serverPoints, range);
-  if (server.length < 2) return client;
-  const base = client.length >= 2 ? client : server;
-  const merged = mergeForecastPointsWithFuture(base, server, nowMs);
-  return forecastHasFuturePoints(merged, nowMs) ? merged : client.length >= 2 ? client : merged;
+  if (server.length < 2) return fPoints || [];
+  return mergeForecastPointsWithFuture(fPoints?.length >= 2 ? fPoints : server, server, nowMs);
 }
 
 function buildStatisticsForecastPoints(
@@ -851,20 +848,27 @@ function buildStatisticsForecastPoints(
   { fallbackPoints = null } = {}
 ) {
   const nowMs = range?.nowMs ?? Date.now();
-  let fPoints = buildForecastSeriesPoints(plantState, range, hass, forecastState);
-  if (fPoints.length < 2 && Array.isArray(fallbackPoints) && fallbackPoints.length >= 2) {
-    fPoints = fallbackPoints;
-  }
   const detailedRows = resolveBestSolcastDetailedRows(plantState, forecastState, hass);
-  const detailed = detailedForecastToChartPoints(detailedRows, range);
-  if (detailed.length >= 2) {
-    fPoints =
-      fPoints.length >= 2
-        ? mergeForecastPointsWithFuture(fPoints, detailed, nowMs)
-        : detailed;
+  const server = filterStatisticsForecastServerPoints(serverPoints, range);
+  let fPoints = server.length >= 2 ? server : [];
+
+  if (fPoints.length < 2) {
+    fPoints = buildForecastSeriesPoints(plantState, range, hass, forecastState);
+    if (fPoints.length < 2 && Array.isArray(fallbackPoints) && fallbackPoints.length >= 2) {
+      fPoints = fallbackPoints;
+    }
+    if (fPoints.length >= 2) {
+      const detailed = detailedForecastToChartPoints(detailedRows, range);
+      fPoints = mergeForecastPointsWithFuture(fPoints, detailed, nowMs);
+    } else {
+      const detailed = detailedForecastToChartPoints(detailedRows, range);
+      if (detailed.length >= 2) fPoints = detailed;
+    }
+    fPoints = augmentForecastWithServerFuture(fPoints, range, serverPoints, nowMs);
   }
-  fPoints = augmentForecastWithServerFuture(fPoints, range, serverPoints, nowMs);
-  const nowKw = plantState?.solcast?.pv_power_now_kw;
+
+  const nowKw =
+    plantState?.solcast?.pv_power_now_kw ?? forecastState?.solcast?.pv_power_now_kw;
   return bridgeForecastGapAtNow(
     fPoints,
     nowMs,
@@ -891,7 +895,15 @@ function mergeStatisticsForecastSeries(
   });
   if (fPoints.length < 2) {
     const existing = series.find((s) => s.id === "forecast");
-    return existing?.points?.length >= 2 ? series : without;
+    if (existing?.points?.length >= 2) return series;
+    const serverOnly = filterStatisticsForecastServerPoints(serverForecastPoints, range);
+    if (serverOnly.length >= 2) {
+      return [
+        ...without,
+        { id: "forecast", ...FORECAST_CHART_STYLE, connectGaps: true, points: serverOnly },
+      ];
+    }
+    return without;
   }
   return [
     ...without,
@@ -1524,19 +1536,29 @@ function parseSolcastPeriodMs(raw) {
 }
 
 function detailedForecastToChartPoints(rows, range) {
-  const intervals = buildSolcastIntervalSeries(rows);
-  if (!intervals.length) return [];
-  const nowMs = range?.nowMs ?? Date.now();
-  const out = [];
-  for (let t = range.tMin; t <= range.tMax; t += STATISTICS_PERIOD_MS) {
-    const kw = solcastKwAtTime(rows, t);
-    if (kw != null) out.push({ t, v: kw });
+  if (!Array.isArray(rows) || rows.length < 2) return [];
+  const raw = rows
+    .map((row) => {
+      const t = parseSolcastPeriodMs(row.period_start ?? row.period_end ?? row.period);
+      let v = Number(row.pv_estimate ?? row.pv_power_rooftop ?? row.power ?? row.pv_power);
+      if (!Number.isFinite(t) || !Number.isFinite(v)) return null;
+      if (Math.abs(v) > 50) v /= 1000;
+      return { t, v };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.t - b.t);
+  if (raw.length < 2) return [];
+
+  const graceMs = 36e5;
+  let relevant = raw.filter((p) => p.t >= range.tMin - graceMs && p.t <= range.tMax);
+  if (relevant.length < 2) {
+    relevant = raw.filter((p) => p.t >= range.nowMs - STATISTICS_PERIOD_MS * 2 && p.t <= range.tMax);
   }
-  const nowKw = solcastKwAtTime(rows, nowMs);
-  if (nowKw != null && !out.some((p) => Math.abs(p.t - nowMs) <= STATISTICS_PERIOD_MS * 0.6)) {
-    out.push({ t: nowMs, v: nowKw });
-  }
-  return out.sort((a, b) => a.t - b.t);
+  if (relevant.length < 2) return [];
+
+  return interpolatePointsToPeriod(relevant, STATISTICS_PERIOD_MS, range.tMin, range.tMax, {
+    allowBackfill: false,
+  });
 }
 
 function solcastIntradayForecastPoints(plantState, range) {
@@ -4543,7 +4565,7 @@ async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset =
       hass,
       serverForecastPoints
     );
-    if (fPoints.length) {
+    if (fPoints.length >= 2) {
       series.push({
         id: "forecast",
         ...FORECAST_CHART_STYLE,
@@ -7842,6 +7864,7 @@ Reloading panel registration…
       if (forecastPart !== this._statisticsForecastSlotTrack) {
         this._statisticsForecastSlotTrack = forecastPart;
         this._energyAnalysisChartSlotCache = undefined;
+        void this._refreshStatisticsServerForecast();
       }
       if (!this._socDrag) this._scheduleRender();
       void this._syncPanelIfStale();
@@ -7971,6 +7994,21 @@ Reloading panel registration…
     const accOverview = this._forecastAccuracyOverview?.intraday?.predicted_power_kw?.length ?? 0;
     const accAnalysis = this._forecastAccuracyAnalysis?.intraday?.predicted_power_kw?.length ?? 0;
     return `${intraday}:${detailed}:${accOverview}:${accAnalysis}`;
+  }
+
+  async _refreshStatisticsServerForecast() {
+    const plant = this._getPlant();
+    if (!plant || !this._hass || !this._statisticsChart || (this._statisticsChart.dayOffset ?? 0) > 0) return;
+    try {
+      const points = await fetchSolcastStatisticsForecastPoints(this._hass, plant);
+      if (points.length >= 2 && this._statisticsChart) {
+        this._statisticsChart.serverForecastPoints = points;
+        this._energyAnalysisChartSlotCache = undefined;
+        this._scheduleRender();
+      }
+    } catch {
+      /* server overlay optional */
+    }
   }
 
   _statisticsSeriesForDisplay() {
