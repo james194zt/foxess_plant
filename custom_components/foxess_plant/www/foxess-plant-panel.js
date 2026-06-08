@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.145
+ * @version 0.9.146
  */
 
 const NAV = [
@@ -170,7 +170,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.145";
+const PANEL_VERSION = "0.9.146";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -7098,6 +7098,17 @@ const STYLES = `
 .fox-flow-badge-grid { left: 4%; bottom: 6%; align-items: flex-start; }
 .fox-flow-badge-battery { left: 50%; bottom: 6%; transform: translateX(-50%); }
 .fox-flow-badge-home { right: 4%; bottom: 6%; align-items: flex-end; }
+/* HA light theme — bottom badges sit on white canvas letterboxing */
+.fox-flow-scene--ha-light .fox-flow-badge-grid .fox-flow-badge-label,
+.fox-flow-scene--ha-light .fox-flow-badge-battery .fox-flow-badge-label,
+.fox-flow-scene--ha-light .fox-flow-badge-home .fox-flow-badge-label {
+  color: var(--secondary-text-color, rgba(30, 30, 30, 0.72));
+}
+.fox-flow-scene--ha-light .fox-flow-badge-grid .fox-flow-badge-value,
+.fox-flow-scene--ha-light .fox-flow-badge-battery .fox-flow-badge-value,
+.fox-flow-scene--ha-light .fox-flow-badge-home .fox-flow-badge-value {
+  color: var(--primary-text-color, #1a1a1a);
+}
 .flow-path { fill: none; stroke-linecap: round; stroke-linejoin: round; }
 .flow-path-idle { opacity: 1; }
 .flow-path-idle-outline { opacity: 1; pointer-events: none; }
