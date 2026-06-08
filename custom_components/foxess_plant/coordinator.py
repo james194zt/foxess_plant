@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import timedelta
 from typing import Any
@@ -100,6 +101,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._solcast_store = None
         self._solcast_history_count = 0
         self._solcast_forecast_chart_points: list[dict[str, float]] = []
+        self._solcast_refresh_lock = asyncio.Lock()
         self._tariff_store = None
         self._tariff_history_count = 0
         self._tariff_rate_sensors: dict[str, Any] = {}
@@ -419,11 +421,53 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         _LOGGER.info("Repaired Solcast forecast storage from history snapshot")
 
+    def _solcast_pv_active(self) -> bool:
+        """True when automatic Solcast PV polling is configured (matches async_refresh_solcast gates)."""
+        sc = self.plant.solcast
+        if not (sc.enabled and sc.api_key_configured() and sc.fetch_pv_forecast):
+            return False
+        from .solcast_pv import build_rooftop_pv_requests
+
+        return bool(build_rooftop_pv_requests(self.plant.pv_config))
+
+    def _solcast_forecast_covers_now(self) -> bool:
+        """True when cached detailed forecast still has a future interval."""
+        rows = self._solcast_detailed_forecast_rows()
+        if len(rows) < 2:
+            return False
+        from homeassistant.util import dt as dt_util
+
+        from .solcast_forecast_metrics import _build_intervals
+
+        now = dt_util.now()
+        return any(interval.end > now for interval in _build_intervals(rows))
+
+    def _solcast_poll_due(self) -> bool:
+        """True when schedule says a poll is due (same logic as panel next-fetch status)."""
+        if not self._solcast_pv_active():
+            return False
+        from .solcast_poll import should_poll_now, solcast_next_fetch
+        from .solcast_pv import build_rooftop_pv_requests
+
+        if not should_poll_now(self.hass, self.plant.solcast):
+            return False
+        pv_calls = max(1, len(build_rooftop_pv_requests(self.plant.pv_config)) or 1)
+        next_fetch = solcast_next_fetch(
+            self.hass, self.plant.solcast, self._solcast_cache, pv_calls=pv_calls
+        )
+        return (next_fetch or {}).get("status") == "due_now"
+
     async def async_ensure_solcast_cache(self) -> None:
-        """Load persisted forecast if memory is empty or missing detailed rows (e.g. early panel open)."""
-        if len(self._solcast_detailed_forecast_rows()) >= 2:
+        """Load persisted forecast; poll when due if cache is empty or stale."""
+        if len(self._solcast_detailed_forecast_rows()) < 2:
+            await self._async_load_solcast_storage()
+        if self._solcast_forecast_covers_now():
             return
-        await self._async_load_solcast_storage()
+        if self._solcast_poll_due():
+            try:
+                await self._async_refresh_solcast_pv()
+            except Exception:
+                _LOGGER.exception("Opportunistic Solcast PV poll failed")
 
     async def async_config_entry_first_refresh(self) -> None:
         await self._async_load_solcast_storage()
@@ -439,7 +483,13 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._setup_smart_charge_timer()
         try:
             await self._async_refresh_storm_weather()
+        except Exception as err:
+            _LOGGER.warning("Initial storm weather sync failed: %s", err)
+        try:
             await self._async_refresh_solcast_pv()
+        except Exception as err:
+            _LOGGER.warning("Initial Solcast PV poll failed: %s", err)
+        try:
             if self._octopus_native_active():
                 await self._async_refresh_octopus()
             await self._sync_automation_policy()
@@ -494,38 +544,31 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _solcast_timer_callback(self, _now) -> None:
         self.hass.async_create_task(self._async_refresh_solcast_pv())
 
-    def _solcast_pv_active(self) -> bool:
-        sc = self.plant.solcast
-        return bool(
-            sc.enabled
-            and sc.api_key_configured()
-            and sc.fetch_pv_forecast
-            and sc.coordinates_configured()
-        )
-
     async def _async_refresh_solcast_pv(self, *, force: bool = False) -> None:
         """Poll Solcast rooftop PV forecast (Google Weather handles storms/overview)."""
         if not self._solcast_pv_active():
             return
         from .solcast_poll import async_refresh_solcast
 
-        self._solcast_cache = await async_refresh_solcast(
-            self.hass, self.plant, self._solcast_cache, force=force
-        )
-        if (
-            self._solcast_store
-            and self._solcast_cache.get("pv_forecast_parsed")
-        ):
-            self._solcast_history_count = await self._solcast_store.async_record_poll(
-                self._solcast_cache
-            )
-            await self._safe_archive_solcast_daily_forecasts()
-            await self._rebuild_solcast_forecast_chart()
-            _LOGGER.debug(
-                "Persisted Solcast forecast to storage (%s periods)",
-                (self._solcast_cache.get("pv_forecast_parsed") or {}).get("period_count"),
-            )
-        self._persist_solcast_usage()
+        async with self._solcast_refresh_lock:
+            try:
+                self._solcast_cache = await async_refresh_solcast(
+                    self.hass, self.plant, self._solcast_cache, force=force
+                )
+            except Exception:
+                _LOGGER.exception("Solcast PV forecast fetch failed")
+                return
+            if self._solcast_store and self._solcast_cache.get("pv_forecast_parsed"):
+                self._solcast_history_count = await self._solcast_store.async_record_poll(
+                    self._solcast_cache
+                )
+                await self._safe_archive_solcast_daily_forecasts()
+                await self._rebuild_solcast_forecast_chart()
+                _LOGGER.debug(
+                    "Persisted Solcast forecast to storage (%s periods)",
+                    (self._solcast_cache.get("pv_forecast_parsed") or {}).get("period_count"),
+                )
+            self._persist_solcast_usage()
         await self.async_request_refresh()
 
     async def _async_refresh_storm_weather(self) -> None:
