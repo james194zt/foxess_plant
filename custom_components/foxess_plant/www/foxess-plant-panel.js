@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.149
+ * @version 0.9.150
  */
 
 const NAV = [
@@ -170,7 +170,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.149";
+const PANEL_VERSION = "0.9.150";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -813,7 +813,6 @@ function mergeForecastPointsWithFuture(intradayPts, detailedPts, nowMs) {
   if (!Array.isArray(intradayPts) || intradayPts.length < 2) {
     return Array.isArray(detailedPts) && detailedPts.length >= 2 ? detailedPts : intradayPts || [];
   }
-  if (intradayPts.some((p) => p.t > nowMs + STATISTICS_PERIOD_MS * 0.5)) return intradayPts;
   if (!Array.isArray(detailedPts) || detailedPts.length < 2) return intradayPts;
   const future = detailedPts.filter((p) => p.t >= nowMs - STATISTICS_PERIOD_MS);
   if (!future.length) return intradayPts;
@@ -853,11 +852,23 @@ function augmentForecastWithServerPast(fPoints, range, serverPoints, nowMs) {
   return merged.length >= 2 ? merged : fPoints || [];
 }
 
+function forecastFutureEndMs(points, nowMs) {
+  const future = (points || []).filter((p) => p.t > nowMs + STATISTICS_PERIOD_MS * 0.5);
+  return future.length ? future[future.length - 1].t : 0;
+}
+
 function augmentForecastWithServerFuture(fPoints, range, serverPoints, nowMs) {
-  if (forecastHasFuturePoints(fPoints, nowMs)) return fPoints || [];
   const server = filterStatisticsForecastServerPoints(serverPoints, range);
   if (server.length < 2) return fPoints || [];
-  return mergeForecastPointsWithFuture(fPoints?.length >= 2 ? fPoints : server, server, nowMs);
+  const client = fPoints?.length >= 2 ? fPoints : [];
+  const serverFuture = server.filter((p) => p.t > nowMs + STATISTICS_PERIOD_MS * 0.5);
+  if (serverFuture.length < 2) return client.length >= 2 ? client : server;
+  const clientEnd = forecastFutureEndMs(client, nowMs);
+  const serverEnd = serverFuture[serverFuture.length - 1].t;
+  if (forecastHasFuturePoints(client, nowMs) && clientEnd >= serverEnd - STATISTICS_PERIOD_MS) {
+    return client;
+  }
+  return mergeForecastPointsWithFuture(client.length >= 2 ? client : server, server, nowMs);
 }
 
 function buildStatisticsForecastPoints(
