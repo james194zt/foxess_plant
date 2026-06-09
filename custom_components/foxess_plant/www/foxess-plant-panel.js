@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.151
+ * @version 0.9.152
  */
 
 const NAV = [
@@ -170,7 +170,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.151";
+const PANEL_VERSION = "0.9.152";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -831,16 +831,41 @@ function filterStatisticsForecastServerPoints(serverPoints, range) {
     .sort((a, b) => a.t - b.t);
 }
 
-/** Revision past (client) + Solcast slots after now (server overlay, v0.9.148 future path). */
-function combineStatisticsForecastPastAndFuture(clientPast, server, nowMs) {
-  const past = (clientPast || [])
+function forecastRevisionPastPoints(plantState, forecastState, range, nowMs, fallbackPoints) {
+  let intraday = solcastIntradayForecastPoints(plantState, range);
+  if (forecastState) {
+    const extra = solcastIntradayForecastPoints(forecastState, range);
+    if (extra.length > intraday.length) intraday = extra;
+  }
+  let past = intraday.filter((p) => Number.isFinite(p.t) && p.t <= nowMs);
+  if (past.length < 2 && Array.isArray(fallbackPoints) && fallbackPoints.length >= 2) {
+    const fb = fallbackPoints.filter((p) => Number.isFinite(p.t) && p.t <= nowMs);
+    if (fb.length >= 2) past = fb;
+  }
+  return past;
+}
+
+/** Revision past (intraday) + Solcast slots after now (server overlay). */
+function combineStatisticsForecastPastAndFuture(revisionPast, server, nowMs) {
+  let past = (revisionPast || [])
+    .filter((p) => Number.isFinite(p.t) && p.t <= nowMs)
+    .sort((a, b) => a.t - b.t);
+  const serverPast = (server || [])
     .filter((p) => Number.isFinite(p.t) && p.t <= nowMs)
     .sort((a, b) => a.t - b.t);
   const serverFuture = (server || [])
     .filter((p) => Number.isFinite(p.t) && p.t > nowMs)
     .sort((a, b) => a.t - b.t);
-  if (past.length < 2) return server.length >= 2 ? server : past;
+
+  if (past.length < 2 && serverPast.length >= 2) past = serverPast;
+
+  if (past.length < 2) {
+    if (server.length >= 2) return server;
+    return past;
+  }
+
   if (serverFuture.length < 1) return mergeForecastPointsWithFuture(past, server, nowMs);
+
   const merged = [...past];
   let lastT = merged[merged.length - 1].t;
   for (const p of serverFuture) {
@@ -864,28 +889,37 @@ function buildStatisticsForecastPoints(
   const detailedRows = resolveBestSolcastDetailedRows(plantState, forecastState, hass);
   const server = filterStatisticsForecastServerPoints(serverPoints, range);
   const detailed = detailedForecastToChartPoints(detailedRows, range);
-
-  let clientPts = buildForecastSeriesPoints(plantState, range, hass, forecastState);
-  if (clientPts.length < 2 && Array.isArray(fallbackPoints) && fallbackPoints.length >= 2) {
-    clientPts = fallbackPoints;
-  }
-  const clientPast = clientPts.filter((p) => Number.isFinite(p.t) && p.t <= nowMs);
+  const revisionPast = forecastRevisionPastPoints(
+    plantState,
+    forecastState,
+    range,
+    nowMs,
+    fallbackPoints
+  );
 
   let fPoints = [];
   if (server.length >= 2) {
-    fPoints = combineStatisticsForecastPastAndFuture(clientPast, server, nowMs);
+    fPoints = combineStatisticsForecastPastAndFuture(revisionPast, server, nowMs);
     if (!forecastHasFuturePoints(fPoints, nowMs) && detailed.length >= 2) {
       const pastBase = fPoints.filter((p) => p.t <= nowMs);
       fPoints = mergeForecastPointsWithFuture(
-        pastBase.length >= 2 ? pastBase : fPoints,
+        pastBase.length >= 2 ? pastBase : revisionPast,
         detailed,
         nowMs
       );
     }
-  } else if (clientPts.length >= 2) {
-    fPoints = mergeForecastPointsWithFuture(clientPts, detailed, nowMs);
-  } else if (detailed.length >= 2) {
-    fPoints = detailed;
+  } else {
+    let clientPts = buildForecastSeriesPoints(plantState, range, hass, forecastState);
+    if (clientPts.length < 2 && Array.isArray(fallbackPoints) && fallbackPoints.length >= 2) {
+      clientPts = fallbackPoints;
+    }
+    if (clientPts.length >= 2) {
+      fPoints = mergeForecastPointsWithFuture(clientPts, detailed, nowMs);
+    } else if (revisionPast.length >= 2) {
+      fPoints = mergeForecastPointsWithFuture(revisionPast, detailed, nowMs);
+    } else if (detailed.length >= 2) {
+      fPoints = detailed;
+    }
   }
 
   const nowKw =
