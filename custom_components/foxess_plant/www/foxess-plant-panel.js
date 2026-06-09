@@ -1,14 +1,67 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.159
+ * @version 0.9.160
  */
 
 const NAV = [
   { id: "overview", label: "Overview" },
   { id: "device", label: "Device" },
+  { id: "device_new", label: "Devices (new)" },
   { id: "energy_analysis", label: "Analysis" },
   { id: "settings", label: "Settings" },
+];
+
+const DEVICE_NEW_NAV = [
+  { id: "analysis", label: "Analysis" },
+  { id: "realtime", label: "Real-time" },
+];
+
+const DEVICE_NEW_ENERGY_PERIOD_TABS = [
+  { id: "week", label: "Week" },
+  { id: "month", label: "Month" },
+  { id: "year", label: "Year" },
+  { id: "total", label: "Total" },
+];
+
+/** Fox Cloud device Analysis real-time curve series. */
+const DEVICE_REALTIME_CHART_SERIES = [
+  {
+    key: "pv_power",
+    label: "PV Power",
+    legendGroup: "pv",
+    color: "#19D4DE",
+    toKw: true,
+    fill: false,
+    lineWidth: 1.6,
+  },
+  {
+    key: "eps_power_R",
+    label: "EPS Power",
+    legendGroup: "eps",
+    color: "#FF6FAF",
+    toKw: true,
+    fill: false,
+    lineWidth: 1.4,
+  },
+  {
+    key: "inv_power",
+    label: "Output AC Power",
+    legendGroup: "ac",
+    color: "#2F6BFF",
+    toKw: true,
+    fill: false,
+    lineWidth: 1.4,
+  },
+  {
+    key: "battery_power",
+    label: "Battery Power",
+    legendGroup: "battery",
+    color: "#F5C542",
+    toKw: true,
+    fill: false,
+    lineWidth: 1.4,
+  },
 ];
 
 function normalizePanelView(view) {
@@ -170,7 +223,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.159";
+const PANEL_VERSION = "0.9.160";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -2275,6 +2328,144 @@ function renderDeviceBatteryCard(flows, tempDisplay) {
 </div>`;
 }
 
+function deviceNewDischargeKw(flows) {
+  const w = Number(flows?.batteryW) || 0;
+  if (w > 50) return w / 1000;
+  const status = String(flows?.batteryStatus || "").toLowerCase();
+  if (status.includes("discharg")) return Math.abs(w) / 1000;
+  return 0;
+}
+
+function renderDeviceNewSummaryCards(hass, plant, plantState) {
+  const flows = readEnergyFlows(hass, plant, plantState);
+  const map = resolveEntityMap(hass, plant, plantState);
+  const tempRaw = stateString(hass, map.bms_temp_low);
+  const tempDisplay = tempRaw !== "—" ? `${tempRaw} ℃` : "—";
+  const cards = [
+    { label: "PV Power", value: formatDevicePowerKw(flows.pvW), tone: "pv" },
+    { label: "Battery SOC", value: formatPercent(flows.batterySoc), tone: "soc" },
+    {
+      label: "Discharging power",
+      value: `${deviceNewDischargeKw(flows).toFixed(3)} kW`,
+      tone: "discharge",
+    },
+    { label: "Min. Battery Temperature", value: tempDisplay, tone: "temp" },
+  ];
+  return `<div class="fox-device-new-summary">${cards
+    .map(
+      (c) =>
+        `<div class="fox-device-new-summary-card fox-device-new-summary-card--${c.tone}"><span class="fox-device-new-summary-label">${esc(c.label)}</span><strong class="fox-device-new-summary-value">${esc(c.value)}</strong></div>`
+    )
+    .join("")}</div>`;
+}
+
+function renderDeviceNewSidebar(hass, plant, plantState) {
+  const id = plantState?.identity ?? {};
+  const map = resolveEntityMap(hass, plant, plantState);
+  const serial = plantDeviceSerial(hass, plant, plantState);
+  const model = plantModelSubtitle(hass, plant, plantState);
+  const status = foxInverterStateLabel(hass, plant, plantState);
+  const meterOnline =
+    id.bms_online === true ||
+    id.bms_online === "on" ||
+    (map.bms_online && hass?.states?.[map.bms_online]?.state === "on");
+  const rows = [
+    ["State", status !== "—" ? status : null],
+    ["Meter", meterOnline ? "Online" : id.bms_online === false || id.bms_online === "off" ? "Offline" : null],
+    ["PCS SN", serial !== "—" ? serial : id.pcs_serial_number || null],
+    [
+      "Battery SN",
+      id.bms_pack_serial_modbus ||
+        entityDisplayValue(hass, map.bms_pack_serial_modbus) ||
+        null,
+    ],
+    ["Plant", plant?.title || null],
+    ["Model", model !== "—" ? model : id.pcs_model_name || null],
+    ["Version_Master", id.master_version || entityDisplayValue(hass, map.master_version)],
+    ["Version_Slave", id.slave_version || entityDisplayValue(hass, map.slave_version)],
+    ["Version_Manager", id.manager_version || entityDisplayValue(hass, map.manager_version)],
+    [
+      "Version_BCU",
+      id.bms_pack_1_version ||
+        entityDisplayValue(hass, map.bms_pack_1_version) ||
+        null,
+    ],
+    ["Version_AFCI", entityDisplayValue(hass, map.afci_version)],
+  ].filter(([, value]) => value != null && value !== "" && value !== "—");
+  const statusBadge =
+    status !== "—"
+      ? `<span class="fox-pill overview-fox-status ${foxStatusToneClass(status)}">${esc(status)}</span>`
+      : "";
+  const body = rows.length
+    ? `<dl class="fox-device-new-sidebar-list">${rows
+        .map(
+          ([label, value]) =>
+            `<div class="fox-device-new-sidebar-row"><dt>${esc(label)}</dt><dd>${esc(String(value))}</dd></div>`
+        )
+        .join("")}</dl>`
+    : `<p class="placeholder">No device identity available yet.</p>`;
+  return `<aside class="fox-device-new-sidebar">
+<div class="fox-device-new-sidebar-head">
+<img class="fox-device-new-sidebar-img" src="${esc(DEVICE_EVO_IMAGE_STATIC)}" alt="" loading="lazy" />
+<div><h2 class="fox-device-new-sidebar-title">${esc(plant?.title || "Inverter")}</h2>${statusBadge}</div>
+</div>
+${body}
+</aside>`;
+}
+
+async function fetchDeviceRealtimeChartSeries(hass, plant, plantState, { dayOffset = 0 } = {}) {
+  const map = resolveEntityMap(hass, plant, plantState);
+  const specs = DEVICE_REALTIME_CHART_SERIES.map((s) => ({ ...s, entity_id: map[s.key] })).filter(
+    (s) => s.entity_id
+  );
+  if (!specs.length) {
+    return { empty: "Map inverter power entities in FoxESS Modbus, then reload FoxESS Plant." };
+  }
+  const now = new Date();
+  const day = startOfLocalDay(now);
+  day.setDate(day.getDate() - Math.max(0, dayOffset));
+  const range = getStatisticsDayRangeForDate(day, { asOf: dayOffset === 0 ? now : endOfLocalDay(day) });
+  const fetchEnd = new Date(range.nowMs);
+  const start = new Date(range.tMin);
+  const socId = map.battery_soc;
+  const entityIds = [...new Set([...specs.map((s) => s.entity_id), socId].filter(Boolean))];
+  const [statsMap, hist] = await Promise.all([
+    fetchStatisticsDuring(hass, entityIds, start, fetchEnd),
+    fetchHistoryDuring(hass, entityIds, start, fetchEnd),
+  ]);
+  const series = specs.map((spec) => ({
+    id: spec.key,
+    label: spec.label,
+    tooltipLabel: spec.label,
+    legendGroup: spec.legendGroup,
+    color: spec.color,
+    fill: spec.fill,
+    lineWidth: spec.lineWidth,
+    points: buildStatisticsSeriesPoints(hass, spec.entity_id, spec, range, statsMap, hist),
+  }));
+  let socSeries = null;
+  if (socId) {
+    const socPoints = buildSocHistoryPoints(hass, socId, range, statsMap, hist);
+    if (socPoints.length) {
+      socSeries = {
+        id: "battery_soc",
+        label: "Battery SOC",
+        tooltipLabel: "Battery SOC",
+        legendGroup: "soc",
+        yAxis: "soc",
+        color: STATISTICS_SOC_COLOR,
+        connectGaps: true,
+        lineWidth: 1.6,
+        points: socPoints,
+      };
+    }
+  }
+  if (!series.some((s) => s.points.length) && !socSeries?.points?.length) {
+    return { empty: "No power history for this day yet." };
+  }
+  return { series, socSeries, range, dayOffset };
+}
+
 /** Fox app Solar Analysis palette (matches dashboard plotly cards). */
 const FOX_ENERGY = {
   pv: "#05989A",
@@ -3265,6 +3456,7 @@ const DEVICE_PARAMETER_SECTIONS = [
       ["battery_cycles", "Battery cycles"],
     ],
   },
+  { id: "datalogger", title: "Datalogger Information", kind: "datalogger" },
 ];
 
 const ANALYTICS_STATE_KEYS = [
@@ -7297,6 +7489,70 @@ const STYLES = `
 .device-param-table th { color: var(--secondary-text-color); font-weight: 500; font-size: 12px; }
 .device-param-empty { padding: 14px 18px; font-size: 13px; color: var(--secondary-text-color); margin: 0; }
 .device-param-updated { text-align: center; font-size: 12px; color: var(--secondary-text-color); margin-top: 16px; }
+.fox-device-new-layout {
+  display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 16px; align-items: start;
+}
+.fox-device-new-sidebar {
+  position: sticky; top: 12px;
+  border: 1px solid var(--divider-color); border-radius: 14px;
+  background: var(--card-background-color); padding: 16px;
+}
+.fox-device-new-sidebar-head { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; }
+.fox-device-new-sidebar-img { width: 56px; height: 56px; object-fit: contain; flex-shrink: 0; }
+.fox-device-new-sidebar-title { margin: 0 0 6px; font-size: 15px; line-height: 1.25; }
+.fox-device-new-sidebar-list { margin: 0; }
+.fox-device-new-sidebar-row {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px;
+  padding: 8px 0; border-bottom: 1px solid var(--divider-color);
+  font-size: 12px;
+}
+.fox-device-new-sidebar-row:last-child { border-bottom: none; }
+.fox-device-new-sidebar-row dt { margin: 0; color: var(--secondary-text-color); font-weight: 500; }
+.fox-device-new-sidebar-row dd { margin: 0; text-align: right; font-weight: 600; color: var(--primary-text-color); word-break: break-word; }
+.fox-device-new-content { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.fox-device-new-summary {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;
+}
+.fox-device-new-summary-card {
+  border-radius: 12px; padding: 14px 16px; min-height: 72px;
+  display: flex; flex-direction: column; justify-content: center; gap: 6px;
+  border: 1px solid var(--divider-color);
+}
+.fox-device-new-summary-card--pv { background: rgba(25, 212, 222, 0.12); }
+.fox-device-new-summary-card--soc { background: rgba(138, 77, 255, 0.12); }
+.fox-device-new-summary-card--discharge { background: rgba(76, 175, 80, 0.12); }
+.fox-device-new-summary-card--temp { background: rgba(245, 197, 66, 0.14); }
+.fox-device-new-summary-label { font-size: 12px; color: var(--secondary-text-color); font-weight: 500; }
+.fox-device-new-summary-value { font-size: 20px; font-weight: 700; line-height: 1.15; color: var(--primary-text-color); }
+.fox-device-new-card {
+  border: 1px solid var(--divider-color); border-radius: 14px;
+  background: var(--card-background-color); padding: 16px;
+}
+.fox-device-new-card-head {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: 10px 16px; margin-bottom: 12px;
+}
+.fox-device-new-card-title { margin: 0; font-size: 16px; font-weight: 700; }
+.fox-device-new-section { margin-bottom: 18px; }
+.fox-device-new-section:last-child { margin-bottom: 0; }
+.fox-device-new-section-title {
+  margin: 0 0 10px; padding-left: 10px; border-left: 3px solid var(--primary-color, #8a4dff);
+  font-size: 15px; font-weight: 700;
+}
+.fox-device-new-realtime .device-param-table-wrap,
+.fox-device-new-realtime .entity-list {
+  border: 1px solid var(--divider-color); border-radius: 10px; overflow: hidden;
+}
+.fox-device-new-realtime .entity-list { background: var(--card-background-color); }
+@media (max-width: 980px) {
+  .fox-device-new-layout { grid-template-columns: 1fr; }
+  .fox-device-new-sidebar { position: static; }
+  .fox-device-new-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 520px) {
+  .fox-device-new-summary { grid-template-columns: 1fr; }
+}
 .period-card { border: 1px solid var(--divider-color); border-radius: var(--fp-radius); padding: 16px; margin-bottom: 12px; background: var(--secondary-background-color, rgba(127,127,127,0.06)); }
 .period-card h4 { margin: 0 0 12px; font-size: 15px; }
 .field { margin-bottom: 12px; }
@@ -7585,6 +7841,16 @@ class FoxessPlantPanel extends HTMLElement {
     this._view = "overview";
     this._settingsView = "main";
     this._deviceSub = "main";
+    this._deviceNewSub = "analysis";
+    this._deviceNewPeriod = "week";
+    this._deviceNewPeriodOffset = 0;
+    this._deviceNewDayOffset = 0;
+    this._deviceNewStatisticsChart = null;
+    this._deviceNewStatisticsChartLoading = false;
+    this._deviceNewStatisticsChartPlantId = undefined;
+    this._deviceNewEnergyChart = null;
+    this._deviceNewEnergyChartLoading = false;
+    this._deviceNewEnergyChartPlantId = undefined;
     this._deviceParamOpen = new Set();
     this._plantState = undefined;
     this._selectedPlantId = undefined;
@@ -7669,6 +7935,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._smartChargeDraft = null;
     this._tariffPickerMountGen = 0;
     this._headerHasSubTabs = undefined;
+    this._headerSubNavView = undefined;
     this._renderRaf = 0;
     this._onSocMove = this._onSocMove.bind(this);
     this._onSocEnd = this._onSocEnd.bind(this);
@@ -8124,6 +8391,7 @@ Reloading panel registration…
       !this._rangeDrag &&
       !this._settingsFieldBlocksRender() &&
       (this._patchDeviceMainLiveIfNeeded() ||
+        this._patchDeviceNewLiveIfNeeded() ||
         this._patchSettingsMainLiveIfNeeded() ||
         this._patchEnergyAnalysisMainIfNeeded())
     ) {
@@ -8153,6 +8421,11 @@ Reloading panel registration…
       btn.classList.toggle("active", on);
       btn.setAttribute("aria-selected", String(on));
     });
+    headerEl.querySelectorAll('[data-action="device-new-tab"]').forEach((btn) => {
+      const on = btn.dataset.sub === this._deviceNewSub;
+      btn.classList.toggle("active", on);
+      btn.setAttribute("aria-selected", String(on));
+    });
   }
 
   _renderPlantSelect() {
@@ -8170,13 +8443,16 @@ Reloading panel registration…
   }
 
   _rebuildPageHeader(headerEl) {
-    const showSubTabs = this._view === "settings";
+    const showSubTabs = this._view === "settings" || this._view === "device_new";
+    const subNav = this._view === "settings" ? SETTINGS_NAV : DEVICE_NEW_NAV;
+    const subActive = this._view === "settings" ? this._settingsView : this._deviceNewSub;
+    const subAction = this._view === "settings" ? "settings-tab" : "device-new-tab";
     headerEl.innerHTML =
       this._renderPanelBrand() +
       this._renderPlantSelect() +
       this._renderTabBar(NAV, this._view, "nav", "view") +
       (showSubTabs
-        ? this._renderTabBar(SETTINGS_NAV, this._settingsView, "settings-tab", "sub", true)
+        ? this._renderTabBar(subNav, subActive, subAction, "sub", true)
         : "");
     this._bindPanelBrandIcon(headerEl);
     this._headerHasSubTabs = showSubTabs;
@@ -8989,9 +9265,67 @@ Reloading panel registration…
       this._settingsView = "main";
       this._solcastDraft = null;
       this._deviceSub = "main";
+      if (nextView !== "device_new") {
+        this._deviceNewSub = "analysis";
+        this._deviceNewStatisticsChart = null;
+        this._deviceNewStatisticsChartPlantId = undefined;
+        this._deviceNewEnergyChart = null;
+        this._deviceNewEnergyChartPlantId = undefined;
+      }
       if (this._view === "energy_analysis") this._loadEnergyCharts();
       if (this._view === "overview") this._loadOverviewStatisticsChart();
+      if (this._view === "device_new") this._loadDeviceNewCharts();
       this._render();
+      return;
+    }
+    if (action === "device-new-tab") {
+      const sub = btn.dataset.sub;
+      if (!sub || sub === this._deviceNewSub) return;
+      this._deviceNewSub = sub;
+      if (sub === "analysis") this._loadDeviceNewCharts();
+      this._scheduleRender(true);
+      return;
+    }
+    if (action === "device-new-period") {
+      const period = btn.dataset.period;
+      if (!period || period === this._deviceNewPeriod) return;
+      this._deviceNewPeriod = period;
+      this._deviceNewPeriodOffset = 0;
+      this._deviceNewEnergyChart = null;
+      this._deviceNewEnergyChartPlantId = undefined;
+      void this._loadDeviceNewEnergyChart();
+      this._scheduleRender(true);
+      return;
+    }
+    if (action === "device-new-energy-nav") {
+      const dir = btn.dataset.dir;
+      const bounds = energyPeriodBounds(this._deviceNewPeriod, this._deviceNewPeriodOffset);
+      if (dir === "prev") {
+        this._deviceNewPeriodOffset += 1;
+      } else if (dir === "next" && bounds.canNext) {
+        this._deviceNewPeriodOffset = Math.max(0, this._deviceNewPeriodOffset - 1);
+      } else {
+        return;
+      }
+      this._deviceNewEnergyChart = null;
+      this._deviceNewEnergyChartPlantId = undefined;
+      void this._loadDeviceNewEnergyChart();
+      this._scheduleRender(true);
+      return;
+    }
+    if (action === "device-new-day-nav") {
+      const dir = btn.dataset.dir;
+      if (dir === "prev") {
+        this._deviceNewDayOffset += 1;
+      } else if (dir === "next" && this._deviceNewDayOffset > 0) {
+        this._deviceNewDayOffset -= 1;
+      } else {
+        return;
+      }
+      this._deviceNewStatisticsChart = null;
+      this._deviceNewStatisticsChartPlantId = undefined;
+      void this._loadDeviceNewCurveChart();
+      this._scheduleRender(true);
       return;
     }
     if (action === "energy-period") {
@@ -10707,6 +11041,248 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
       .join("");
     const stamp = updated ? `<p class="device-param-updated">${esc(updated)}</p>` : "";
     return `<div class="device-param-sections">${body}</div>${stamp}`;
+  }
+
+  _deviceNewChartCacheKey(plant) {
+    return `${plant.entry_id}:device-new:${this._deviceNewDayOffset}`;
+  }
+
+  _deviceNewEnergyChartCacheKey(plant) {
+    return `${plant.entry_id}:device-new:${this._deviceNewPeriod}:${this._deviceNewPeriodOffset}`;
+  }
+
+  _loadDeviceNewCharts() {
+    if (this._view !== "device_new" || this._deviceNewSub !== "analysis") return;
+    void this._loadDeviceNewCurveChart();
+    void this._loadDeviceNewEnergyChart();
+  }
+
+  async _loadDeviceNewCurveChart() {
+    const plant = this._getPlant();
+    if (!plant || !this._hass || this._view !== "device_new") return;
+    const cacheKey = this._deviceNewChartCacheKey(plant);
+    if (this._deviceNewStatisticsChartPlantId === cacheKey && this._deviceNewStatisticsChart) return;
+    this._deviceNewStatisticsChartLoading = true;
+    this._deviceNewStatisticsChart = null;
+    this._deviceNewStatisticsChartPlantId = cacheKey;
+    this._scheduleRender();
+    try {
+      if (!this._plantState) await this._refreshPlantState();
+      this._deviceNewStatisticsChart = await fetchDeviceRealtimeChartSeries(
+        this._hass,
+        plant,
+        this._plantState,
+        { dayOffset: this._deviceNewDayOffset }
+      );
+    } catch (err) {
+      this._deviceNewStatisticsChart = {
+        error:
+          err?.message ||
+          "Could not load device curve. Enable the Home Assistant recorder for inverter power sensors.",
+      };
+    } finally {
+      this._deviceNewStatisticsChartLoading = false;
+      if (
+        this._getPlant()?.entry_id === plant.entry_id &&
+        this._view === "device_new" &&
+        this._deviceNewChartCacheKey(this._getPlant()) === cacheKey
+      ) {
+        this._scheduleRender();
+      }
+    }
+  }
+
+  async _loadDeviceNewEnergyChart() {
+    const plant = this._getPlant();
+    if (!plant || !this._hass || this._view !== "device_new") return;
+    const cacheKey = this._deviceNewEnergyChartCacheKey(plant);
+    if (this._deviceNewEnergyChartPlantId === cacheKey && this._deviceNewEnergyChart) return;
+    this._deviceNewEnergyChartLoading = true;
+    this._deviceNewEnergyChart = null;
+    this._deviceNewEnergyChartPlantId = cacheKey;
+    this._scheduleRender();
+    try {
+      if (!this._plantState) await this._refreshPlantState();
+      const bar = await fetchFoxMirroredBarChart(
+        this._hass,
+        plant,
+        this._plantState,
+        this._deviceNewPeriod,
+        this._deviceNewPeriodOffset
+      );
+      this._deviceNewEnergyChart = { kind: "mirror", svg: bar.svg, title: bar.title };
+    } catch (err) {
+      this._deviceNewEnergyChart = {
+        error:
+          err?.message ||
+          "Could not load energy analysis. Enable the Home Assistant recorder and keep history for energy sensors.",
+      };
+    } finally {
+      this._deviceNewEnergyChartLoading = false;
+      if (
+        this._getPlant()?.entry_id === plant.entry_id &&
+        this._view === "device_new" &&
+        this._deviceNewEnergyChartCacheKey(this._getPlant()) === cacheKey
+      ) {
+        this._scheduleRender();
+      }
+    }
+  }
+
+  _renderDeviceNewDayNav() {
+    const day = startOfLocalDay(new Date());
+    day.setDate(day.getDate() - this._deviceNewDayOffset);
+    const label = day.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+    return `<div class="energy-date-nav">
+<button type="button" data-action="device-new-day-nav" data-dir="prev" aria-label="Previous day">‹</button>
+<span class="energy-date-label">${esc(label)}</span>
+<button type="button" data-action="device-new-day-nav" data-dir="next" aria-label="Next day"${this._deviceNewDayOffset > 0 ? "" : " disabled"}>›</button>
+</div>`;
+  }
+
+  _renderDeviceNewEnergyPeriodTabs() {
+    const tabs = DEVICE_NEW_ENERGY_PERIOD_TABS.map(
+      (p) =>
+        `<button type="button" data-action="device-new-period" data-period="${p.id}" class="${p.id === this._deviceNewPeriod ? "active" : ""}">${p.label}</button>`
+    ).join("");
+    return `<div class="energy-period-tabs">${tabs}</div>`;
+  }
+
+  _renderDeviceNewEnergyDateNav() {
+    if (this._deviceNewPeriod === "total") return "";
+    const bounds = energyPeriodBounds(this._deviceNewPeriod, this._deviceNewPeriodOffset);
+    const label = energyPeriodNavLabel(this._deviceNewPeriod, this._deviceNewPeriodOffset);
+    return `<div class="energy-date-nav">
+<button type="button" data-action="device-new-energy-nav" data-dir="prev" aria-label="Previous period">‹</button>
+<span class="energy-date-label">${esc(label)}</span>
+<button type="button" data-action="device-new-energy-nav" data-dir="next" aria-label="Next period"${bounds.canNext ? "" : " disabled"}>›</button>
+</div>`;
+  }
+
+  _renderDeviceNewCurveBody() {
+    if (this._deviceNewStatisticsChartLoading) {
+      return `<p class="chart-loading">Loading real-time curve…</p>`;
+    }
+    const chart = this._deviceNewStatisticsChart;
+    if (chart?.error) {
+      return `<p class="placeholder chart-empty">${esc(chart.error)}</p>`;
+    }
+    if (chart?.empty) {
+      return `<p class="placeholder chart-empty">${esc(chart.empty)}</p>`;
+    }
+    const dayOffset = chart?.dayOffset ?? 0;
+    const range = statisticsRangeForDisplay(chart?.range, dayOffset);
+    if (!range) {
+      return `<p class="chart-loading">Loading real-time curve…</p>`;
+    }
+    const series = (chart?.series || []).filter((s) => s.points?.length);
+    const socSeries = chart?.socSeries;
+    if (!series.length && !socSeries?.points?.length) {
+      return `<p class="placeholder chart-empty">No power history for this day yet.</p>`;
+    }
+    return renderStatisticsChartHtml(series, range, {
+      sideLegend: false,
+      includeSoc: true,
+      socSeries,
+    });
+  }
+
+  _renderDeviceNewEnergyBody() {
+    if (this._deviceNewEnergyChartLoading) {
+      return `<p class="chart-loading">Loading energy analysis…</p>`;
+    }
+    if (this._deviceNewEnergyChart?.error) {
+      return `<p class="placeholder chart-empty">${esc(this._deviceNewEnergyChart.error)}</p>`;
+    }
+    if (this._deviceNewEnergyChart?.svg) {
+      return this._deviceNewEnergyChart.svg;
+    }
+    return `<p class="chart-loading">Loading energy analysis…</p>`;
+  }
+
+  _renderDeviceNewAnalysis(plant) {
+    return `<div class="fox-device-new-analysis">
+<section class="fox-device-new-card">
+<div class="fox-device-new-card-head">
+<h3 class="fox-device-new-card-title">Real-time curve</h3>
+${this._renderDeviceNewDayNav()}
+</div>
+<div data-device-new-curve="1">${this._renderDeviceNewCurveBody()}</div>
+</section>
+<section class="fox-device-new-card">
+<div class="fox-device-new-card-head">
+<h3 class="fox-device-new-card-title">Energy analysis</h3>
+<div class="fox-analysis-toolbar fox-device-new-energy-toolbar">${this._renderDeviceNewEnergyPeriodTabs()}${this._renderDeviceNewEnergyDateNav()}</div>
+</div>
+<div data-device-new-energy-chart="1">${this._renderDeviceNewEnergyBody()}</div>
+</section>
+</div>`;
+  }
+
+  _renderDeviceNewRealtimeSections(plant) {
+    const map = resolveEntityMap(this._hass, plant, this._plantState);
+    const sections = DEVICE_PARAMETER_SECTIONS.filter((section) =>
+      this._deviceParamSectionHasContent(section, map)
+    );
+    if (!sections.length) {
+      return `<p class="placeholder">No Modbus sensors discovered yet. Reload foxess_modbus and this panel.</p>`;
+    }
+    return `<div class="fox-device-new-realtime">${sections
+      .map(
+        (section) =>
+          `<section class="fox-device-new-section"><h3 class="fox-device-new-section-title">${esc(section.title)}</h3>${this._renderDeviceParamSectionBody(section, plant, map)}</section>`
+      )
+      .join("")}</div>`;
+  }
+
+  _renderDeviceNew(plant) {
+    const summary = renderDeviceNewSummaryCards(this._hass, plant, this._plantState);
+    const sidebar = renderDeviceNewSidebar(this._hass, plant, this._plantState);
+    const body =
+      this._deviceNewSub === "realtime"
+        ? this._renderDeviceNewRealtimeSections(plant)
+        : this._renderDeviceNewAnalysis(plant);
+    return `<div data-device-new-main="1" data-plant-id="${esc(plant.entry_id)}">
+<div class="fox-device-new-layout">
+${sidebar}
+<div class="fox-device-new-content">
+<div data-device-new-summary="1">${summary}</div>
+${body}
+</div>
+</div>
+</div>`;
+  }
+
+  _patchDeviceNewLiveIfNeeded() {
+    if (this._view !== "device_new" || !this._hass) return false;
+    const root = this._root.querySelector("[data-device-new-main]");
+    if (!root) return false;
+    const plant = this._getPlant();
+    if (!plant || root.dataset.plantId !== plant.entry_id) return false;
+    const summary = root.querySelector("[data-device-new-summary]");
+    if (summary) {
+      summary.innerHTML = renderDeviceNewSummaryCards(this._hass, plant, this._plantState);
+    }
+    return true;
+  }
+
+  _bindDeviceNewCharts() {
+    const curveRoot = this._root.querySelector("[data-device-new-curve]");
+    const chart = this._deviceNewStatisticsChart;
+    if (curveRoot && chart?.series?.length) {
+      const dayOffset = chart.dayOffset ?? 0;
+      const range = statisticsRangeForDisplay(chart.range, dayOffset);
+      if (range) {
+        const series = chart.series.filter((s) => s.points?.length);
+        const soc = chart.socSeries;
+        const meta = soc?.points?.length ? [...series, soc] : series;
+        const inner = curveRoot.querySelector("[data-statistics-chart]");
+        if (inner) {
+          delete inner.dataset.bound;
+          bindStatisticsChart(curveRoot, meta);
+        }
+      }
+    }
   }
 
   _energyHistoryEntities(plant) {
@@ -12745,6 +13321,8 @@ ${active
         return this._renderOverview(plant);
       case "device":
         return this._renderDevice(plant);
+      case "device_new":
+        return this._renderDeviceNew(plant);
       case "energy_analysis":
         return this._renderEnergyAnalysis(plant);
       case "settings":
@@ -12767,12 +13345,14 @@ ${active
   _renderPanel() {
     if (!this._hass) {
       this._headerHasSubTabs = undefined;
+    this._headerSubNavView = undefined;
       this._root.innerHTML = `<div class="main"><p class="placeholder">Loading Fox Plant…</p></div>`;
       return;
     }
     const plant = this._getPlant();
     if (!plant) {
       this._headerHasSubTabs = undefined;
+    this._headerSubNavView = undefined;
       void this._recoverEmptyPanelConfig();
       this._root.innerHTML = `<div class="main"><p class="placeholder">Add FoxESS Plant and select your inverter device.</p></div>`;
       return;
@@ -12780,7 +13360,8 @@ ${active
 
     this._view = normalizePanelView(this._view);
 
-    const showSubTabs = this._view === "settings";
+    const showSubTabs = this._view === "settings" || this._view === "device_new";
+    const subNavView = showSubTabs ? this._view : "";
     let shell = this._root.querySelector(".shell");
     if (!shell) {
       shell = document.createElement("div");
@@ -12791,14 +13372,16 @@ ${active
       );
       this._root.replaceChildren(shell);
       this._headerHasSubTabs = undefined;
+      this._headerSubNavView = undefined;
     } else {
       shell.classList.toggle("narrow", this._narrow);
     }
     this._syncPanelBuildFooter(shell);
 
     const headerEl = shell.querySelector(".page-header");
-    if (this._headerHasSubTabs !== showSubTabs) {
+    if (this._headerHasSubTabs !== showSubTabs || this._headerSubNavView !== subNavView) {
       this._rebuildPageHeader(headerEl);
+      this._headerSubNavView = subNavView;
     } else {
       this._syncTabActive(headerEl);
     }
@@ -12916,6 +13499,28 @@ ${active
         (this._hourlyWeatherPlantId !== plant.entry_id || !this._hourlyWeather)
       ) {
         this._loadHourlyWeather();
+      }
+    }
+    if (this._view === "device_new") {
+      const plant = this._getPlant();
+      if (plant && this._deviceNewSub === "analysis") {
+        const curveKey = this._deviceNewChartCacheKey(plant);
+        if (
+          !this._deviceNewStatisticsChartLoading &&
+          (this._deviceNewStatisticsChartPlantId !== curveKey || !this._deviceNewStatisticsChart)
+        ) {
+          void this._loadDeviceNewCurveChart();
+        }
+        const energyKey = this._deviceNewEnergyChartCacheKey(plant);
+        if (
+          !this._deviceNewEnergyChartLoading &&
+          (this._deviceNewEnergyChartPlantId !== energyKey || !this._deviceNewEnergyChart)
+        ) {
+          void this._loadDeviceNewEnergyChart();
+        }
+        if (this._deviceNewStatisticsChart?.series?.length && this._deviceNewStatisticsChart?.range) {
+          this._bindDeviceNewCharts();
+        }
       }
     }
   }
