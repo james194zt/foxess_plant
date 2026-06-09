@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.150
+ * @version 0.9.151
  */
 
 const NAV = [
@@ -170,7 +170,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.150";
+const PANEL_VERSION = "0.9.151";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -741,13 +741,6 @@ function forecastHasFuturePoints(points, nowMs) {
   );
 }
 
-function forecastHasPastPoints(points, nowMs) {
-  return (
-    Array.isArray(points) &&
-    points.filter((p) => Number.isFinite(p?.t) && p.t <= nowMs).length >= 2
-  );
-}
-
 /** Solcast 30-min (or API) intervals from detailed_forecast rows. */
 function buildSolcastIntervalSeries(rows) {
   if (!Array.isArray(rows) || !rows.length) return [];
@@ -838,37 +831,25 @@ function filterStatisticsForecastServerPoints(serverPoints, range) {
     .sort((a, b) => a.t - b.t);
 }
 
-function augmentForecastWithServerPast(fPoints, range, serverPoints, nowMs) {
-  if (forecastHasPastPoints(fPoints, nowMs)) return fPoints || [];
-  const server = filterStatisticsForecastServerPoints(serverPoints, range);
-  const serverPast = server.filter((p) => p.t <= nowMs);
-  if (serverPast.length < 2) return fPoints || [];
-  const future = (fPoints || []).filter((p) => p.t > nowMs);
-  const merged = [...serverPast];
-  const lastPast = merged[merged.length - 1];
-  for (const p of future) {
-    if (!lastPast || p.t > lastPast.t) merged.push(p);
+/** Revision past (client) + Solcast slots after now (server overlay, v0.9.148 future path). */
+function combineStatisticsForecastPastAndFuture(clientPast, server, nowMs) {
+  const past = (clientPast || [])
+    .filter((p) => Number.isFinite(p.t) && p.t <= nowMs)
+    .sort((a, b) => a.t - b.t);
+  const serverFuture = (server || [])
+    .filter((p) => Number.isFinite(p.t) && p.t > nowMs)
+    .sort((a, b) => a.t - b.t);
+  if (past.length < 2) return server.length >= 2 ? server : past;
+  if (serverFuture.length < 1) return mergeForecastPointsWithFuture(past, server, nowMs);
+  const merged = [...past];
+  let lastT = merged[merged.length - 1].t;
+  for (const p of serverFuture) {
+    if (p.t > lastT) {
+      merged.push(p);
+      lastT = p.t;
+    }
   }
-  return merged.length >= 2 ? merged : fPoints || [];
-}
-
-function forecastFutureEndMs(points, nowMs) {
-  const future = (points || []).filter((p) => p.t > nowMs + STATISTICS_PERIOD_MS * 0.5);
-  return future.length ? future[future.length - 1].t : 0;
-}
-
-function augmentForecastWithServerFuture(fPoints, range, serverPoints, nowMs) {
-  const server = filterStatisticsForecastServerPoints(serverPoints, range);
-  if (server.length < 2) return fPoints || [];
-  const client = fPoints?.length >= 2 ? fPoints : [];
-  const serverFuture = server.filter((p) => p.t > nowMs + STATISTICS_PERIOD_MS * 0.5);
-  if (serverFuture.length < 2) return client.length >= 2 ? client : server;
-  const clientEnd = forecastFutureEndMs(client, nowMs);
-  const serverEnd = serverFuture[serverFuture.length - 1].t;
-  if (forecastHasFuturePoints(client, nowMs) && clientEnd >= serverEnd - STATISTICS_PERIOD_MS) {
-    return client;
-  }
-  return mergeForecastPointsWithFuture(client.length >= 2 ? client : server, server, nowMs);
+  return merged.length >= 2 ? merged : past;
 }
 
 function buildStatisticsForecastPoints(
@@ -881,19 +862,32 @@ function buildStatisticsForecastPoints(
 ) {
   const nowMs = range?.nowMs ?? Date.now();
   const detailedRows = resolveBestSolcastDetailedRows(plantState, forecastState, hass);
-  let fPoints = buildForecastSeriesPoints(plantState, range, hass, forecastState);
-  if (fPoints.length < 2 && Array.isArray(fallbackPoints) && fallbackPoints.length >= 2) {
-    fPoints = fallbackPoints;
+  const server = filterStatisticsForecastServerPoints(serverPoints, range);
+  const detailed = detailedForecastToChartPoints(detailedRows, range);
+
+  let clientPts = buildForecastSeriesPoints(plantState, range, hass, forecastState);
+  if (clientPts.length < 2 && Array.isArray(fallbackPoints) && fallbackPoints.length >= 2) {
+    clientPts = fallbackPoints;
   }
-  if (fPoints.length >= 2) {
-    const detailed = detailedForecastToChartPoints(detailedRows, range);
-    fPoints = mergeForecastPointsWithFuture(fPoints, detailed, nowMs);
-  } else {
-    const detailed = detailedForecastToChartPoints(detailedRows, range);
-    if (detailed.length >= 2) fPoints = detailed;
+  const clientPast = clientPts.filter((p) => Number.isFinite(p.t) && p.t <= nowMs);
+
+  let fPoints = [];
+  if (server.length >= 2) {
+    fPoints = combineStatisticsForecastPastAndFuture(clientPast, server, nowMs);
+    if (!forecastHasFuturePoints(fPoints, nowMs) && detailed.length >= 2) {
+      const pastBase = fPoints.filter((p) => p.t <= nowMs);
+      fPoints = mergeForecastPointsWithFuture(
+        pastBase.length >= 2 ? pastBase : fPoints,
+        detailed,
+        nowMs
+      );
+    }
+  } else if (clientPts.length >= 2) {
+    fPoints = mergeForecastPointsWithFuture(clientPts, detailed, nowMs);
+  } else if (detailed.length >= 2) {
+    fPoints = detailed;
   }
-  fPoints = augmentForecastWithServerPast(fPoints, range, serverPoints, nowMs);
-  fPoints = augmentForecastWithServerFuture(fPoints, range, serverPoints, nowMs);
+
   const nowKw =
     plantState?.solcast?.pv_power_now_kw ?? forecastState?.solcast?.pv_power_now_kw;
   return bridgeForecastGapAtNow(
@@ -10724,7 +10718,10 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
       };
     } finally {
       this._statisticsChartLoading = false;
-      if (this._getPlant()?.entry_id === plant.entry_id && this._view === "overview") this._scheduleRender();
+      if (this._getPlant()?.entry_id === plant.entry_id && this._view === "overview") {
+        void this._refreshStatisticsServerForecast();
+        this._scheduleRender();
+      }
     }
   }
 
@@ -10769,7 +10766,10 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
       };
     } finally {
       this._statisticsChartLoading = false;
-      if (this._energyChartCacheKey(this._getPlant()) === cacheKey) this._scheduleRender();
+      if (this._energyChartCacheKey(this._getPlant()) === cacheKey) {
+        if (this._energyPeriodOffset === 0) void this._refreshStatisticsServerForecast();
+        this._scheduleRender();
+      }
     }
   }
 
