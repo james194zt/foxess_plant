@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.153
+ * @version 0.9.154
  */
 
 const NAV = [
@@ -170,7 +170,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.153";
+const PANEL_VERSION = "0.9.154";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -1061,7 +1061,9 @@ function forecastAccuracyRangeFromReport(report, intraday) {
   let tMax = Number(win?.t_max_ms);
   if (!Number.isFinite(tMin)) tMin = dayStart + 6 * 3600000;
   if (!Number.isFinite(tMax)) tMax = dayStart + 20 * 3600000;
-  let nowMs = Math.min(Number.isFinite(asOf) ? asOf : Date.now(), tMax);
+  let nowMs = report?.is_today
+    ? Math.min(Date.now(), tMax)
+    : Math.min(Number.isFinite(asOf) ? asOf : Date.now(), tMax);
   if (report?.is_today) {
     let dataEnd = tMin;
     for (const key of ["actual_power_kw", "predicted_power_kw", "latest_revision_power_kw"]) {
@@ -1072,7 +1074,7 @@ function forecastAccuracyRangeFromReport(report, intraday) {
     const endRef = Math.max(dataEnd, nowMs, tMin + 3600000);
     const endCeil = ceilToLocalHourMs(endRef + 3600000);
     tMax = Math.min(tMax, Math.max(endCeil, tMin + 2 * 3600000));
-    nowMs = Math.min(nowMs, tMax);
+    nowMs = Math.min(Math.max(nowMs, dataEnd), tMax);
   }
   return { tMin, tMax, nowMs, dayStart };
 }
@@ -7900,6 +7902,12 @@ Reloading panel registration…
         this._statisticsForecastSlotTrack = forecastPart;
         this._energyAnalysisChartSlotCache = undefined;
         void this._refreshStatisticsServerForecast();
+        this._forecastAccuracyOverviewKey = undefined;
+        this._forecastAccuracyAnalysisKey = undefined;
+        if (this._view === "overview") void this._loadForecastAccuracyOverview();
+        if (this._view === "energy_analysis" && this._energyPeriod === "day") {
+          void this._loadForecastAccuracyAnalysis();
+        }
       }
       if (!this._socDrag) this._scheduleRender();
       void this._syncPanelIfStale();
@@ -11189,7 +11197,10 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
     const base = `${plant.entry_id}:${dayOffset}:forecast-accuracy`;
     if (dayOffset === 0) {
       const bucket = Math.floor(Date.now() / (5 * 60 * 1000));
-      return `${base}:${bucket}`;
+      const sc = this._plantState?.solcast;
+      const solcastRev =
+        sc?.pv_forecast_fetched_at || sc?.updated_at || sc?.forecast_intraday_points?.length || 0;
+      return `${base}:${bucket}:${solcastRev}`;
     }
     return base;
   }

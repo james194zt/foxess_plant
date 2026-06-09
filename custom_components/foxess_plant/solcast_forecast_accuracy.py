@@ -149,16 +149,52 @@ def _snapshots_for_target_day(
     return filtered
 
 
+def _resample_history_power_points(
+    hass: HomeAssistant,
+    entity_id: str,
+    history_points: list[dict[str, float]],
+    day_start_ms: float,
+    from_ms: float,
+    as_of_ms: float,
+    existing_times: set[float],
+) -> list[dict[str, float]]:
+    """5-minute mean kW buckets from recorder state history."""
+    if not history_points:
+        return []
+    period = int(STATISTICS_PERIOD_MS)
+    slot = int(from_ms)
+    if slot < day_start_ms:
+        slot = int(day_start_ms)
+    elif slot > day_start_ms:
+        offset = slot - int(day_start_ms)
+        slot = int(day_start_ms) + (offset // period) * period
+    out: list[dict[str, float]] = []
+    end = int(as_of_ms)
+    while slot <= end:
+        if float(slot) not in existing_times:
+            bucket_vals = [
+                _entity_value_to_kw(hass, entity_id, float(p["v"]))
+                for p in history_points
+                if slot <= p["t"] < slot + period
+            ]
+            if bucket_vals:
+                out.append({"t": float(slot), "v": sum(bucket_vals) / len(bucket_vals)})
+        slot += period
+    return out
+
+
 def _actual_power_points(
     hass: HomeAssistant,
     entity_id: str,
     day_start: datetime,
     as_of: datetime,
 ) -> list[dict[str, float]]:
-    from .websocket_api import _fetch_statistics_points
+    from .websocket_api import _fetch_history_points, _fetch_statistics_points
 
     start_utc = dt_util.as_utc(day_start)
     end_utc = dt_util.as_utc(as_of)
+    as_of_ms = as_of.timestamp() * 1000
+    day_start_ms = day_start.timestamp() * 1000
     stats = _fetch_statistics_points(
         hass,
         start_utc,
@@ -175,6 +211,48 @@ def _actual_power_points(
             continue
         t_ms = float(start) * 1000 if start < 1e12 else float(start)
         out.append({"t": t_ms, "v": _entity_value_to_kw(hass, entity_id, float(mean))})
+    out.sort(key=lambda p: p["t"])
+
+    existing_times = {p["t"] for p in out}
+    last_ms = out[-1]["t"] if out else day_start_ms - STATISTICS_PERIOD_MS
+    if not out or last_ms < as_of_ms - STATISTICS_PERIOD_MS * 0.25:
+        hist_from = _utc_from_timestamp(max(day_start_ms, last_ms + STATISTICS_PERIOD_MS) / 1000)
+        hist = _fetch_history_points(
+            hass,
+            hist_from,
+            end_utc,
+            [entity_id],
+            significant_changes_only=False,
+        )
+        hist_pts = hist.get(entity_id) or []
+        if hist_pts:
+            fill_from_ms = day_start_ms if not out else last_ms + STATISTICS_PERIOD_MS
+            tail = _resample_history_power_points(
+                hass,
+                entity_id,
+                hist_pts,
+                day_start_ms,
+                fill_from_ms,
+                as_of_ms,
+                existing_times,
+            )
+            out.extend(tail)
+
+    state = hass.states.get(entity_id)
+    if state and state.state not in ("unknown", "unavailable", "none"):
+        try:
+            live_kw = _entity_value_to_kw(hass, entity_id, float(state.state))
+            if out:
+                last_t = out[-1]["t"]
+                if as_of_ms >= last_t and as_of_ms - last_t <= STATISTICS_PERIOD_MS * 0.6:
+                    out[-1] = {"t": float(last_t), "v": live_kw}
+                elif as_of_ms > last_t + STATISTICS_PERIOD_MS * 0.25:
+                    out.append({"t": float(as_of_ms), "v": live_kw})
+            else:
+                out.append({"t": float(as_of_ms), "v": live_kw})
+        except (TypeError, ValueError):
+            pass
+
     out.sort(key=lambda p: p["t"])
     return out
 
