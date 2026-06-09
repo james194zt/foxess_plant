@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.148
+ * @version 0.9.149
  */
 
 const NAV = [
@@ -170,7 +170,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.148";
+const PANEL_VERSION = "0.9.149";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -741,6 +741,13 @@ function forecastHasFuturePoints(points, nowMs) {
   );
 }
 
+function forecastHasPastPoints(points, nowMs) {
+  return (
+    Array.isArray(points) &&
+    points.filter((p) => Number.isFinite(p?.t) && p.t <= nowMs).length >= 2
+  );
+}
+
 /** Solcast 30-min (or API) intervals from detailed_forecast rows. */
 function buildSolcastIntervalSeries(rows) {
   if (!Array.isArray(rows) || !rows.length) return [];
@@ -832,6 +839,20 @@ function filterStatisticsForecastServerPoints(serverPoints, range) {
     .sort((a, b) => a.t - b.t);
 }
 
+function augmentForecastWithServerPast(fPoints, range, serverPoints, nowMs) {
+  if (forecastHasPastPoints(fPoints, nowMs)) return fPoints || [];
+  const server = filterStatisticsForecastServerPoints(serverPoints, range);
+  const serverPast = server.filter((p) => p.t <= nowMs);
+  if (serverPast.length < 2) return fPoints || [];
+  const future = (fPoints || []).filter((p) => p.t > nowMs);
+  const merged = [...serverPast];
+  const lastPast = merged[merged.length - 1];
+  for (const p of future) {
+    if (!lastPast || p.t > lastPast.t) merged.push(p);
+  }
+  return merged.length >= 2 ? merged : fPoints || [];
+}
+
 function augmentForecastWithServerFuture(fPoints, range, serverPoints, nowMs) {
   if (forecastHasFuturePoints(fPoints, nowMs)) return fPoints || [];
   const server = filterStatisticsForecastServerPoints(serverPoints, range);
@@ -849,24 +870,19 @@ function buildStatisticsForecastPoints(
 ) {
   const nowMs = range?.nowMs ?? Date.now();
   const detailedRows = resolveBestSolcastDetailedRows(plantState, forecastState, hass);
-  const server = filterStatisticsForecastServerPoints(serverPoints, range);
-  let fPoints = server.length >= 2 ? server : [];
-
-  if (fPoints.length < 2) {
-    fPoints = buildForecastSeriesPoints(plantState, range, hass, forecastState);
-    if (fPoints.length < 2 && Array.isArray(fallbackPoints) && fallbackPoints.length >= 2) {
-      fPoints = fallbackPoints;
-    }
-    if (fPoints.length >= 2) {
-      const detailed = detailedForecastToChartPoints(detailedRows, range);
-      fPoints = mergeForecastPointsWithFuture(fPoints, detailed, nowMs);
-    } else {
-      const detailed = detailedForecastToChartPoints(detailedRows, range);
-      if (detailed.length >= 2) fPoints = detailed;
-    }
-    fPoints = augmentForecastWithServerFuture(fPoints, range, serverPoints, nowMs);
+  let fPoints = buildForecastSeriesPoints(plantState, range, hass, forecastState);
+  if (fPoints.length < 2 && Array.isArray(fallbackPoints) && fallbackPoints.length >= 2) {
+    fPoints = fallbackPoints;
   }
-
+  if (fPoints.length >= 2) {
+    const detailed = detailedForecastToChartPoints(detailedRows, range);
+    fPoints = mergeForecastPointsWithFuture(fPoints, detailed, nowMs);
+  } else {
+    const detailed = detailedForecastToChartPoints(detailedRows, range);
+    if (detailed.length >= 2) fPoints = detailed;
+  }
+  fPoints = augmentForecastWithServerPast(fPoints, range, serverPoints, nowMs);
+  fPoints = augmentForecastWithServerFuture(fPoints, range, serverPoints, nowMs);
   const nowKw =
     plantState?.solcast?.pv_power_now_kw ?? forecastState?.solcast?.pv_power_now_kw;
   return bridgeForecastGapAtNow(

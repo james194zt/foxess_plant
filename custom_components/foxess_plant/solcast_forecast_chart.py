@@ -358,6 +358,12 @@ def build_statistics_forecast_overlay(
             slot += STATISTICS_PERIOD_MS
 
     if len(merged) >= 2:
+        past_count = sum(1 for t in merged if t <= as_of_ms)
+        if past_count < 2:
+            for point in build_forecast_intraday_chart(hass, stored, current_cache):
+                t = float(point["t"])
+                if t <= as_of_ms:
+                    merged[t] = float(point["v"])
         return [
             {"t": t, "v": v}
             for t, v in sorted(merged.items())
