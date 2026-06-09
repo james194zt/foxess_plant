@@ -373,11 +373,12 @@ def build_forecast_accuracy_report(
     actual_power: list[dict[str, float]] = []
     if pv_entity:
         try:
+            day_as_of = day_end - timedelta(seconds=1) if not is_today else as_of
             actual_power = _actual_power_points(
                 hass,
                 pv_entity,
                 day_start,
-                as_of,
+                day_as_of,
                 fill_history=is_today,
                 append_live=is_today,
             )
@@ -385,27 +386,40 @@ def build_forecast_accuracy_report(
             _LOGGER.exception("forecast accuracy actual power failed for %s", pv_entity)
     actual_cumulative = _integrate_kw_to_cumulative(actual_power, day_start_ms, as_of_ms)
 
-    try:
-        predicted_kw = build_forecast_intraday_chart_for_day(
-            hass,
-            stored,
-            current_cache,
-            target_day,
-            entry_id=entry_id,
-            use_daily_cache=True,
-            use_recorder=is_today,
-        )
-    except Exception:
-        _LOGGER.exception("forecast accuracy predicted chart failed for %s", target_day)
-        predicted_kw = build_forecast_intraday_chart_for_day(
-            hass,
-            stored,
-            current_cache,
-            target_day,
-            entry_id=entry_id,
-            use_daily_cache=True,
-            use_recorder=False,
-        )
+    predicted_kw = build_forecast_intraday_chart_for_day(
+        hass,
+        stored,
+        current_cache,
+        target_day,
+        entry_id=entry_id,
+        use_daily_cache=True,
+        use_recorder=False,
+    )
+    if len(predicted_kw) < 2 and entry_id:
+        try:
+            predicted_kw = build_forecast_intraday_chart_for_day(
+                hass,
+                stored,
+                current_cache,
+                target_day,
+                entry_id=entry_id,
+                use_daily_cache=False,
+                use_recorder=True,
+            )
+        except Exception:
+            _LOGGER.exception(
+                "forecast accuracy predicted chart recorder fallback failed for %s",
+                target_day,
+            )
+            predicted_kw = build_forecast_intraday_chart_for_day(
+                hass,
+                stored,
+                current_cache,
+                target_day,
+                entry_id=entry_id,
+                use_daily_cache=False,
+                use_recorder=False,
+            )
     predicted_in_range = [p for p in predicted_kw if p["t"] <= as_of_ms]
     predicted_cumulative = _integrate_kw_to_cumulative(predicted_in_range, day_start_ms, as_of_ms)
 
@@ -516,5 +530,5 @@ def build_forecast_accuracy_report(
         },
         "weather_entity_id": weather_entity_id,
         "cloud_coverage_available": len(cloud_coverage_pct) >= 2,
-        "solcast_enabled": bool(snapshots or predicted_kw),
+        "solcast_enabled": bool(snapshots or predicted_kw or actual_power),
     }

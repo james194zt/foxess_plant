@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.156
+ * @version 0.9.157
  */
 
 const NAV = [
@@ -170,7 +170,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.156";
+const PANEL_VERSION = "0.9.157";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -11255,8 +11255,16 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
     return this._forecastAccuracyReportCacheKey(plant, this._energyPeriodOffset);
   }
 
+  _forecastAccuracyHasChartData(report) {
+    const intraday = report?.intraday;
+    return (
+      (intraday?.actual_power_kw?.length ?? 0) >= 2 ||
+      (intraday?.predicted_power_kw?.length ?? 0) >= 2
+    );
+  }
+
   _storeForecastAccuracyAnalysisCache(cacheKey, result) {
-    if (!cacheKey || !result || result.error) return;
+    if (!cacheKey || !result || result.error || !this._forecastAccuracyHasChartData(result)) return;
     if (!this._forecastAccuracyAnalysisCache) this._forecastAccuracyAnalysisCache = new Map();
     this._forecastAccuracyAnalysisCache.set(cacheKey, result);
     if (this._forecastAccuracyAnalysisCache.size > 16) {
@@ -11272,7 +11280,7 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
     const cacheKey = this._forecastAccuracyAnalysisCacheKey(plant);
     const cached = this._forecastAccuracyAnalysisCache?.get(cacheKey);
     this._forecastAccuracyAnalysisSlotCache = undefined;
-    if (cached) {
+    if (cached && this._forecastAccuracyHasChartData(cached)) {
       this._forecastAccuracyAnalysis = cached;
       this._forecastAccuracyAnalysisKey = cacheKey;
       this._forecastAccuracyAnalysisLoading = false;
