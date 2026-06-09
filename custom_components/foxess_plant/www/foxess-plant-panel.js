@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.152
+ * @version 0.9.153
  */
 
 const NAV = [
@@ -170,7 +170,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.152";
+const PANEL_VERSION = "0.9.153";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -737,7 +737,7 @@ function statisticsRangeForDisplay(range, dayOffset = 0) {
 function forecastHasFuturePoints(points, nowMs) {
   return (
     Array.isArray(points) &&
-    points.some((p) => Number.isFinite(p?.t) && p.t > nowMs + STATISTICS_PERIOD_MS * 0.5)
+    points.filter((p) => Number.isFinite(p?.t) && p.t > nowMs + STATISTICS_PERIOD_MS * 0.5).length >= 2
   );
 }
 
@@ -806,6 +806,7 @@ function mergeForecastPointsWithFuture(intradayPts, detailedPts, nowMs) {
   if (!Array.isArray(intradayPts) || intradayPts.length < 2) {
     return Array.isArray(detailedPts) && detailedPts.length >= 2 ? detailedPts : intradayPts || [];
   }
+  if (forecastHasFuturePoints(intradayPts, nowMs)) return intradayPts;
   if (!Array.isArray(detailedPts) || detailedPts.length < 2) return intradayPts;
   const future = detailedPts.filter((p) => p.t >= nowMs - STATISTICS_PERIOD_MS);
   if (!future.length) return intradayPts;
@@ -845,36 +846,26 @@ function forecastRevisionPastPoints(plantState, forecastState, range, nowMs, fal
   return past;
 }
 
-/** Revision past (intraday) + Solcast slots after now (server overlay). */
-function combineStatisticsForecastPastAndFuture(revisionPast, server, nowMs) {
-  let past = (revisionPast || [])
+/** Keep revision past (solid) and future tail from a full client/server series. */
+function stitchForecastPastWithFutureTail(pastPts, tailPts, nowMs) {
+  const past = (pastPts || [])
     .filter((p) => Number.isFinite(p.t) && p.t <= nowMs)
     .sort((a, b) => a.t - b.t);
-  const serverPast = (server || [])
-    .filter((p) => Number.isFinite(p.t) && p.t <= nowMs)
-    .sort((a, b) => a.t - b.t);
-  const serverFuture = (server || [])
-    .filter((p) => Number.isFinite(p.t) && p.t > nowMs)
-    .sort((a, b) => a.t - b.t);
-
-  if (past.length < 2 && serverPast.length >= 2) past = serverPast;
-
-  if (past.length < 2) {
-    if (server.length >= 2) return server;
-    return past;
-  }
-
-  if (serverFuture.length < 1) return mergeForecastPointsWithFuture(past, server, nowMs);
-
+  if (past.length < 2) return tailPts?.length >= 2 ? tailPts : past;
+  const tail = (tailPts || []).filter((p) => Number.isFinite(p.t) && p.t >= nowMs - STATISTICS_PERIOD_MS);
+  if (!tail.length) return past;
   const merged = [...past];
-  let lastT = merged[merged.length - 1].t;
-  for (const p of serverFuture) {
-    if (p.t > lastT) {
-      merged.push(p);
-      lastT = p.t;
-    }
+  const lastPast = merged[merged.length - 1];
+  for (const p of tail) {
+    if (!lastPast || p.t > lastPast.t) merged.push(p);
   }
   return merged.length >= 2 ? merged : past;
+}
+
+function statisticsForecastPastBase(fPoints, revisionPast, nowMs) {
+  const past = (fPoints || []).filter((p) => Number.isFinite(p.t) && p.t <= nowMs);
+  if (past.length >= 2) return past;
+  return revisionPast.length >= 2 ? revisionPast : past;
 }
 
 function buildStatisticsForecastPoints(
@@ -897,29 +888,39 @@ function buildStatisticsForecastPoints(
     fallbackPoints
   );
 
-  let fPoints = [];
-  if (server.length >= 2) {
-    fPoints = combineStatisticsForecastPastAndFuture(revisionPast, server, nowMs);
-    if (!forecastHasFuturePoints(fPoints, nowMs) && detailed.length >= 2) {
-      const pastBase = fPoints.filter((p) => p.t <= nowMs);
-      fPoints = mergeForecastPointsWithFuture(
-        pastBase.length >= 2 ? pastBase : revisionPast,
-        detailed,
-        nowMs
-      );
-    }
-  } else {
-    let clientPts = buildForecastSeriesPoints(plantState, range, hass, forecastState);
-    if (clientPts.length < 2 && Array.isArray(fallbackPoints) && fallbackPoints.length >= 2) {
-      clientPts = fallbackPoints;
-    }
-    if (clientPts.length >= 2) {
-      fPoints = mergeForecastPointsWithFuture(clientPts, detailed, nowMs);
-    } else if (revisionPast.length >= 2) {
-      fPoints = mergeForecastPointsWithFuture(revisionPast, detailed, nowMs);
-    } else if (detailed.length >= 2) {
-      fPoints = detailed;
-    }
+  // Client series carries the future tail (intraday include_future + detailed rows).
+  let fPoints = buildForecastSeriesPoints(plantState, range, hass, forecastState);
+  if (fPoints.length < 2 && Array.isArray(fallbackPoints) && fallbackPoints.length >= 2) {
+    fPoints = fallbackPoints;
+  }
+  if (fPoints.length >= 2) {
+    fPoints = mergeForecastPointsWithFuture(fPoints, detailed, nowMs);
+  } else if (detailed.length >= 2) {
+    fPoints = detailed;
+  } else if (revisionPast.length >= 2) {
+    fPoints = revisionPast;
+  }
+
+  // Overlay revision history for the solid segment without discarding the future tail.
+  if (revisionPast.length >= 2) {
+    fPoints = stitchForecastPastWithFutureTail(revisionPast, fPoints, nowMs);
+  }
+
+  // Append server overlay future when the client series is still missing a dashed tail.
+  if (server.length >= 2 && !forecastHasFuturePoints(fPoints, nowMs)) {
+    fPoints = mergeForecastPointsWithFuture(
+      statisticsForecastPastBase(fPoints, revisionPast, nowMs),
+      server,
+      nowMs
+    );
+  }
+
+  if (!forecastHasFuturePoints(fPoints, nowMs) && detailed.length >= 2) {
+    fPoints = mergeForecastPointsWithFuture(
+      statisticsForecastPastBase(fPoints, revisionPast, nowMs),
+      detailed,
+      nowMs
+    );
   }
 
   const nowKw =
