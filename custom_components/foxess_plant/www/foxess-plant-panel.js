@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.155
+ * @version 0.9.156
  */
 
 const NAV = [
@@ -170,7 +170,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.155";
+const PANEL_VERSION = "0.9.156";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -1489,21 +1489,24 @@ function renderForecastAccuracyCard(report, { compact = false, loading = false, 
     ? `<p class="card-title">${esc(title)}</p>`
     : `<h3 class="fox-analysis-summary-title fox-analysis-chart-title">${esc(title)}</h3>`;
   const margin = compact ? "margin-top:14px" : "";
-  if (loading) {
+  if (loading || !report) {
     return `<div class="card forecast-accuracy-card${compact ? " forecast-accuracy-card--compact" : ""}" style="${margin}">
 ${titleHtml}
-<p class="forecast-accuracy-empty chart-loading">Loading forecast analysis…</p>
+<p class="forecast-accuracy-empty chart-loading forecast-accuracy-loading">Loading forecast data…</p>
 </div>`;
   }
-  if (!report || report.error) {
-    const errText = report?.error || "Forecast data not available yet.";
-    const retryHint = report?.error
-      ? `<p class="forecast-accuracy-hint">Check FoxESS Plant is loaded, then refresh the page.</p>`
-      : "";
+  if (report.error) {
+    const errText = report.error;
     return `<div class="card forecast-accuracy-card${compact ? " forecast-accuracy-card--compact" : ""}" style="${margin}">
 ${titleHtml}
 <p class="forecast-accuracy-empty">${esc(errText)}</p>
-${retryHint}
+<p class="forecast-accuracy-hint">Check FoxESS Plant is loaded, then refresh the page.</p>
+</div>`;
+  }
+  if (!report.intraday?.actual_power_kw?.length && !report.intraday?.predicted_power_kw?.length) {
+    return `<div class="card forecast-accuracy-card${compact ? " forecast-accuracy-card--compact" : ""}" style="${margin}">
+${titleHtml}
+<p class="forecast-accuracy-empty">No forecast comparison data for this day yet.</p>
 </div>`;
   }
   const actual = formatDailyKwh(report.actual_kwh);
@@ -6295,6 +6298,15 @@ const STYLES = `
   color: var(--secondary-text-color); border-radius: var(--fp-radius);
   border: 1px dashed var(--divider-color); background: var(--card-background-color);
 }
+.forecast-accuracy-loading {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--primary-color) 28%, var(--divider-color));
+  animation: forecast-accuracy-pulse 1.4s ease-in-out infinite;
+}
+@keyframes forecast-accuracy-pulse {
+  0%, 100% { opacity: 0.72; }
+  50% { opacity: 1; }
+}
 .forecast-accuracy-card--compact .forecast-accuracy-empty { padding: 8px 6px; }
 .forecast-accuracy-chart-wrap--cloud { margin-top: 6px; }
 .forecast-accuracy-chart-wrap--cloud .forecast-accuracy-plot-head { margin-bottom: 6px; }
@@ -7632,6 +7644,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._forecastAccuracyAnalysisLoading = false;
     this._forecastAccuracyAnalysisKey = undefined;
     this._forecastAccuracyAnalysisSlotCache = undefined;
+    this._forecastAccuracyAnalysisCache = new Map();
     this._energyAnalysisSummaryCache = undefined;
     this._energyAnalysisChartSlotCache = undefined;
     this._statisticsForecastSlotTrack = undefined;
@@ -8993,6 +9006,7 @@ Reloading panel registration…
       this._forecastAccuracyAnalysisKey = undefined;
       this._forecastAccuracyAnalysisSlotCache = undefined;
       this._energyAnalysisSummaryCache = undefined;
+      this._beginForecastAccuracyAnalysisLoad();
       this._loadEnergyCharts();
       this._render();
       return;
@@ -9018,6 +9032,7 @@ Reloading panel registration…
       this._forecastAccuracyAnalysisKey = undefined;
       this._forecastAccuracyAnalysisSlotCache = undefined;
       this._energyAnalysisSummaryCache = undefined;
+      this._beginForecastAccuracyAnalysisLoad();
       this._loadEnergyCharts();
       this._scheduleRender();
       return;
@@ -11240,6 +11255,35 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
     return this._forecastAccuracyReportCacheKey(plant, this._energyPeriodOffset);
   }
 
+  _storeForecastAccuracyAnalysisCache(cacheKey, result) {
+    if (!cacheKey || !result || result.error) return;
+    if (!this._forecastAccuracyAnalysisCache) this._forecastAccuracyAnalysisCache = new Map();
+    this._forecastAccuracyAnalysisCache.set(cacheKey, result);
+    if (this._forecastAccuracyAnalysisCache.size > 16) {
+      const oldest = this._forecastAccuracyAnalysisCache.keys().next().value;
+      this._forecastAccuracyAnalysisCache.delete(oldest);
+    }
+  }
+
+  _beginForecastAccuracyAnalysisLoad() {
+    if (this._energyPeriod !== "day") return;
+    const plant = this._getPlant();
+    if (!plant || !this._hass || !statisticsSolcastForecastEnabled(this._plantState, this._hass)) return;
+    const cacheKey = this._forecastAccuracyAnalysisCacheKey(plant);
+    const cached = this._forecastAccuracyAnalysisCache?.get(cacheKey);
+    this._forecastAccuracyAnalysisSlotCache = undefined;
+    if (cached) {
+      this._forecastAccuracyAnalysis = cached;
+      this._forecastAccuracyAnalysisKey = cacheKey;
+      this._forecastAccuracyAnalysisLoading = false;
+      return;
+    }
+    this._forecastAccuracyAnalysis = null;
+    this._forecastAccuracyAnalysisKey = undefined;
+    this._forecastAccuracyAnalysisLoading = true;
+    void this._loadForecastAccuracyAnalysis();
+  }
+
   _forecastAccuracyAnalysisSlotKey() {
     if (this._energyPeriod !== "day") return "hidden";
     if (!statisticsSolcastForecastEnabled(this._plantState, this._hass)) return "disabled";
@@ -11322,6 +11366,7 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
         this._forecastAccuracyAnalysis = result;
         this._forecastAccuracyAnalysisKey = cacheKey;
         if (result && !result.error) {
+          this._storeForecastAccuracyAnalysisCache(cacheKey, result);
           this._syncForecastAccuracyToday(plant, result, this._energyPeriodOffset);
         } else {
           this._energyAnalysisChartSlotCache = undefined;

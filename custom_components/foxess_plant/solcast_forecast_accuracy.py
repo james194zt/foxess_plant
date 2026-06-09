@@ -188,6 +188,9 @@ def _actual_power_points(
     entity_id: str,
     day_start: datetime,
     as_of: datetime,
+    *,
+    fill_history: bool = True,
+    append_live: bool = True,
 ) -> list[dict[str, float]]:
     from .websocket_api import _fetch_history_points, _fetch_statistics_points
 
@@ -215,7 +218,7 @@ def _actual_power_points(
 
     existing_times = {p["t"] for p in out}
     last_ms = out[-1]["t"] if out else day_start_ms - STATISTICS_PERIOD_MS
-    if not out or last_ms < as_of_ms - STATISTICS_PERIOD_MS * 0.25:
+    if fill_history and (not out or last_ms < as_of_ms - STATISTICS_PERIOD_MS * 0.25):
         hist_from = _utc_from_timestamp(max(day_start_ms, last_ms + STATISTICS_PERIOD_MS) / 1000)
         hist = _fetch_history_points(
             hass,
@@ -238,20 +241,21 @@ def _actual_power_points(
             )
             out.extend(tail)
 
-    state = hass.states.get(entity_id)
-    if state and state.state not in ("unknown", "unavailable", "none"):
-        try:
-            live_kw = _entity_value_to_kw(hass, entity_id, float(state.state))
-            if out:
-                last_t = out[-1]["t"]
-                if as_of_ms >= last_t and as_of_ms - last_t <= STATISTICS_PERIOD_MS * 0.6:
-                    out[-1] = {"t": float(last_t), "v": live_kw}
-                elif as_of_ms > last_t + STATISTICS_PERIOD_MS * 0.25:
+    if append_live:
+        state = hass.states.get(entity_id)
+        if state and state.state not in ("unknown", "unavailable", "none"):
+            try:
+                live_kw = _entity_value_to_kw(hass, entity_id, float(state.state))
+                if out:
+                    last_t = out[-1]["t"]
+                    if as_of_ms >= last_t and as_of_ms - last_t <= STATISTICS_PERIOD_MS * 0.6:
+                        out[-1] = {"t": float(last_t), "v": live_kw}
+                    elif as_of_ms > last_t + STATISTICS_PERIOD_MS * 0.25:
+                        out.append({"t": float(as_of_ms), "v": live_kw})
+                else:
                     out.append({"t": float(as_of_ms), "v": live_kw})
-            else:
-                out.append({"t": float(as_of_ms), "v": live_kw})
-        except (TypeError, ValueError):
-            pass
+            except (TypeError, ValueError):
+                pass
 
     out.sort(key=lambda p: p["t"])
     return out
@@ -369,7 +373,14 @@ def build_forecast_accuracy_report(
     actual_power: list[dict[str, float]] = []
     if pv_entity:
         try:
-            actual_power = _actual_power_points(hass, pv_entity, day_start, as_of)
+            actual_power = _actual_power_points(
+                hass,
+                pv_entity,
+                day_start,
+                as_of,
+                fill_history=is_today,
+                append_live=is_today,
+            )
         except Exception:
             _LOGGER.exception("forecast accuracy actual power failed for %s", pv_entity)
     actual_cumulative = _integrate_kw_to_cumulative(actual_power, day_start_ms, as_of_ms)
@@ -382,10 +393,10 @@ def build_forecast_accuracy_report(
             target_day,
             entry_id=entry_id,
             use_daily_cache=True,
-            use_recorder=True,
+            use_recorder=is_today,
         )
     except Exception:
-        _LOGGER.exception("forecast accuracy predicted chart failed with recorder for %s", target_day)
+        _LOGGER.exception("forecast accuracy predicted chart failed for %s", target_day)
         predicted_kw = build_forecast_intraday_chart_for_day(
             hass,
             stored,
