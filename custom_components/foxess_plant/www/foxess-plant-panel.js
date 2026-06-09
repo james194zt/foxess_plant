@@ -25,6 +25,10 @@ const DEVICE_NEW_ENERGY_PERIOD_TABS = [
 ];
 
 /** Fox Cloud device Analysis real-time curve series. */
+// FOX_DEVICE_SUMMARY_ICONS_START
+const FOX_DEVICE_SUMMARY_ICONS = {"pv_power": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 36 36\" fill=\"none\" id=\"icon-icon-phot\">\n<g id=\"icon-icon-phot_icon-&#229;&#133;&#137;&#228;&#188;&#143;&#229;&#143;&#145;&#231;&#148;&#181;\">\n<path id=\"icon-icon-phot_Rectangle 34625637\" d=\"M4.5 7.5C4.5 5.84315 5.84315 4.5 7.5 4.5H28.5C30.1569 4.5 31.5 5.84315 31.5 7.5V28.5C31.5 30.1569 30.1569 31.5 28.5 31.5H7.5C5.84315 31.5 4.5 30.1569 4.5 28.5V7.5Z\" fill=\"#894BFC\" />\n<g id=\"icon-icon-phot_Frame\">\n<path id=\"icon-icon-phot_Vector\" d=\"M13.9738 18.0725C13.9738 19.4913 14.7413 20.8024 15.9873 21.5118C16.6011 21.8605 17.2949 22.0438 18.0008 22.0438C18.7067 22.0438 19.4005 21.8605 20.0143 21.5118C21.2602 20.8024 22.0277 19.4913 22.0277 18.0725C22.0277 16.6537 21.2602 15.3428 20.0143 14.6334C19.4005 14.2847 18.7067 14.1014 18.0008 14.1014C17.2949 14.1014 16.6011 14.2847 15.9873 14.6334C14.7413 15.3426 13.9738 16.6537 13.9738 18.0725ZM17.9947 10.4385C18.2567 10.4346 18.4861 10.6648 18.4922 10.9252L18.5003 12.5193C18.5044 12.7776 18.271 13.0039 18.0069 13.01C17.7448 13.014 17.5155 12.7836 17.5094 12.5233L17.5013 10.9292C17.5195 10.6308 17.7328 10.4427 17.9947 10.4385ZM25.9107 18.0444C25.9066 18.3029 25.7158 18.5131 25.413 18.5311L23.7966 18.5232C23.5347 18.5191 23.2991 18.2928 23.303 18.0325C23.3072 17.7742 23.5367 17.5419 23.8007 17.5458L25.4171 17.5539C25.679 17.5599 25.9147 17.7861 25.9107 18.0444ZM12.6985 18.0444C12.6944 18.3029 12.5034 18.5131 12.2008 18.5311L10.5844 18.5232C10.3225 18.5191 10.0869 18.2928 10.0909 18.0325C10.095 17.7742 10.3245 17.5419 10.5886 17.5458L12.205 17.5539C12.4669 17.5599 12.7025 17.7861 12.6985 18.0444ZM18.0067 25.7304C17.7448 25.7346 17.5153 25.5043 17.5094 25.2439L17.5013 23.6498C17.4971 23.3915 17.7306 23.1652 17.9947 23.1591C18.2567 23.1552 18.4861 23.3856 18.4922 23.6458L18.5003 25.2399C18.4821 25.5384 18.2688 25.7265 18.0069 25.7306L18.0067 25.7304ZM23.4676 12.6835C23.6566 12.8637 23.6524 13.1862 23.4697 13.3743L22.3325 14.5058C22.1496 14.6921 21.8227 14.6881 21.6317 14.508C21.4429 14.3276 21.4471 14.0052 21.6298 13.8169L22.767 12.6855C22.9924 12.4873 23.2768 12.5033 23.4676 12.6837V12.6835ZM23.6098 23.5818C23.4208 23.7619 23.1365 23.778 22.9092 23.5798L21.772 22.4483C21.5891 22.262 21.5851 21.9376 21.7739 21.7573C21.9629 21.5773 22.2918 21.5731 22.4745 21.7594L23.6117 22.8909C23.7946 23.077 23.7986 23.4016 23.6098 23.5818ZM14.2661 14.3676C14.0773 14.5479 13.7931 14.5639 13.5656 14.3658L12.4283 13.2343C12.2456 13.048 12.2415 12.7236 12.4303 12.5433C12.6193 12.3631 12.9482 12.3591 13.1311 12.5452L14.2683 13.6767C14.451 13.865 14.4571 14.1874 14.2661 14.3677V14.3676ZM12.5095 23.5036C12.3207 23.3235 12.3248 23.0009 12.5077 22.8128L13.6448 21.6813C13.8275 21.495 14.1545 21.499 14.3453 21.6793C14.5343 21.8593 14.5302 22.1819 14.3475 22.3702L13.2103 23.5017C12.9847 23.6998 12.6985 23.6838 12.5095 23.5036Z\" fill=\"white\" />\n</g>\n</g>\n</svg>", "battery_soc": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 36 36\" fill=\"none\" id=\"icon-icon-battery\">\n<g id=\"icon-icon-battery_icon-&#231;&#148;&#181;&#230;&#177;&#160;\">\n<path id=\"icon-icon-battery_Rectangle 34625637\" d=\"M4.5 7.5C4.5 5.84315 5.84315 4.5 7.5 4.5H28.5C30.1569 4.5 31.5 5.84315 31.5 7.5V28.5C31.5 30.1569 30.1569 31.5 28.5 31.5H7.5C5.84315 31.5 4.5 30.1569 4.5 28.5V7.5Z\" fill=\"#03BD9A\" />\n<g id=\"icon-icon-battery_Frame\" clip-path=\"url(#icon-icon-battery_clip0_36_2961)\">\n<path id=\"icon-icon-battery_Vector\" d=\"M21.0349 23.7746L21.0349 14.2157L14.9656 14.2157L14.9656 23.7746L21.0349 23.7746ZM16.4829 11.5776L14.9656 11.5776C14.131 11.5776 13.4482 12.1554 13.4482 12.8615L13.4482 23.7746C13.4482 24.4807 14.131 25.0585 14.9656 25.0585L21.0349 25.0585C21.8694 25.0585 22.5522 24.4807 22.5522 23.7746L22.5522 12.8615C22.5522 12.1554 21.8694 11.5776 21.0349 11.5776L19.5175 11.5776C19.5175 11.2246 19.1761 10.9357 18.7589 10.9357L17.2415 10.9357C16.8243 10.9357 16.4829 11.2246 16.4829 11.5776ZM17.2415 12.2196L21.0349 12.2196C21.4521 12.2196 21.7935 12.5084 21.7935 12.8615L21.7935 23.7746C21.7935 24.1277 21.4521 24.4165 21.0349 24.4165L14.9656 24.4165C14.5483 24.4165 14.2069 24.1277 14.2069 23.7746L14.2069 12.8615C14.2069 12.5084 14.5483 12.2196 14.9656 12.2196L17.2415 12.2196Z\" fill=\"white\" />\n</g>\n</g>\n<defs>\n<clipPath id=\"icon-icon-battery_clip0_36_2961\">\n<rect width=\"14.1429\" height=\"16.7143\" fill=\"white\" transform=\"translate(9.64258 25.0714) rotate(-90)\" />\n</clipPath>\n</defs>\n</svg>", "discharging": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 16 16\" fill=\"none\" id=\"icon-discharging\">\n<g id=\"icon-discharging_Icon/LightningFill\">\n<path id=\"icon-discharging_Vector\" d=\"M9 7V1L3 9H7V15L13 7H9Z\" fill=\"#894BFC\" />\n</g>\n</svg>", "temperature": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 32 32\" fill=\"none\" id=\"icon-drier_iocn\">\n  <path d=\"M5 2C5.00471 2.81985 5.15086 3.55545 5.40303 4.23275C5.84101 5.40916 6.5791 6.33775 7.19824 7.11668L7.24401 7.17427C7.90478 8.006 8.43245 8.68616 8.73703 9.51112C8.89303 9.93365 8.99729 10.4171 8.99984 11H11.2498C11.2475 10.1658 11.1013 9.41868 10.8478 8.73184C10.407 7.53809 9.66231 6.60092 9.0386 5.81606L9.00572 5.77467C8.3429 4.94037 7.81588 4.2649 7.51163 3.44771C7.35819 3.03556 7.25494 2.56538 7.25002 2H5Z\" fill=\"var(--color-primary)\" fill-opacity=\"0.65\" />\n  <path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M9.02636 13.4476L4.55439 22.3974C3.54382 24.4198 3.93994 26.8625 5.53779 28.4613C7.58799 30.5129 10.912 30.5129 12.9622 28.4613C14.5601 26.8625 14.9562 24.4198 13.9456 22.3974L9.47364 13.4476C9.38153 13.2632 9.11847 13.2632 9.02636 13.4476ZM11.75 24.75C11.75 26.1307 10.6307 27.25 9.25 27.25V28.25C11.183 28.25 12.75 26.683 12.75 24.75H11.75Z\" fill=\"var(--color-primary)\" fill-opacity=\"0.65\" />\n  <path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M21.702 21.8945C22.9288 24.3498 22.448 27.3152 20.508 29.2566C20.4535 29.3111 20.3983 29.3644 20.3423 29.4165C22.3181 30.4372 24.8059 30.1188 26.4622 28.4613C28.0601 26.8625 28.4562 24.4198 27.4456 22.3974L22.9736 13.4476C22.8815 13.2632 22.6185 13.2632 22.5264 13.4476L20.0038 18.496L21.702 21.8945ZM25.4062 24.75C25.4062 26.1307 24.287 27.25 22.9062 27.25V28.25C24.8392 28.25 26.4062 26.683 26.4062 24.75H25.4062Z\" fill=\"var(--color-primary)\" fill-opacity=\"0.65\" />\n  <path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M13.7541 29.2566C15.6942 27.3152 16.175 24.3498 14.9482 21.8945L13.25 18.496L15.7725 13.4476C15.8647 13.2632 16.1277 13.2632 16.2198 13.4476L20.6918 22.3974C21.7024 24.4198 21.3062 26.8625 19.7084 28.4613C18.0521 30.1188 15.5643 30.4372 13.5885 29.4165C13.6444 29.3644 13.6997 29.3111 13.7541 29.2566ZM16.3125 27.25C17.6932 27.25 18.8125 26.1307 18.8125 24.75H19.8125C19.8125 26.683 18.2455 28.25 16.3125 28.25V27.25Z\" fill=\"var(--color-primary)\" fill-opacity=\"0.65\" />\n  <path d=\"M11.2498 2C11.2545 2.81985 11.4007 3.55545 11.6528 4.23275C12.0908 5.40916 12.8289 6.33774 13.4481 7.11668L13.4938 7.17427C14.1546 8.006 14.6823 8.68616 14.9868 9.51112C15.1428 9.93365 15.2471 10.4171 15.2496 11H17.4996C17.4973 10.1658 17.3512 9.41868 17.0976 8.73184C16.6568 7.53809 15.9121 6.60092 15.2884 5.81606L15.2555 5.77467C14.5927 4.94037 14.0657 4.2649 13.7614 3.44771C13.608 3.03556 13.5048 2.56538 13.4998 2H11.2498Z\" fill=\"var(--color-primary)\" fill-opacity=\"0.65\" />\n  <path d=\"M17.4996 2C17.5043 2.81985 17.6505 3.55545 17.9027 4.23275C18.3406 5.40916 19.0787 6.33774 19.6979 7.11668L19.7436 7.17427C20.4044 8.006 20.9321 8.68616 21.2367 9.51112C21.3927 9.93365 21.4969 10.4171 21.4995 11H23.7494C23.7471 10.1658 23.601 9.41868 23.3474 8.73184C22.9067 7.53809 22.1619 6.60092 21.5382 5.81606L21.5053 5.77467C20.8425 4.94037 20.3155 4.2649 20.0113 3.44771C19.8578 3.03556 19.7546 2.56538 19.7497 2H17.4996Z\" fill=\"var(--color-primary)\" fill-opacity=\"0.65\" />\n</svg>"};
+// FOX_DEVICE_SUMMARY_ICONS_END
+
 const DEVICE_REALTIME_CHART_SERIES = [
   {
     key: "pv_power",
@@ -223,7 +227,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.160";
+const PANEL_VERSION = "0.9.161";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -2341,6 +2345,7 @@ function renderDeviceNewSummaryCards(hass, plant, plantState) {
   const map = resolveEntityMap(hass, plant, plantState);
   const tempRaw = stateString(hass, map.bms_temp_low);
   const tempDisplay = tempRaw !== "—" ? `${tempRaw} ℃` : "—";
+  const iconKeys = { pv: "pv_power", soc: "battery_soc", discharge: "discharging", temp: "temperature" };
   const cards = [
     { label: "PV Power", value: formatDevicePowerKw(flows.pvW), tone: "pv" },
     { label: "Battery SOC", value: formatPercent(flows.batterySoc), tone: "soc" },
@@ -2352,10 +2357,31 @@ function renderDeviceNewSummaryCards(hass, plant, plantState) {
     { label: "Min. Battery Temperature", value: tempDisplay, tone: "temp" },
   ];
   return `<div class="fox-device-new-summary">${cards
-    .map(
-      (c) =>
-        `<div class="fox-device-new-summary-card fox-device-new-summary-card--${c.tone}"><span class="fox-device-new-summary-label">${esc(c.label)}</span><strong class="fox-device-new-summary-value">${esc(c.value)}</strong></div>`
-    )
+    .map((c) => {
+      const icon = foxDeviceSummaryIcon(iconKeys[c.tone]);
+      return `<div class="fox-device-new-summary-card fox-device-new-summary-card--${c.tone}">
+<span class="fox-device-new-summary-label">${esc(c.label)}</span>
+${icon ? `<span class="fox-device-new-summary-icon" aria-hidden="true">${icon}</span>` : ""}
+<strong class="fox-device-new-summary-value">${esc(c.value)}</strong>
+</div>`;
+    })
+    .join("")}</div>`;
+}
+
+function renderDeviceNewMetricGrid(hass, rows) {
+  if (!rows.length) {
+    return `<p class="device-param-empty">No sensors discovered for this section.</p>`;
+  }
+  return `<div class="fox-device-new-metric-grid">${rows
+    .map((r) => {
+      const value = r.entity_id
+        ? entityDisplayValue(hass, r.entity_id)
+        : r.value != null && r.value !== ""
+          ? String(r.value)
+          : "—";
+      const label = r.name || r.label;
+      return `<div class="fox-device-new-metric-item"><span class="fox-device-new-metric-label">${esc(label)}</span><strong class="fox-device-new-metric-value">${esc(value)}</strong></div>`;
+    })
     .join("")}</div>`;
 }
 
@@ -3053,6 +3079,38 @@ ${renderFoxAnalysisStatCol("Charged", a.battery_charge_kwh_today, "charged")}
 </div>`;
 }
 
+function renderDeviceRealtimeLegend(visible, { socSeries = null } = {}) {
+  const seen = new Set();
+  const items = [];
+  for (const s of visible) {
+    const group = s.legendGroup || s.id;
+    if (seen.has(group)) continue;
+    seen.add(group);
+    items.push({ group, label: s.label || group, color: s.color || "#888" });
+  }
+  if (socSeries?.points?.length) {
+    items.push({
+      group: "soc",
+      label: socSeries.label || "Battery SOC",
+      color: socSeries.color || STATISTICS_SOC_COLOR,
+    });
+  }
+  return items
+    .map(
+      (it) =>
+        `<button type="button" class="statistics-legend-item" data-legend-group="${esc(it.group)}" aria-pressed="true"><i style="background:${esc(it.color)}"></i><span>${esc(it.label)}</span></button>`
+    )
+    .join("");
+}
+
+function foxDeviceSummaryIcon(key) {
+  let svg = FOX_DEVICE_SUMMARY_ICONS[key] || "";
+  if (key === "temperature") {
+    svg = svg.replace(/var\(--color-primary\)/g, "#894BFC");
+  }
+  return svg;
+}
+
 function renderStatisticsSideLegend(visible, { socVisible = false } = {}) {
   const groupsPresent = new Set(visible.map((s) => s.legendGroup || s.id));
   if (socVisible) groupsPresent.add("soc");
@@ -3426,13 +3484,13 @@ const DEVICE_PARAMETER_SECTIONS = [
     title: "Grid Information",
     kind: "rows",
     rows: [
-      ["grid_status", "Grid status"],
+      ["grid_status", "Grid Status"],
       ["feed_in_energy_today", "Daily feed-in energy"],
       ["feed_in_energy_total", "Total feed-in energy"],
       ["grid_consumption_energy_today", "Daily purchased energy"],
       ["grid_consumption_energy_total", "Total purchased energy"],
-      ["grid_export", "Feed-in power"],
-      ["grid_import", "Purchased power"],
+      ["grid_export", "Feed-in Power"],
+      ["grid_import", "Purchased Power"],
     ],
   },
   {
@@ -3448,15 +3506,15 @@ const DEVICE_PARAMETER_SECTIONS = [
       ["bat_current_1", "Current"],
       ["batvolt_1", "Voltage"],
       ["bms_temp_low", "Min. battery temperature"],
-      ["battery_discharge_today", "Daily discharged energy"],
-      ["battery_discharge_total", "Total discharged energy"],
+      ["battery_soh", "SOH"],
       ["battery_charge_today", "Daily charged energy"],
       ["battery_charge_total", "Total charged energy"],
-      ["battery_soh", "SOH"],
+      ["battery_discharge_today", "Daily discharged energy"],
+      ["battery_discharge_total", "Total discharged energy"],
       ["battery_cycles", "Battery cycles"],
     ],
   },
-  { id: "datalogger", title: "Datalogger Information", kind: "datalogger" },
+  { id: "datalogger", title: "Datalogger", kind: "datalogger" },
 ];
 
 const ANALYTICS_STATE_KEYS = [
@@ -5488,12 +5546,14 @@ function renderStatisticsChartHtml(series, range, options = {}) {
 
   const legendItems = sideLegend
     ? renderStatisticsSideLegend(visible, { socVisible: hasSoc })
-    : STATISTICS_LEGEND_ORDER.filter((g) => new Set(visible.map((s) => s.legendGroup || s.id)).has(g))
-        .map(
-          (g) =>
-            `<button type="button" class="statistics-legend-item" data-legend-group="${esc(g)}" aria-pressed="true"><i style="background:${esc(STATISTICS_LEGEND_COLORS[g] || "#888")}"></i><span>${esc(STATISTICS_LEGEND_LABEL[g] || g)}</span></button>`
-        )
-        .join("");
+    : options.legendFromSeries
+      ? renderDeviceRealtimeLegend(visible, { socSeries: hasSoc ? socSeries : null })
+      : STATISTICS_LEGEND_ORDER.filter((g) => new Set(visible.map((s) => s.legendGroup || s.id)).has(g))
+          .map(
+            (g) =>
+              `<button type="button" class="statistics-legend-item" data-legend-group="${esc(g)}" aria-pressed="true"><i style="background:${esc(STATISTICS_LEGEND_COLORS[g] || "#888")}"></i><span>${esc(STATISTICS_LEGEND_LABEL[g] || g)}</span></button>`
+          )
+          .join("");
 
   const powerAxisLabel = sideLegend || hasSoc ? "Power (kW)" : "kW";
   const leftAxisTitle = `<text x="${yLabelX}" y="${(pad.t - 6).toFixed(1)}" text-anchor="start" class="statistics-y-label statistics-y-label--left">${esc(powerAxisLabel)}</text>`;
@@ -7515,16 +7575,36 @@ const STYLES = `
   display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;
 }
 .fox-device-new-summary-card {
-  border-radius: 12px; padding: 14px 16px; min-height: 72px;
-  display: flex; flex-direction: column; justify-content: center; gap: 6px;
-  border: 1px solid var(--divider-color);
+  position: relative; border-radius: 12px; padding: 14px 16px; min-height: 84px;
+  display: flex; flex-direction: column; justify-content: flex-end; gap: 8px;
+  border: 1px solid var(--divider-color); overflow: hidden;
 }
 .fox-device-new-summary-card--pv { background: rgba(25, 212, 222, 0.12); }
-.fox-device-new-summary-card--soc { background: rgba(138, 77, 255, 0.12); }
-.fox-device-new-summary-card--discharge { background: rgba(76, 175, 80, 0.12); }
-.fox-device-new-summary-card--temp { background: rgba(245, 197, 66, 0.14); }
-.fox-device-new-summary-label { font-size: 12px; color: var(--secondary-text-color); font-weight: 500; }
+.fox-device-new-summary-card--soc { background: rgba(3, 189, 154, 0.12); }
+.fox-device-new-summary-card--discharge { background: rgba(137, 75, 252, 0.12); }
+.fox-device-new-summary-card--temp { background: rgba(137, 75, 252, 0.08); }
+.fox-device-new-summary-label { font-size: 12px; color: var(--secondary-text-color); font-weight: 500; padding-right: 36px; }
+.fox-device-new-summary-icon {
+  position: absolute; top: 10px; right: 10px; width: 34px; height: 34px;
+  display: flex; align-items: center; justify-content: center; pointer-events: none;
+}
+.fox-device-new-summary-icon svg { width: 100%; height: 100%; display: block; }
 .fox-device-new-summary-value { font-size: 20px; font-weight: 700; line-height: 1.15; color: var(--primary-text-color); }
+.fox-device-new-metric-grid {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--divider-color); border-radius: 10px; overflow: hidden;
+  background: var(--card-background-color);
+}
+.fox-device-new-metric-item {
+  padding: 12px 14px; min-height: 64px;
+  border-right: 1px solid var(--divider-color); border-bottom: 1px solid var(--divider-color);
+  display: flex; flex-direction: column; justify-content: center; gap: 6px;
+}
+.fox-device-new-metric-item:nth-child(3n) { border-right: none; }
+.fox-device-new-metric-label { font-size: 12px; color: var(--secondary-text-color); font-weight: 500; line-height: 1.3; }
+.fox-device-new-metric-value { font-size: 15px; font-weight: 700; color: var(--primary-text-color); line-height: 1.2; word-break: break-word; }
+.fox-device-new-realtime .device-param-table-wrap { margin: 0; }
+.fox-device-new-realtime .device-param-table { width: 100%; border-collapse: collapse; }
 .fox-device-new-card {
   border: 1px solid var(--divider-color); border-radius: 14px;
   background: var(--card-background-color); padding: 16px;
@@ -7540,18 +7620,18 @@ const STYLES = `
   margin: 0 0 10px; padding-left: 10px; border-left: 3px solid var(--primary-color, #8a4dff);
   font-size: 15px; font-weight: 700;
 }
-.fox-device-new-realtime .device-param-table-wrap,
-.fox-device-new-realtime .entity-list {
-  border: 1px solid var(--divider-color); border-radius: 10px; overflow: hidden;
-}
-.fox-device-new-realtime .entity-list { background: var(--card-background-color); }
 @media (max-width: 980px) {
   .fox-device-new-layout { grid-template-columns: 1fr; }
   .fox-device-new-sidebar { position: static; }
   .fox-device-new-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fox-device-new-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fox-device-new-metric-item:nth-child(3n) { border-right: 1px solid var(--divider-color); }
+  .fox-device-new-metric-item:nth-child(2n) { border-right: none; }
 }
 @media (max-width: 520px) {
   .fox-device-new-summary { grid-template-columns: 1fr; }
+  .fox-device-new-metric-grid { grid-template-columns: 1fr; }
+  .fox-device-new-metric-item { border-right: none; }
 }
 .period-card { border: 1px solid var(--divider-color); border-radius: var(--fp-radius); padding: 16px; margin-bottom: 12px; background: var(--secondary-background-color, rgba(127,127,127,0.06)); }
 .period-card h4 { margin: 0 0 12px; font-size: 15px; }
@@ -10960,7 +11040,7 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
       .join("")}</tr></thead><tbody><tr>${values.map((v) => `<td>${esc(v)}</td>`).join("")}</tr></tbody></table></div>`;
   }
 
-  _renderDeviceDataloggerRows(plant, map) {
+  _renderDeviceDataloggerRows(plant, map, { layout = "list" } = {}) {
     const id = this._plantState?.identity ?? {};
     const rows = [];
     const bmsId = map.bms_online;
@@ -10983,6 +11063,9 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     if (slave && slave !== "—") rows.push({ name: "Slave firmware", value: slave });
     if (!rows.length) {
       return `<p class="device-param-empty">No datalogger sensors discovered yet.</p>`;
+    }
+    if (layout === "grid") {
+      return renderDeviceNewMetricGrid(this._hass, rows);
     }
     return `<div class="entity-list">${rows
       .map(
@@ -11184,6 +11267,7 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
       sideLegend: false,
       includeSoc: true,
       socSeries,
+      legendFromSeries: true,
     });
   }
 
@@ -11219,6 +11303,16 @@ ${this._renderDeviceNewDayNav()}
 </div>`;
   }
 
+  _renderDeviceNewSectionBody(section, plant, map) {
+    if (section.kind === "pv-table") return this._renderDevicePvTable(map);
+    if (section.kind === "metric-table") {
+      return this._renderDeviceMetricTable(map, section.keys, section.headers);
+    }
+    if (section.kind === "datalogger") return this._renderDeviceDataloggerRows(plant, map, { layout: "grid" });
+    const rows = entityMapRows(this._hass, plant, this._plantState, section.rows);
+    return renderDeviceNewMetricGrid(this._hass, rows);
+  }
+
   _renderDeviceNewRealtimeSections(plant) {
     const map = resolveEntityMap(this._hass, plant, this._plantState);
     const sections = DEVICE_PARAMETER_SECTIONS.filter((section) =>
@@ -11230,7 +11324,7 @@ ${this._renderDeviceNewDayNav()}
     return `<div class="fox-device-new-realtime">${sections
       .map(
         (section) =>
-          `<section class="fox-device-new-section"><h3 class="fox-device-new-section-title">${esc(section.title)}</h3>${this._renderDeviceParamSectionBody(section, plant, map)}</section>`
+          `<section class="fox-device-new-section"><h3 class="fox-device-new-section-title">${esc(section.title)}</h3>${this._renderDeviceNewSectionBody(section, plant, map)}</section>`
       )
       .join("")}</div>`;
   }
