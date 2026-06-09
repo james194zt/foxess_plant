@@ -156,6 +156,40 @@ def _plant_summary(hass: HomeAssistant, entry_id: str) -> dict[str, Any]:
     return coordinator.get_plant_state()
 
 
+def _history_state_to_point(state) -> dict[str, float] | None:
+    """Recorder history row as {t, v}; handles State objects and minimal_response dicts."""
+    if isinstance(state, dict):
+        raw = state.get("state", state.get("s"))
+        ts_raw = (
+            state.get("last_updated")
+            or state.get("last_changed")
+            or state.get("lu")
+            or state.get("last_updated_ts")
+        )
+    else:
+        raw = getattr(state, "state", None)
+        ts_raw = getattr(state, "last_updated", None) or getattr(state, "last_changed", None)
+
+    if raw in (None, "unknown", "unavailable"):
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+
+    if ts_raw is None:
+        return None
+    if isinstance(ts_raw, (int, float)):
+        t_ms = float(ts_raw) * 1000 if ts_raw < 1e12 else float(ts_raw)
+    else:
+        parsed = dt_util.parse_datetime(str(ts_raw))
+        if parsed is None:
+            return None
+        t_ms = dt_util.as_utc(parsed).timestamp() * 1000
+
+    return {"t": t_ms, "v": value}
+
+
 def _fetch_history_points(
     hass: HomeAssistant,
     start_time: dt,
@@ -182,16 +216,9 @@ def _fetch_history_points(
     for entity_id in entity_ids:
         points: list[dict[str, float]] = []
         for state in states_map.get(entity_id) or []:
-            try:
-                value = float(state.state)
-            except (TypeError, ValueError):
-                continue
-            points.append(
-                {
-                    "t": state.last_updated.timestamp() * 1000,
-                    "v": value,
-                }
-            )
+            pt = _history_state_to_point(state)
+            if pt is not None:
+                points.append(pt)
         out[entity_id] = points
     for entity_id in entity_ids:
         out.setdefault(entity_id, []).sort(key=lambda p: p["t"])
