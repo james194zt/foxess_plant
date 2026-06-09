@@ -932,12 +932,11 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             report = await get_instance(hass).async_add_executor_job(job)
         except Exception as err:
             _LOGGER.exception("solcast_forecast_accuracy failed for %s", target_day.isoformat())
-            connection.send_error(
-                msg["id"],
-                "forecast_accuracy_failed",
-                str(err) or type(err).__name__ or "Forecast accuracy report failed",
-            )
-            return
+            report = {
+                "error": str(err) or type(err).__name__ or "Forecast accuracy report failed",
+                "solcast_enabled": True,
+                "day": target_day.isoformat(),
+            }
         connection.send_result(msg["id"], report)
 
     websocket_api.async_register_command(hass, ws_plant_list)

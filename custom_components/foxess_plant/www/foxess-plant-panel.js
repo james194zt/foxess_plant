@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.158
+ * @version 0.9.159
  */
 
 const NAV = [
@@ -170,7 +170,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.158";
+const PANEL_VERSION = "0.9.159";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -1042,12 +1042,15 @@ async function fetchForecastAccuracyReport(hass, plant, dayOffset = 0) {
       day: formatLocalDayKey(day),
     });
   } catch (err) {
-    const msg =
-      err?.message ||
-      err?.error?.message ||
-      err?.body?.message ||
-      (typeof err === "string" ? err : "") ||
-      "Failed to load forecast accuracy";
+    const bits = [
+      err?.message,
+      err?.code,
+      err?.error?.message,
+      err?.error?.code,
+      err?.body?.message,
+      typeof err === "string" ? err : "",
+    ].filter((b) => b && b !== "Unknown error");
+    const msg = bits[0] || "Failed to load forecast accuracy";
     return { error: msg, solcast_enabled: true };
   }
 }
@@ -7920,7 +7923,7 @@ Reloading panel registration…
         this._forecastAccuracyAnalysisKey = undefined;
         if (this._view === "overview") void this._loadForecastAccuracyOverview();
         if (this._view === "energy_analysis" && this._energyPeriod === "day") {
-          void this._loadForecastAccuracyAnalysis();
+          this._beginForecastAccuracyAnalysisLoad();
         }
       }
       if (!this._socDrag) this._scheduleRender();
@@ -11412,11 +11415,11 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
         };
         this._forecastAccuracyAnalysisKey = cacheKey;
       } finally {
-        if (loadGen !== this._forecastAccuracyLoadGen) return;
         if (this._forecastAccuracyAnalysisInflightKey === cacheKey) {
           this._forecastAccuracyAnalysisInflight = null;
           this._forecastAccuracyAnalysisInflightKey = undefined;
         }
+        if (loadGen !== this._forecastAccuracyLoadGen) return;
         this._forecastAccuracyAnalysisLoading = false;
         this._forecastAccuracyAnalysisSlotCache = undefined;
         if (this._forecastAccuracyAnalysisCacheKey(this._getPlant()) === cacheKey) {

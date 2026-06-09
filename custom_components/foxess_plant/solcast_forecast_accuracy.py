@@ -136,7 +136,14 @@ def _snapshots_for_target_day(
 
         entity_id = find_solcast_forecast_entity(hass, entry_id)
         if entity_id:
-            recorder_snaps = collect_recorder_snapshots(hass, entity_id, day_start, day_end)
+            try:
+                recorder_snaps = collect_recorder_snapshots(
+                    hass, entity_id, day_start, day_end
+                )
+            except Exception:
+                _LOGGER.exception(
+                    "forecast accuracy recorder snapshots failed for %s", target_day
+                )
     merged = _merge_snapshots(storage_snaps, recorder_snaps)
     day_end_ms = day_end.timestamp() * 1000 - 1
     filtered: list[tuple[float, list[dict[str, Any]]]] = []
@@ -349,6 +356,105 @@ def _points_through(points: list[dict[str, float]], end_ms: float) -> list[dict[
     return [p for p in points if p["t"] <= end_ms]
 
 
+def _predicted_kw_for_accuracy_day(
+    hass: HomeAssistant,
+    stored: dict[str, Any] | None,
+    current_cache: dict[str, Any] | None,
+    target_day: date,
+    *,
+    entry_id: str | None,
+    is_today: bool,
+) -> list[dict[str, float]]:
+    """Predicted kW series; recorder failures must not break the whole report."""
+    if is_today:
+        predicted_kw = build_forecast_intraday_chart_for_day(
+            hass,
+            stored,
+            current_cache,
+            target_day,
+            entry_id=entry_id,
+            use_daily_cache=True,
+            use_recorder=False,
+        )
+        if len(predicted_kw) < 2 and entry_id:
+            try:
+                predicted_kw = build_forecast_intraday_chart_for_day(
+                    hass,
+                    stored,
+                    current_cache,
+                    target_day,
+                    entry_id=entry_id,
+                    use_daily_cache=False,
+                    use_recorder=True,
+                )
+            except Exception:
+                _LOGGER.exception(
+                    "forecast accuracy predicted recorder fallback failed for %s",
+                    target_day,
+                )
+                if len(predicted_kw) < 2:
+                    predicted_kw = build_forecast_intraday_chart_for_day(
+                        hass,
+                        stored,
+                        current_cache,
+                        target_day,
+                        entry_id=entry_id,
+                        use_daily_cache=False,
+                        use_recorder=False,
+                    )
+        return predicted_kw
+
+    predicted_kw: list[dict[str, float]] = []
+    if entry_id:
+        try:
+            predicted_kw = build_forecast_intraday_chart_for_day(
+                hass,
+                stored,
+                current_cache,
+                target_day,
+                entry_id=entry_id,
+                use_daily_cache=True,
+                use_recorder=True,
+            )
+        except Exception:
+            _LOGGER.exception(
+                "forecast accuracy predicted recorder load failed for %s", target_day
+            )
+    if len(predicted_kw) < 2:
+        try:
+            predicted_kw = build_forecast_intraday_chart_for_day(
+                hass,
+                stored,
+                current_cache,
+                target_day,
+                entry_id=entry_id,
+                use_daily_cache=True,
+                use_recorder=False,
+            )
+        except Exception:
+            _LOGGER.exception(
+                "forecast accuracy predicted storage load failed for %s", target_day
+            )
+            predicted_kw = []
+        if len(predicted_kw) < 2 and entry_id:
+            try:
+                predicted_kw = build_forecast_intraday_chart_for_day(
+                    hass,
+                    stored,
+                    current_cache,
+                    target_day,
+                    entry_id=entry_id,
+                    use_daily_cache=False,
+                    use_recorder=False,
+                )
+            except Exception:
+                _LOGGER.exception(
+                    "forecast accuracy predicted rebuild failed for %s", target_day
+                )
+                predicted_kw = []
+    return predicted_kw
+
+
 def build_forecast_accuracy_report(
     hass: HomeAssistant,
     stored: dict[str, Any] | None,
@@ -389,46 +495,14 @@ def build_forecast_accuracy_report(
             _LOGGER.exception("forecast accuracy actual power failed for %s", pv_entity)
     actual_cumulative = _integrate_kw_to_cumulative(actual_power, day_start_ms, as_of_ms)
 
-    if is_today:
-        predicted_kw = build_forecast_intraday_chart_for_day(
-            hass,
-            stored,
-            current_cache,
-            target_day,
-            entry_id=entry_id,
-            use_daily_cache=True,
-            use_recorder=False,
-        )
-        if len(predicted_kw) < 2 and entry_id:
-            predicted_kw = build_forecast_intraday_chart_for_day(
-                hass,
-                stored,
-                current_cache,
-                target_day,
-                entry_id=entry_id,
-                use_daily_cache=False,
-                use_recorder=True,
-            )
-    else:
-        predicted_kw = build_forecast_intraday_chart_for_day(
-            hass,
-            stored,
-            current_cache,
-            target_day,
-            entry_id=entry_id,
-            use_daily_cache=True,
-            use_recorder=True,
-        )
-        if len(predicted_kw) < 2 and entry_id:
-            predicted_kw = build_forecast_intraday_chart_for_day(
-                hass,
-                stored,
-                current_cache,
-                target_day,
-                entry_id=entry_id,
-                use_daily_cache=False,
-                use_recorder=True,
-            )
+    predicted_kw = _predicted_kw_for_accuracy_day(
+        hass,
+        stored,
+        current_cache,
+        target_day,
+        entry_id=entry_id,
+        is_today=is_today,
+    )
     predicted_in_range = [p for p in predicted_kw if p["t"] <= as_of_ms]
     predicted_cumulative = _integrate_kw_to_cumulative(predicted_in_range, day_start_ms, as_of_ms)
 

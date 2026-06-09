@@ -183,10 +183,30 @@ def collect_recorder_snapshots(
             no_attributes=False,
         )
     for state in states_map.get(entity_id) or []:
-        rows = _detailed_rows_from_attrs(getattr(state, "attributes", None))
+        if isinstance(state, dict):
+            attrs = state.get("attributes")
+            ts_raw = (
+                state.get("last_updated")
+                or state.get("last_changed")
+                or state.get("lu")
+            )
+        else:
+            attrs = getattr(state, "attributes", None)
+            ts_raw = getattr(state, "last_updated", None) or getattr(
+                state, "last_changed", None
+            )
+        rows = _detailed_rows_from_attrs(attrs if isinstance(attrs, dict) else None)
         if len(rows) < 2:
             continue
-        fetched_ms = state.last_updated.timestamp() * 1000
+        if ts_raw is None:
+            continue
+        if isinstance(ts_raw, (int, float)):
+            fetched_ms = float(ts_raw) * 1000 if ts_raw < 1e12 else float(ts_raw)
+        else:
+            parsed = dt_util.parse_datetime(str(ts_raw))
+            if parsed is None:
+                continue
+            fetched_ms = dt_util.as_utc(parsed).timestamp() * 1000
         snapshots.append((fetched_ms, rows))
     return sorted(snapshots, key=lambda item: item[0])
 
