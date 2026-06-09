@@ -364,7 +364,10 @@ def build_forecast_accuracy_report(
     now = dt_util.now()
     local_today = dt_util.as_local(now).date()
     is_today = target_day == local_today
-    as_of = min(now, day_end - timedelta(seconds=1))
+    if is_today:
+        as_of = min(now, day_end - timedelta(seconds=1))
+    else:
+        as_of = day_end - timedelta(seconds=1)
     as_of_ms = as_of.timestamp() * 1000
 
     pv_entity = _resolve_entity(entity_map, _PV_POWER_KEYS)
@@ -386,17 +389,17 @@ def build_forecast_accuracy_report(
             _LOGGER.exception("forecast accuracy actual power failed for %s", pv_entity)
     actual_cumulative = _integrate_kw_to_cumulative(actual_power, day_start_ms, as_of_ms)
 
-    predicted_kw = build_forecast_intraday_chart_for_day(
-        hass,
-        stored,
-        current_cache,
-        target_day,
-        entry_id=entry_id,
-        use_daily_cache=True,
-        use_recorder=False,
-    )
-    if len(predicted_kw) < 2 and entry_id:
-        try:
+    if is_today:
+        predicted_kw = build_forecast_intraday_chart_for_day(
+            hass,
+            stored,
+            current_cache,
+            target_day,
+            entry_id=entry_id,
+            use_daily_cache=True,
+            use_recorder=False,
+        )
+        if len(predicted_kw) < 2 and entry_id:
             predicted_kw = build_forecast_intraday_chart_for_day(
                 hass,
                 stored,
@@ -406,11 +409,17 @@ def build_forecast_accuracy_report(
                 use_daily_cache=False,
                 use_recorder=True,
             )
-        except Exception:
-            _LOGGER.exception(
-                "forecast accuracy predicted chart recorder fallback failed for %s",
-                target_day,
-            )
+    else:
+        predicted_kw = build_forecast_intraday_chart_for_day(
+            hass,
+            stored,
+            current_cache,
+            target_day,
+            entry_id=entry_id,
+            use_daily_cache=True,
+            use_recorder=True,
+        )
+        if len(predicted_kw) < 2 and entry_id:
             predicted_kw = build_forecast_intraday_chart_for_day(
                 hass,
                 stored,
@@ -418,13 +427,18 @@ def build_forecast_accuracy_report(
                 target_day,
                 entry_id=entry_id,
                 use_daily_cache=False,
-                use_recorder=False,
+                use_recorder=True,
             )
     predicted_in_range = [p for p in predicted_kw if p["t"] <= as_of_ms]
     predicted_cumulative = _integrate_kw_to_cumulative(predicted_in_range, day_start_ms, as_of_ms)
 
     snapshots = _snapshots_for_target_day(
-        hass, stored, current_cache, target_day, entry_id=entry_id
+        hass,
+        stored,
+        current_cache,
+        target_day,
+        entry_id=entry_id,
+        use_recorder=not is_today,
     )
     revisions: list[dict[str, Any]] = []
     prev_total: float | None = None
@@ -530,5 +544,5 @@ def build_forecast_accuracy_report(
         },
         "weather_entity_id": weather_entity_id,
         "cloud_coverage_available": len(cloud_coverage_pct) >= 2,
-        "solcast_enabled": bool(snapshots or predicted_kw or actual_power),
+        "solcast_enabled": True,
     }
