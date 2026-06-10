@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.194
+ * @version 0.9.195
  */
 
 const NAV = [
@@ -248,9 +248,9 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.194";
+const PANEL_VERSION = "0.9.195";
 /** Bump when Devices (new) Analysis DOM/CSS layout changes (forces full re-render). */
-const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "7";
+const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "8";
 /** Extra .main max-width on Devices (new) ≈ sidebar column (280px) + layout gap (16px). */
 const DEVICE_NEW_MAIN_WIDTH_EXTRA_PX = 296;
 /** Max wait for recorder/history websocket round-trips (prevents infinite loading spinners). */
@@ -8053,16 +8053,23 @@ const STYLES = `
 }
 .fox-device-new-analysis-stack {
   display: flex; flex-direction: column; align-items: stretch;
-  gap: 20px; min-width: 0; width: 100%;
+  min-width: 0; width: 100%;
 }
-.fox-device-new-analysis-stack > .fox-device-new-summary-row,
-.fox-device-new-analysis-stack > .fox-device-new-toolbar-row,
+.fox-device-new-analysis-stack > .fox-device-new-summary-row {
+  flex: 0 0 auto; width: 100%; min-width: 0;
+  margin: 0 0 18px; padding: 0;
+}
+.fox-device-new-analysis-stack > .fox-device-new-toolbar-row {
+  flex: 0 0 auto; width: 100%; min-width: 0;
+  margin: 0 0 16px; padding: 0;
+}
 .fox-device-new-analysis-stack > .fox-device-new-charts-col {
-  flex: 0 0 auto; width: 100%; min-width: 0; margin: 0;
+  flex: 0 0 auto; width: 100%; min-width: 0;
+  margin: 0; padding: 0;
 }
 .fox-device-new-summary-row { min-width: 0; width: 100%; }
 .fox-device-new-toolbar-row { min-width: 0; width: 100%; }
-.fox-device-new-content > .fox-device-new-summary { margin: 0 0 4px; }
+.fox-device-new-content > .fox-device-new-summary { margin: 0 0 12px; }
 .fox-device-new-summary {
   display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; align-items: stretch;
   width: 100%; box-sizing: border-box;
@@ -8074,6 +8081,9 @@ const STYLES = `
 }
 .fox-device-new-toolbar-row .fox-analysis-toolbar { margin: 0; }
 .fox-device-new-toolbar-row > .card { margin: 0; }
+.fox-device-new-analysis-stack .fox-device-new-toolbar-row .fox-analysis-toolbar {
+  margin: 0; box-sizing: border-box;
+}
 .fox-device-new-charts-col > .card { margin: 0; }
 .fox-device-new-sidebar {
   position: sticky; top: 12px;
@@ -8145,11 +8155,12 @@ const STYLES = `
 .fox-device-new-content { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .fox-device-new-summary-card {
   border-radius: 12px; padding: 10px 12px 12px;
-  display: flex; flex-direction: column; gap: 6px; height: 100%;
+  display: flex; flex-direction: column; gap: 6px; min-height: 0;
   border: 1px solid color-mix(in srgb, var(--fox-summary-accent, var(--divider-color)) 22%, var(--divider-color));
   background: var(--fox-summary-bg, var(--card-background-color));
   overflow: hidden;
 }
+.fox-device-new-analysis-stack .fox-device-new-summary-card { height: auto; }
 .fox-device-new-summary-head {
   display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; min-height: 32px;
 }
