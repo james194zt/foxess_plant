@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.185
+ * @version 0.9.186
  */
 
 const NAV = [
@@ -248,7 +248,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.185";
+const PANEL_VERSION = "0.9.186";
 /** Extra .main max-width on Devices (new) ≈ sidebar column (280px) + layout gap (16px). */
 const DEVICE_NEW_MAIN_WIDTH_EXTRA_PX = 296;
 /** Max wait for recorder/history websocket round-trips (prevents infinite loading spinners). */
@@ -6901,7 +6901,13 @@ const STYLES = `
 }
 .card-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--secondary-text-color); margin: 0 0 14px; }
 .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 12px; }
-.overview-hero-row { display: flex; flex-direction: column; gap: 14px; margin-bottom: 14px; }
+.overview-hero-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 14px;
+  margin-bottom: 14px;
+}
 .overview-hero-scene { width: 100%; max-width: none; margin: 0; min-width: 0; }
 .overview-hero-scene .scene-card--fox-flow { margin-bottom: 0; width: 100%; }
 .overview-energy-band {
@@ -6943,7 +6949,8 @@ const STYLES = `
 .overview-balance-spark {
   width: 132px; max-width: 42vw; flex-shrink: 0; display: flex; align-items: center; justify-content: flex-end;
 }
-.overview-hero-daily {
+.overview-hero-daily,
+.overview-hero-daily-slot {
   display: flex; flex-direction: column; gap: 12px;
   min-width: 0;
 }
@@ -8456,12 +8463,18 @@ const STYLES = `
     margin: 0;
     min-width: 0;
   }
-  .overview-hero-daily {
+  .overview-hero-daily,
+  .overview-hero-daily-slot {
     flex: none;
     min-width: 0;
   }
 }
 @media (max-width: 720px) {
+  .overview-hero-row {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
   .device-grid { grid-template-columns: 1fr; gap: 12px; }
   .overview-energy-stats-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .overview-balance-panel { grid-template-columns: 1fr; }
