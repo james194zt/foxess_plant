@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.193
+ * @version 0.9.194
  */
 
 const NAV = [
@@ -248,9 +248,9 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.193";
+const PANEL_VERSION = "0.9.194";
 /** Bump when Devices (new) Analysis DOM/CSS layout changes (forces full re-render). */
-const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "6";
+const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "7";
 /** Extra .main max-width on Devices (new) ≈ sidebar column (280px) + layout gap (16px). */
 const DEVICE_NEW_MAIN_WIDTH_EXTRA_PX = 296;
 /** Max wait for recorder/history websocket round-trips (prevents infinite loading spinners). */
@@ -2367,7 +2367,7 @@ function deviceNewDischargeKw(flows) {
   return 0;
 }
 
-function renderDeviceNewSummaryCards(hass, plant, plantState) {
+function renderDeviceNewSummaryCardItems(hass, plant, plantState) {
   const flows = readEnergyFlows(hass, plant, plantState);
   const map = resolveEntityMap(hass, plant, plantState);
   const tempRaw = stateString(hass, map.bms_temp_low);
@@ -2383,7 +2383,7 @@ function renderDeviceNewSummaryCards(hass, plant, plantState) {
     },
     { label: "Min. Battery Temperature", value: tempDisplay, tone: "temp" },
   ];
-  return `<div class="fox-device-new-summary" data-device-new-summary="1">${cards
+  return cards
     .map((c) => {
       const icon = foxDeviceSummaryIcon(iconKeys[c.tone]);
       const theme = DEVICE_SUMMARY_CARD_THEMES[c.tone] || {};
@@ -2398,7 +2398,22 @@ ${icon ? `<span class="fox-device-new-summary-icon" aria-hidden="true">${icon}</
 <strong class="fox-device-new-summary-value">${esc(c.value)}</strong>
 </div>`;
     })
-    .join("")}</div>`;
+    .join("");
+}
+
+function renderDeviceNewSummaryCards(hass, plant, plantState) {
+  return `<div class="fox-device-new-summary" data-device-new-summary="1">${renderDeviceNewSummaryCardItems(
+    hass,
+    plant,
+    plantState
+  )}</div>`;
+}
+
+function repairDeviceNewSummaryElement(summary) {
+  if (!summary) return null;
+  const nested = summary.querySelector(":scope > .fox-device-new-summary");
+  if (nested) summary.innerHTML = nested.innerHTML;
+  return summary;
 }
 
 function renderDeviceNewMetricGrid(hass, rows) {
@@ -8038,7 +8053,7 @@ const STYLES = `
 }
 .fox-device-new-analysis-stack {
   display: flex; flex-direction: column; align-items: stretch;
-  gap: 16px; min-width: 0; width: 100%;
+  gap: 20px; min-width: 0; width: 100%;
 }
 .fox-device-new-analysis-stack > .fox-device-new-summary-row,
 .fox-device-new-analysis-stack > .fox-device-new-toolbar-row,
@@ -8047,6 +8062,12 @@ const STYLES = `
 }
 .fox-device-new-summary-row { min-width: 0; width: 100%; }
 .fox-device-new-toolbar-row { min-width: 0; width: 100%; }
+.fox-device-new-content > .fox-device-new-summary { margin: 0 0 4px; }
+.fox-device-new-summary {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; align-items: stretch;
+  width: 100%; box-sizing: border-box;
+}
+.fox-device-new-summary > .fox-device-new-summary { display: contents; }
 .fox-device-new-charts-col {
   display: flex; flex-direction: column; gap: 14px;
   min-width: 0; width: 100%;
@@ -8122,9 +8143,6 @@ const STYLES = `
 .fox-device-new-check-pill-icon { width: 14px; height: 14px; flex-shrink: 0; }
 .fox-device-new-check-pill-text { white-space: nowrap; }
 .fox-device-new-content { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-.fox-device-new-summary {
-  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; align-items: stretch;
-}
 .fox-device-new-summary-card {
   border-radius: 12px; padding: 10px 12px 12px;
   display: flex; flex-direction: column; gap: 6px; height: 100%;
@@ -12105,10 +12123,9 @@ ${body}
     if (!root) return false;
     const plant = this._getPlant();
     if (!plant || root.dataset.plantId !== plant.entry_id) return false;
-    const summary = root.querySelector("[data-device-new-summary]");
-    if (summary) {
-      summary.innerHTML = renderDeviceNewSummaryCards(this._hass, plant, this._plantState);
-    }
+    const summary = repairDeviceNewSummaryElement(root.querySelector("[data-device-new-summary]"));
+    if (!summary) return false;
+    summary.innerHTML = renderDeviceNewSummaryCardItems(this._hass, plant, this._plantState);
     return true;
   }
 
