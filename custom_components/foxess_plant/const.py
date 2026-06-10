@@ -115,7 +115,7 @@ PANEL_ENTITY_SUFFIXES: dict[str, tuple[str, ...]] = {
     "load_power": ("load_power", "load_power_total"),
     "load_power_R": ("load_power_R",),
     "load_energy_today": ("load_energy_today",),
-    "load_energy_total": ("load_energy_total", "load_consumption_total"),
+    "load_energy_total": ("load_energy_total", "load_power_total", "load_consumption_total"),
     "load_power_total": ("load_power_total",),
     # Grid
     "grid_status": ("grid_status",),

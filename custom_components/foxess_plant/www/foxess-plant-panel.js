@@ -227,7 +227,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.167";
+const PANEL_VERSION = "0.9.168";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -2429,11 +2429,10 @@ function renderDeviceNewFoxDatalogger(hass, plant, plantState, map) {
     status = id.bms_online === true || id.bms_online === "on" ? "Online" : "Offline";
   }
   rows.push({ name: "Status", html: formatDeviceNewOnlineBadge(status) });
-  const firmware =
-    entityDisplayValue(hass, map.manager_version) !== "—"
-      ? entityDisplayValue(hass, map.manager_version)
-      : entityDisplayValue(hass, map.master_version);
-  rows.push({ name: "Software Version", value: firmware !== "—" ? firmware : "—" });
+  const firmware = ["slave_version", "manager_version", "master_version"]
+    .map((key) => entityDisplayValue(hass, map[key]))
+    .find((value) => value !== "—") ?? "—";
+  rows.push({ name: "Software Version", value: firmware });
   const signal = entityDisplayValue(hass, map.datalogger_signal);
   rows.push({ name: "Signal strength", value: signal !== "—" ? signal : "—" });
   return renderDeviceNewMetricGrid(hass, rows);
@@ -3519,7 +3518,7 @@ const DEVICE_ENTITY_FALLBACKS = {
   eps_frequency: ["eps_frequency"],
   load_power_R: ["load_power_R"],
   load_power_total: ["load_power_total"],
-  load_energy_total: ["load_energy_total", "load_consumption_total"],
+  load_energy_total: ["load_energy_total", "load_power_total", "load_consumption_total"],
   grid_status: ["grid_status"],
   feed_in_energy_total: ["feed_in_energy_total"],
   grid_consumption_energy_total: ["grid_consumption_energy_total"],
@@ -11277,11 +11276,10 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     } else if (id.bms_online != null && id.bms_online !== "") {
       rows.push({ name: "Status", value: id.bms_online === true || id.bms_online === "on" ? "Online" : "Offline" });
     }
-    const firmware =
-      entityDisplayValue(this._hass, map.manager_version) !== "—"
-        ? entityDisplayValue(this._hass, map.manager_version)
-        : entityDisplayValue(this._hass, map.master_version);
-    if (firmware !== "—") rows.push({ name: "Software version", value: firmware });
+    const firmware = ["slave_version", "manager_version", "master_version"]
+      .map((key) => entityDisplayValue(this._hass, map[key]))
+      .find((value) => value !== "—");
+    if (firmware) rows.push({ name: "Software version", value: firmware });
     const proto = id.modbus_protocol_version || entityDisplayValue(this._hass, map.modbus_protocol_version);
     if (proto && proto !== "—") rows.push({ name: "Modbus protocol", value: proto });
     const master = id.master_version || entityDisplayValue(this._hass, map.master_version);
