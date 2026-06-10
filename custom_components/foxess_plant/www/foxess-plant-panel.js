@@ -227,7 +227,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.163";
+const PANEL_VERSION = "0.9.164";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -2449,6 +2449,26 @@ function renderDeviceNewMetricRows(hass, plant, plantState, pairs) {
   return renderDeviceNewMetricGrid(hass, rows);
 }
 
+function renderDeviceNewPvTable(hass, map) {
+  const cell = (entityId) => {
+    if (!entityId || !hass?.states?.[entityId]) return "—";
+    return entityDisplayValue(hass, entityId);
+  };
+  const totalRow = `<tr><td>PV</td><td>—</td><td>—</td><td>${esc(cell(map.pv_power))}</td></tr>`;
+  const stringRows = DEVICE_PV_STRINGS.map(
+    (n) =>
+      `<tr><td>PV${n}</td><td>${esc(cell(map[`pv${n}_voltage`]))}</td><td>${esc(cell(map[`pv${n}_current`]))}</td><td>${esc(cell(map[`pv${n}_power`]))}</td></tr>`
+  ).join("");
+  return `<div class="device-param-table-wrap fox-device-new-table-wrap"><table class="device-param-table fox-device-new-table"><thead><tr><th>PV</th><th>Voltage (V)</th><th>Current (A)</th><th>Power (kW)</th></tr></thead><tbody>${totalRow}${stringRows}</tbody></table></div>`;
+}
+
+function renderDeviceNewMetricTable(hass, map, keys, headers) {
+  const values = keys.map((key) => (map[key] ? entityDisplayValue(hass, map[key]) : "—"));
+  return `<div class="device-param-table-wrap fox-device-new-table-wrap"><table class="device-param-table fox-device-new-table"><thead><tr>${headers
+    .map((h) => `<th>${esc(h)}</th>`)
+    .join("")}</tr></thead><tbody><tr>${values.map((v) => `<td>${esc(v)}</td>`).join("")}</tr></tbody></table></div>`;
+}
+
 function renderDeviceNewSubsections(hass, plant, plantState, section) {
   return (section.subsections || [])
     .map((sub) => {
@@ -3590,8 +3610,23 @@ const DEVICE_PARAMETER_SECTIONS = [
   { id: "datalogger", title: "Datalogger Information", kind: "datalogger" },
 ];
 
-/** Fox Cloud Devices → Real-time tab (matches foxesscloud.com field order, labels, and subsections). */
+/** Fox Cloud Devices → Real-time tab (full page: PV/AC/EPS tables + metric sections). */
 const DEVICE_NEW_REALTIME_SECTIONS = [
+  { id: "pv", title: "PV Information", kind: "pv-table" },
+  {
+    id: "ac",
+    title: "AC Information",
+    kind: "metric-table",
+    keys: ["grid_voltage_R", "inv_current_R", "inv_power", "rfreq"],
+    headers: ["Voltage (V)", "Current (A)", "Power (kW)", "Frequency (Hz)"],
+  },
+  {
+    id: "eps",
+    title: "EPS Information",
+    kind: "metric-table",
+    keys: ["eps_rvolt_R", "eps_rcurrent_R", "eps_power_R", "eps_frequency"],
+    headers: ["Voltage (V)", "Current (A)", "Power (kW)", "Frequency (Hz)"],
+  },
   {
     id: "load",
     title: "Load Information",
@@ -3659,7 +3694,7 @@ const DEVICE_NEW_REALTIME_SECTIONS = [
           ["battery_discharge_total", "Discharge Energy throughput"],
           [null, "Charge Capacity throughput"],
           [null, "Discharge Capacity throughput"],
-          ["battery_cycles", "Number of full equivalent charge discharge cycles"],
+          ["battery_cycles", "Number of full equivalent charge-discharge cycles"],
         ],
       },
       {
@@ -11489,6 +11524,10 @@ ${this._renderDeviceNewDayNav()}
   }
 
   _renderDeviceNewSectionBody(section, plant, map) {
+    if (section.kind === "pv-table") return renderDeviceNewPvTable(this._hass, map);
+    if (section.kind === "metric-table") {
+      return renderDeviceNewMetricTable(this._hass, map, section.keys, section.headers);
+    }
     if (section.kind === "fox-datalogger") {
       return renderDeviceNewFoxDatalogger(this._hass, plant, this._plantState, map);
     }
