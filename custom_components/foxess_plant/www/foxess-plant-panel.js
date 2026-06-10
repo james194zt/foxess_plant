@@ -248,7 +248,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.190";
+const PANEL_VERSION = "0.9.191";
 /** Bump when Devices (new) Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "4";
 const DEVICE_NEW_LAYOUT_MAIN_COL_STYLE =
@@ -8185,7 +8185,7 @@ const STYLES = `
 }
 .fox-device-new-realtime .device-param-table td { background: var(--card-background-color); }
 .fox-device-new-realtime .device-param-table tbody td:first-child {
-  background: var(--fox-metric-label-bg, color-mix(in srgb, var(--divider-color) 22%, var(--card-background-color));
+  background: var(--fox-metric-label-bg, color-mix(in srgb, var(--divider-color) 22%, var(--card-background-color)));
   color: var(--secondary-text-color); font-weight: 500;
 }
 .fox-device-new-chart-toolbar { margin: 0; }
@@ -12090,7 +12090,8 @@ ${body}
 
   _patchDeviceNewLiveIfNeeded() {
     if (this._view !== "device_new" || !this._hass) return false;
-    if (this._deviceNewSub === "analysis") return false;
+    if (this._deviceNewSub === "analysis" || this._deviceNewSub === "pv-config") return false;
+    if (this._deviceNewScreen !== "main") return false;
     if (this._deviceNewAnalysisChartsStale()) return false;
     const root = this._root.querySelector("[data-device-new-main]");
     if (!root) return false;
