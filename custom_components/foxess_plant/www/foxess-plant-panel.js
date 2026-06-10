@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.187
+ * @version 0.9.188
  */
 
 const NAV = [
@@ -248,7 +248,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.187";
+const PANEL_VERSION = "0.9.188";
 /** Extra .main max-width on Devices (new) ≈ sidebar column (280px) + layout gap (16px). */
 const DEVICE_NEW_MAIN_WIDTH_EXTRA_PX = 296;
 /** Max wait for recorder/history websocket round-trips (prevents infinite loading spinners). */
@@ -8033,6 +8033,24 @@ const STYLES = `
   display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
   gap: 16px; align-items: start;
 }
+.fox-device-new-layout--analysis {
+  grid-template-areas:
+    "sidebar summary"
+    "sidebar toolbar"
+    "sidebar charts";
+}
+.fox-device-new-layout--analysis .fox-device-new-sidebar { grid-area: sidebar; }
+.fox-device-new-summary-slot { min-width: 0; }
+.fox-device-new-layout--analysis .fox-device-new-summary-slot { grid-area: summary; }
+.fox-device-new-toolbar-slot { min-width: 0; }
+.fox-device-new-layout--analysis .fox-device-new-toolbar-slot { grid-area: toolbar; }
+.fox-device-new-charts-slot {
+  display: flex; flex-direction: column; gap: 14px;
+  min-width: 0; width: 100%;
+}
+.fox-device-new-layout--analysis .fox-device-new-charts-slot { grid-area: charts; }
+.fox-device-new-toolbar-slot > .card { margin: 0; }
+.fox-device-new-charts-slot > .card { margin: 0; }
 .fox-device-new-sidebar {
   position: sticky; top: 12px;
   border: 1px solid var(--divider-color); border-radius: 12px;
@@ -8163,19 +8181,14 @@ const STYLES = `
   background: var(--fox-metric-label-bg, color-mix(in srgb, var(--divider-color) 22%, var(--card-background-color));
   color: var(--secondary-text-color); font-weight: 500;
 }
-.fox-device-new-chart-toolbar { margin-bottom: 0; }
-.fox-device-new-analysis {
-  display: flex; flex-direction: column; gap: 14px;
-  min-width: 0; width: 100%;
-}
-.fox-device-new-analysis > .card { margin-bottom: 0; }
+.fox-device-new-chart-toolbar { margin: 0; }
 .fox-device-new-card {
   border: 1px solid var(--divider-color); border-radius: 14px;
   background: var(--card-background-color); padding: 16px;
   box-shadow: var(--ha-card-box-shadow, 0 1px 2px rgba(0,0,0,0.08));
   min-width: 0;
 }
-.fox-device-new-analysis .fox-device-new-card.card { margin-bottom: 0; }
+.fox-device-new-charts-slot .fox-device-new-card.card { margin: 0; }
 .fox-device-new-card + .fox-device-new-card { margin-top: 0; }
 .fox-device-new-card-head {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
@@ -8210,6 +8223,13 @@ const STYLES = `
 }
 @media (max-width: 980px) {
   .fox-device-new-layout { grid-template-columns: 1fr; }
+  .fox-device-new-layout--analysis {
+    grid-template-areas:
+      "sidebar"
+      "summary"
+      "toolbar"
+      "charts";
+  }
   .fox-device-new-sidebar { position: static; }
   .fox-device-new-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .fox-device-new-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -11972,10 +11992,8 @@ ${this._renderDeviceNewChartDateNav()}
     return `<p class="placeholder chart-empty">Energy analysis not loaded yet.</p>`;
   }
 
-  _renderDeviceNewAnalysis(plant) {
-    return `<div class="fox-device-new-analysis">
-${this._renderDeviceNewChartToolbar()}
-<div class="card fox-device-new-card">
+  _renderDeviceNewAnalysisCharts() {
+    return `<div class="card fox-device-new-card">
 <div class="fox-device-new-card-head">
 <h3 class="fox-device-new-card-title">Real-time curve</h3>
 </div>
@@ -11986,7 +12004,6 @@ ${this._renderDeviceNewChartToolbar()}
 <h3 class="fox-device-new-card-title">Energy analysis</h3>
 </div>
 <div data-device-new-energy-chart="1">${this._renderDeviceNewEnergyBody()}</div>
-</div>
 </div>`;
   }
 
@@ -12046,10 +12063,17 @@ ${this._renderPvConfiguration({
     }
     const summary = renderDeviceNewSummaryCards(this._hass, plant, this._plantState);
     const sidebar = renderDeviceNewSidebar(this._hass, plant, this._plantState);
-    const body =
-      this._deviceNewSub === "realtime"
-        ? this._renderDeviceNewRealtimeSections(plant)
-        : this._renderDeviceNewAnalysis(plant);
+    if (this._deviceNewSub === "analysis") {
+      return `<div data-device-new-main="1" data-plant-id="${esc(plant.entry_id)}">
+<div class="fox-device-new-layout fox-device-new-layout--analysis">
+${sidebar}
+<div class="fox-device-new-summary-slot" data-device-new-summary="1">${summary}</div>
+<div class="fox-device-new-toolbar-slot">${this._renderDeviceNewChartToolbar()}</div>
+<div class="fox-device-new-charts-slot">${this._renderDeviceNewAnalysisCharts()}</div>
+</div>
+</div>`;
+    }
+    const body = this._renderDeviceNewRealtimeSections(plant);
     return `<div data-device-new-main="1" data-plant-id="${esc(plant.entry_id)}">
 <div class="fox-device-new-layout">
 ${sidebar}
