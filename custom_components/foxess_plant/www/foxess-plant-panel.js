@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.192
+ * @version 0.9.193
  */
 
 const NAV = [
@@ -248,9 +248,9 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.192";
+const PANEL_VERSION = "0.9.193";
 /** Bump when Devices (new) Analysis DOM/CSS layout changes (forces full re-render). */
-const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "5";
+const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "6";
 /** Extra .main max-width on Devices (new) ≈ sidebar column (280px) + layout gap (16px). */
 const DEVICE_NEW_MAIN_WIDTH_EXTRA_PX = 296;
 /** Max wait for recorder/history websocket round-trips (prevents infinite loading spinners). */
@@ -2383,7 +2383,7 @@ function renderDeviceNewSummaryCards(hass, plant, plantState) {
     },
     { label: "Min. Battery Temperature", value: tempDisplay, tone: "temp" },
   ];
-  return `<div class="fox-device-new-summary">${cards
+  return `<div class="fox-device-new-summary" data-device-new-summary="1">${cards
     .map((c) => {
       const icon = foxDeviceSummaryIcon(iconKeys[c.tone]);
       const theme = DEVICE_SUMMARY_CARD_THEMES[c.tone] || {};
@@ -8036,23 +8036,17 @@ const STYLES = `
   display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
   gap: 16px; align-items: start;
 }
-.fox-device-new-layout--analysis {
-  grid-template-areas:
-    "sidebar summary"
-    "sidebar toolbar"
-    "sidebar charts";
-  column-gap: 16px;
-  row-gap: 16px;
+.fox-device-new-analysis-stack {
+  display: flex; flex-direction: column; align-items: stretch;
+  gap: 16px; min-width: 0; width: 100%;
 }
-.fox-device-new-layout--analysis > .fox-device-new-sidebar { grid-area: sidebar; }
-.fox-device-new-layout--analysis > .fox-device-new-summary-row { grid-area: summary; min-width: 0; }
-.fox-device-new-layout--analysis > .fox-device-new-toolbar-row { grid-area: toolbar; min-width: 0; }
-.fox-device-new-layout--analysis > .fox-device-new-charts-col {
-  grid-area: charts; min-width: 0;
-  display: flex; flex-direction: column; gap: 14px;
+.fox-device-new-analysis-stack > .fox-device-new-summary-row,
+.fox-device-new-analysis-stack > .fox-device-new-toolbar-row,
+.fox-device-new-analysis-stack > .fox-device-new-charts-col {
+  flex: 0 0 auto; width: 100%; min-width: 0; margin: 0;
 }
-.fox-device-new-summary-row { min-width: 0; }
-.fox-device-new-toolbar-row { min-width: 0; }
+.fox-device-new-summary-row { min-width: 0; width: 100%; }
+.fox-device-new-toolbar-row { min-width: 0; width: 100%; }
 .fox-device-new-charts-col {
   display: flex; flex-direction: column; gap: 14px;
   min-width: 0; width: 100%;
@@ -8233,13 +8227,6 @@ const STYLES = `
 }
 @media (max-width: 980px) {
   .fox-device-new-layout { grid-template-columns: 1fr; }
-  .fox-device-new-layout--analysis {
-    grid-template-areas:
-      "sidebar"
-      "summary"
-      "toolbar"
-      "charts";
-  }
   .fox-device-new-sidebar { position: static; }
   .fox-device-new-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .fox-device-new-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -11796,7 +11783,7 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     const root = this._root?.querySelector?.("[data-device-new-main]");
     if (!root) return true;
     if (root.dataset.deviceNewLayoutVer !== DEVICE_NEW_ANALYSIS_LAYOUT_VER) return true;
-    return !root.querySelector(".fox-device-new-layout--analysis");
+    return !root.querySelector(".fox-device-new-analysis-stack");
   }
 
   _deviceNewAnalysisChartsStale() {
@@ -12089,9 +12076,11 @@ ${this._renderPvConfiguration({
       return `<div data-device-new-main="1" data-device-new-layout-ver="${DEVICE_NEW_ANALYSIS_LAYOUT_VER}" data-plant-id="${esc(plant.entry_id)}">
 <div class="fox-device-new-layout fox-device-new-layout--analysis">
 ${sidebar}
-<div class="fox-device-new-summary-row" data-device-new-summary="1">${summary}</div>
+<div class="fox-device-new-analysis-stack">
+<div class="fox-device-new-summary-row">${summary}</div>
 <div class="fox-device-new-toolbar-row">${this._renderDeviceNewChartToolbar()}</div>
 <div class="fox-device-new-charts-col">${this._renderDeviceNewAnalysisCharts()}</div>
+</div>
 </div>
 </div>`;
     }
@@ -12100,7 +12089,7 @@ ${sidebar}
 <div class="fox-device-new-layout">
 ${sidebar}
 <div class="fox-device-new-content">
-<div data-device-new-summary="1">${summary}</div>
+${summary}
 ${body}
 </div>
 </div>
