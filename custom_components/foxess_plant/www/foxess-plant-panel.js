@@ -248,7 +248,9 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.179";
+const PANEL_VERSION = "0.9.185";
+/** Extra .main max-width on Devices (new) ≈ sidebar column (280px) + layout gap (16px). */
+const DEVICE_NEW_MAIN_WIDTH_EXTRA_PX = 296;
 /** Max wait for recorder/history websocket round-trips (prevents infinite loading spinners). */
 const HA_WS_TIMEOUT_MS = 90000;
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
@@ -2387,8 +2389,10 @@ function renderDeviceNewSummaryCards(hass, plant, plantState) {
         ? ` style="--fox-summary-accent:${theme.accent};--fox-summary-accent-hi:${theme.accentHi || theme.accent};--fox-summary-bg:${theme.bg};"`
         : "";
       return `<div class="fox-device-new-summary-card fox-device-new-summary-card--${c.tone}"${style}>
+<div class="fox-device-new-summary-head">
 <span class="fox-device-new-summary-label">${esc(c.label)}</span>
 ${icon ? `<span class="fox-device-new-summary-icon" aria-hidden="true">${icon}</span>` : ""}
+</div>
 <strong class="fox-device-new-summary-value">${esc(c.value)}</strong>
 </div>`;
     })
@@ -2413,7 +2417,7 @@ function renderDeviceNewMetricGrid(hass, rows) {
             : "—";
         valueHtml = esc(value);
       }
-      return `<div class="fox-device-new-metric-item"><span class="fox-device-new-metric-label">${esc(label)}</span><strong class="fox-device-new-metric-value">${valueHtml}</strong></div>`;
+      return `<div class="fox-device-new-metric-item"><span class="fox-device-new-metric-label-wrap"><span class="fox-device-new-metric-label">${esc(label)}</span><span class="fox-device-new-metric-colon"> :</span></span><span class="fox-device-new-metric-value">${valueHtml}</span></div>`;
     })
     .join("")}</div>`;
 }
@@ -6083,6 +6087,112 @@ function mirrorChartAxisLabel(label, i, n, labelMode) {
   return String(label);
 }
 
+function mirroredEnergyColumnLabels(labels, labelMode) {
+  const n = labels.length;
+  return labels.map((label, i) => {
+    const axis = mirrorChartAxisLabel(label, i, n, labelMode);
+    if (axis) return axis;
+    if (label instanceof Date) return formatEnergyDateLabel(label);
+    return String(label);
+  });
+}
+
+function sumMirroredEnergyBuckets(buckets) {
+  const out = emptyEnergyBucket();
+  for (const bucket of buckets) {
+    for (const spec of FOX_SUPPLY_SERIES) {
+      out.supply[spec.key] += bucket.supply?.[spec.key] || 0;
+    }
+    for (const spec of FOX_USAGE_SERIES) {
+      out.usage[spec.key] += bucket.usage?.[spec.key] || 0;
+    }
+  }
+  for (const spec of FOX_SUPPLY_SERIES) out.supply[spec.key] = roundEnergyKwh(out.supply[spec.key]);
+  for (const spec of FOX_USAGE_SERIES) out.usage[spec.key] = roundEnergyKwh(out.usage[spec.key]);
+  return out;
+}
+
+function renderMirroredEnergyLegendItem(spec, valueKwh) {
+  const val = Number(valueKwh) || 0;
+  return `<span class="statistics-legend-item fox-energy-mirror-legend-item"><i style="background:${spec.color}"></i><span>${esc(spec.label)}</span><span class="fox-energy-mirror-legend-value">${val.toFixed(2)} kWh</span></span>`;
+}
+
+function mirroredEnergyTooltipRowsHtml(bucket) {
+  const row = (spec, v) => {
+    if (v <= 0) return "";
+    return `<div class="statistics-tooltip-row"><span class="statistics-tooltip-label"><i class="statistics-tooltip-swatch" style="background:${esc(spec.color)}"></i>${esc(spec.label)}</span><strong>${v.toFixed(2)} kWh</strong></div>`;
+  };
+  const rows = [
+    ...FOX_SUPPLY_SERIES.map((s) => row(s, bucket.supply?.[s.key] || 0)),
+    ...FOX_USAGE_SERIES.map((s) => row(s, bucket.usage?.[s.key] || 0)),
+  ].filter(Boolean);
+  return rows.length
+    ? rows.join("")
+    : `<div class="statistics-tooltip-row"><span class="statistics-tooltip-label">No data</span></div>`;
+}
+
+function bindMirroredEnergyChart(root) {
+  const wrap =
+    root?.querySelector?.("[data-fox-energy-chart]") ||
+    (root?.matches?.("[data-fox-energy-chart]") ? root : null);
+  if (!wrap) return;
+  const plot = wrap.querySelector(".fox-energy-mirror-plot");
+  const svg = plot?.querySelector("svg");
+  const tooltip = plot?.querySelector(".statistics-tooltip");
+  if (!plot || !svg || !tooltip) return;
+  delete wrap.dataset.bound;
+  let buckets = [];
+  let labels = [];
+  try {
+    buckets = JSON.parse(wrap.dataset.energyBuckets || "[]");
+    labels = JSON.parse(wrap.dataset.energyLabels || "[]");
+  } catch {
+    return;
+  }
+  if (!buckets.length) return;
+  wrap.dataset.bound = "1";
+
+  const padL = 44;
+  const plotW = 1000 - padL - 12;
+  const n = buckets.length;
+  const groupW = plotW / n;
+
+  const hideHover = () => {
+    tooltip.hidden = true;
+  };
+
+  const showColumn = (clientX) => {
+    const rect = svg.getBoundingClientRect();
+    if (!rect.width) return;
+    const x = ((clientX - rect.left) / rect.width) * 1000;
+    const rel = x - padL;
+    if (rel < 0 || rel > plotW) {
+      hideHover();
+      return;
+    }
+    const i = Math.min(n - 1, Math.max(0, Math.floor(rel / groupW)));
+    const label = labels[i] ?? "";
+    tooltip.hidden = false;
+    tooltip.innerHTML = `<div class="statistics-tooltip-time">${esc(String(label))}</div>${mirroredEnergyTooltipRowsHtml(buckets[i])}`;
+    const plotRect = plot.getBoundingClientRect();
+    const colCenter = ((padL + i * groupW + groupW / 2) / 1000) * rect.width;
+    let left = colCenter + 12;
+    if (left + 200 > plotRect.width) left = colCenter - 212;
+    tooltip.style.left = `${Math.max(8, left)}px`;
+    tooltip.style.top = "8px";
+  };
+
+  svg.addEventListener("mousemove", (ev) => showColumn(ev.clientX));
+  svg.addEventListener("mouseleave", hideHover);
+  plot.addEventListener("touchmove", (ev) => {
+    if (ev.touches[0]) {
+      ev.preventDefault();
+      showColumn(ev.touches[0].clientX);
+    }
+  }, { passive: false });
+  plot.addEventListener("touchend", hideHover);
+}
+
 function renderMirroredEnergyBarChart(buckets, labels, { height = 300, labelMode = "auto" } = {}) {
   const n = buckets.length;
   if (!n) return `<p class="placeholder chart-empty">No energy history in this period.</p>`;
@@ -6148,19 +6258,24 @@ function renderMirroredEnergyBarChart(buckets, labels, { height = 300, labelMode
     }
   });
 
-  const supplyLegend = FOX_SUPPLY_SERIES.map(
-    (s) => `<span class="fox-energy-legend-item"><i style="background:${s.color}"></i>${esc(s.label)}</span>`
+  const totals = sumMirroredEnergyBuckets(buckets);
+  const supplyLegend = FOX_SUPPLY_SERIES.map((s) =>
+    renderMirroredEnergyLegendItem(s, totals.supply[s.key])
   ).join("");
-  const usageLegend = FOX_USAGE_SERIES.map(
-    (s) => `<span class="fox-energy-legend-item"><i style="background:${s.color}"></i>${esc(s.label)}</span>`
+  const usageLegend = FOX_USAGE_SERIES.map((s) =>
+    renderMirroredEnergyLegendItem(s, totals.usage[s.key])
   ).join("");
+  const displayLabels = mirroredEnergyColumnLabels(labels, labelMode);
 
-  return `<div class="fox-energy-chart-wrap" data-fox-energy-chart="1">
-<div class="fox-energy-legend">
+  return `<div class="fox-energy-chart-wrap" data-fox-energy-chart="1" data-energy-buckets="${esc(JSON.stringify(buckets))}" data-energy-labels="${esc(JSON.stringify(displayLabels))}">
+<div class="statistics-chart-legend fox-energy-mirror-legend">
 <div class="fox-energy-legend-row"><span class="fox-energy-legend-heading">SUPPLY</span>${supplyLegend}</div>
 <div class="fox-energy-legend-row"><span class="fox-energy-legend-heading">USAGE</span>${usageLegend}</div>
 </div>
+<div class="fox-energy-mirror-plot">
 <svg class="fox-energy-mirror-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Energy supply and usage chart">${parts.join("")}</svg>
+<div class="statistics-tooltip" hidden role="tooltip"></div>
+</div>
 </div>`;
 }
 
@@ -6675,6 +6790,9 @@ const STYLES = `
   container-type: inline-size;
   container-name: fp-main;
 }
+.shell.view-device-new .main {
+  max-width: calc(1100px + ${DEVICE_NEW_MAIN_WIDTH_EXTRA_PX}px);
+}
 .shell.narrow .main { padding: 16px; }
 .shell.narrow .tab { padding: 12px 14px 10px; font-size: 13px; }
 .header { margin-bottom: 20px; }
@@ -7100,7 +7218,16 @@ const STYLES = `
 .breakdown-card { margin-top: 14px; }
 .energy-chart-card { margin-top: 14px; }
 .fox-energy-chart-wrap { width: 100%; }
-.fox-energy-mirror-chart { width: 100%; height: 300px; display: block; }
+.fox-energy-mirror-plot { position: relative; width: 100%; }
+.fox-energy-mirror-chart { width: 100%; height: 300px; display: block; cursor: crosshair; }
+.fox-energy-mirror-legend { margin-bottom: 10px; }
+.fox-energy-mirror-legend-item {
+  cursor: default; pointer-events: none; gap: 4px 6px;
+}
+.fox-energy-mirror-legend-value {
+  color: var(--secondary-text-color); font-size: 10px; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
 .fox-energy-legend { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
 .fox-energy-legend-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 11px; }
 .fox-energy-legend-heading { font-weight: 700; font-size: 10px; letter-spacing: 0.04em; color: var(--secondary-text-color); margin-right: 4px; }
@@ -7901,14 +8028,14 @@ const STYLES = `
 }
 .fox-device-new-sidebar {
   position: sticky; top: 12px;
-  border: 1px solid var(--divider-color); border-radius: 14px;
-  background: var(--card-background-color); padding: 16px;
+  border: 1px solid var(--divider-color); border-radius: 12px;
+  background: var(--card-background-color); padding: 10px 12px 12px;
 }
 .fox-device-new-sidebar-hero {
   display: flex; flex-direction: column; align-items: center; text-align: center;
-  gap: 8px; margin-bottom: 12px;
+  gap: 6px; margin: 0 0 10px;
 }
-.fox-device-new-sidebar-img { width: 72px; height: 88px; object-fit: contain; flex-shrink: 0; }
+.fox-device-new-sidebar-img { width: 64px; height: auto; max-height: 72px; object-fit: contain; object-position: top center; flex-shrink: 0; display: block; }
 .fox-device-new-sidebar-serial-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   padding: 4px 6px; margin: 0; border: none; background: transparent;
@@ -7967,20 +8094,25 @@ const STYLES = `
 .fox-device-new-check-pill-text { white-space: nowrap; }
 .fox-device-new-content { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .fox-device-new-summary {
-  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; align-items: stretch;
 }
 .fox-device-new-summary-card {
-  position: relative; border-radius: 12px; padding: 14px 16px 16px; min-height: 88px;
-  display: flex; flex-direction: column; justify-content: flex-end; gap: 8px;
+  border-radius: 12px; padding: 10px 12px 12px;
+  display: flex; flex-direction: column; gap: 6px; height: 100%;
   border: 1px solid color-mix(in srgb, var(--fox-summary-accent, var(--divider-color)) 22%, var(--divider-color));
   background: var(--fox-summary-bg, var(--card-background-color));
   overflow: hidden;
 }
-.fox-device-new-summary-label { font-size: 12px; color: var(--secondary-text-color); font-weight: 500; padding-right: 44px; }
+.fox-device-new-summary-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; min-height: 32px;
+}
+.fox-device-new-summary-label {
+  font-size: 12px; color: var(--secondary-text-color); font-weight: 500;
+  line-height: 1.3; flex: 1; min-width: 0;
+}
 .fox-device-new-summary-icon {
-  position: absolute; top: 10px; right: 10px; width: 40px; height: 40px;
+  width: 32px; height: 32px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center; pointer-events: none;
-  flex-shrink: 0;
 }
 .fox-device-new-summary-icon svg { width: 100%; height: 100%; display: block; }
 .fox-device-new-summary-value { font-size: 20px; font-weight: 700; line-height: 1.15; color: var(--primary-text-color); }
@@ -7988,17 +8120,42 @@ const STYLES = `
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
   border: 1px solid var(--divider-color); border-radius: 10px; overflow: hidden;
   background: var(--card-background-color);
+  --fox-metric-label-bg: color-mix(in srgb, var(--divider-color) 22%, var(--card-background-color));
 }
 .fox-device-new-metric-item {
-  padding: 12px 14px; min-height: 64px;
+  padding: 0; min-height: 40px;
   border-right: 1px solid var(--divider-color); border-bottom: 1px solid var(--divider-color);
-  display: flex; flex-direction: column; justify-content: center; gap: 6px;
+  display: flex; align-items: stretch; overflow: hidden;
+  background: var(--card-background-color);
 }
 .fox-device-new-metric-item:nth-child(3n) { border-right: none; }
-.fox-device-new-metric-label { font-size: 12px; color: var(--secondary-text-color); font-weight: 500; line-height: 1.3; }
-.fox-device-new-metric-value { font-size: 15px; font-weight: 700; color: var(--primary-text-color); line-height: 1.2; word-break: break-word; }
-.fox-device-new-realtime .device-param-table-wrap { margin: 0; }
+.fox-device-new-metric-label-wrap {
+  flex: 1 1 52%; min-width: 0; padding: 10px 12px;
+  display: flex; align-items: center; gap: 0;
+  background: var(--fox-metric-label-bg);
+  border-right: 1px solid var(--divider-color);
+  font-size: 13px; line-height: 1.4;
+}
+.fox-device-new-metric-label { color: var(--secondary-text-color); font-weight: 500; word-break: break-word; }
+.fox-device-new-metric-colon { color: var(--secondary-text-color); flex-shrink: 0; }
+.fox-device-new-metric-value {
+  flex: 1 1 48%; min-width: 0; padding: 10px 12px;
+  display: flex; align-items: center;
+  font-size: 13px; font-weight: 600; line-height: 1.4;
+  color: var(--primary-text-color); word-break: break-word;
+}
+.fox-device-new-metric-value .fox-device-new-check-pill,
+.fox-device-new-metric-value .fox-device-new-grid-status { vertical-align: middle; }
+.fox-device-new-realtime .device-param-table-wrap { margin: 0; --fox-metric-label-bg: color-mix(in srgb, var(--divider-color) 22%, var(--card-background-color)); }
 .fox-device-new-realtime .device-param-table { width: 100%; border-collapse: collapse; }
+.fox-device-new-realtime .device-param-table th {
+  background: var(--fox-metric-label-bg, color-mix(in srgb, var(--divider-color) 22%, var(--card-background-color)));
+}
+.fox-device-new-realtime .device-param-table td { background: var(--card-background-color); }
+.fox-device-new-realtime .device-param-table tbody td:first-child {
+  background: var(--fox-metric-label-bg, color-mix(in srgb, var(--divider-color) 22%, var(--card-background-color));
+  color: var(--secondary-text-color); font-weight: 500;
+}
 .fox-device-new-chart-toolbar { margin-bottom: 14px; }
 .fox-device-new-card {
   border: 1px solid var(--divider-color); border-radius: 14px;
@@ -8497,8 +8654,7 @@ class FoxessPlantPanel extends HTMLElement {
   }
   set narrow(v) {
     this._narrow = Boolean(v);
-    const shell = this._root.querySelector(".shell");
-    if (shell) shell.classList.toggle("narrow", this._narrow);
+    this._syncShellLayoutClasses(this._root.querySelector(".shell"));
   }
   get narrow() {
     return this._narrow;
@@ -8881,6 +9037,12 @@ Reloading panel registration…
     this._statisticsChartPlantId = undefined;
     if (this._view === "overview") void this._loadOverviewStatisticsChart();
     else void this._loadStatisticsChart();
+  }
+
+  _syncShellLayoutClasses(shell) {
+    if (!shell) return;
+    shell.classList.toggle("narrow", this._narrow);
+    shell.classList.toggle("view-device-new", this._view === "device_new");
   }
 
   _scheduleRender(force = false) {
@@ -11628,6 +11790,7 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     ) {
       energySlot.innerHTML = this._renderDeviceNewEnergyBody();
       patched = true;
+      bindMirroredEnergyChart(energySlot);
     }
     return patched;
   }
@@ -11911,6 +12074,8 @@ ${body}
         }
       }
     }
+    const energyRoot = this._root.querySelector("[data-device-new-energy-chart]");
+    if (energyRoot) bindMirroredEnergyChart(energyRoot);
   }
 
   _energyHistoryEntities(plant) {
@@ -13993,7 +14158,7 @@ ${active
     let shell = this._root.querySelector(".shell");
     if (!shell) {
       shell = document.createElement("div");
-      shell.className = `shell${this._narrow ? " narrow" : ""}`;
+      shell.className = "shell";
       shell.append(
         Object.assign(document.createElement("header"), { className: "page-header" }),
         Object.assign(document.createElement("main"), { className: "main" })
@@ -14001,9 +14166,8 @@ ${active
       this._root.replaceChildren(shell);
       this._headerHasSubTabs = undefined;
       this._headerSubNavView = undefined;
-    } else {
-      shell.classList.toggle("narrow", this._narrow);
     }
+    this._syncShellLayoutClasses(shell);
     this._syncPanelBuildFooter(shell);
 
     const headerEl = shell.querySelector(".page-header");
@@ -14143,9 +14307,7 @@ ${active
         if (!this._deviceNewEnergyChartLoading && !energyReady) {
           void this._loadDeviceNewEnergyChart();
         }
-        if (this._deviceNewStatisticsChart?.series?.length && this._deviceNewStatisticsChart?.range) {
-          this._bindDeviceNewCharts();
-        }
+        this._bindDeviceNewCharts();
       }
     }
   }
