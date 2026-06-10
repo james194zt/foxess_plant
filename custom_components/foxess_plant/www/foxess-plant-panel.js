@@ -26,7 +26,7 @@ const DEVICE_NEW_ENERGY_PERIOD_TABS = [
 
 /** Fox Cloud device Analysis real-time curve series. */
 // FOX_DEVICE_SUMMARY_ICONS_START
-const FOX_DEVICE_SUMMARY_ICONS = {"pv_power": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 36 36\" fill=\"none\" id=\"icon-icon-phot\">\n<g id=\"icon-icon-phot_icon-&#229;&#133;&#137;&#228;&#188;&#143;&#229;&#143;&#145;&#231;&#148;&#181;\">\n<path id=\"icon-icon-phot_Rectangle 34625637\" d=\"M4.5 7.5C4.5 5.84315 5.84315 4.5 7.5 4.5H28.5C30.1569 4.5 31.5 5.84315 31.5 7.5V28.5C31.5 30.1569 30.1569 31.5 28.5 31.5H7.5C5.84315 31.5 4.5 30.1569 4.5 28.5V7.5Z\" fill=\"#894BFC\" />\n<g id=\"icon-icon-phot_Frame\">\n<path id=\"icon-icon-phot_Vector\" d=\"M13.9738 18.0725C13.9738 19.4913 14.7413 20.8024 15.9873 21.5118C16.6011 21.8605 17.2949 22.0438 18.0008 22.0438C18.7067 22.0438 19.4005 21.8605 20.0143 21.5118C21.2602 20.8024 22.0277 19.4913 22.0277 18.0725C22.0277 16.6537 21.2602 15.3428 20.0143 14.6334C19.4005 14.2847 18.7067 14.1014 18.0008 14.1014C17.2949 14.1014 16.6011 14.2847 15.9873 14.6334C14.7413 15.3426 13.9738 16.6537 13.9738 18.0725ZM17.9947 10.4385C18.2567 10.4346 18.4861 10.6648 18.4922 10.9252L18.5003 12.5193C18.5044 12.7776 18.271 13.0039 18.0069 13.01C17.7448 13.014 17.5155 12.7836 17.5094 12.5233L17.5013 10.9292C17.5195 10.6308 17.7328 10.4427 17.9947 10.4385ZM25.9107 18.0444C25.9066 18.3029 25.7158 18.5131 25.413 18.5311L23.7966 18.5232C23.5347 18.5191 23.2991 18.2928 23.303 18.0325C23.3072 17.7742 23.5367 17.5419 23.8007 17.5458L25.4171 17.5539C25.679 17.5599 25.9147 17.7861 25.9107 18.0444ZM12.6985 18.0444C12.6944 18.3029 12.5034 18.5131 12.2008 18.5311L10.5844 18.5232C10.3225 18.5191 10.0869 18.2928 10.0909 18.0325C10.095 17.7742 10.3245 17.5419 10.5886 17.5458L12.205 17.5539C12.4669 17.5599 12.7025 17.7861 12.6985 18.0444ZM18.0067 25.7304C17.7448 25.7346 17.5153 25.5043 17.5094 25.2439L17.5013 23.6498C17.4971 23.3915 17.7306 23.1652 17.9947 23.1591C18.2567 23.1552 18.4861 23.3856 18.4922 23.6458L18.5003 25.2399C18.4821 25.5384 18.2688 25.7265 18.0069 25.7306L18.0067 25.7304ZM23.4676 12.6835C23.6566 12.8637 23.6524 13.1862 23.4697 13.3743L22.3325 14.5058C22.1496 14.6921 21.8227 14.6881 21.6317 14.508C21.4429 14.3276 21.4471 14.0052 21.6298 13.8169L22.767 12.6855C22.9924 12.4873 23.2768 12.5033 23.4676 12.6837V12.6835ZM23.6098 23.5818C23.4208 23.7619 23.1365 23.778 22.9092 23.5798L21.772 22.4483C21.5891 22.262 21.5851 21.9376 21.7739 21.7573C21.9629 21.5773 22.2918 21.5731 22.4745 21.7594L23.6117 22.8909C23.7946 23.077 23.7986 23.4016 23.6098 23.5818ZM14.2661 14.3676C14.0773 14.5479 13.7931 14.5639 13.5656 14.3658L12.4283 13.2343C12.2456 13.048 12.2415 12.7236 12.4303 12.5433C12.6193 12.3631 12.9482 12.3591 13.1311 12.5452L14.2683 13.6767C14.451 13.865 14.4571 14.1874 14.2661 14.3677V14.3676ZM12.5095 23.5036C12.3207 23.3235 12.3248 23.0009 12.5077 22.8128L13.6448 21.6813C13.8275 21.495 14.1545 21.499 14.3453 21.6793C14.5343 21.8593 14.5302 22.1819 14.3475 22.3702L13.2103 23.5017C12.9847 23.6998 12.6985 23.6838 12.5095 23.5036Z\" fill=\"white\" />\n</g>\n</g>\n</svg>", "battery_soc": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 36 36\" fill=\"none\" id=\"icon-icon-battery\">\n<g id=\"icon-icon-battery_icon-&#231;&#148;&#181;&#230;&#177;&#160;\">\n<path id=\"icon-icon-battery_Rectangle 34625637\" d=\"M4.5 7.5C4.5 5.84315 5.84315 4.5 7.5 4.5H28.5C30.1569 4.5 31.5 5.84315 31.5 7.5V28.5C31.5 30.1569 30.1569 31.5 28.5 31.5H7.5C5.84315 31.5 4.5 30.1569 4.5 28.5V7.5Z\" fill=\"#03BD9A\" />\n<g id=\"icon-icon-battery_Frame\" clip-path=\"url(#icon-icon-battery_clip0_36_2961)\">\n<path id=\"icon-icon-battery_Vector\" d=\"M21.0349 23.7746L21.0349 14.2157L14.9656 14.2157L14.9656 23.7746L21.0349 23.7746ZM16.4829 11.5776L14.9656 11.5776C14.131 11.5776 13.4482 12.1554 13.4482 12.8615L13.4482 23.7746C13.4482 24.4807 14.131 25.0585 14.9656 25.0585L21.0349 25.0585C21.8694 25.0585 22.5522 24.4807 22.5522 23.7746L22.5522 12.8615C22.5522 12.1554 21.8694 11.5776 21.0349 11.5776L19.5175 11.5776C19.5175 11.2246 19.1761 10.9357 18.7589 10.9357L17.2415 10.9357C16.8243 10.9357 16.4829 11.2246 16.4829 11.5776ZM17.2415 12.2196L21.0349 12.2196C21.4521 12.2196 21.7935 12.5084 21.7935 12.8615L21.7935 23.7746C21.7935 24.1277 21.4521 24.4165 21.0349 24.4165L14.9656 24.4165C14.5483 24.4165 14.2069 24.1277 14.2069 23.7746L14.2069 12.8615C14.2069 12.5084 14.5483 12.2196 14.9656 12.2196L17.2415 12.2196Z\" fill=\"white\" />\n</g>\n</g>\n<defs>\n<clipPath id=\"icon-icon-battery_clip0_36_2961\">\n<rect width=\"14.1429\" height=\"16.7143\" fill=\"white\" transform=\"translate(9.64258 25.0714) rotate(-90)\" />\n</clipPath>\n</defs>\n</svg>", "discharging": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 16 16\" fill=\"none\" id=\"icon-discharging\">\n<g id=\"icon-discharging_Icon/LightningFill\">\n<path id=\"icon-discharging_Vector\" d=\"M9 7V1L3 9H7V15L13 7H9Z\" fill=\"#894BFC\" />\n</g>\n</svg>", "temperature": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 32 32\" fill=\"none\" id=\"icon-drier_iocn\">\n  <path d=\"M5 2C5.00471 2.81985 5.15086 3.55545 5.40303 4.23275C5.84101 5.40916 6.5791 6.33775 7.19824 7.11668L7.24401 7.17427C7.90478 8.006 8.43245 8.68616 8.73703 9.51112C8.89303 9.93365 8.99729 10.4171 8.99984 11H11.2498C11.2475 10.1658 11.1013 9.41868 10.8478 8.73184C10.407 7.53809 9.66231 6.60092 9.0386 5.81606L9.00572 5.77467C8.3429 4.94037 7.81588 4.2649 7.51163 3.44771C7.35819 3.03556 7.25494 2.56538 7.25002 2H5Z\" fill=\"var(--color-primary)\" fill-opacity=\"0.65\" />\n  <path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M9.02636 13.4476L4.55439 22.3974C3.54382 24.4198 3.93994 26.8625 5.53779 28.4613C7.58799 30.5129 10.912 30.5129 12.9622 28.4613C14.5601 26.8625 14.9562 24.4198 13.9456 22.3974L9.47364 13.4476C9.38153 13.2632 9.11847 13.2632 9.02636 13.4476ZM11.75 24.75C11.75 26.1307 10.6307 27.25 9.25 27.25V28.25C11.183 28.25 12.75 26.683 12.75 24.75H11.75Z\" fill=\"var(--color-primary)\" fill-opacity=\"0.65\" />\n  <path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M21.702 21.8945C22.9288 24.3498 22.448 27.3152 20.508 29.2566C20.4535 29.3111 20.3983 29.3644 20.3423 29.4165C22.3181 30.4372 24.8059 30.1188 26.4622 28.4613C28.0601 26.8625 28.4562 24.4198 27.4456 22.3974L22.9736 13.4476C22.8815 13.2632 22.6185 13.2632 22.5264 13.4476L20.0038 18.496L21.702 21.8945ZM25.4062 24.75C25.4062 26.1307 24.287 27.25 22.9062 27.25V28.25C24.8392 28.25 26.4062 26.683 26.4062 24.75H25.4062Z\" fill=\"var(--color-primary)\" fill-opacity=\"0.65\" />\n  <path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M13.7541 29.2566C15.6942 27.3152 16.175 24.3498 14.9482 21.8945L13.25 18.496L15.7725 13.4476C15.8647 13.2632 16.1277 13.2632 16.2198 13.4476L20.6918 22.3974C21.7024 24.4198 21.3062 26.8625 19.7084 28.4613C18.0521 30.1188 15.5643 30.4372 13.5885 29.4165C13.6444 29.3644 13.6997 29.3111 13.7541 29.2566ZM16.3125 27.25C17.6932 27.25 18.8125 26.1307 18.8125 24.75H19.8125C19.8125 26.683 18.2455 28.25 16.3125 28.25V27.25Z\" fill=\"var(--color-primary)\" fill-opacity=\"0.65\" />\n  <path d=\"M11.2498 2C11.2545 2.81985 11.4007 3.55545 11.6528 4.23275C12.0908 5.40916 12.8289 6.33774 13.4481 7.11668L13.4938 7.17427C14.1546 8.006 14.6823 8.68616 14.9868 9.51112C15.1428 9.93365 15.2471 10.4171 15.2496 11H17.4996C17.4973 10.1658 17.3512 9.41868 17.0976 8.73184C16.6568 7.53809 15.9121 6.60092 15.2884 5.81606L15.2555 5.77467C14.5927 4.94037 14.0657 4.2649 13.7614 3.44771C13.608 3.03556 13.5048 2.56538 13.4998 2H11.2498Z\" fill=\"var(--color-primary)\" fill-opacity=\"0.65\" />\n  <path d=\"M17.4996 2C17.5043 2.81985 17.6505 3.55545 17.9027 4.23275C18.3406 5.40916 19.0787 6.33774 19.6979 7.11668L19.7436 7.17427C20.4044 8.006 20.9321 8.68616 21.2367 9.51112C21.3927 9.93365 21.4969 10.4171 21.4995 11H23.7494C23.7471 10.1658 23.601 9.41868 23.3474 8.73184C22.9067 7.53809 22.1619 6.60092 21.5382 5.81606L21.5053 5.77467C20.8425 4.94037 20.3155 4.2649 20.0113 3.44771C19.8578 3.03556 19.7546 2.56538 19.7497 2H17.4996Z\" fill=\"var(--color-primary)\" fill-opacity=\"0.65\" />\n</svg>"};
+const FOX_DEVICE_SUMMARY_ICONS = {"pv_power": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 36 36\" fill=\"none\" id=\"icon-icon-phot\">\n<g id=\"icon-icon-phot_icon-&#229;&#133;&#137;&#228;&#188;&#143;&#229;&#143;&#145;&#231;&#148;&#181;\">\n<path id=\"icon-icon-phot_Rectangle 34625637\" d=\"M4.5 7.5C4.5 5.84315 5.84315 4.5 7.5 4.5H28.5C30.1569 4.5 31.5 5.84315 31.5 7.5V28.5C31.5 30.1569 30.1569 31.5 28.5 31.5H7.5C5.84315 31.5 4.5 30.1569 4.5 28.5V7.5Z\" fill=\"#894BFC\" />\n<g id=\"icon-icon-phot_Frame\">\n<path id=\"icon-icon-phot_Vector\" d=\"M13.9738 18.0725C13.9738 19.4913 14.7413 20.8024 15.9873 21.5118C16.6011 21.8605 17.2949 22.0438 18.0008 22.0438C18.7067 22.0438 19.4005 21.8605 20.0143 21.5118C21.2602 20.8024 22.0277 19.4913 22.0277 18.0725C22.0277 16.6537 21.2602 15.3428 20.0143 14.6334C19.4005 14.2847 18.7067 14.1014 18.0008 14.1014C17.2949 14.1014 16.6011 14.2847 15.9873 14.6334C14.7413 15.3426 13.9738 16.6537 13.9738 18.0725ZM17.9947 10.4385C18.2567 10.4346 18.4861 10.6648 18.4922 10.9252L18.5003 12.5193C18.5044 12.7776 18.271 13.0039 18.0069 13.01C17.7448 13.014 17.5155 12.7836 17.5094 12.5233L17.5013 10.9292C17.5195 10.6308 17.7328 10.4427 17.9947 10.4385ZM25.9107 18.0444C25.9066 18.3029 25.7158 18.5131 25.413 18.5311L23.7966 18.5232C23.5347 18.5191 23.2991 18.2928 23.303 18.0325C23.3072 17.7742 23.5367 17.5419 23.8007 17.5458L25.4171 17.5539C25.679 17.5599 25.9147 17.7861 25.9107 18.0444ZM12.6985 18.0444C12.6944 18.3029 12.5034 18.5131 12.2008 18.5311L10.5844 18.5232C10.3225 18.5191 10.0869 18.2928 10.0909 18.0325C10.095 17.7742 10.3245 17.5419 10.5886 17.5458L12.205 17.5539C12.4669 17.5599 12.7025 17.7861 12.6985 18.0444ZM18.0067 25.7304C17.7448 25.7346 17.5153 25.5043 17.5094 25.2439L17.5013 23.6498C17.4971 23.3915 17.7306 23.1652 17.9947 23.1591C18.2567 23.1552 18.4861 23.3856 18.4922 23.6458L18.5003 25.2399C18.4821 25.5384 18.2688 25.7265 18.0069 25.7306L18.0067 25.7304ZM23.4676 12.6835C23.6566 12.8637 23.6524 13.1862 23.4697 13.3743L22.3325 14.5058C22.1496 14.6921 21.8227 14.6881 21.6317 14.508C21.4429 14.3276 21.4471 14.0052 21.6298 13.8169L22.767 12.6855C22.9924 12.4873 23.2768 12.5033 23.4676 12.6837V12.6835ZM23.6098 23.5818C23.4208 23.7619 23.1365 23.778 22.9092 23.5798L21.772 22.4483C21.5891 22.262 21.5851 21.9376 21.7739 21.7573C21.9629 21.5773 22.2918 21.5731 22.4745 21.7594L23.6117 22.8909C23.7946 23.077 23.7986 23.4016 23.6098 23.5818ZM14.2661 14.3676C14.0773 14.5479 13.7931 14.5639 13.5656 14.3658L12.4283 13.2343C12.2456 13.048 12.2415 12.7236 12.4303 12.5433C12.6193 12.3631 12.9482 12.3591 13.1311 12.5452L14.2683 13.6767C14.451 13.865 14.4571 14.1874 14.2661 14.3677V14.3676ZM12.5095 23.5036C12.3207 23.3235 12.3248 23.0009 12.5077 22.8128L13.6448 21.6813C13.8275 21.495 14.1545 21.499 14.3453 21.6793C14.5343 21.8593 14.5302 22.1819 14.3475 22.3702L13.2103 23.5017C12.9847 23.6998 12.6985 23.6838 12.5095 23.5036Z\" fill=\"white\" />\n</g>\n</g>\n</svg>", "battery_soc": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 36 36\" fill=\"none\" id=\"icon-icon-battery\">\n<g id=\"icon-icon-battery_icon-&#231;&#148;&#181;&#230;&#177;&#160;\">\n<path id=\"icon-icon-battery_Rectangle 34625637\" d=\"M4.5 7.5C4.5 5.84315 5.84315 4.5 7.5 4.5H28.5C30.1569 4.5 31.5 5.84315 31.5 7.5V28.5C31.5 30.1569 30.1569 31.5 28.5 31.5H7.5C5.84315 31.5 4.5 30.1569 4.5 28.5V7.5Z\" fill=\"#03BD9A\" />\n<g id=\"icon-icon-battery_Frame\" clip-path=\"url(#icon-icon-battery_clip0_36_2961)\">\n<path id=\"icon-icon-battery_Vector\" d=\"M21.0349 23.7746L21.0349 14.2157L14.9656 14.2157L14.9656 23.7746L21.0349 23.7746ZM16.4829 11.5776L14.9656 11.5776C14.131 11.5776 13.4482 12.1554 13.4482 12.8615L13.4482 23.7746C13.4482 24.4807 14.131 25.0585 14.9656 25.0585L21.0349 25.0585C21.8694 25.0585 22.5522 24.4807 22.5522 23.7746L22.5522 12.8615C22.5522 12.1554 21.8694 11.5776 21.0349 11.5776L19.5175 11.5776C19.5175 11.2246 19.1761 10.9357 18.7589 10.9357L17.2415 10.9357C16.8243 10.9357 16.4829 11.2246 16.4829 11.5776ZM17.2415 12.2196L21.0349 12.2196C21.4521 12.2196 21.7935 12.5084 21.7935 12.8615L21.7935 23.7746C21.7935 24.1277 21.4521 24.4165 21.0349 24.4165L14.9656 24.4165C14.5483 24.4165 14.2069 24.1277 14.2069 23.7746L14.2069 12.8615C14.2069 12.5084 14.5483 12.2196 14.9656 12.2196L17.2415 12.2196Z\" fill=\"white\" />\n</g>\n</g>\n<defs>\n<clipPath id=\"icon-icon-battery_clip0_36_2961\">\n<rect width=\"14.1429\" height=\"16.7143\" fill=\"white\" transform=\"translate(9.64258 25.0714) rotate(-90)\" />\n</clipPath>\n</defs>\n</svg>", "discharging": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 20 20\" fill=\"none\" id=\"icon-icon-discharge\">\n<g id=\"icon-icon-discharge_Frame 272\">\n<path d=\"M0 2C0 0.895431 0.895431 0 2 0H18C19.1046 0 20 0.895431 20 2V18C20 19.1046 19.1046 20 18 20H2C0.895431 20 0 19.1046 0 18V2Z\" fill=\"#894BFC\" />\n<g id=\"icon-icon-discharge_Icon/ChargeOutline\">\n<path id=\"icon-icon-discharge_vector\" fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M12.5 3.25C12.5 3.11193 12.3881 3 12.25 3H7.82812C7.69005 3 7.57812 3.11193 7.57812 3.25V4H4.25C4.11193 4 4 4.11193 4 4.25V4.875C4 5.01307 4.11193 5.125 4.25 5.125H5V14.9375H4.25C4.11193 14.9375 4 15.0494 4 15.1875V15.8125C4 15.9506 4.11193 16.0625 4.25 16.0625H15.75C15.8881 16.0625 16 15.9506 16 15.8125V15.1875C16 15.0494 15.8881 14.9375 15.75 14.9375H15V5.125H15.75C15.8881 5.125 16 5.01307 16 4.875V4.25C16 4.11193 15.8881 4 15.75 4H12.5V3.25ZM9.5 10.7H7.5L10.5 6.5V9.3H12.5L9.5 13.5V10.7Z\" fill=\"white\" />\n</g>\n</g>\n</svg>", "temperature": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 36 36\" fill=\"none\" id=\"icon-minSoc\">\n<g id=\"icon-minSoc_Group 1739332894\">\n<g id=\"icon-minSoc_Group 1739332886\" filter=\"url(#icon-minSoc_filter0_d_2095_72690)\">\n<rect id=\"icon-minSoc_Rectangle 34625376\" x=\"4\" y=\"3\" width=\"28\" height=\"28\" rx=\"2.4\" fill=\"white\" />\n</g>\n<g id=\"icon-minSoc_Rectangle 34625387\" filter=\"url(#icon-minSoc_filter1_d_2095_72690)\">\n<rect x=\"24.9971\" y=\"15.7344\" width=\"9.63261\" height=\"12.4317\" rx=\"1.19642\" transform=\"rotate(89.7812 24.9971 15.7344)\" fill=\"url(#icon-minSoc_paint0_linear_2095_72690)\" />\n</g>\n<path id=\"icon-minSoc_Rectangle 34625386\" d=\"M13.6719 8.47321C13.6719 8.14283 13.9397 7.875 14.2701 7.875H18.8795C19.2098 7.875 19.4777 8.14283 19.4777 8.47321V10.2688H13.6719V8.47321Z\" fill=\"#E5F4EC\" />\n<g id=\"icon-minSoc_Rectangle 34625385\" filter=\"url(#icon-minSoc_filter2_b_2095_72690)\">\n<rect x=\"10.9658\" y=\"9.65234\" width=\"11.2188\" height=\"16.4714\" rx=\"1.19642\" fill=\"#1CA157\" fill-opacity=\"0.1\" />\n</g>\n<g id=\"icon-minSoc_SOC\" filter=\"url(#icon-minSoc_filter3_d_2095_72690)\">\n<path d=\"M13.8066 18.9829C13.8066 18.9097 13.7952 18.8446 13.7725 18.7876C13.7513 18.7306 13.7131 18.6785 13.6577 18.6313C13.6024 18.5841 13.5243 18.5386 13.4233 18.4946C13.3241 18.4491 13.1971 18.4027 13.0425 18.3555C12.8732 18.3034 12.717 18.2456 12.5737 18.1821C12.4321 18.117 12.3084 18.0422 12.2026 17.9575C12.0968 17.8713 12.0146 17.7728 11.9561 17.6621C11.8975 17.5498 11.8682 17.4204 11.8682 17.2739C11.8682 17.1291 11.8983 16.9972 11.9585 16.8784C12.0203 16.7596 12.1074 16.6571 12.2197 16.5708C12.3337 16.4829 12.4679 16.4154 12.6226 16.3682C12.7772 16.3193 12.9481 16.2949 13.1353 16.2949C13.3989 16.2949 13.626 16.3438 13.8164 16.4414C14.0085 16.5391 14.1558 16.6701 14.2583 16.8345C14.3625 16.9989 14.4146 17.1803 14.4146 17.3789H13.8066C13.8066 17.2617 13.7814 17.1584 13.731 17.0688C13.6821 16.9777 13.6073 16.9061 13.5063 16.854C13.4071 16.8019 13.2809 16.7759 13.1279 16.7759C12.9831 16.7759 12.8626 16.7979 12.7666 16.8418C12.6706 16.8857 12.599 16.9451 12.5518 17.02C12.5046 17.0949 12.481 17.1795 12.481 17.2739C12.481 17.3407 12.4964 17.4017 12.5273 17.457C12.5583 17.5107 12.6055 17.5612 12.6689 17.6084C12.7324 17.654 12.8122 17.6971 12.9082 17.7378C13.0042 17.7785 13.1174 17.8175 13.2476 17.855C13.4445 17.9136 13.6162 17.9787 13.7627 18.0503C13.9092 18.1203 14.0312 18.2 14.1289 18.2896C14.2266 18.3791 14.2998 18.4808 14.3486 18.5947C14.3975 18.707 14.4219 18.8348 14.4219 18.978C14.4219 19.1278 14.3918 19.2629 14.3315 19.3833C14.2713 19.5021 14.1851 19.6038 14.0728 19.6885C13.9621 19.7715 13.8286 19.8358 13.6724 19.8813C13.5177 19.9253 13.3452 19.9473 13.1548 19.9473C12.9839 19.9473 12.8154 19.9245 12.6494 19.8789C12.485 19.8333 12.3353 19.7642 12.2002 19.6714C12.0651 19.577 11.9577 19.4598 11.8779 19.3198C11.7982 19.1782 11.7583 19.013 11.7583 18.8242H12.3711C12.3711 18.9398 12.3906 19.0382 12.4297 19.1196C12.4704 19.201 12.5265 19.2677 12.5981 19.3198C12.6698 19.3703 12.7528 19.4077 12.8472 19.4321C12.9432 19.4565 13.0457 19.4688 13.1548 19.4688C13.298 19.4688 13.4176 19.4484 13.5137 19.4077C13.6113 19.367 13.6846 19.3101 13.7334 19.2368C13.7822 19.1636 13.8066 19.0789 13.8066 18.9829ZM17.7983 18.0234V18.2188C17.7983 18.4873 17.7633 18.7282 17.6934 18.9414C17.6234 19.1546 17.5233 19.3361 17.3931 19.4858C17.2645 19.6356 17.1099 19.7503 16.9292 19.8301C16.7485 19.9082 16.5483 19.9473 16.3286 19.9473C16.1105 19.9473 15.9111 19.9082 15.7305 19.8301C15.5514 19.7503 15.396 19.6356 15.2642 19.4858C15.1323 19.3361 15.0298 19.1546 14.9565 18.9414C14.8849 18.7282 14.8491 18.4873 14.8491 18.2188V18.0234C14.8491 17.7549 14.8849 17.5148 14.9565 17.3032C15.0282 17.09 15.1291 16.9085 15.2593 16.7588C15.3911 16.6074 15.5465 16.4927 15.7256 16.4146C15.9062 16.3348 16.1056 16.2949 16.3237 16.2949C16.5435 16.2949 16.7437 16.3348 16.9243 16.4146C17.105 16.4927 17.2604 16.6074 17.3906 16.7588C17.5208 16.9085 17.6209 17.09 17.6909 17.3032C17.7625 17.5148 17.7983 17.7549 17.7983 18.0234ZM17.1855 18.2188V18.0186C17.1855 17.82 17.166 17.645 17.127 17.4937C17.0895 17.3407 17.0334 17.2129 16.9585 17.1104C16.8853 17.0062 16.7949 16.9281 16.6875 16.876C16.5801 16.8223 16.4588 16.7954 16.3237 16.7954C16.1886 16.7954 16.0682 16.8223 15.9624 16.876C15.8566 16.9281 15.7663 17.0062 15.6914 17.1104C15.6182 17.2129 15.562 17.3407 15.5229 17.4937C15.4839 17.645 15.4644 17.82 15.4644 18.0186V18.2188C15.4644 18.4173 15.4839 18.5931 15.5229 18.7461C15.562 18.8991 15.619 19.0285 15.6938 19.1343C15.7703 19.2384 15.8615 19.3174 15.9673 19.3711C16.0731 19.4232 16.1935 19.4492 16.3286 19.4492C16.4653 19.4492 16.5866 19.4232 16.6924 19.3711C16.7982 19.3174 16.8877 19.2384 16.9609 19.1343C17.0342 19.0285 17.0895 18.8991 17.127 18.7461C17.166 18.5931 17.1855 18.4173 17.1855 18.2188ZM20.5107 18.7412H21.1211C21.1016 18.974 21.0365 19.1815 20.9258 19.3638C20.8151 19.5444 20.6597 19.6868 20.4595 19.791C20.2593 19.8952 20.016 19.9473 19.7295 19.9473C19.5098 19.9473 19.312 19.9082 19.1362 19.8301C18.9604 19.7503 18.8099 19.638 18.6846 19.4932C18.5592 19.3467 18.4632 19.1701 18.3965 18.9634C18.3314 18.7567 18.2988 18.5256 18.2988 18.27V17.9746C18.2988 17.7191 18.3322 17.488 18.3989 17.2812C18.4673 17.0745 18.5649 16.8979 18.6919 16.7515C18.8188 16.6034 18.971 16.4902 19.1484 16.4121C19.3275 16.334 19.5285 16.2949 19.7515 16.2949C20.0347 16.2949 20.2739 16.347 20.4692 16.4512C20.6646 16.5553 20.8159 16.6994 20.9233 16.8833C21.0324 17.0672 21.0991 17.278 21.1235 17.5156H20.5132C20.4969 17.3626 20.4611 17.2316 20.4058 17.1226C20.3521 17.0135 20.2723 16.9305 20.1665 16.8735C20.0607 16.8149 19.9224 16.7856 19.7515 16.7856C19.6115 16.7856 19.4894 16.8117 19.3853 16.8638C19.2811 16.9159 19.194 16.9924 19.124 17.0933C19.054 17.1942 19.0011 17.3187 18.9653 17.4668C18.9312 17.6133 18.9141 17.7809 18.9141 17.9697V18.27C18.9141 18.4491 18.9295 18.6118 18.9604 18.7583C18.993 18.9032 19.0418 19.0277 19.1069 19.1318C19.1737 19.236 19.2583 19.3166 19.3608 19.3735C19.4634 19.4305 19.5863 19.459 19.7295 19.459C19.9036 19.459 20.0444 19.4313 20.1519 19.376C20.2609 19.3206 20.3431 19.2401 20.3984 19.1343C20.4554 19.0269 20.4928 18.8958 20.5107 18.7412Z\" fill=\"white\" />\n</g>\n</g>\n<defs>\n<filter id=\"icon-minSoc_filter0_d_2095_72690\" x=\"0\" y=\"0\" width=\"36\" height=\"36\" filterUnits=\"userSpaceOnUse\" color-interpolation-filters=\"sRGB\">\n<feFlood flood-opacity=\"0\" result=\"BackgroundImageFix\"></feFlood>\n<feColorMatrix in=\"SourceAlpha\" type=\"matrix\" values=\"0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0\" result=\"hardAlpha\"></feColorMatrix>\n<feOffset dy=\"1\"></feOffset>\n<feGaussianBlur stdDeviation=\"2\"></feGaussianBlur>\n<feComposite in2=\"hardAlpha\" operator=\"out\"></feComposite>\n<feColorMatrix type=\"matrix\" values=\"0 0 0 0 0.0901961 0 0 0 0 0.376471 0 0 0 0 0.952941 0 0 0 0.15 0\"></feColorMatrix>\n<feBlend mode=\"normal\" in2=\"BackgroundImageFix\" result=\"effect1_dropShadow_2095_72690\"></feBlend>\n<feBlend mode=\"normal\" in=\"SourceGraphic\" in2=\"effect1_dropShadow_2095_72690\" result=\"shape\"></feBlend>\n</filter>\n<filter id=\"icon-minSoc_filter1_d_2095_72690\" x=\"11.1691\" y=\"15.5883\" width=\"15.2592\" height=\"12.4719\" filterUnits=\"userSpaceOnUse\" color-interpolation-filters=\"sRGB\">\n<feFlood flood-opacity=\"0\" result=\"BackgroundImageFix\"></feFlood>\n<feColorMatrix in=\"SourceAlpha\" type=\"matrix\" values=\"0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0\" result=\"hardAlpha\"></feColorMatrix>\n<feOffset dy=\"1.25\"></feOffset>\n<feGaussianBlur stdDeviation=\"0.7\"></feGaussianBlur>\n<feComposite in2=\"hardAlpha\" operator=\"out\"></feComposite>\n<feColorMatrix type=\"matrix\" values=\"0 0 0 0 0.152941 0 0 0 0 0.65098 0 0 0 0 0.356863 0 0 0 0.3 0\"></feColorMatrix>\n<feBlend mode=\"normal\" in2=\"BackgroundImageFix\" result=\"effect1_dropShadow_2095_72690\"></feBlend>\n<feBlend mode=\"normal\" in=\"SourceGraphic\" in2=\"effect1_dropShadow_2095_72690\" result=\"shape\"></feBlend>\n</filter>\n<filter id=\"icon-minSoc_filter2_b_2095_72690\" x=\"5.96484\" y=\"4.65234\" width=\"21.2188\" height=\"26.4727\" filterUnits=\"userSpaceOnUse\" color-interpolation-filters=\"sRGB\">\n<feFlood flood-opacity=\"0\" result=\"BackgroundImageFix\"></feFlood>\n<feGaussianBlur in=\"BackgroundImageFix\" stdDeviation=\"2.5\"></feGaussianBlur>\n<feComposite in2=\"SourceAlpha\" operator=\"in\" result=\"effect1_backgroundBlur_2095_72690\"></feComposite>\n<feBlend mode=\"normal\" in=\"SourceGraphic\" in2=\"effect1_backgroundBlur_2095_72690\" result=\"shape\"></feBlend>\n</filter>\n<filter id=\"icon-minSoc_filter3_d_2095_72690\" x=\"11.3583\" y=\"16.1469\" width=\"10.1652\" height=\"4.44844\" filterUnits=\"userSpaceOnUse\" color-interpolation-filters=\"sRGB\">\n<feFlood flood-opacity=\"0\" result=\"BackgroundImageFix\"></feFlood>\n<feColorMatrix in=\"SourceAlpha\" type=\"matrix\" values=\"0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0\" result=\"hardAlpha\"></feColorMatrix>\n<feOffset dy=\"0.25\"></feOffset>\n<feGaussianBlur stdDeviation=\"0.2\"></feGaussianBlur>\n<feComposite in2=\"hardAlpha\" operator=\"out\"></feComposite>\n<feColorMatrix type=\"matrix\" values=\"0 0 0 0 0.129412 0 0 0 0 0.639216 0 0 0 0 0.341176 0 0 0 1 0\"></feColorMatrix>\n<feBlend mode=\"normal\" in2=\"BackgroundImageFix\" result=\"effect1_dropShadow_2095_72690\"></feBlend>\n<feBlend mode=\"normal\" in=\"SourceGraphic\" in2=\"effect1_dropShadow_2095_72690\" result=\"shape\"></feBlend>\n</filter>\n<linearGradient id=\"icon-minSoc_paint0_linear_2095_72690\" x1=\"29.808\" y1=\"15.7344\" x2=\"29.7942\" y2=\"28.1661\" gradientUnits=\"userSpaceOnUse\">\n<stop stop-color=\"#1A9F52\" />\n<stop offset=\"1\" stop-color=\"#6BCA88\" />\n</linearGradient>\n</defs>\n</svg>"};
 // FOX_DEVICE_SUMMARY_ICONS_END
 
 const DEVICE_REALTIME_CHART_SERIES = [
@@ -227,7 +227,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.161";
+const PANEL_VERSION = "0.9.163";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -2374,15 +2374,88 @@ function renderDeviceNewMetricGrid(hass, rows) {
   }
   return `<div class="fox-device-new-metric-grid">${rows
     .map((r) => {
-      const value = r.entity_id
-        ? entityDisplayValue(hass, r.entity_id)
-        : r.value != null && r.value !== ""
-          ? String(r.value)
-          : "—";
       const label = r.name || r.label;
-      return `<div class="fox-device-new-metric-item"><span class="fox-device-new-metric-label">${esc(label)}</span><strong class="fox-device-new-metric-value">${esc(value)}</strong></div>`;
+      let valueHtml;
+      if (r.html) {
+        valueHtml = r.html;
+      } else {
+        const value = r.entity_id
+          ? entityDisplayValue(hass, r.entity_id)
+          : r.value != null && r.value !== ""
+            ? String(r.value)
+            : "—";
+        valueHtml = esc(value);
+      }
+      return `<div class="fox-device-new-metric-item"><span class="fox-device-new-metric-label">${esc(label)}</span><strong class="fox-device-new-metric-value">${valueHtml}</strong></div>`;
     })
     .join("")}</div>`;
+}
+
+function entityMapRowsFox(hass, plant, plantState, pairs) {
+  const map = resolveEntityMap(hass, plant, plantState);
+  return pairs.map(([key, name]) => ({
+    key: key || null,
+    name,
+    entity_id: key && map[key] ? map[key] : null,
+  }));
+}
+
+function formatDeviceNewGridStatusHtml(hass, entityId) {
+  const st = entityId ? stateString(hass, entityId) : "—";
+  if (st === "—") return "—";
+  const lower = st.toLowerCase();
+  const tone =
+    lower.includes("export") || lower.includes("feed")
+      ? "export"
+      : lower.includes("import") || lower.includes("purchase")
+        ? "import"
+        : "idle";
+  return `<span class="fox-device-new-grid-status fox-device-new-grid-status--${tone}"><span class="fox-device-new-grid-status-dot" aria-hidden="true"></span><span>${esc(st)}</span></span>`;
+}
+
+function formatDeviceNewOnlineBadge(value) {
+  const on = String(value).toLowerCase() === "online";
+  return `<span class="fox-device-new-online-badge${on ? " fox-device-new-online-badge--on" : ""}">${esc(value)}</span>`;
+}
+
+function renderDeviceNewFoxDatalogger(hass, plant, plantState, map) {
+  const id = plantState?.identity ?? {};
+  const rows = [];
+  const bmsId = map.bms_online;
+  let status = "—";
+  if (bmsId && hass?.states?.[bmsId]) {
+    status = hass.states[bmsId].state === "on" ? "Online" : "Offline";
+  } else if (id.bms_online != null && id.bms_online !== "") {
+    status = id.bms_online === true || id.bms_online === "on" ? "Online" : "Offline";
+  }
+  rows.push({ name: "Status", html: formatDeviceNewOnlineBadge(status) });
+  const firmware =
+    entityDisplayValue(hass, map.manager_version) !== "—"
+      ? entityDisplayValue(hass, map.manager_version)
+      : entityDisplayValue(hass, map.master_version);
+  rows.push({ name: "Software Version", value: firmware !== "—" ? firmware : "—" });
+  const signal = entityDisplayValue(hass, map.datalogger_signal);
+  rows.push({ name: "Signal strength", value: signal !== "—" ? signal : "—" });
+  return renderDeviceNewMetricGrid(hass, rows);
+}
+
+function renderDeviceNewMetricRows(hass, plant, plantState, pairs) {
+  const rows = entityMapRowsFox(hass, plant, plantState, pairs).map((row) => {
+    if (row.key === "grid_status") {
+      return { ...row, html: formatDeviceNewGridStatusHtml(hass, row.entity_id) };
+    }
+    return row;
+  });
+  return renderDeviceNewMetricGrid(hass, rows);
+}
+
+function renderDeviceNewSubsections(hass, plant, plantState, section) {
+  return (section.subsections || [])
+    .map((sub) => {
+      const body = renderDeviceNewMetricRows(hass, plant, plantState, sub.rows || []);
+      return `<div class="fox-device-new-subsection"><h4 class="fox-device-new-subsection-title">${esc(sub.title)}</h4>${body}</div>`;
+    })
+    .join("");
 }
 
 function renderDeviceNewSidebar(hass, plant, plantState) {
@@ -3104,11 +3177,7 @@ function renderDeviceRealtimeLegend(visible, { socSeries = null } = {}) {
 }
 
 function foxDeviceSummaryIcon(key) {
-  let svg = FOX_DEVICE_SUMMARY_ICONS[key] || "";
-  if (key === "temperature") {
-    svg = svg.replace(/var\(--color-primary\)/g, "#894BFC");
-  }
-  return svg;
+  return FOX_DEVICE_SUMMARY_ICONS[key] || "";
 }
 
 function renderStatisticsSideLegend(visible, { socVisible = false } = {}) {
@@ -3430,19 +3499,23 @@ const DEVICE_ENTITY_FALLBACKS = {
   eps_frequency: ["eps_frequency"],
   load_power_R: ["load_power_R"],
   load_power_total: ["load_power_total"],
+  load_energy_total: ["load_energy_total", "load_consumption_total"],
   grid_status: ["grid_status"],
   feed_in_energy_total: ["feed_in_energy_total"],
   grid_consumption_energy_total: ["grid_consumption_energy_total"],
   battery_soh: ["battery_soh"],
   battery_cycles: ["battery_cycles"],
   battery_kwh_remaining: ["battery_kwh_remaining"],
-  bms_kwh_nominal: ["bms_kwh_remaining_1"],
+  bms_kwh_nominal: ["bms_kwh_nominal", "bms_capacity", "battery_capacity", "bms_kwh_remaining_1"],
+  battery_ah_remaining: ["battery_ah_remaining", "bms_ah_remaining", "battery_remaining_capacity"],
+  datalogger_signal: ["signal_strength", "wifi_signal", "bms_signal_strength"],
   batvolt_1: ["batvolt_1", "invbatvolt_1"],
   bat_current_1: ["bat_current_1", "invbatcurrent_1"],
   battery_charge_total: ["battery_charge_total"],
   battery_discharge_total: ["battery_discharge_total"],
   bms_temp_high: ["bms_cell_temp_high_1", "bms_cell_temp_high"],
   bms_online: ["bms_online"],
+  bms_pack_serial_modbus: ["bms_pack_serial_modbus"],
   modbus_protocol_version: ["modbus_protocol_version"],
   master_version: ["master_version"],
   slave_version: ["slave_version"],
@@ -3514,7 +3587,91 @@ const DEVICE_PARAMETER_SECTIONS = [
       ["battery_cycles", "Battery cycles"],
     ],
   },
-  { id: "datalogger", title: "Datalogger", kind: "datalogger" },
+  { id: "datalogger", title: "Datalogger Information", kind: "datalogger" },
+];
+
+/** Fox Cloud Devices → Real-time tab (matches foxesscloud.com field order, labels, and subsections). */
+const DEVICE_NEW_REALTIME_SECTIONS = [
+  {
+    id: "load",
+    title: "Load Information",
+    kind: "rows",
+    rows: [
+      ["load_energy_today", "Daily load consumption"],
+      ["load_energy_total", "Total load consumption"],
+      ["load_power", "Total load power"],
+      ["load_power_R", "Grid load power"],
+      ["eps_power_R", "EPS load power"],
+    ],
+  },
+  { id: "datalogger", title: "Datalogger Information", kind: "fox-datalogger" },
+  {
+    id: "grid",
+    title: "Grid Information",
+    kind: "rows",
+    rows: [
+      ["grid_status", "Grid Status"],
+      ["feed_in_energy_today", "Daily feed-in energy"],
+      ["feed_in_energy_total", "Total feed-in energy"],
+      ["grid_consumption_energy_today", "Daily purchased energy"],
+      ["grid_consumption_energy_total", "Total purchased energy"],
+      ["grid_export", "Feed-in Power"],
+      ["grid_import", "Purchased Power"],
+    ],
+  },
+  {
+    id: "battery",
+    title: "Battery Information",
+    kind: "subsections",
+    subsections: [
+      {
+        title: "General",
+        rows: [
+          ["battery_soc", "SOC"],
+          ["bms_kwh_nominal", "Capacity"],
+          ["bat_current_1", "Current"],
+          ["batvolt_1", "Voltage"],
+          ["battery_discharge_today", "Daily discharged energy"],
+          ["battery_discharge_total", "Total discharged energy"],
+          ["battery_charge_today", "Daily charged energy"],
+          ["battery_charge_total", "Total charged energy"],
+        ],
+      },
+      {
+        title: "Health",
+        rows: [
+          ["battery_soh", "SOH"],
+          ["battery_ah_remaining", "Remaining Capacity"],
+          [null, "Evolution of self-discharging rates"],
+          [null, "Remaining Power Capacity"],
+          [null, "Remaining Round trip efficiency"],
+          [null, "Ohmic resistance"],
+        ],
+      },
+      {
+        title: "Expected life",
+        rows: [["bms_pack_serial_modbus", "Date of manufacture"]],
+      },
+      {
+        title: "General",
+        rows: [
+          ["battery_charge_total", "Charge Energy throughput"],
+          ["battery_discharge_total", "Discharge Energy throughput"],
+          [null, "Charge Capacity throughput"],
+          [null, "Discharge Capacity throughput"],
+          ["battery_cycles", "Number of full equivalent charge discharge cycles"],
+        ],
+      },
+      {
+        title: "Tracking of harmful events",
+        rows: [
+          [null, "Number of deep discharge event"],
+          [null, "Time spent in extreme temp"],
+          [null, "Time spent charging in extreme temp"],
+        ],
+      },
+    ],
+  },
 ];
 
 const ANALYTICS_STATE_KEYS = [
@@ -7575,20 +7732,23 @@ const STYLES = `
   display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;
 }
 .fox-device-new-summary-card {
-  position: relative; border-radius: 12px; padding: 14px 16px; min-height: 84px;
+  position: relative; border-radius: 12px; padding: 14px 16px 16px; min-height: 88px;
   display: flex; flex-direction: column; justify-content: flex-end; gap: 8px;
-  border: 1px solid var(--divider-color); overflow: hidden;
+  border: 1px solid var(--divider-color); border-top-width: 3px;
+  background: var(--card-background-color); overflow: hidden;
 }
-.fox-device-new-summary-card--pv { background: rgba(25, 212, 222, 0.12); }
-.fox-device-new-summary-card--soc { background: rgba(3, 189, 154, 0.12); }
-.fox-device-new-summary-card--discharge { background: rgba(137, 75, 252, 0.12); }
-.fox-device-new-summary-card--temp { background: rgba(137, 75, 252, 0.08); }
-.fox-device-new-summary-label { font-size: 12px; color: var(--secondary-text-color); font-weight: 500; padding-right: 36px; }
+.fox-device-new-summary-card--pv { border-top-color: #19D4DE; }
+.fox-device-new-summary-card--soc { border-top-color: #894BFC; }
+.fox-device-new-summary-card--discharge { border-top-color: #03BD9A; }
+.fox-device-new-summary-card--temp { border-top-color: #FA8C16; }
+.fox-device-new-summary-label { font-size: 12px; color: var(--secondary-text-color); font-weight: 500; padding-right: 44px; }
 .fox-device-new-summary-icon {
-  position: absolute; top: 10px; right: 10px; width: 34px; height: 34px;
+  position: absolute; top: 12px; right: 12px; width: 36px; height: 36px;
   display: flex; align-items: center; justify-content: center; pointer-events: none;
+  flex-shrink: 0;
 }
 .fox-device-new-summary-icon svg { width: 100%; height: 100%; display: block; }
+.fox-device-new-summary-card--discharge .fox-device-new-summary-icon { width: 36px; height: 36px; }
 .fox-device-new-summary-value { font-size: 20px; font-weight: 700; line-height: 1.15; color: var(--primary-text-color); }
 .fox-device-new-metric-grid {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -7619,6 +7779,26 @@ const STYLES = `
 .fox-device-new-section-title {
   margin: 0 0 10px; padding-left: 10px; border-left: 3px solid var(--primary-color, #8a4dff);
   font-size: 15px; font-weight: 700;
+}
+.fox-device-new-subsection { margin-bottom: 14px; }
+.fox-device-new-subsection:last-child { margin-bottom: 0; }
+.fox-device-new-subsection-title {
+  margin: 0 0 8px; font-size: 13px; font-weight: 700; color: var(--primary-text-color);
+}
+.fox-device-new-grid-status {
+  display: inline-flex; align-items: center; gap: 6px; font-weight: 600;
+}
+.fox-device-new-grid-status-dot {
+  width: 7px; height: 7px; border-radius: 50%; background: #52c41a; flex-shrink: 0;
+}
+.fox-device-new-grid-status--import .fox-device-new-grid-status-dot { background: #faad14; }
+.fox-device-new-grid-status--idle .fox-device-new-grid-status-dot { background: #8c8c8c; }
+.fox-device-new-online-badge {
+  display: inline-block; padding: 2px 10px; border-radius: 6px; font-size: 12px; font-weight: 600;
+  border: 1px solid var(--divider-color); color: var(--secondary-text-color);
+}
+.fox-device-new-online-badge--on {
+  border-color: #52c41a; color: #52c41a; background: rgba(82, 196, 26, 0.08);
 }
 @media (max-width: 980px) {
   .fox-device-new-layout { grid-template-columns: 1fr; }
@@ -11303,20 +11483,28 @@ ${this._renderDeviceNewDayNav()}
 </div>`;
   }
 
+  _deviceNewSectionHasContent(section, map) {
+    // Fox Cloud always renders these sections; missing Modbus values show as —.
+    return true;
+  }
+
   _renderDeviceNewSectionBody(section, plant, map) {
-    if (section.kind === "pv-table") return this._renderDevicePvTable(map);
-    if (section.kind === "metric-table") {
-      return this._renderDeviceMetricTable(map, section.keys, section.headers);
+    if (section.kind === "fox-datalogger") {
+      return renderDeviceNewFoxDatalogger(this._hass, plant, this._plantState, map);
     }
-    if (section.kind === "datalogger") return this._renderDeviceDataloggerRows(plant, map, { layout: "grid" });
-    const rows = entityMapRows(this._hass, plant, this._plantState, section.rows);
-    return renderDeviceNewMetricGrid(this._hass, rows);
+    if (section.kind === "subsections") {
+      return renderDeviceNewSubsections(this._hass, plant, this._plantState, section);
+    }
+    if (section.kind === "rows") {
+      return renderDeviceNewMetricRows(this._hass, plant, this._plantState, section.rows);
+    }
+    return `<p class="device-param-empty">Unsupported section.</p>`;
   }
 
   _renderDeviceNewRealtimeSections(plant) {
     const map = resolveEntityMap(this._hass, plant, this._plantState);
-    const sections = DEVICE_PARAMETER_SECTIONS.filter((section) =>
-      this._deviceParamSectionHasContent(section, map)
+    const sections = DEVICE_NEW_REALTIME_SECTIONS.filter((section) =>
+      this._deviceNewSectionHasContent(section, map)
     );
     if (!sections.length) {
       return `<p class="placeholder">No Modbus sensors discovered yet. Reload foxess_modbus and this panel.</p>`;

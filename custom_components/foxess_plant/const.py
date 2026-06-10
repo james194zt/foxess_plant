@@ -115,6 +115,7 @@ PANEL_ENTITY_SUFFIXES: dict[str, tuple[str, ...]] = {
     "load_power": ("load_power", "load_power_total"),
     "load_power_R": ("load_power_R",),
     "load_energy_today": ("load_energy_today",),
+    "load_energy_total": ("load_energy_total", "load_consumption_total"),
     "load_power_total": ("load_power_total",),
     # Grid
     "grid_status": ("grid_status",),
@@ -133,7 +134,9 @@ PANEL_ENTITY_SUFFIXES: dict[str, tuple[str, ...]] = {
     "battery_soh": ("battery_soh",),
     "battery_cycles": ("battery_cycles",),
     "battery_kwh_remaining": ("battery_kwh_remaining",),
-    "bms_kwh_nominal": ("bms_kwh_remaining_1",),
+    "bms_kwh_nominal": ("bms_kwh_nominal", "bms_capacity", "battery_capacity"),
+    "battery_ah_remaining": ("battery_ah_remaining", "bms_ah_remaining"),
+    "datalogger_signal": ("signal_strength", "wifi_signal"),
     "batvolt_1": ("batvolt_1", "invbatvolt_1"),
     "bat_current_1": ("bat_current_1", "invbatcurrent_1"),
     "battery_charge_today": ("battery_charge_today",),
