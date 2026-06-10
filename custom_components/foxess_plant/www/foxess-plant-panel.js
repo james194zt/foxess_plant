@@ -227,7 +227,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.164";
+const PANEL_VERSION = "0.9.165";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -3527,6 +3527,8 @@ const DEVICE_ENTITY_FALLBACKS = {
   battery_cycles: ["battery_cycles"],
   battery_kwh_remaining: ["battery_kwh_remaining"],
   bms_kwh_nominal: ["bms_kwh_nominal", "bms_capacity", "battery_capacity", "bms_kwh_remaining_1"],
+  bms_design_energy_wh: ["bms_design_energy_wh", "bms_kwh_nominal", "bms_kwh_remaining_1"],
+  bms_ah_fcc: ["bms_ah_fcc"],
   battery_ah_remaining: ["battery_ah_remaining", "bms_ah_remaining", "battery_remaining_capacity"],
   datalogger_signal: ["signal_strength", "wifi_signal", "bms_signal_strength"],
   batvolt_1: ["batvolt_1", "invbatvolt_1"],
@@ -3663,7 +3665,7 @@ const DEVICE_NEW_REALTIME_SECTIONS = [
         title: "General",
         rows: [
           ["battery_soc", "SOC"],
-          ["bms_kwh_nominal", "Capacity"],
+          ["bms_design_energy_wh", "Capacity"],
           ["bat_current_1", "Current"],
           ["batvolt_1", "Voltage"],
           ["battery_discharge_today", "Daily discharged energy"],
