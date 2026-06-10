@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.188
+ * @version 0.9.189
  */
 
 const NAV = [
@@ -248,7 +248,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.188";
+const PANEL_VERSION = "0.9.189";
 /** Extra .main max-width on Devices (new) ≈ sidebar column (280px) + layout gap (16px). */
 const DEVICE_NEW_MAIN_WIDTH_EXTRA_PX = 296;
 /** Max wait for recorder/history websocket round-trips (prevents infinite loading spinners). */
@@ -8033,24 +8033,19 @@ const STYLES = `
   display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
   gap: 16px; align-items: start;
 }
-.fox-device-new-layout--analysis {
-  grid-template-areas:
-    "sidebar summary"
-    "sidebar toolbar"
-    "sidebar charts";
+.fox-device-new-main-col {
+  display: flex; flex-direction: column; gap: 16px;
+  min-width: 0; width: 100%;
 }
-.fox-device-new-layout--analysis .fox-device-new-sidebar { grid-area: sidebar; }
-.fox-device-new-summary-slot { min-width: 0; }
-.fox-device-new-layout--analysis .fox-device-new-summary-slot { grid-area: summary; }
-.fox-device-new-toolbar-slot { min-width: 0; }
-.fox-device-new-layout--analysis .fox-device-new-toolbar-slot { grid-area: toolbar; }
-.fox-device-new-charts-slot {
+.fox-device-new-summary-row { min-width: 0; margin: 0; padding: 0; }
+.fox-device-new-toolbar-row { min-width: 0; margin: 0; padding: 0; }
+.fox-device-new-charts-col {
   display: flex; flex-direction: column; gap: 14px;
   min-width: 0; width: 100%;
 }
-.fox-device-new-layout--analysis .fox-device-new-charts-slot { grid-area: charts; }
-.fox-device-new-toolbar-slot > .card { margin: 0; }
-.fox-device-new-charts-slot > .card { margin: 0; }
+.fox-device-new-toolbar-row .fox-analysis-toolbar { margin: 0; }
+.fox-device-new-toolbar-row > .card { margin: 0; }
+.fox-device-new-charts-col > .card { margin: 0; }
 .fox-device-new-sidebar {
   position: sticky; top: 12px;
   border: 1px solid var(--divider-color); border-radius: 12px;
@@ -8188,7 +8183,7 @@ const STYLES = `
   box-shadow: var(--ha-card-box-shadow, 0 1px 2px rgba(0,0,0,0.08));
   min-width: 0;
 }
-.fox-device-new-charts-slot .fox-device-new-card.card { margin: 0; }
+.fox-device-new-charts-col .fox-device-new-card.card { margin: 0; }
 .fox-device-new-card + .fox-device-new-card { margin-top: 0; }
 .fox-device-new-card-head {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
@@ -8223,13 +8218,6 @@ const STYLES = `
 }
 @media (max-width: 980px) {
   .fox-device-new-layout { grid-template-columns: 1fr; }
-  .fox-device-new-layout--analysis {
-    grid-template-areas:
-      "sidebar"
-      "summary"
-      "toolbar"
-      "charts";
-  }
   .fox-device-new-sidebar { position: static; }
   .fox-device-new-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .fox-device-new-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -12065,11 +12053,13 @@ ${this._renderPvConfiguration({
     const sidebar = renderDeviceNewSidebar(this._hass, plant, this._plantState);
     if (this._deviceNewSub === "analysis") {
       return `<div data-device-new-main="1" data-plant-id="${esc(plant.entry_id)}">
-<div class="fox-device-new-layout fox-device-new-layout--analysis">
+<div class="fox-device-new-layout">
 ${sidebar}
-<div class="fox-device-new-summary-slot" data-device-new-summary="1">${summary}</div>
-<div class="fox-device-new-toolbar-slot">${this._renderDeviceNewChartToolbar()}</div>
-<div class="fox-device-new-charts-slot">${this._renderDeviceNewAnalysisCharts()}</div>
+<div class="fox-device-new-main-col">
+<div class="fox-device-new-summary-row" data-device-new-summary="1">${summary}</div>
+<div class="fox-device-new-toolbar-row">${this._renderDeviceNewChartToolbar()}</div>
+<div class="fox-device-new-charts-col">${this._renderDeviceNewAnalysisCharts()}</div>
+</div>
 </div>
 </div>`;
     }
@@ -12092,6 +12082,9 @@ ${body}
     if (!root) return false;
     const plant = this._getPlant();
     if (!plant || root.dataset.plantId !== plant.entry_id) return false;
+    if (this._deviceNewSub === "analysis" && !root.querySelector(".fox-device-new-main-col")) {
+      return false;
+    }
     const summary = root.querySelector("[data-device-new-summary]");
     if (summary) {
       summary.innerHTML = renderDeviceNewSummaryCards(this._hass, plant, this._plantState);
