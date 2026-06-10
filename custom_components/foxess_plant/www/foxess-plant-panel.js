@@ -248,7 +248,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.177";
+const PANEL_VERSION = "0.9.178";
 /** Max wait for recorder/history websocket round-trips (prevents infinite loading spinners). */
 const HA_WS_TIMEOUT_MS = 90000;
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
@@ -4326,6 +4326,17 @@ function deviceNewCurveDayOffset(period, offset = 0, now = new Date()) {
   let target = today.getTime() <= bounds.end.getTime() ? today : startOfLocalDay(bounds.end);
   if (target.getTime() < bounds.start.getTime()) target = startOfLocalDay(bounds.start);
   return Math.max(0, Math.round((today.getTime() - target.getTime()) / 86400000));
+}
+
+/** Energy bar chart period: Day tab navigates days but shows the containing Mon–Sun week. */
+function deviceNewEnergyPeriodAndOffset(period, offset = 0, now = new Date()) {
+  const o = Math.max(0, Number(offset) || 0);
+  if (period !== "day") return { period, offset: o };
+  const { start: selectedDay } = energyPeriodBounds("day", o, now);
+  const selectedWeekStart = startOfWeekMonday(selectedDay);
+  const currentWeekStart = startOfWeekMonday(now);
+  const weekOffset = Math.round((currentWeekStart.getTime() - selectedWeekStart.getTime()) / (7 * 86400000));
+  return { period: "week", offset: Math.max(0, weekOffset) };
 }
 
 function energyBreakdownTitle(period, offset = 0, now = new Date()) {
@@ -11540,7 +11551,11 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
   }
 
   _deviceNewEnergyChartCacheKey(plant) {
-    return `${this._deviceNewChartsCacheKey(plant)}:energy`;
+    const { period, offset } = deviceNewEnergyPeriodAndOffset(
+      this._deviceNewPeriod,
+      this._deviceNewPeriodOffset
+    );
+    return `${plant.entry_id}:device-new:energy:${period}:${offset}`;
   }
 
   _invalidateDeviceNewCharts() {
@@ -11609,12 +11624,16 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     this._deviceNewEnergyChartLoading = true;
     this._scheduleRender();
     try {
+      const energyPeriod = deviceNewEnergyPeriodAndOffset(
+        this._deviceNewPeriod,
+        this._deviceNewPeriodOffset
+      );
       const bar = await fetchFoxMirroredBarChart(
         this._hass,
         plant,
         this._plantState,
-        this._deviceNewPeriod,
-        this._deviceNewPeriodOffset
+        energyPeriod.period,
+        energyPeriod.offset
       );
       if (gen !== this._deviceNewChartsGen || this._view !== "device_new") return;
       if (this._deviceNewEnergyChartCacheKey(this._getPlant()) !== cacheKey) return;
