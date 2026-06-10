@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.186
+ * @version 0.9.187
  */
 
 const NAV = [
@@ -248,7 +248,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.186";
+const PANEL_VERSION = "0.9.187";
 /** Extra .main max-width on Devices (new) ≈ sidebar column (280px) + layout gap (16px). */
 const DEVICE_NEW_MAIN_WIDTH_EXTRA_PX = 296;
 /** Max wait for recorder/history websocket round-trips (prevents infinite loading spinners). */
@@ -7479,7 +7479,7 @@ const STYLES = `
   gap: 10px 16px; margin-bottom: 14px; padding: 12px 16px;
 }
 .fox-analysis-toolbar .energy-period-tabs { margin-bottom: 0; flex: 1 1 280px; }
-.fox-analysis-toolbar .energy-date-nav { margin-bottom: 0; flex: 0 0 auto; }
+.fox-analysis-toolbar .energy-date-nav { margin: 0; flex: 0 0 auto; }
 .fox-analysis-panels-row {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px; margin-bottom: 14px; align-items: stretch;
@@ -8163,12 +8163,20 @@ const STYLES = `
   background: var(--fox-metric-label-bg, color-mix(in srgb, var(--divider-color) 22%, var(--card-background-color));
   color: var(--secondary-text-color); font-weight: 500;
 }
-.fox-device-new-chart-toolbar { margin-bottom: 14px; }
+.fox-device-new-chart-toolbar { margin-bottom: 0; }
+.fox-device-new-analysis {
+  display: flex; flex-direction: column; gap: 14px;
+  min-width: 0; width: 100%;
+}
+.fox-device-new-analysis > .card { margin-bottom: 0; }
 .fox-device-new-card {
   border: 1px solid var(--divider-color); border-radius: 14px;
   background: var(--card-background-color); padding: 16px;
+  box-shadow: var(--ha-card-box-shadow, 0 1px 2px rgba(0,0,0,0.08));
+  min-width: 0;
 }
-.fox-device-new-card + .fox-device-new-card { margin-top: 14px; }
+.fox-device-new-analysis .fox-device-new-card.card { margin-bottom: 0; }
+.fox-device-new-card + .fox-device-new-card { margin-top: 0; }
 .fox-device-new-card-head {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
   gap: 10px 16px; margin-bottom: 12px;
@@ -11967,18 +11975,18 @@ ${this._renderDeviceNewChartDateNav()}
   _renderDeviceNewAnalysis(plant) {
     return `<div class="fox-device-new-analysis">
 ${this._renderDeviceNewChartToolbar()}
-<section class="fox-device-new-card">
+<div class="card fox-device-new-card">
 <div class="fox-device-new-card-head">
 <h3 class="fox-device-new-card-title">Real-time curve</h3>
 </div>
 <div data-device-new-curve="1">${this._renderDeviceNewCurveBody()}</div>
-</section>
-<section class="fox-device-new-card">
+</div>
+<div class="card fox-device-new-card">
 <div class="fox-device-new-card-head">
 <h3 class="fox-device-new-card-title">Energy analysis</h3>
 </div>
 <div data-device-new-energy-chart="1">${this._renderDeviceNewEnergyBody()}</div>
-</section>
+</div>
 </div>`;
   }
 
