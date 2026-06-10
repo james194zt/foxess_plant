@@ -10,12 +10,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "custom_components/foxess_plant/www/fox-device-icons.json"
 
-# Device page card icons (Fox Cloud v2 deviceDetails — matches icon-phot/battery/discharge/minSoc.svg modules)
+# Device summary cards use icon-d-battery1..4 (40×40 circle badges) in Fox Cloud device view.
 ICON_CANDIDATES = {
-    "pv_power": ["icon-icon-phot"],
-    "battery_soc": ["icon-icon-battery"],
-    "discharging": ["icon-icon-discharge"],
-    "temperature": ["icon-minSoc"],
+    "pv_power": ["icon-d-battery1"],
+    "battery_soc": ["icon-d-battery2"],
+    "discharging": ["icon-d-battery3"],
+    "temperature": ["icon-d-battery4"],
 }
 
 
@@ -67,10 +67,10 @@ def main() -> None:
                 break
         if not svg:
             patterns = {
-                "pv_power": r"phot|pv",
-                "battery_soc": r"battery",
-                "discharging": r"icon-icon-discharge",
-                "temperature": r"minSoc",
+                "pv_power": r"icon-d-battery1",
+                "battery_soc": r"icon-d-battery2",
+                "discharging": r"icon-d-battery3",
+                "temperature": r"icon-d-battery4",
             }
             pat = patterns[key]
             for cid in all_ids:
