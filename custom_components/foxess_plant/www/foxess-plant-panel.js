@@ -248,7 +248,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.178";
+const PANEL_VERSION = "0.9.179";
 /** Max wait for recorder/history websocket round-trips (prevents infinite loading spinners). */
 const HA_WS_TIMEOUT_MS = 90000;
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
@@ -11576,6 +11576,62 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     void this._loadDeviceNewEnergyChart();
   }
 
+  _deviceNewAnalysisChartsStale() {
+    if (this._view !== "device_new" || this._deviceNewSub !== "analysis") return false;
+    const plant = this._getPlant();
+    if (!plant) return false;
+    const curveKey = this._deviceNewCurveChartCacheKey(plant);
+    const energyKey = this._deviceNewEnergyChartCacheKey(plant);
+    const curveSlot = this._root?.querySelector?.("[data-device-new-curve]");
+    const energySlot = this._root?.querySelector?.("[data-device-new-energy-chart]");
+    const curveDomLoading = Boolean(curveSlot?.querySelector?.(".chart-loading"));
+    const energyDomLoading = Boolean(energySlot?.querySelector?.(".chart-loading"));
+    const curveReady =
+      !this._deviceNewStatisticsChartLoading &&
+      this._deviceNewStatisticsChartPlantId === curveKey &&
+      Boolean(this._deviceNewStatisticsChart);
+    const energyReady =
+      !this._deviceNewEnergyChartLoading &&
+      this._deviceNewEnergyChartPlantId === energyKey &&
+      Boolean(this._deviceNewEnergyChart);
+    return (curveDomLoading && curveReady) || (energyDomLoading && energyReady);
+  }
+
+  _patchDeviceNewAnalysisChartsIfNeeded() {
+    if (this._view !== "device_new" || this._deviceNewSub !== "analysis") return false;
+    const plant = this._getPlant();
+    if (!plant) return false;
+    const curveKey = this._deviceNewCurveChartCacheKey(plant);
+    const energyKey = this._deviceNewEnergyChartCacheKey(plant);
+    let patched = false;
+    const curveSlot = this._root.querySelector("[data-device-new-curve]");
+    if (
+      curveSlot &&
+      !this._deviceNewStatisticsChartLoading &&
+      this._deviceNewStatisticsChartPlantId === curveKey &&
+      this._deviceNewStatisticsChart &&
+      curveSlot.querySelector(".chart-loading")
+    ) {
+      curveSlot.innerHTML = this._renderDeviceNewCurveBody();
+      patched = true;
+      if (this._deviceNewStatisticsChart?.series?.length && this._deviceNewStatisticsChart?.range) {
+        this._bindDeviceNewCharts();
+      }
+    }
+    const energySlot = this._root.querySelector("[data-device-new-energy-chart]");
+    if (
+      energySlot &&
+      !this._deviceNewEnergyChartLoading &&
+      this._deviceNewEnergyChartPlantId === energyKey &&
+      this._deviceNewEnergyChart &&
+      energySlot.querySelector(".chart-loading")
+    ) {
+      energySlot.innerHTML = this._renderDeviceNewEnergyBody();
+      patched = true;
+    }
+    return patched;
+  }
+
   async _loadDeviceNewCurveChart() {
     const plant = this._getPlant();
     if (!plant || !this._hass || this._view !== "device_new") return;
@@ -11607,7 +11663,8 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
       if (gen === this._deviceNewChartsGen) {
         this._deviceNewStatisticsChartLoading = false;
         if (this._view === "device_new" && this._getPlant()?.entry_id === plant.entry_id) {
-          this._scheduleRender();
+          this._patchDeviceNewAnalysisChartsIfNeeded();
+          this._scheduleRender(true);
         }
       }
     }
@@ -11653,7 +11710,8 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
       if (gen === this._deviceNewChartsGen) {
         this._deviceNewEnergyChartLoading = false;
         if (this._view === "device_new" && this._getPlant()?.entry_id === plant.entry_id) {
-          this._scheduleRender();
+          this._patchDeviceNewAnalysisChartsIfNeeded();
+          this._scheduleRender(true);
         }
       }
     }
@@ -11821,6 +11879,7 @@ ${body}
 
   _patchDeviceNewLiveIfNeeded() {
     if (this._view !== "device_new" || !this._hass) return false;
+    if (this._deviceNewAnalysisChartsStale()) return false;
     const root = this._root.querySelector("[data-device-new-main]");
     if (!root) return false;
     const plant = this._getPlant();
@@ -11828,6 +11887,9 @@ ${body}
     const summary = root.querySelector("[data-device-new-summary]");
     if (summary) {
       summary.innerHTML = renderDeviceNewSummaryCards(this._hass, plant, this._plantState);
+    }
+    if (this._deviceNewSub === "analysis") {
+      this._patchDeviceNewAnalysisChartsIfNeeded();
     }
     return true;
   }
