@@ -227,7 +227,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.166";
+const PANEL_VERSION = "0.9.167";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -3529,7 +3529,15 @@ const DEVICE_ENTITY_FALLBACKS = {
   bms_kwh_nominal: ["bms_kwh_nominal", "bms_capacity", "battery_capacity", "bms_kwh_remaining_1"],
   bms_design_energy_wh: ["bms_design_energy_wh", "bms_kwh_nominal", "bms_kwh_remaining_1"],
   bms_ah_fcc: ["bms_ah_fcc"],
+  bms_ah_nominal: ["bms_ah_nominal"],
   battery_ah_remaining: ["battery_ah_remaining", "bms_ah_remaining", "battery_remaining_capacity"],
+  bms_self_discharge_rate: ["bms_self_discharge_rate"],
+  bms_remaining_power_capacity: ["bms_remaining_power_capacity"],
+  bms_round_trip_efficiency_remaining: ["bms_round_trip_efficiency_remaining"],
+  bms_ohmic_resistance: ["bms_ohmic_resistance"],
+  bms_deep_discharge_event_count: ["bms_deep_discharge_event_count"],
+  bms_extreme_temp_hours: ["bms_extreme_temp_hours"],
+  bms_extreme_temp_charge_hours: ["bms_extreme_temp_charge_hours"],
   bms_charge_capacity_throughput_ah: ["bms_charge_capacity_throughput_ah"],
   bms_discharge_capacity_throughput_ah: ["bms_discharge_capacity_throughput_ah"],
   datalogger_signal: ["signal_strength", "wifi_signal", "bms_signal_strength"],
@@ -3681,10 +3689,10 @@ const DEVICE_NEW_REALTIME_SECTIONS = [
         rows: [
           ["battery_soh", "SOH"],
           ["battery_ah_remaining", "Remaining Capacity"],
-          [null, "Evolution of self-discharging rates"],
-          [null, "Remaining Power Capacity"],
-          [null, "Remaining Round trip efficiency"],
-          [null, "Ohmic resistance"],
+          ["bms_self_discharge_rate", "Evolution of self-discharging rates"],
+          ["bms_remaining_power_capacity", "Remaining Power Capacity"],
+          ["bms_round_trip_efficiency_remaining", "Remaining Round trip efficiency"],
+          ["bms_ohmic_resistance", "Ohmic resistance"],
         ],
       },
       {
@@ -3704,9 +3712,9 @@ const DEVICE_NEW_REALTIME_SECTIONS = [
       {
         title: "Tracking of harmful events",
         rows: [
-          [null, "Number of deep discharge event"],
-          [null, "Time spent in extreme temp"],
-          [null, "Time spent charging in extreme temp"],
+          ["bms_deep_discharge_event_count", "Number of deep discharge event"],
+          ["bms_extreme_temp_hours", "Time spent in extreme temp"],
+          ["bms_extreme_temp_charge_hours", "Time spent charging in extreme temp"],
         ],
       },
     ],
