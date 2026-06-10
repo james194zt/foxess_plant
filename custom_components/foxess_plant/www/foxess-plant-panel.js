@@ -227,7 +227,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.165";
+const PANEL_VERSION = "0.9.166";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -3530,6 +3530,8 @@ const DEVICE_ENTITY_FALLBACKS = {
   bms_design_energy_wh: ["bms_design_energy_wh", "bms_kwh_nominal", "bms_kwh_remaining_1"],
   bms_ah_fcc: ["bms_ah_fcc"],
   battery_ah_remaining: ["battery_ah_remaining", "bms_ah_remaining", "battery_remaining_capacity"],
+  bms_charge_capacity_throughput_ah: ["bms_charge_capacity_throughput_ah"],
+  bms_discharge_capacity_throughput_ah: ["bms_discharge_capacity_throughput_ah"],
   datalogger_signal: ["signal_strength", "wifi_signal", "bms_signal_strength"],
   batvolt_1: ["batvolt_1", "invbatvolt_1"],
   bat_current_1: ["bat_current_1", "invbatcurrent_1"],
@@ -3694,8 +3696,8 @@ const DEVICE_NEW_REALTIME_SECTIONS = [
         rows: [
           ["battery_charge_total", "Charge Energy throughput"],
           ["battery_discharge_total", "Discharge Energy throughput"],
-          [null, "Charge Capacity throughput"],
-          [null, "Discharge Capacity throughput"],
+          ["bms_charge_capacity_throughput_ah", "Charge Capacity throughput"],
+          ["bms_discharge_capacity_throughput_ah", "Discharge Capacity throughput"],
           ["battery_cycles", "Number of full equivalent charge-discharge cycles"],
         ],
       },

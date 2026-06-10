@@ -138,6 +138,8 @@ PANEL_ENTITY_SUFFIXES: dict[str, tuple[str, ...]] = {
     "bms_design_energy_wh": ("bms_design_energy_wh", "bms_kwh_nominal", "bms_kwh_remaining_1"),
     "bms_ah_fcc": ("bms_ah_fcc",),
     "battery_ah_remaining": ("battery_ah_remaining", "bms_ah_remaining"),
+    "bms_charge_capacity_throughput_ah": ("bms_charge_capacity_throughput_ah",),
+    "bms_discharge_capacity_throughput_ah": ("bms_discharge_capacity_throughput_ah",),
     "datalogger_signal": ("signal_strength", "wifi_signal"),
     "batvolt_1": ("batvolt_1", "invbatvolt_1"),
     "bat_current_1": ("bat_current_1", "invbatcurrent_1"),
