@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.189
+ * @version 0.9.190
  */
 
 const NAV = [
@@ -248,7 +248,14 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.189";
+const PANEL_VERSION = "0.9.190";
+/** Bump when Devices (new) Analysis DOM/CSS layout changes (forces full re-render). */
+const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "4";
+const DEVICE_NEW_LAYOUT_MAIN_COL_STYLE =
+  "display:flex;flex-direction:column;gap:0;min-width:0;width:100%;margin:0;padding:0";
+const DEVICE_NEW_LAYOUT_GRID_STYLE =
+  "display:grid;grid-template-columns:minmax(220px,280px) minmax(0,1fr);gap:16px;align-items:start;margin:0;padding:0";
+const DEVICE_NEW_LAYOUT_GAP_STYLE = "height:16px;min-height:16px;flex-shrink:0;margin:0;padding:0;border:0";
 /** Extra .main max-width on Devices (new) ≈ sidebar column (280px) + layout gap (16px). */
 const DEVICE_NEW_MAIN_WIDTH_EXTRA_PX = 296;
 /** Max wait for recorder/history websocket round-trips (prevents infinite loading spinners). */
@@ -2617,7 +2624,7 @@ function renderDeviceNewSidebar(hass, plant, plantState) {
   const body = rows.length
     ? `<dl class="fox-device-new-sidebar-list">${rows.map(renderDeviceNewSidebarRow).join("")}</dl>`
     : `<p class="placeholder">No device identity available yet.</p>`;
-  return `<aside class="fox-device-new-sidebar">
+  return `<aside class="fox-device-new-sidebar" style="margin:0;align-self:start">
 <div class="fox-device-new-sidebar-hero">
 <img class="fox-device-new-sidebar-img" src="${esc(DEVICE_EVO_IMAGE_STATIC)}" alt="" loading="lazy" />
 ${serialHero}
@@ -8046,8 +8053,13 @@ const STYLES = `
 .fox-device-new-toolbar-row .fox-analysis-toolbar { margin: 0; }
 .fox-device-new-toolbar-row > .card { margin: 0; }
 .fox-device-new-charts-col > .card { margin: 0; }
+.fox-device-new-stack-gap {
+  height: 16px; min-height: 16px; flex-shrink: 0;
+  margin: 0; padding: 0; border: 0; pointer-events: none;
+}
 .fox-device-new-sidebar {
   position: sticky; top: 12px;
+  margin: 0; align-self: start;
   border: 1px solid var(--divider-color); border-radius: 12px;
   background: var(--card-background-color); padding: 10px 12px 12px;
 }
@@ -12052,13 +12064,14 @@ ${this._renderPvConfiguration({
     const summary = renderDeviceNewSummaryCards(this._hass, plant, this._plantState);
     const sidebar = renderDeviceNewSidebar(this._hass, plant, this._plantState);
     if (this._deviceNewSub === "analysis") {
-      return `<div data-device-new-main="1" data-plant-id="${esc(plant.entry_id)}">
-<div class="fox-device-new-layout">
+      return `<div data-device-new-main="1" data-device-new-layout-ver="${DEVICE_NEW_ANALYSIS_LAYOUT_VER}" data-plant-id="${esc(plant.entry_id)}">
+<div class="fox-device-new-layout" style="${DEVICE_NEW_LAYOUT_GRID_STYLE}">
 ${sidebar}
-<div class="fox-device-new-main-col">
-<div class="fox-device-new-summary-row" data-device-new-summary="1">${summary}</div>
-<div class="fox-device-new-toolbar-row">${this._renderDeviceNewChartToolbar()}</div>
-<div class="fox-device-new-charts-col">${this._renderDeviceNewAnalysisCharts()}</div>
+<div class="fox-device-new-main-col" style="${DEVICE_NEW_LAYOUT_MAIN_COL_STYLE}">
+<div class="fox-device-new-summary-row" data-device-new-summary="1" style="margin:0;padding:0">${summary}</div>
+<div class="fox-device-new-stack-gap" style="${DEVICE_NEW_LAYOUT_GAP_STYLE}" aria-hidden="true"></div>
+<div class="fox-device-new-toolbar-row" style="margin:0;padding:0">${this._renderDeviceNewChartToolbar()}</div>
+<div class="fox-device-new-charts-col" style="display:flex;flex-direction:column;gap:14px;min-width:0;width:100%;margin:14px 0 0;padding:0">${this._renderDeviceNewAnalysisCharts()}</div>
 </div>
 </div>
 </div>`;
@@ -12077,20 +12090,15 @@ ${body}
 
   _patchDeviceNewLiveIfNeeded() {
     if (this._view !== "device_new" || !this._hass) return false;
+    if (this._deviceNewSub === "analysis") return false;
     if (this._deviceNewAnalysisChartsStale()) return false;
     const root = this._root.querySelector("[data-device-new-main]");
     if (!root) return false;
     const plant = this._getPlant();
     if (!plant || root.dataset.plantId !== plant.entry_id) return false;
-    if (this._deviceNewSub === "analysis" && !root.querySelector(".fox-device-new-main-col")) {
-      return false;
-    }
     const summary = root.querySelector("[data-device-new-summary]");
     if (summary) {
       summary.innerHTML = renderDeviceNewSummaryCards(this._hass, plant, this._plantState);
-    }
-    if (this._deviceNewSub === "analysis") {
-      this._patchDeviceNewAnalysisChartsIfNeeded();
     }
     return true;
   }
