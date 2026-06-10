@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.169
+ * @version 0.9.171
  */
 
 const NAV = [
@@ -17,17 +17,38 @@ const DEVICE_NEW_NAV = [
   { id: "realtime", label: "Real-time" },
 ];
 
-const DEVICE_NEW_ENERGY_PERIOD_TABS = [
-  { id: "week", label: "Week" },
-  { id: "month", label: "Month" },
-  { id: "year", label: "Year" },
-  { id: "total", label: "Total" },
-];
-
 /** Fox Cloud device Analysis real-time curve series. */
 // FOX_DEVICE_SUMMARY_ICONS_START
-const FOX_DEVICE_SUMMARY_ICONS = {"pv_power": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 40 40\" fill=\"none\" id=\"icon-d-battery1\">\n<g id=\"icon-d-battery1_Frame 1739332876\">\n<circle id=\"icon-d-battery1_Ellipse 3833\" cx=\"19.9967\" cy=\"19.9967\" r=\"16.6667\" fill=\"#894BFC\" fill-opacity=\"0.1\" />\n<g id=\"icon-d-battery1_Rectangle 34625968\">\n<mask id=\"icon-d-battery1_path-2-inside-1_278_10283\" fill=\"white\">\n<rect x=\"15.1123\" y=\"13.1847\" width=\"9.76953\" height=\"14.5304\" rx=\"1\" />\n</mask>\n<rect x=\"15.1123\" y=\"13.1847\" width=\"9.76953\" height=\"14.5304\" rx=\"1\" stroke=\"#894BFC\" stroke-width=\"2.2\" mask=\"url(#icon-d-battery1_path-2-inside-1_278_10283)\" />\n</g>\n<path id=\"icon-d-battery1_Rectangle 34625969\" d=\"M18.1475 12.6784C18.1475 12.4575 18.3265 12.2784 18.5475 12.2784H21.4486C21.6695 12.2784 21.8486 12.4575 21.8486 12.6784V13.3163H18.1475V12.6784Z\" fill=\"#894BFC\" />\n<rect id=\"icon-d-battery1_Rectangle 34625973\" x=\"16.9961\" y=\"23.9239\" width=\"6\" height=\"1.76709\" rx=\"0.2\" fill=\"#894BFC\" />\n<rect id=\"icon-d-battery1_Rectangle 34625974\" x=\"16.9961\" y=\"21.3531\" width=\"6\" height=\"1.76709\" rx=\"0.2\" fill=\"#894BFC\" />\n</g>\n</svg>", "battery_soc": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 40 40\" fill=\"none\" id=\"icon-d-battery2\">\n<g id=\"icon-d-battery2_Frame 1739332877\">\n<circle id=\"icon-d-battery2_Ellipse 3833\" cx=\"19.9997\" cy=\"19.9987\" r=\"16.6667\" fill=\"#D9F7BE\" />\n<path id=\"icon-d-battery2_Vector 1662\" d=\"M14.0558 20.3907L21.9124 12.165C22.0395 12.032 22.2627 12.1393 22.2381 12.3217L21.3216 19.1138C21.3062 19.2278 21.3948 19.3292 21.5099 19.3292L25.7831 19.3292C25.9537 19.3292 26.0379 19.5367 25.9154 19.6555L17.4973 27.828C17.3629 27.9584 17.1407 27.8363 17.1789 27.6529L18.5773 20.9407C18.6019 20.8227 18.5119 20.7119 18.3913 20.7119H14.1932C14.0261 20.7119 13.9404 20.5116 14.0558 20.3907Z\" stroke=\"#52C41A\" stroke-width=\"1.045\" />\n<path id=\"icon-d-battery2_Vector 1663\" d=\"M19.7575 16.8945L17.9814 18.9603\" stroke=\"#52C41A\" stroke-width=\"0.76\" stroke-linecap=\"round\" />\n</g>\n</svg>", "discharging": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 41 40\" fill=\"none\" id=\"icon-d-battery3\">\n<circle cx=\"20.4997\" cy=\"19.9987\" r=\"16.6667\" fill=\"#D9F7BE\" />\n<path d=\"M18.5741 15.2578H19.7591C20.1542 15.2578 20.3518 15.4554 20.3518 15.8505C20.3518 16.2456 20.1542 16.4431 19.7591 16.4431H18.5741C18.179 16.4431 17.9814 16.2456 17.9814 15.8505C17.9814 15.4554 18.179 15.2578 18.5741 15.2578Z\" fill=\"#52C41A\" />\n<path d=\"M18.5741 17.9258H19.7591C20.1542 17.9258 20.3518 18.1233 20.3518 18.5184C20.3518 18.9136 20.1542 19.1111 19.7591 19.1111H18.5741C18.179 19.1111 17.9814 18.9136 17.9814 18.5184C17.9814 18.1233 18.179 17.9258 18.5741 17.9258Z\" fill=\"#52C41A\" />\n<path d=\"M20.413 11.3334C19.6621 11.3559 18.9496 11.67 18.4264 12.2091C17.9033 12.7482 17.6107 13.4698 17.6107 14.221V20.3334L17.527 20.401C16.9967 20.8386 16.5698 21.3881 16.2769 22.0101C15.9841 22.6321 15.8325 23.3112 15.833 23.9987C15.833 26.576 17.9223 28.6654 20.4997 28.6654C23.077 28.6654 25.1663 26.576 25.1663 23.9987L25.1647 23.8777C25.1479 23.2108 24.9882 22.5553 24.6962 21.9555C24.4042 21.3557 23.9869 20.8256 23.4723 20.401L23.3883 20.3334V14.221C23.3883 13.4549 23.084 12.7201 22.5423 12.1783C22.0006 11.6365 21.2658 11.3321 20.4997 11.332L20.413 11.3334ZM20.4997 12.6654C20.704 12.6654 20.9063 12.7056 21.095 12.7838C21.2837 12.862 21.4552 12.9766 21.5997 13.121C21.7442 13.2655 21.8587 13.437 21.9369 13.6257C22.0151 13.8144 22.0553 14.0167 22.0553 14.221V20.672C22.0553 20.7816 22.0823 20.8894 22.1339 20.986C22.1854 21.0826 22.26 21.1651 22.351 21.226C22.8073 21.5303 23.1814 21.9427 23.4399 22.4264C23.6985 22.9101 23.8335 23.4502 23.833 23.9987C23.833 25.8397 22.3407 27.332 20.4997 27.332C18.6587 27.332 17.1663 25.8397 17.1663 23.9987C17.1663 22.872 17.729 21.842 18.6483 21.2264C18.7393 21.1654 18.8139 21.083 18.8655 20.9864C18.9171 20.8897 18.944 20.7819 18.944 20.6724V14.221C18.944 14.0167 18.9842 13.8144 19.0624 13.6257C19.1406 13.437 19.2552 13.2655 19.3997 13.121C19.5441 12.9766 19.7156 12.862 19.9043 12.7838C20.0931 12.7056 20.2954 12.6654 20.4997 12.6654Z\" fill=\"#52C41A\" />\n<path d=\"M18.8337 23C18.9216 23 19.0087 23.0174 19.0899 23.0512C19.1712 23.085 19.2449 23.1346 19.3068 23.197C19.3688 23.2595 19.4178 23.3335 19.451 23.415C19.4842 23.4965 19.501 23.5837 19.5003 23.6717L19.502 23.7317C19.5187 24.054 19.6584 24.3576 19.8925 24.5798C20.1265 24.8021 20.4369 24.926 20.7597 24.926V26.2593L20.6773 26.258C20.0043 26.2366 19.366 25.9542 18.8975 25.4706C18.429 24.987 18.167 24.34 18.167 23.6667L18.1687 23.6167C18.1813 23.4489 18.2568 23.2922 18.3801 23.1778C18.5035 23.0635 18.6655 22.9999 18.8337 23Z\" fill=\"#52C41A\" />\n</svg>", "temperature": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 40 40\" fill=\"none\" id=\"icon-d-battery4\">\n<g id=\"icon-d-battery4_Frame 1321317006\">\n<circle id=\"icon-d-battery4_Ellipse 3833\" cx=\"19.9967\" cy=\"19.9948\" r=\"16.6667\" fill=\"#699BFF\" fill-opacity=\"0.1\" />\n<rect id=\"icon-d-battery4_Rectangle 34625970\" x=\"23.4297\" y=\"22.2656\" width=\"5.96902\" height=\"1.1\" rx=\"0.55\" fill=\"#699BFF\" />\n<rect id=\"icon-d-battery4_Rectangle 34625971\" x=\"22.0918\" y=\"24.4102\" width=\"7.30739\" height=\"1.1\" rx=\"0.55\" fill=\"#699BFF\" />\n<rect id=\"icon-d-battery4_Rectangle 34625972\" x=\"20.2891\" y=\"26.8477\" width=\"9.10883\" height=\"1.1\" rx=\"0.55\" fill=\"#699BFF\" />\n<path id=\"icon-d-battery4_Vector\" d=\"M22.3981 19.087H20.816C20.6734 19.087 20.5645 18.9583 20.5877 18.8181L21.151 15.3676C21.1881 15.1416 20.9087 15.0048 20.7523 15.1717L16.7698 19.4335C16.6318 19.5819 16.7361 19.8241 16.939 19.8241H18.5211C18.6636 19.8241 18.7726 19.9528 18.7494 20.093L18.1861 23.5435C18.149 23.7696 18.4284 23.9063 18.5848 23.7394L22.5673 19.4776C22.7064 19.3292 22.6009 19.087 22.3981 19.087Z\" fill=\"#699BFF\" />\n<path id=\"icon-d-battery4_Ellipse 3837\" d=\"M28.7434 19.9967C28.7434 14.9848 24.6805 10.9219 19.6686 10.9219C14.6567 10.9219 10.5938 14.9848 10.5938 19.9967C10.5938 25.0086 14.6567 29.0715 19.6686 29.0715\" stroke=\"#699BFF\" stroke-width=\"1.1\" stroke-linecap=\"round\" />\n</g>\n</svg>"};
+const FOX_DEVICE_SUMMARY_ICONS = {"battery_soc": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 40 40\" fill=\"none\" id=\"icon-d-battery1\">\n<g id=\"icon-d-battery1_Frame 1739332876\">\n<circle id=\"icon-d-battery1_Ellipse 3833\" cx=\"19.9967\" cy=\"19.9967\" r=\"16.6667\" fill=\"#894BFC\" fill-opacity=\"0.1\" />\n<g id=\"icon-d-battery1_Rectangle 34625968\">\n<mask id=\"icon-d-battery1_path-2-inside-1_278_10283\" fill=\"white\">\n<rect x=\"15.1123\" y=\"13.1847\" width=\"9.76953\" height=\"14.5304\" rx=\"1\" />\n</mask>\n<rect x=\"15.1123\" y=\"13.1847\" width=\"9.76953\" height=\"14.5304\" rx=\"1\" stroke=\"#894BFC\" stroke-width=\"2.2\" mask=\"url(#icon-d-battery1_path-2-inside-1_278_10283)\" />\n</g>\n<path id=\"icon-d-battery1_Rectangle 34625969\" d=\"M18.1475 12.6784C18.1475 12.4575 18.3265 12.2784 18.5475 12.2784H21.4486C21.6695 12.2784 21.8486 12.4575 21.8486 12.6784V13.3163H18.1475V12.6784Z\" fill=\"#894BFC\" />\n<rect id=\"icon-d-battery1_Rectangle 34625973\" x=\"16.9961\" y=\"23.9239\" width=\"6\" height=\"1.76709\" rx=\"0.2\" fill=\"#894BFC\" />\n<rect id=\"icon-d-battery1_Rectangle 34625974\" x=\"16.9961\" y=\"21.3531\" width=\"6\" height=\"1.76709\" rx=\"0.2\" fill=\"#894BFC\" />\n</g>\n</svg>", "discharging": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 40 40\" fill=\"none\" id=\"icon-d-battery2\">\n<g id=\"icon-d-battery2_Frame 1739332877\">\n<circle id=\"icon-d-battery2_Ellipse 3833\" cx=\"19.9997\" cy=\"19.9987\" r=\"16.6667\" fill=\"#D9F7BE\" />\n<path id=\"icon-d-battery2_Vector 1662\" d=\"M14.0558 20.3907L21.9124 12.165C22.0395 12.032 22.2627 12.1393 22.2381 12.3217L21.3216 19.1138C21.3062 19.2278 21.3948 19.3292 21.5099 19.3292L25.7831 19.3292C25.9537 19.3292 26.0379 19.5367 25.9154 19.6555L17.4973 27.828C17.3629 27.9584 17.1407 27.8363 17.1789 27.6529L18.5773 20.9407C18.6019 20.8227 18.5119 20.7119 18.3913 20.7119H14.1932C14.0261 20.7119 13.9404 20.5116 14.0558 20.3907Z\" stroke=\"#52C41A\" stroke-width=\"1.045\" />\n<path id=\"icon-d-battery2_Vector 1663\" d=\"M19.7575 16.8945L17.9814 18.9603\" stroke=\"#52C41A\" stroke-width=\"0.76\" stroke-linecap=\"round\" />\n</g>\n</svg>", "temperature": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 41 40\" fill=\"none\" id=\"icon-d-battery3\">\n<circle cx=\"20.4997\" cy=\"19.9987\" r=\"16.6667\" fill=\"#D9F7BE\" />\n<path d=\"M18.5741 15.2578H19.7591C20.1542 15.2578 20.3518 15.4554 20.3518 15.8505C20.3518 16.2456 20.1542 16.4431 19.7591 16.4431H18.5741C18.179 16.4431 17.9814 16.2456 17.9814 15.8505C17.9814 15.4554 18.179 15.2578 18.5741 15.2578Z\" fill=\"#52C41A\" />\n<path d=\"M18.5741 17.9258H19.7591C20.1542 17.9258 20.3518 18.1233 20.3518 18.5184C20.3518 18.9136 20.1542 19.1111 19.7591 19.1111H18.5741C18.179 19.1111 17.9814 18.9136 17.9814 18.5184C17.9814 18.1233 18.179 17.9258 18.5741 17.9258Z\" fill=\"#52C41A\" />\n<path d=\"M20.413 11.3334C19.6621 11.3559 18.9496 11.67 18.4264 12.2091C17.9033 12.7482 17.6107 13.4698 17.6107 14.221V20.3334L17.527 20.401C16.9967 20.8386 16.5698 21.3881 16.2769 22.0101C15.9841 22.6321 15.8325 23.3112 15.833 23.9987C15.833 26.576 17.9223 28.6654 20.4997 28.6654C23.077 28.6654 25.1663 26.576 25.1663 23.9987L25.1647 23.8777C25.1479 23.2108 24.9882 22.5553 24.6962 21.9555C24.4042 21.3557 23.9869 20.8256 23.4723 20.401L23.3883 20.3334V14.221C23.3883 13.4549 23.084 12.7201 22.5423 12.1783C22.0006 11.6365 21.2658 11.3321 20.4997 11.332L20.413 11.3334ZM20.4997 12.6654C20.704 12.6654 20.9063 12.7056 21.095 12.7838C21.2837 12.862 21.4552 12.9766 21.5997 13.121C21.7442 13.2655 21.8587 13.437 21.9369 13.6257C22.0151 13.8144 22.0553 14.0167 22.0553 14.221V20.672C22.0553 20.7816 22.0823 20.8894 22.1339 20.986C22.1854 21.0826 22.26 21.1651 22.351 21.226C22.8073 21.5303 23.1814 21.9427 23.4399 22.4264C23.6985 22.9101 23.8335 23.4502 23.833 23.9987C23.833 25.8397 22.3407 27.332 20.4997 27.332C18.6587 27.332 17.1663 25.8397 17.1663 23.9987C17.1663 22.872 17.729 21.842 18.6483 21.2264C18.7393 21.1654 18.8139 21.083 18.8655 20.9864C18.9171 20.8897 18.944 20.7819 18.944 20.6724V14.221C18.944 14.0167 18.9842 13.8144 19.0624 13.6257C19.1406 13.437 19.2552 13.2655 19.3997 13.121C19.5441 12.9766 19.7156 12.862 19.9043 12.7838C20.0931 12.7056 20.2954 12.6654 20.4997 12.6654Z\" fill=\"#52C41A\" />\n<path d=\"M18.8337 23C18.9216 23 19.0087 23.0174 19.0899 23.0512C19.1712 23.085 19.2449 23.1346 19.3068 23.197C19.3688 23.2595 19.4178 23.3335 19.451 23.415C19.4842 23.4965 19.501 23.5837 19.5003 23.6717L19.502 23.7317C19.5187 24.054 19.6584 24.3576 19.8925 24.5798C20.1265 24.8021 20.4369 24.926 20.7597 24.926V26.2593L20.6773 26.258C20.0043 26.2366 19.366 25.9542 18.8975 25.4706C18.429 24.987 18.167 24.34 18.167 23.6667L18.1687 23.6167C18.1813 23.4489 18.2568 23.2922 18.3801 23.1778C18.5035 23.0635 18.6655 22.9999 18.8337 23Z\" fill=\"#52C41A\" />\n</svg>", "pv_power": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 40 40\" fill=\"none\" id=\"icon-d-battery4\">\n<g id=\"icon-d-battery4_Frame 1321317006\">\n<circle id=\"icon-d-battery4_Ellipse 3833\" cx=\"19.9967\" cy=\"19.9948\" r=\"16.6667\" fill=\"#699BFF\" fill-opacity=\"0.1\" />\n<rect id=\"icon-d-battery4_Rectangle 34625970\" x=\"23.4297\" y=\"22.2656\" width=\"5.96902\" height=\"1.1\" rx=\"0.55\" fill=\"#699BFF\" />\n<rect id=\"icon-d-battery4_Rectangle 34625971\" x=\"22.0918\" y=\"24.4102\" width=\"7.30739\" height=\"1.1\" rx=\"0.55\" fill=\"#699BFF\" />\n<rect id=\"icon-d-battery4_Rectangle 34625972\" x=\"20.2891\" y=\"26.8477\" width=\"9.10883\" height=\"1.1\" rx=\"0.55\" fill=\"#699BFF\" />\n<path id=\"icon-d-battery4_Vector\" d=\"M22.3981 19.087H20.816C20.6734 19.087 20.5645 18.9583 20.5877 18.8181L21.151 15.3676C21.1881 15.1416 20.9087 15.0048 20.7523 15.1717L16.7698 19.4335C16.6318 19.5819 16.7361 19.8241 16.939 19.8241H18.5211C18.6636 19.8241 18.7726 19.9528 18.7494 20.093L18.1861 23.5435C18.149 23.7696 18.4284 23.9063 18.5848 23.7394L22.5673 19.4776C22.7064 19.3292 22.6009 19.087 22.3981 19.087Z\" fill=\"#699BFF\" />\n<path id=\"icon-d-battery4_Ellipse 3837\" d=\"M28.7434 19.9967C28.7434 14.9848 24.6805 10.9219 19.6686 10.9219C14.6567 10.9219 10.5938 14.9848 10.5938 19.9967C10.5938 25.0086 14.6567 29.0715 19.6686 29.0715\" stroke=\"#699BFF\" stroke-width=\"1.1\" stroke-linecap=\"round\" />\n</g>\n</svg>"};
 // FOX_DEVICE_SUMMARY_ICONS_END
+
+/** Fox Cloud device summary card accents (chart palette + icon fills). */
+const DEVICE_SUMMARY_CARD_THEMES = {
+  pv: {
+    accent: "#08979C",
+    accentHi: "#19D4DE",
+    bg: "linear-gradient(180deg, rgba(8,151,156,0.20) 0%, rgba(25,212,222,0.06) 38%, rgba(8,151,156,0.02) 100%)",
+    top: "linear-gradient(90deg, #19D4DE 0%, #08979C 100%)",
+  },
+  soc: {
+    accent: "#894BFC",
+    accentHi: "#B69CFF",
+    bg: "linear-gradient(180deg, rgba(137,75,252,0.18) 0%, rgba(137,75,252,0.05) 40%, rgba(137,75,252,0.02) 100%)",
+    top: "linear-gradient(90deg, #B69CFF 0%, #894BFC 100%)",
+  },
+  discharge: {
+    accent: "#52C41A",
+    accentHi: "#03BD9A",
+    bg: "linear-gradient(180deg, rgba(82,196,26,0.16) 0%, rgba(3,189,154,0.06) 40%, rgba(82,196,26,0.02) 100%)",
+    top: "linear-gradient(90deg, #03BD9A 0%, #52C41A 100%)",
+  },
+  temp: {
+    accent: "#FA8C16",
+    accentHi: "#FFC069",
+    bg: "linear-gradient(180deg, rgba(250,140,22,0.16) 0%, rgba(255,192,105,0.05) 40%, rgba(250,140,22,0.02) 100%)",
+    top: "linear-gradient(90deg, #FFC069 0%, #FA8C16 100%)",
+  },
+};
 
 const DEVICE_REALTIME_CHART_SERIES = [
   {
@@ -227,7 +248,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.169";
+const PANEL_VERSION = "0.9.171";
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -2359,7 +2380,12 @@ function renderDeviceNewSummaryCards(hass, plant, plantState) {
   return `<div class="fox-device-new-summary">${cards
     .map((c) => {
       const icon = foxDeviceSummaryIcon(iconKeys[c.tone]);
-      return `<div class="fox-device-new-summary-card fox-device-new-summary-card--${c.tone}">
+      const theme = DEVICE_SUMMARY_CARD_THEMES[c.tone] || {};
+      const style = theme.accent
+        ? ` style="--fox-summary-accent:${theme.accent};--fox-summary-accent-hi:${theme.accentHi || theme.accent};--fox-summary-bg:${theme.bg};--fox-summary-top:${theme.top};"`
+        : "";
+      return `<div class="fox-device-new-summary-card fox-device-new-summary-card--${c.tone}"${style}>
+<span class="fox-device-new-summary-topline" aria-hidden="true"></span>
 <span class="fox-device-new-summary-label">${esc(c.label)}</span>
 ${icon ? `<span class="fox-device-new-summary-icon" aria-hidden="true">${icon}</span>` : ""}
 <strong class="fox-device-new-summary-value">${esc(c.value)}</strong>
@@ -2547,10 +2573,9 @@ async function fetchDeviceRealtimeChartSeries(hass, plant, plantState, { dayOffs
   const start = new Date(range.tMin);
   const socId = map.battery_soc;
   const entityIds = [...new Set([...specs.map((s) => s.entity_id), socId].filter(Boolean))];
-  const [statsMap, hist] = await Promise.all([
-    fetchStatisticsDuring(hass, entityIds, start, fetchEnd),
-    fetchHistoryDuring(hass, entityIds, start, fetchEnd),
-  ]);
+  const statsMap = await fetchStatisticsDuring(hass, entityIds, start, fetchEnd);
+  const needsHistory = entityIds.some((id) => !statsMap?.[id]?.length);
+  const hist = needsHistory ? await fetchHistoryDuring(hass, entityIds, start, fetchEnd) : {};
   const series = specs.map((spec) => ({
     id: spec.key,
     label: spec.label,
@@ -4207,6 +4232,16 @@ function energyPeriodNavLabel(period, offset = 0, now = new Date()) {
   return "Total";
 }
 
+/** Day offset for device real-time curve from shared period navigation. */
+function deviceNewCurveDayOffset(period, offset = 0, now = new Date()) {
+  if (period === "day") return Math.max(0, Number(offset) || 0);
+  const bounds = energyPeriodBounds(period, offset, now);
+  const today = startOfLocalDay(now);
+  let target = today.getTime() <= bounds.end.getTime() ? today : startOfLocalDay(bounds.end);
+  if (target.getTime() < bounds.start.getTime()) target = startOfLocalDay(bounds.start);
+  return Math.max(0, Math.round((today.getTime() - target.getTime()) / 86400000));
+}
+
 function energyBreakdownTitle(period, offset = 0, now = new Date()) {
   if (period === "day" && offset === 0) return "Today energy breakdown";
   return `Energy breakdown · ${energyPeriodNavLabel(period, offset, now)}`;
@@ -5212,6 +5247,15 @@ async function fetchFoxMirroredBarChart(hass, plant, plantState, period, offset 
   const fetchEnd = end > now ? now : end;
   const { points, error } = await fetchEnergyHistoryPoints(hass, plant, plantState, start, fetchEnd);
   if (!points) return { title: energyPeriodNavLabel(period, offset, now), svg: `<p class="placeholder chart-empty">${esc(error)}</p>` };
+
+  if (period === "day") {
+    const bucket = energyBucketForDay(points, start, now);
+    return {
+      title: energyPeriodNavLabel(period, offset, now),
+      breakdown: computeEnergyBreakdown(points, [start]),
+      svg: renderMirroredEnergyBarChart([bucket], [formatEnergyDateLabel(start)], { labelMode: "weekday" }),
+    };
+  }
 
   if (period === "week") {
     const days = buildFullWeekDays(start);
@@ -7780,13 +7824,16 @@ const STYLES = `
 .fox-device-new-summary-card {
   position: relative; border-radius: 12px; padding: 14px 16px 16px; min-height: 88px;
   display: flex; flex-direction: column; justify-content: flex-end; gap: 8px;
-  border: 1px solid var(--divider-color); border-top-width: 3px;
-  background: var(--card-background-color); overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--fox-summary-accent, var(--divider-color)) 22%, var(--divider-color));
+  background: var(--fox-summary-bg, var(--card-background-color));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--fox-summary-accent-hi, #fff) 12%, transparent);
+  overflow: hidden;
 }
-.fox-device-new-summary-card--pv { border-top-color: #19D4DE; }
-.fox-device-new-summary-card--soc { border-top-color: #894BFC; }
-.fox-device-new-summary-card--discharge { border-top-color: #03BD9A; }
-.fox-device-new-summary-card--temp { border-top-color: #FA8C16; }
+.fox-device-new-summary-topline {
+  position: absolute; left: 0; right: 0; top: 0; height: 3px;
+  background: var(--fox-summary-top, var(--fox-summary-accent, var(--divider-color)));
+  pointer-events: none;
+}
 .fox-device-new-summary-label { font-size: 12px; color: var(--secondary-text-color); font-weight: 500; padding-right: 44px; }
 .fox-device-new-summary-icon {
   position: absolute; top: 10px; right: 10px; width: 40px; height: 40px;
@@ -7810,10 +7857,12 @@ const STYLES = `
 .fox-device-new-metric-value { font-size: 15px; font-weight: 700; color: var(--primary-text-color); line-height: 1.2; word-break: break-word; }
 .fox-device-new-realtime .device-param-table-wrap { margin: 0; }
 .fox-device-new-realtime .device-param-table { width: 100%; border-collapse: collapse; }
+.fox-device-new-chart-toolbar { margin-bottom: 14px; }
 .fox-device-new-card {
   border: 1px solid var(--divider-color); border-radius: 14px;
   background: var(--card-background-color); padding: 16px;
 }
+.fox-device-new-card + .fox-device-new-card { margin-top: 14px; }
 .fox-device-new-card-head {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
   gap: 10px 16px; margin-bottom: 12px;
@@ -8147,9 +8196,9 @@ class FoxessPlantPanel extends HTMLElement {
     this._settingsView = "main";
     this._deviceSub = "main";
     this._deviceNewSub = "analysis";
-    this._deviceNewPeriod = "week";
+    this._deviceNewPeriod = "day";
     this._deviceNewPeriodOffset = 0;
-    this._deviceNewDayOffset = 0;
+    this._deviceNewChartsInflight = undefined;
     this._deviceNewStatisticsChart = null;
     this._deviceNewStatisticsChartLoading = false;
     this._deviceNewStatisticsChartPlantId = undefined;
@@ -9596,13 +9645,12 @@ Reloading panel registration…
       if (!period || period === this._deviceNewPeriod) return;
       this._deviceNewPeriod = period;
       this._deviceNewPeriodOffset = 0;
-      this._deviceNewEnergyChart = null;
-      this._deviceNewEnergyChartPlantId = undefined;
-      void this._loadDeviceNewEnergyChart();
+      this._invalidateDeviceNewCharts();
+      void this._loadDeviceNewCharts();
       this._scheduleRender(true);
       return;
     }
-    if (action === "device-new-energy-nav") {
+    if (action === "device-new-chart-nav") {
       const dir = btn.dataset.dir;
       const bounds = energyPeriodBounds(this._deviceNewPeriod, this._deviceNewPeriodOffset);
       if (dir === "prev") {
@@ -9612,24 +9660,8 @@ Reloading panel registration…
       } else {
         return;
       }
-      this._deviceNewEnergyChart = null;
-      this._deviceNewEnergyChartPlantId = undefined;
-      void this._loadDeviceNewEnergyChart();
-      this._scheduleRender(true);
-      return;
-    }
-    if (action === "device-new-day-nav") {
-      const dir = btn.dataset.dir;
-      if (dir === "prev") {
-        this._deviceNewDayOffset += 1;
-      } else if (dir === "next" && this._deviceNewDayOffset > 0) {
-        this._deviceNewDayOffset -= 1;
-      } else {
-        return;
-      }
-      this._deviceNewStatisticsChart = null;
-      this._deviceNewStatisticsChartPlantId = undefined;
-      void this._loadDeviceNewCurveChart();
+      this._invalidateDeviceNewCharts();
+      void this._loadDeviceNewCharts();
       this._scheduleRender(true);
       return;
     }
@@ -11350,119 +11382,129 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     return `<div class="device-param-sections">${body}</div>${stamp}`;
   }
 
-  _deviceNewChartCacheKey(plant) {
-    return `${plant.entry_id}:device-new:${this._deviceNewDayOffset}`;
+  _deviceNewChartsCacheKey(plant) {
+    return `${plant.entry_id}:device-new:${this._deviceNewPeriod}:${this._deviceNewPeriodOffset}`;
+  }
+
+  _deviceNewCurveChartCacheKey(plant) {
+    const dayOffset = deviceNewCurveDayOffset(this._deviceNewPeriod, this._deviceNewPeriodOffset);
+    return `${this._deviceNewChartsCacheKey(plant)}:curve:${dayOffset}`;
   }
 
   _deviceNewEnergyChartCacheKey(plant) {
-    return `${plant.entry_id}:device-new:${this._deviceNewPeriod}:${this._deviceNewPeriodOffset}`;
+    return `${this._deviceNewChartsCacheKey(plant)}:energy`;
+  }
+
+  _invalidateDeviceNewCharts() {
+    this._deviceNewStatisticsChart = null;
+    this._deviceNewStatisticsChartPlantId = undefined;
+    this._deviceNewEnergyChart = null;
+    this._deviceNewEnergyChartPlantId = undefined;
+    this._deviceNewChartsInflight = undefined;
   }
 
   _loadDeviceNewCharts() {
     if (this._view !== "device_new" || this._deviceNewSub !== "analysis") return;
-    void this._loadDeviceNewCurveChart();
-    void this._loadDeviceNewEnergyChart();
+    void this._loadDeviceNewChartsInner();
   }
 
-  async _loadDeviceNewCurveChart() {
+  async _loadDeviceNewChartsInner() {
     const plant = this._getPlant();
     if (!plant || !this._hass || this._view !== "device_new") return;
-    const cacheKey = this._deviceNewChartCacheKey(plant);
-    if (this._deviceNewStatisticsChartPlantId === cacheKey && this._deviceNewStatisticsChart) return;
-    this._deviceNewStatisticsChartLoading = true;
-    this._deviceNewStatisticsChart = null;
-    this._deviceNewStatisticsChartPlantId = cacheKey;
-    this._scheduleRender();
+    const curveKey = this._deviceNewCurveChartCacheKey(plant);
+    const energyKey = this._deviceNewEnergyChartCacheKey(plant);
+    const curveReady = this._deviceNewStatisticsChartPlantId === curveKey && this._deviceNewStatisticsChart;
+    const energyReady = this._deviceNewEnergyChartPlantId === energyKey && this._deviceNewEnergyChart;
+    if (curveReady && energyReady) return;
+    if (this._deviceNewChartsInflight === curveKey + "|" + energyKey) return;
+    this._deviceNewChartsInflight = curveKey + "|" + energyKey;
+
+    const needCurve = !curveReady;
+    const needEnergy = !energyReady;
+    if (needCurve) this._deviceNewStatisticsChartLoading = true;
+    if (needEnergy) this._deviceNewEnergyChartLoading = true;
+    if (needCurve || needEnergy) this._scheduleRender();
+
     try {
       if (!this._plantState) await this._refreshPlantState();
-      this._deviceNewStatisticsChart = await fetchDeviceRealtimeChartSeries(
-        this._hass,
-        plant,
-        this._plantState,
-        { dayOffset: this._deviceNewDayOffset }
-      );
-    } catch (err) {
-      this._deviceNewStatisticsChart = {
-        error:
-          err?.message ||
-          "Could not load device curve. Enable the Home Assistant recorder for inverter power sensors.",
-      };
-    } finally {
-      this._deviceNewStatisticsChartLoading = false;
-      if (
-        this._getPlant()?.entry_id === plant.entry_id &&
-        this._view === "device_new" &&
-        this._deviceNewChartCacheKey(this._getPlant()) === cacheKey
-      ) {
-        this._scheduleRender();
+      const dayOffset = deviceNewCurveDayOffset(this._deviceNewPeriod, this._deviceNewPeriodOffset);
+      const [curve, bar] = await Promise.all([
+        needCurve
+          ? fetchDeviceRealtimeChartSeries(this._hass, plant, this._plantState, { dayOffset })
+          : null,
+        needEnergy
+          ? fetchFoxMirroredBarChart(
+              this._hass,
+              plant,
+              this._plantState,
+              this._deviceNewPeriod,
+              this._deviceNewPeriodOffset
+            )
+          : null,
+      ]);
+      if (needCurve) {
+        this._deviceNewStatisticsChart = curve;
+        this._deviceNewStatisticsChartPlantId = curveKey;
       }
-    }
-  }
-
-  async _loadDeviceNewEnergyChart() {
-    const plant = this._getPlant();
-    if (!plant || !this._hass || this._view !== "device_new") return;
-    const cacheKey = this._deviceNewEnergyChartCacheKey(plant);
-    if (this._deviceNewEnergyChartPlantId === cacheKey && this._deviceNewEnergyChart) return;
-    this._deviceNewEnergyChartLoading = true;
-    this._deviceNewEnergyChart = null;
-    this._deviceNewEnergyChartPlantId = cacheKey;
-    this._scheduleRender();
-    try {
-      if (!this._plantState) await this._refreshPlantState();
-      const bar = await fetchFoxMirroredBarChart(
-        this._hass,
-        plant,
-        this._plantState,
-        this._deviceNewPeriod,
-        this._deviceNewPeriodOffset
-      );
-      this._deviceNewEnergyChart = { kind: "mirror", svg: bar.svg, title: bar.title };
+      if (needEnergy) {
+        this._deviceNewEnergyChart = { kind: "mirror", svg: bar.svg, title: bar.title };
+        this._deviceNewEnergyChartPlantId = energyKey;
+      }
     } catch (err) {
-      this._deviceNewEnergyChart = {
-        error:
-          err?.message ||
-          "Could not load energy analysis. Enable the Home Assistant recorder and keep history for energy sensors.",
-      };
+      if (needCurve) {
+        this._deviceNewStatisticsChart = {
+          error:
+            err?.message ||
+            "Could not load device curve. Enable the Home Assistant recorder for inverter power sensors.",
+        };
+        this._deviceNewStatisticsChartPlantId = curveKey;
+      }
+      if (needEnergy) {
+        this._deviceNewEnergyChart = {
+          error:
+            err?.message ||
+            "Could not load energy analysis. Enable the Home Assistant recorder and keep history for energy sensors.",
+        };
+        this._deviceNewEnergyChartPlantId = energyKey;
+      }
     } finally {
+      this._deviceNewChartsInflight = undefined;
+      this._deviceNewStatisticsChartLoading = false;
       this._deviceNewEnergyChartLoading = false;
       if (
         this._getPlant()?.entry_id === plant.entry_id &&
         this._view === "device_new" &&
-        this._deviceNewEnergyChartCacheKey(this._getPlant()) === cacheKey
+        this._deviceNewCurveChartCacheKey(this._getPlant()) === curveKey &&
+        this._deviceNewEnergyChartCacheKey(this._getPlant()) === energyKey
       ) {
         this._scheduleRender();
       }
     }
   }
 
-  _renderDeviceNewDayNav() {
-    const day = startOfLocalDay(new Date());
-    day.setDate(day.getDate() - this._deviceNewDayOffset);
-    const label = day.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
-    return `<div class="energy-date-nav">
-<button type="button" data-action="device-new-day-nav" data-dir="prev" aria-label="Previous day">‹</button>
-<span class="energy-date-label">${esc(label)}</span>
-<button type="button" data-action="device-new-day-nav" data-dir="next" aria-label="Next day"${this._deviceNewDayOffset > 0 ? "" : " disabled"}>›</button>
-</div>`;
-  }
-
-  _renderDeviceNewEnergyPeriodTabs() {
-    const tabs = DEVICE_NEW_ENERGY_PERIOD_TABS.map(
+  _renderDeviceNewChartPeriodTabs() {
+    const tabs = ENERGY_PERIOD_TABS.map(
       (p) =>
         `<button type="button" data-action="device-new-period" data-period="${p.id}" class="${p.id === this._deviceNewPeriod ? "active" : ""}">${p.label}</button>`
     ).join("");
     return `<div class="energy-period-tabs">${tabs}</div>`;
   }
 
-  _renderDeviceNewEnergyDateNav() {
+  _renderDeviceNewChartDateNav() {
     if (this._deviceNewPeriod === "total") return "";
     const bounds = energyPeriodBounds(this._deviceNewPeriod, this._deviceNewPeriodOffset);
     const label = energyPeriodNavLabel(this._deviceNewPeriod, this._deviceNewPeriodOffset);
     return `<div class="energy-date-nav">
-<button type="button" data-action="device-new-energy-nav" data-dir="prev" aria-label="Previous period">‹</button>
+<button type="button" data-action="device-new-chart-nav" data-dir="prev" aria-label="Previous period">‹</button>
 <span class="energy-date-label">${esc(label)}</span>
-<button type="button" data-action="device-new-energy-nav" data-dir="next" aria-label="Next period"${bounds.canNext ? "" : " disabled"}>›</button>
+<button type="button" data-action="device-new-chart-nav" data-dir="next" aria-label="Next period"${bounds.canNext ? "" : " disabled"}>›</button>
+</div>`;
+  }
+
+  _renderDeviceNewChartToolbar() {
+    return `<div class="card fox-analysis-toolbar fox-device-new-chart-toolbar" data-device-new-chart-toolbar="1">
+${this._renderDeviceNewChartPeriodTabs()}
+${this._renderDeviceNewChartDateNav()}
 </div>`;
   }
 
@@ -11510,17 +11552,16 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
 
   _renderDeviceNewAnalysis(plant) {
     return `<div class="fox-device-new-analysis">
+${this._renderDeviceNewChartToolbar()}
 <section class="fox-device-new-card">
 <div class="fox-device-new-card-head">
 <h3 class="fox-device-new-card-title">Real-time curve</h3>
-${this._renderDeviceNewDayNav()}
 </div>
 <div data-device-new-curve="1">${this._renderDeviceNewCurveBody()}</div>
 </section>
 <section class="fox-device-new-card">
 <div class="fox-device-new-card-head">
 <h3 class="fox-device-new-card-title">Energy analysis</h3>
-<div class="fox-analysis-toolbar fox-device-new-energy-toolbar">${this._renderDeviceNewEnergyPeriodTabs()}${this._renderDeviceNewEnergyDateNav()}</div>
 </div>
 <div data-device-new-energy-chart="1">${this._renderDeviceNewEnergyBody()}</div>
 </section>
@@ -13834,19 +13875,19 @@ ${active
     if (this._view === "device_new") {
       const plant = this._getPlant();
       if (plant && this._deviceNewSub === "analysis") {
-        const curveKey = this._deviceNewChartCacheKey(plant);
+        const curveKey = this._deviceNewCurveChartCacheKey(plant);
+        const energyKey = this._deviceNewEnergyChartCacheKey(plant);
+        const chartsReady =
+          this._deviceNewStatisticsChartPlantId === curveKey &&
+          this._deviceNewStatisticsChart &&
+          this._deviceNewEnergyChartPlantId === energyKey &&
+          this._deviceNewEnergyChart;
         if (
           !this._deviceNewStatisticsChartLoading &&
-          (this._deviceNewStatisticsChartPlantId !== curveKey || !this._deviceNewStatisticsChart)
-        ) {
-          void this._loadDeviceNewCurveChart();
-        }
-        const energyKey = this._deviceNewEnergyChartCacheKey(plant);
-        if (
           !this._deviceNewEnergyChartLoading &&
-          (this._deviceNewEnergyChartPlantId !== energyKey || !this._deviceNewEnergyChart)
+          !chartsReady
         ) {
-          void this._loadDeviceNewEnergyChart();
+          this._loadDeviceNewCharts();
         }
         if (this._deviceNewStatisticsChart?.series?.length && this._deviceNewStatisticsChart?.range) {
           this._bindDeviceNewCharts();

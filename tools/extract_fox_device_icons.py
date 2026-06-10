@@ -10,12 +10,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "custom_components/foxess_plant/www/fox-device-icons.json"
 
-# Device summary cards use icon-d-battery1..4 (40×40 circle badges) in Fox Cloud device view.
+# Device summary cards use icon-d-battery1..4 (40×40 circle badges).
+# Fox maps by metric semantics (not DOM index order): battery, bolt, thermometer, generation.
 ICON_CANDIDATES = {
-    "pv_power": ["icon-d-battery1"],
-    "battery_soc": ["icon-d-battery2"],
-    "discharging": ["icon-d-battery3"],
-    "temperature": ["icon-d-battery4"],
+    "battery_soc": ["icon-d-battery1"],
+    "discharging": ["icon-d-battery2"],
+    "temperature": ["icon-d-battery3"],
+    "pv_power": ["icon-d-battery4"],
 }
 
 
