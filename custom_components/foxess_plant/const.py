@@ -79,6 +79,7 @@ IDENTITY_ENTITY_SUFFIXES: dict[str, tuple[str, ...]] = {
     "bms_pack_2_version": ("bms_pack_2_version",),
     "bms_pack_3_version": ("bms_pack_3_version",),
     "bms_pack_4_version": ("bms_pack_4_version",),
+    "afci_version": ("afci_version",),
     "grid_status": ("grid_status",),
     "inverter_state": ("inverter_state",),
 }
@@ -163,6 +164,8 @@ PANEL_ENTITY_SUFFIXES: dict[str, tuple[str, ...]] = {
     "master_version": ("master_version",),
     "slave_version": ("slave_version",),
     "manager_version": ("manager_version",),
+    "afci_version": ("afci_version",),
+    "bms_pack_1_version": ("bms_pack_1_version",),
 }
 
 PANEL_URL_PATH = "foxess-plant"

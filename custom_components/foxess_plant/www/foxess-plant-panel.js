@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.171
+ * @version 0.9.177
  */
 
 const NAV = [
@@ -15,6 +15,7 @@ const NAV = [
 const DEVICE_NEW_NAV = [
   { id: "analysis", label: "Analysis" },
   { id: "realtime", label: "Real-time" },
+  { id: "pv-config", label: "PV Configuration" },
 ];
 
 /** Fox Cloud device Analysis real-time curve series. */
@@ -43,10 +44,9 @@ const DEVICE_SUMMARY_CARD_THEMES = {
     top: "linear-gradient(90deg, #03BD9A 0%, #52C41A 100%)",
   },
   temp: {
-    accent: "#FA8C16",
-    accentHi: "#FFC069",
-    bg: "linear-gradient(180deg, rgba(250,140,22,0.16) 0%, rgba(255,192,105,0.05) 40%, rgba(250,140,22,0.02) 100%)",
-    top: "linear-gradient(90deg, #FFC069 0%, #FA8C16 100%)",
+    accent: "#52C41A",
+    accentHi: "#03BD9A",
+    bg: "linear-gradient(180deg, rgba(82,196,26,0.16) 0%, rgba(3,189,154,0.06) 40%, rgba(82,196,26,0.02) 100%)",
   },
 };
 
@@ -248,7 +248,9 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.171";
+const PANEL_VERSION = "0.9.177";
+/** Max wait for recorder/history websocket round-trips (prevents infinite loading spinners). */
+const HA_WS_TIMEOUT_MS = 90000;
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
@@ -2382,10 +2384,9 @@ function renderDeviceNewSummaryCards(hass, plant, plantState) {
       const icon = foxDeviceSummaryIcon(iconKeys[c.tone]);
       const theme = DEVICE_SUMMARY_CARD_THEMES[c.tone] || {};
       const style = theme.accent
-        ? ` style="--fox-summary-accent:${theme.accent};--fox-summary-accent-hi:${theme.accentHi || theme.accent};--fox-summary-bg:${theme.bg};--fox-summary-top:${theme.top};"`
+        ? ` style="--fox-summary-accent:${theme.accent};--fox-summary-accent-hi:${theme.accentHi || theme.accent};--fox-summary-bg:${theme.bg};"`
         : "";
       return `<div class="fox-device-new-summary-card fox-device-new-summary-card--${c.tone}"${style}>
-<span class="fox-device-new-summary-topline" aria-hidden="true"></span>
 <span class="fox-device-new-summary-label">${esc(c.label)}</span>
 ${icon ? `<span class="fox-device-new-summary-icon" aria-hidden="true">${icon}</span>` : ""}
 <strong class="fox-device-new-summary-value">${esc(c.value)}</strong>
@@ -2439,9 +2440,54 @@ function formatDeviceNewGridStatusHtml(hass, entityId) {
   return `<span class="fox-device-new-grid-status fox-device-new-grid-status--${tone}"><span class="fox-device-new-grid-status-dot" aria-hidden="true"></span><span>${esc(st)}</span></span>`;
 }
 
+function foxDeviceCheckPillIcon() {
+  return `<svg class="fox-device-new-check-pill-icon" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="6.25" fill="currentColor" opacity="0.2"/><path d="M4.2 7.1l1.85 1.9 3.75-3.95" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
+/** Fox device card status pill (Normal / Online with tick). */
+function formatFoxDeviceCheckPill(value) {
+  const text = String(value || "—");
+  if (text === "—") return esc(text);
+  const lower = text.trim().toLowerCase();
+  const positive = /^(normal|online|on)$/.test(lower);
+  const cls = positive
+    ? "fox-device-new-check-pill--ok"
+    : lower === "fault"
+      ? "fox-device-new-check-pill--fault"
+      : "fox-device-new-check-pill--off";
+  const icon = positive ? foxDeviceCheckPillIcon() : "";
+  return `<span class="fox-device-new-check-pill ${cls}">${icon}<span class="fox-device-new-check-pill-text">${esc(text)}</span></span>`;
+}
+
 function formatDeviceNewOnlineBadge(value) {
-  const on = String(value).toLowerCase() === "online";
-  return `<span class="fox-device-new-online-badge${on ? " fox-device-new-online-badge--on" : ""}">${esc(value)}</span>`;
+  return formatFoxDeviceCheckPill(value);
+}
+
+/** Fox datalogger software version (Modbus protocol major.minor, e.g. V2.09). */
+function formatFoxDataloggerSoftwareVersion(hass, plantState, map) {
+  const proto = plantState?.identity?.modbus_protocol_version || entityDisplayValue(hass, map.modbus_protocol_version);
+  if (proto && proto !== "—") {
+    const parts = String(proto)
+      .replace(/^V/i, "")
+      .split(".")
+      .map((p) => p.trim())
+      .filter(Boolean);
+    if (parts.length >= 2) {
+      const major = Number(parts[0]);
+      const minor = Number(parts[1]);
+      if (Number.isFinite(major) && Number.isFinite(minor)) {
+        return `V${major}.${String(minor).padStart(2, "0")}`;
+      }
+    }
+    return String(proto);
+  }
+  const slave = entityDisplayValue(hass, map.slave_version);
+  return slave !== "—" ? slave : "—";
+}
+
+function foxBcuVersionValue(hass, plantState, map) {
+  const id = plantState?.identity ?? {};
+  return id.bms_pack_1_version || entityDisplayValue(hass, map.bms_pack_1_version) || "—";
 }
 
 function renderDeviceNewFoxDatalogger(hass, plant, plantState, map) {
@@ -2455,10 +2501,7 @@ function renderDeviceNewFoxDatalogger(hass, plant, plantState, map) {
     status = id.bms_online === true || id.bms_online === "on" ? "Online" : "Offline";
   }
   rows.push({ name: "Status", html: formatDeviceNewOnlineBadge(status) });
-  const firmware = ["slave_version", "manager_version", "master_version"]
-    .map((key) => entityDisplayValue(hass, map[key]))
-    .find((value) => value !== "—") ?? "—";
-  rows.push({ name: "Software Version", value: firmware });
+  rows.push({ name: "Software Version", value: formatFoxDataloggerSoftwareVersion(hass, plantState, map) });
   const signal = entityDisplayValue(hass, map.datalogger_signal);
   rows.push({ name: "Signal strength", value: signal !== "—" ? signal : "—" });
   return renderDeviceNewMetricGrid(hass, rows);
@@ -2503,56 +2546,80 @@ function renderDeviceNewSubsections(hass, plant, plantState, section) {
     .join("");
 }
 
+function deviceNewSidebarRowValue(value) {
+  if (value == null || value === "" || value === "—") return null;
+  return String(value);
+}
+
+function renderDeviceNewSidebarRow(row) {
+  const dd = row.html ?? esc(String(row.value));
+  return `<div class="fox-device-new-sidebar-row"><dt>${esc(row.label)}</dt><dd>${dd}</dd></div>`;
+}
+
 function renderDeviceNewSidebar(hass, plant, plantState) {
   const id = plantState?.identity ?? {};
   const map = resolveEntityMap(hass, plant, plantState);
-  const serial = plantDeviceSerial(hass, plant, plantState);
-  const model = plantModelSubtitle(hass, plant, plantState);
+  const serialRaw = plantDeviceSerial(hass, plant, plantState);
+  const pcsSn = deviceNewSidebarRowValue(serialRaw !== "—" ? serialRaw : id.pcs_serial_number);
+  const batterySn = deviceNewSidebarRowValue(
+    id.bms_pack_serial_modbus || entityDisplayValue(hass, map.bms_pack_serial_modbus)
+  );
+  const model = deviceNewSidebarRowValue(
+    (() => {
+      const m = plantModelSubtitle(hass, plant, plantState);
+      return m !== "—" ? m : id.pcs_model_name;
+    })()
+  );
   const status = foxInverterStateLabel(hass, plant, plantState);
   const meterOnline =
     id.bms_online === true ||
     id.bms_online === "on" ||
     (map.bms_online && hass?.states?.[map.bms_online]?.state === "on");
+  const meterLabel =
+    meterOnline ? "Online" : id.bms_online === false || id.bms_online === "off" ? "Offline" : null;
+  const plantTitle = deviceNewSidebarRowValue(plant?.title);
+  const serialHero = pcsSn
+    ? `<button type="button" class="fox-device-new-sidebar-serial-btn device-serial-btn" data-action="device-new-sub" data-sub="system"><span class="device-serial fox-device-new-sidebar-serial">${esc(pcsSn)}</span><span class="fox-device-new-sidebar-chevron chev" aria-hidden="true">›</span></button>`
+    : `<p class="device-serial device-serial-muted fox-device-new-sidebar-serial-muted">Serial unavailable</p>`;
   const rows = [
-    ["State", status !== "—" ? status : null],
-    ["Meter", meterOnline ? "Online" : id.bms_online === false || id.bms_online === "off" ? "Offline" : null],
-    ["PCS SN", serial !== "—" ? serial : id.pcs_serial_number || null],
-    [
-      "Battery SN",
-      id.bms_pack_serial_modbus ||
-        entityDisplayValue(hass, map.bms_pack_serial_modbus) ||
-        null,
-    ],
-    ["Plant", plant?.title || null],
-    ["Model", model !== "—" ? model : id.pcs_model_name || null],
-    ["Version_Master", id.master_version || entityDisplayValue(hass, map.master_version)],
-    ["Version_Slave", id.slave_version || entityDisplayValue(hass, map.slave_version)],
-    ["Version_Manager", id.manager_version || entityDisplayValue(hass, map.manager_version)],
-    [
-      "Version_BCU",
-      id.bms_pack_1_version ||
-        entityDisplayValue(hass, map.bms_pack_1_version) ||
-        null,
-    ],
-    ["Version_AFCI", entityDisplayValue(hass, map.afci_version)],
-  ].filter(([, value]) => value != null && value !== "" && value !== "—");
-  const statusBadge =
-    status !== "—"
-      ? `<span class="fox-pill overview-fox-status ${foxStatusToneClass(status)}">${esc(status)}</span>`
-      : "";
+    status !== "—" ? { label: "State", html: formatFoxDeviceCheckPill(status) } : null,
+    batterySn ? { label: "Battery SN", value: batterySn } : null,
+    plantTitle
+      ? {
+          label: "Plant",
+          html: `<span class="fox-device-new-sidebar-plant">${esc(plantTitle)}<span class="fox-device-new-sidebar-chevron" aria-hidden="true">›</span></span>`,
+        }
+      : null,
+    model ? { label: "Model", value: model } : null,
+    meterLabel ? { label: "Meter", html: formatFoxDeviceCheckPill(meterLabel) } : null,
+    deviceNewSidebarRowValue(id.master_version || entityDisplayValue(hass, map.master_version))
+      ? { label: "Version_Master", value: id.master_version || entityDisplayValue(hass, map.master_version) }
+      : null,
+    deviceNewSidebarRowValue(id.slave_version || entityDisplayValue(hass, map.slave_version))
+      ? { label: "Version_Slave", value: id.slave_version || entityDisplayValue(hass, map.slave_version) }
+      : null,
+    deviceNewSidebarRowValue(id.manager_version || entityDisplayValue(hass, map.manager_version))
+      ? { label: "Version_Manager", value: id.manager_version || entityDisplayValue(hass, map.manager_version) }
+      : null,
+    (() => {
+      const bcu = foxBcuVersionValue(hass, plantState, map);
+      return bcu !== "—" ? { label: "Version_BCU", value: bcu } : null;
+    })(),
+    (() => {
+      const afci = id.afci_version || entityDisplayValue(hass, map.afci_version);
+      return afci && afci !== "—" ? { label: "Version_AFCI", value: afci } : null;
+    })(),
+  ].filter(Boolean);
   const body = rows.length
-    ? `<dl class="fox-device-new-sidebar-list">${rows
-        .map(
-          ([label, value]) =>
-            `<div class="fox-device-new-sidebar-row"><dt>${esc(label)}</dt><dd>${esc(String(value))}</dd></div>`
-        )
-        .join("")}</dl>`
+    ? `<dl class="fox-device-new-sidebar-list">${rows.map(renderDeviceNewSidebarRow).join("")}</dl>`
     : `<p class="placeholder">No device identity available yet.</p>`;
   return `<aside class="fox-device-new-sidebar">
-<div class="fox-device-new-sidebar-head">
+<div class="fox-device-new-sidebar-hero">
 <img class="fox-device-new-sidebar-img" src="${esc(DEVICE_EVO_IMAGE_STATIC)}" alt="" loading="lazy" />
-<div><h2 class="fox-device-new-sidebar-title">${esc(plant?.title || "Inverter")}</h2>${statusBadge}</div>
+${serialHero}
 </div>
+<div class="fox-device-new-sidebar-divider" aria-hidden="true"></div>
+<h3 class="fox-device-new-sidebar-section-title">Device Information</h3>
 ${body}
 </aside>`;
 }
@@ -2574,8 +2641,10 @@ async function fetchDeviceRealtimeChartSeries(hass, plant, plantState, { dayOffs
   const socId = map.battery_soc;
   const entityIds = [...new Set([...specs.map((s) => s.entity_id), socId].filter(Boolean))];
   const statsMap = await fetchStatisticsDuring(hass, entityIds, start, fetchEnd);
-  const needsHistory = entityIds.some((id) => !statsMap?.[id]?.length);
-  const hist = needsHistory ? await fetchHistoryDuring(hass, entityIds, start, fetchEnd) : {};
+  const missingStatsIds = entityIds.filter((id) => !statsMap?.[id]?.length);
+  const hist = missingStatsIds.length
+    ? await fetchHistoryDuring(hass, missingStatsIds, start, fetchEnd, { significantChangesOnly: true })
+    : {};
   const series = specs.map((spec) => ({
     id: spec.key,
     label: spec.label,
@@ -3576,6 +3645,8 @@ const DEVICE_ENTITY_FALLBACKS = {
   master_version: ["master_version"],
   slave_version: ["slave_version"],
   manager_version: ["manager_version"],
+  afci_version: ["afci_version"],
+  bms_pack_1_version: ["bms_pack_1_version"],
 };
 
 const DEVICE_PV_STRINGS = [1, 2, 3, 4];
@@ -3975,11 +4046,26 @@ function deviceParamLastUpdated(hass, entityIds) {
   }
 }
 
+async function hassMessageWithTimeout(hass, message, timeoutMs = HA_WS_TIMEOUT_MS) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Home Assistant request timed out after ${Math.round(timeoutMs / 1000)}s`)),
+      timeoutMs
+    );
+  });
+  try {
+    return await Promise.race([hass.connection.sendMessagePromise(message), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchStatisticsDuring(hass, entityIds, start, end) {
   const statistic_ids = entityIds.filter(Boolean);
   if (!statistic_ids.length) return null;
   try {
-    const viaPlant = await hass.connection.sendMessagePromise({
+    const viaPlant = await hassMessageWithTimeout(hass, {
       type: "foxess_plant/fetch_statistics",
       start_time: start.toISOString(),
       end_time: end.toISOString(),
@@ -3991,10 +4077,10 @@ async function fetchStatisticsDuring(hass, entityIds, start, end) {
       return viaPlant;
     }
   } catch {
-    /* older integration without fetch_statistics */
+    /* older integration without fetch_statistics, or timeout */
   }
   try {
-    const res = await hass.connection.sendMessagePromise({
+    const res = await hassMessageWithTimeout(hass, {
       type: "recorder/statistics_during_period",
       start_time: start.toISOString(),
       end_time: end.toISOString(),
@@ -4027,30 +4113,30 @@ function recorderStatsToPoints(rows, range) {
     .sort((a, b) => a.t - b.t);
 }
 
-async function fetchHistoryDuring(hass, entityIds, start, end) {
+async function fetchHistoryDuring(hass, entityIds, start, end, { significantChangesOnly = false } = {}) {
   const ids = entityIds.filter(Boolean);
   if (!ids.length) return {};
   try {
-    const viaPlant = await hass.connection.sendMessagePromise({
+    const viaPlant = await hassMessageWithTimeout(hass, {
       type: "foxess_plant/fetch_history",
       start_time: start.toISOString(),
       end_time: end.toISOString(),
       entity_ids: ids,
-      significant_changes_only: false,
+      significant_changes_only: significantChangesOnly,
     });
     if (viaPlant && typeof viaPlant === "object" && !Array.isArray(viaPlant)) {
       return viaPlant;
     }
   } catch {
-    /* older integration without fetch_history */
+    /* older integration without fetch_history, or timeout */
   }
-  const raw = await hass.connection.sendMessagePromise({
+  const raw = await hassMessageWithTimeout(hass, {
     type: "history/history_during_period",
     start_time: start.toISOString(),
     end_time: end.toISOString(),
     entity_ids: ids,
     minimal_response: true,
-    significant_changes_only: false,
+    significant_changes_only: significantChangesOnly,
     no_attributes: true,
     include_start_time_state: true,
   });
@@ -6083,7 +6169,9 @@ async function fetchEnergyHistoryPoints(hass, plant, plantState, rangeStart, ran
   const ent = resolveEnergyHistoryEntities(map);
   const ids = [ent.pv, ent.feedIn, ent.load, ent.discharge, ent.charge, ent.grid].filter(Boolean);
   if (!ids.length) return { ent, points: null, error: "Daily energy sensors not found. Reload FoxESS Plant." };
-  const hist = await fetchHistoryDuring(hass, ids, rangeStart, rangeEnd);
+  const rangeMs = rangeEnd.getTime() - rangeStart.getTime();
+  const significantChangesOnly = rangeMs > 2 * 86400000;
+  const hist = await fetchHistoryDuring(hass, ids, rangeStart, rangeEnd, { significantChangesOnly });
   const points = {
     pv: historyToPoints(historyRowsForEntity(hist, ent.pv)),
     feedIn: historyToPoints(historyRowsForEntity(hist, ent.feedIn)),
@@ -7805,18 +7893,67 @@ const STYLES = `
   border: 1px solid var(--divider-color); border-radius: 14px;
   background: var(--card-background-color); padding: 16px;
 }
-.fox-device-new-sidebar-head { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; }
-.fox-device-new-sidebar-img { width: 56px; height: 56px; object-fit: contain; flex-shrink: 0; }
-.fox-device-new-sidebar-title { margin: 0 0 6px; font-size: 15px; line-height: 1.25; }
+.fox-device-new-sidebar-hero {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  gap: 8px; margin-bottom: 12px;
+}
+.fox-device-new-sidebar-img { width: 72px; height: 88px; object-fit: contain; flex-shrink: 0; }
+.fox-device-new-sidebar-serial-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 4px 6px; margin: 0; border: none; background: transparent;
+  color: var(--secondary-text-color); cursor: pointer; border-radius: 6px;
+  font: inherit; max-width: 100%; width: auto;
+}
+.fox-device-new-sidebar-serial {
+  font-family: ui-monospace, monospace; font-size: 11px; letter-spacing: 0.03em;
+  line-height: 1.35; word-break: break-all;
+}
+.fox-device-new-sidebar-serial-muted { margin: 0; font-size: 11px; }
+.fox-device-new-sidebar-serial-btn .chev { font-size: 12px; flex-shrink: 0; }
+@media (hover: hover) {
+  .fox-device-new-sidebar-serial-btn:hover { color: var(--primary-text-color); }
+}
+.fox-device-new-sidebar-divider {
+  height: 1px; background: var(--divider-color); margin: 0 0 12px;
+}
+.fox-device-new-sidebar-section-title {
+  margin: 0 0 10px; font-size: 14px; font-weight: 700; color: var(--primary-text-color);
+}
 .fox-device-new-sidebar-list { margin: 0; }
 .fox-device-new-sidebar-row {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px;
-  padding: 8px 0; border-bottom: 1px solid var(--divider-color);
-  font-size: 12px;
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px 12px;
+  padding: 9px 0; border-bottom: 1px solid var(--divider-color);
+  font-size: 12px; align-items: center;
 }
 .fox-device-new-sidebar-row:last-child { border-bottom: none; }
 .fox-device-new-sidebar-row dt { margin: 0; color: var(--secondary-text-color); font-weight: 500; }
-.fox-device-new-sidebar-row dd { margin: 0; text-align: right; font-weight: 600; color: var(--primary-text-color); word-break: break-word; }
+.fox-device-new-sidebar-row dd {
+  margin: 0; text-align: right; font-weight: 600; color: var(--primary-text-color);
+  word-break: break-word; display: flex; justify-content: flex-end; align-items: center;
+}
+.fox-device-new-sidebar-plant {
+  display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; max-width: 100%;
+}
+.fox-device-new-sidebar-chevron { color: var(--secondary-text-color); font-size: 14px; line-height: 1; flex-shrink: 0; }
+.fox-device-new-check-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 10px 2px 6px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; line-height: 1.3; border: 1px solid transparent;
+}
+.fox-device-new-check-pill--ok {
+  color: #52c41a; border-color: rgba(82, 196, 26, 0.5);
+  background: rgba(82, 196, 26, 0.1);
+}
+.fox-device-new-check-pill--off {
+  color: var(--secondary-text-color); border-color: var(--divider-color);
+  background: var(--secondary-background-color);
+}
+.fox-device-new-check-pill--fault {
+  color: #ff7875; border-color: rgba(255, 120, 117, 0.45);
+  background: rgba(255, 120, 117, 0.1);
+}
+.fox-device-new-check-pill-icon { width: 14px; height: 14px; flex-shrink: 0; }
+.fox-device-new-check-pill-text { white-space: nowrap; }
 .fox-device-new-content { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .fox-device-new-summary {
   display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;
@@ -7826,13 +7963,7 @@ const STYLES = `
   display: flex; flex-direction: column; justify-content: flex-end; gap: 8px;
   border: 1px solid color-mix(in srgb, var(--fox-summary-accent, var(--divider-color)) 22%, var(--divider-color));
   background: var(--fox-summary-bg, var(--card-background-color));
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--fox-summary-accent-hi, #fff) 12%, transparent);
   overflow: hidden;
-}
-.fox-device-new-summary-topline {
-  position: absolute; left: 0; right: 0; top: 0; height: 3px;
-  background: var(--fox-summary-top, var(--fox-summary-accent, var(--divider-color)));
-  pointer-events: none;
 }
 .fox-device-new-summary-label { font-size: 12px; color: var(--secondary-text-color); font-weight: 500; padding-right: 44px; }
 .fox-device-new-summary-icon {
@@ -8196,9 +8327,12 @@ class FoxessPlantPanel extends HTMLElement {
     this._settingsView = "main";
     this._deviceSub = "main";
     this._deviceNewSub = "analysis";
+    this._deviceNewScreen = "main";
     this._deviceNewPeriod = "day";
     this._deviceNewPeriodOffset = 0;
-    this._deviceNewChartsInflight = undefined;
+    this._deviceNewChartsGen = 0;
+    this._deviceNewCurveInflight = undefined;
+    this._deviceNewEnergyInflight = undefined;
     this._deviceNewStatisticsChart = null;
     this._deviceNewStatisticsChartLoading = false;
     this._deviceNewStatisticsChartPlantId = undefined;
@@ -9621,6 +9755,7 @@ Reloading panel registration…
       this._deviceSub = "main";
       if (nextView !== "device_new") {
         this._deviceNewSub = "analysis";
+        this._deviceNewScreen = "main";
         this._deviceNewStatisticsChart = null;
         this._deviceNewStatisticsChartPlantId = undefined;
         this._deviceNewEnergyChart = null;
@@ -9636,7 +9771,21 @@ Reloading panel registration…
       const sub = btn.dataset.sub;
       if (!sub || sub === this._deviceNewSub) return;
       this._deviceNewSub = sub;
+      this._deviceNewScreen = "main";
       if (sub === "analysis") this._loadDeviceNewCharts();
+      if (sub === "pv-config") this._enterPvSettings();
+      this._scheduleRender(true);
+      return;
+    }
+    if (action === "device-new-sub") {
+      const sub = btn.dataset.sub;
+      if (!sub) return;
+      this._deviceNewScreen = sub;
+      this._scheduleRender(true);
+      return;
+    }
+    if (action === "device-new-back") {
+      this._deviceNewScreen = "main";
       this._scheduleRender(true);
       return;
     }
@@ -11155,10 +11304,11 @@ ${this._renderOverviewAfterHero(plant)}`;
       ["bms_online", "BMS online"],
       ["bms_pack_serial_modbus", "BMS pack serial (Modbus)"],
       ["bms_pack_count", "BMS pack count"],
-      ["bms_pack_1_version", "Pack 1 version"],
+      ["bms_pack_1_version", "Pack 1 version (BCU)"],
       ["bms_pack_2_version", "Pack 2 version"],
       ["bms_pack_3_version", "Pack 3 version"],
       ["bms_pack_4_version", "Pack 4 version"],
+      ["afci_version", "AFCI firmware"],
     ];
     return rows
       .map(([key, label]) => {
@@ -11307,10 +11457,8 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     } else if (id.bms_online != null && id.bms_online !== "") {
       rows.push({ name: "Status", value: id.bms_online === true || id.bms_online === "on" ? "Online" : "Offline" });
     }
-    const firmware = ["slave_version", "manager_version", "master_version"]
-      .map((key) => entityDisplayValue(this._hass, map[key]))
-      .find((value) => value !== "—");
-    if (firmware) rows.push({ name: "Software version", value: firmware });
+    const firmware = formatFoxDataloggerSoftwareVersion(this._hass, this._plantState, map);
+    if (firmware && firmware !== "—") rows.push({ name: "Software version", value: firmware });
     const proto = id.modbus_protocol_version || entityDisplayValue(this._hass, map.modbus_protocol_version);
     if (proto && proto !== "—") rows.push({ name: "Modbus protocol", value: proto });
     const master = id.master_version || entityDisplayValue(this._hass, map.master_version);
@@ -11396,88 +11544,98 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
   }
 
   _invalidateDeviceNewCharts() {
+    this._deviceNewChartsGen += 1;
     this._deviceNewStatisticsChart = null;
     this._deviceNewStatisticsChartPlantId = undefined;
     this._deviceNewEnergyChart = null;
     this._deviceNewEnergyChartPlantId = undefined;
-    this._deviceNewChartsInflight = undefined;
+    this._deviceNewCurveInflight = undefined;
+    this._deviceNewEnergyInflight = undefined;
+    this._deviceNewStatisticsChartLoading = false;
+    this._deviceNewEnergyChartLoading = false;
   }
 
   _loadDeviceNewCharts() {
     if (this._view !== "device_new" || this._deviceNewSub !== "analysis") return;
-    void this._loadDeviceNewChartsInner();
+    void this._loadDeviceNewCurveChart();
+    void this._loadDeviceNewEnergyChart();
   }
 
-  async _loadDeviceNewChartsInner() {
+  async _loadDeviceNewCurveChart() {
     const plant = this._getPlant();
     if (!plant || !this._hass || this._view !== "device_new") return;
-    const curveKey = this._deviceNewCurveChartCacheKey(plant);
-    const energyKey = this._deviceNewEnergyChartCacheKey(plant);
-    const curveReady = this._deviceNewStatisticsChartPlantId === curveKey && this._deviceNewStatisticsChart;
-    const energyReady = this._deviceNewEnergyChartPlantId === energyKey && this._deviceNewEnergyChart;
-    if (curveReady && energyReady) return;
-    if (this._deviceNewChartsInflight === curveKey + "|" + energyKey) return;
-    this._deviceNewChartsInflight = curveKey + "|" + energyKey;
-
-    const needCurve = !curveReady;
-    const needEnergy = !energyReady;
-    if (needCurve) this._deviceNewStatisticsChartLoading = true;
-    if (needEnergy) this._deviceNewEnergyChartLoading = true;
-    if (needCurve || needEnergy) this._scheduleRender();
-
+    const cacheKey = this._deviceNewCurveChartCacheKey(plant);
+    if (this._deviceNewStatisticsChartPlantId === cacheKey && this._deviceNewStatisticsChart) return;
+    if (this._deviceNewCurveInflight === cacheKey) return;
+    this._deviceNewCurveInflight = cacheKey;
+    const gen = this._deviceNewChartsGen;
+    this._deviceNewStatisticsChartLoading = true;
+    this._scheduleRender();
     try {
-      if (!this._plantState) await this._refreshPlantState();
       const dayOffset = deviceNewCurveDayOffset(this._deviceNewPeriod, this._deviceNewPeriodOffset);
-      const [curve, bar] = await Promise.all([
-        needCurve
-          ? fetchDeviceRealtimeChartSeries(this._hass, plant, this._plantState, { dayOffset })
-          : null,
-        needEnergy
-          ? fetchFoxMirroredBarChart(
-              this._hass,
-              plant,
-              this._plantState,
-              this._deviceNewPeriod,
-              this._deviceNewPeriodOffset
-            )
-          : null,
-      ]);
-      if (needCurve) {
-        this._deviceNewStatisticsChart = curve;
-        this._deviceNewStatisticsChartPlantId = curveKey;
-      }
-      if (needEnergy) {
-        this._deviceNewEnergyChart = { kind: "mirror", svg: bar.svg, title: bar.title };
-        this._deviceNewEnergyChartPlantId = energyKey;
-      }
+      const curve = await fetchDeviceRealtimeChartSeries(this._hass, plant, this._plantState, { dayOffset });
+      if (gen !== this._deviceNewChartsGen || this._view !== "device_new") return;
+      if (this._deviceNewCurveChartCacheKey(this._getPlant()) !== cacheKey) return;
+      this._deviceNewStatisticsChart = curve;
+      this._deviceNewStatisticsChartPlantId = cacheKey;
     } catch (err) {
-      if (needCurve) {
-        this._deviceNewStatisticsChart = {
-          error:
-            err?.message ||
-            "Could not load device curve. Enable the Home Assistant recorder for inverter power sensors.",
-        };
-        this._deviceNewStatisticsChartPlantId = curveKey;
-      }
-      if (needEnergy) {
-        this._deviceNewEnergyChart = {
-          error:
-            err?.message ||
-            "Could not load energy analysis. Enable the Home Assistant recorder and keep history for energy sensors.",
-        };
-        this._deviceNewEnergyChartPlantId = energyKey;
-      }
+      if (gen !== this._deviceNewChartsGen || this._view !== "device_new") return;
+      if (this._deviceNewCurveChartCacheKey(this._getPlant()) !== cacheKey) return;
+      this._deviceNewStatisticsChart = {
+        error:
+          err?.message ||
+          "Could not load device curve. Enable the Home Assistant recorder for inverter power sensors.",
+      };
+      this._deviceNewStatisticsChartPlantId = cacheKey;
     } finally {
-      this._deviceNewChartsInflight = undefined;
-      this._deviceNewStatisticsChartLoading = false;
-      this._deviceNewEnergyChartLoading = false;
-      if (
-        this._getPlant()?.entry_id === plant.entry_id &&
-        this._view === "device_new" &&
-        this._deviceNewCurveChartCacheKey(this._getPlant()) === curveKey &&
-        this._deviceNewEnergyChartCacheKey(this._getPlant()) === energyKey
-      ) {
-        this._scheduleRender();
+      if (this._deviceNewCurveInflight === cacheKey) this._deviceNewCurveInflight = undefined;
+      if (gen === this._deviceNewChartsGen) {
+        this._deviceNewStatisticsChartLoading = false;
+        if (this._view === "device_new" && this._getPlant()?.entry_id === plant.entry_id) {
+          this._scheduleRender();
+        }
+      }
+    }
+  }
+
+  async _loadDeviceNewEnergyChart() {
+    const plant = this._getPlant();
+    if (!plant || !this._hass || this._view !== "device_new") return;
+    const cacheKey = this._deviceNewEnergyChartCacheKey(plant);
+    if (this._deviceNewEnergyChartPlantId === cacheKey && this._deviceNewEnergyChart) return;
+    if (this._deviceNewEnergyInflight === cacheKey) return;
+    this._deviceNewEnergyInflight = cacheKey;
+    const gen = this._deviceNewChartsGen;
+    this._deviceNewEnergyChartLoading = true;
+    this._scheduleRender();
+    try {
+      const bar = await fetchFoxMirroredBarChart(
+        this._hass,
+        plant,
+        this._plantState,
+        this._deviceNewPeriod,
+        this._deviceNewPeriodOffset
+      );
+      if (gen !== this._deviceNewChartsGen || this._view !== "device_new") return;
+      if (this._deviceNewEnergyChartCacheKey(this._getPlant()) !== cacheKey) return;
+      this._deviceNewEnergyChart = { kind: "mirror", svg: bar.svg, title: bar.title };
+      this._deviceNewEnergyChartPlantId = cacheKey;
+    } catch (err) {
+      if (gen !== this._deviceNewChartsGen || this._view !== "device_new") return;
+      if (this._deviceNewEnergyChartCacheKey(this._getPlant()) !== cacheKey) return;
+      this._deviceNewEnergyChart = {
+        error:
+          err?.message ||
+          "Could not load energy analysis. Enable the Home Assistant recorder and keep history for energy sensors.",
+      };
+      this._deviceNewEnergyChartPlantId = cacheKey;
+    } finally {
+      if (this._deviceNewEnergyInflight === cacheKey) this._deviceNewEnergyInflight = undefined;
+      if (gen === this._deviceNewChartsGen) {
+        this._deviceNewEnergyChartLoading = false;
+        if (this._view === "device_new" && this._getPlant()?.entry_id === plant.entry_id) {
+          this._scheduleRender();
+        }
       }
     }
   }
@@ -11519,10 +11677,13 @@ ${this._renderDeviceNewChartDateNav()}
     if (chart?.empty) {
       return `<p class="placeholder chart-empty">${esc(chart.empty)}</p>`;
     }
-    const dayOffset = chart?.dayOffset ?? 0;
-    const range = statisticsRangeForDisplay(chart?.range, dayOffset);
+    if (!chart) {
+      return `<p class="placeholder chart-empty">Real-time curve not loaded yet.</p>`;
+    }
+    const dayOffset = chart.dayOffset ?? 0;
+    const range = statisticsRangeForDisplay(chart.range, dayOffset);
     if (!range) {
-      return `<p class="chart-loading">Loading real-time curve…</p>`;
+      return `<p class="placeholder chart-empty">Real-time curve not loaded yet.</p>`;
     }
     const series = (chart?.series || []).filter((s) => s.points?.length);
     const socSeries = chart?.socSeries;
@@ -11547,7 +11708,7 @@ ${this._renderDeviceNewChartDateNav()}
     if (this._deviceNewEnergyChart?.svg) {
       return this._deviceNewEnergyChart.svg;
     }
-    return `<p class="chart-loading">Loading energy analysis…</p>`;
+    return `<p class="placeholder chart-empty">Energy analysis not loaded yet.</p>`;
   }
 
   _renderDeviceNewAnalysis(plant) {
@@ -11607,6 +11768,21 @@ ${this._renderDeviceNewChartToolbar()}
   }
 
   _renderDeviceNew(plant) {
+    if (this._deviceNewScreen === "system") {
+      return `<div data-device-new-main="1" data-plant-id="${esc(plant.entry_id)}">
+<button type="button" class="back-btn" data-action="device-new-back">← Device</button>
+<header class="header"><h1>System info</h1><p>From Modbus (matches Fox app where confirmed)</p></header>
+${this._identityValueList(this._identityRows(plant))}
+</div>`;
+    }
+    if (this._deviceNewSub === "pv-config") {
+      return `<div data-device-new-main="1" data-plant-id="${esc(plant.entry_id)}">
+${this._renderPvConfiguration({
+  title: "System PV Configuration",
+  subtitle: "General solar panel settings for PV1 and PV2",
+})}
+</div>`;
+    }
     const summary = renderDeviceNewSummaryCards(this._hass, plant, this._plantState);
     const sidebar = renderDeviceNewSidebar(this._hass, plant, this._plantState);
     const body =
@@ -13877,17 +14053,14 @@ ${active
       if (plant && this._deviceNewSub === "analysis") {
         const curveKey = this._deviceNewCurveChartCacheKey(plant);
         const energyKey = this._deviceNewEnergyChartCacheKey(plant);
-        const chartsReady =
-          this._deviceNewStatisticsChartPlantId === curveKey &&
-          this._deviceNewStatisticsChart &&
-          this._deviceNewEnergyChartPlantId === energyKey &&
-          this._deviceNewEnergyChart;
-        if (
-          !this._deviceNewStatisticsChartLoading &&
-          !this._deviceNewEnergyChartLoading &&
-          !chartsReady
-        ) {
-          this._loadDeviceNewCharts();
+        const curveReady =
+          this._deviceNewStatisticsChartPlantId === curveKey && this._deviceNewStatisticsChart;
+        const energyReady = this._deviceNewEnergyChartPlantId === energyKey && this._deviceNewEnergyChart;
+        if (!this._deviceNewStatisticsChartLoading && !curveReady) {
+          void this._loadDeviceNewCurveChart();
+        }
+        if (!this._deviceNewEnergyChartLoading && !energyReady) {
+          void this._loadDeviceNewEnergyChart();
         }
         if (this._deviceNewStatisticsChart?.series?.length && this._deviceNewStatisticsChart?.range) {
           this._bindDeviceNewCharts();
