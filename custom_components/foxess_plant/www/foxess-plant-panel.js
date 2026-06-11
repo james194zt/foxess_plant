@@ -255,7 +255,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.216";
+const PANEL_VERSION = "0.9.217";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -3862,6 +3862,17 @@ const ENERGY_PERIOD_TABS = [
   { id: "year", label: "Year" },
   { id: "total", label: "Total" },
 ];
+
+/** Fox Energy Report: week / month / year only. */
+const REPORTS_PERIOD_TABS = [
+  { id: "week", label: "Week" },
+  { id: "month", label: "Month" },
+  { id: "year", label: "Year" },
+];
+
+function normalizeReportsPeriod(period) {
+  return REPORTS_PERIOD_TABS.some((t) => t.id === period) ? period : "week";
+}
 
 const FOX_SUPPLY_SERIES = [
   { key: "solar", label: "Solar", color: "#19D4DE" },
@@ -10746,7 +10757,10 @@ Reloading panel registration…
         this._deviceNewEnergyChartPlantId = undefined;
       }
       if (this._view === "energy_analysis") this._loadEnergyCharts();
-      if (this._view === "reports") this._loadEnergyReport();
+      if (this._view === "reports") {
+        this._normalizeReportsPeriodState();
+        this._loadEnergyReport();
+      }
       if (this._view === "overview") this._loadOverviewStatisticsChart();
       if (this._view === "device_new") this._loadDeviceNewCharts();
       this._render();
@@ -10821,7 +10835,7 @@ Reloading panel registration…
       return;
     }
     if (action === "reports-period") {
-      const period = btn.dataset.period;
+      const period = normalizeReportsPeriod(btn.dataset.period);
       if (!period || period === this._reportsPeriod) return;
       this._reportsPeriod = period;
       this._reportsPeriodOffset = 0;
@@ -13198,7 +13212,6 @@ ${body}
   }
 
   _renderReportsDateNav() {
-    if (this._reportsPeriod === "total") return "";
     const bounds = energyPeriodBounds(this._reportsPeriod, this._reportsPeriodOffset);
     const label = energyPeriodNavLabel(this._reportsPeriod, this._reportsPeriodOffset);
     return `<div class="energy-date-nav">
@@ -13209,11 +13222,22 @@ ${body}
   }
 
   _renderReportsPeriodTabs() {
-    const tabs = ENERGY_PERIOD_TABS.map(
+    const period = normalizeReportsPeriod(this._reportsPeriod);
+    const tabs = REPORTS_PERIOD_TABS.map(
       (p) =>
-        `<button type="button" data-action="reports-period" data-period="${p.id}" class="${p.id === this._reportsPeriod ? "active" : ""}">${p.label}</button>`
+        `<button type="button" data-action="reports-period" data-period="${p.id}" class="${p.id === period ? "active" : ""}">${p.label}</button>`
     ).join("");
     return `<div class="energy-period-tabs">${tabs}</div>`;
+  }
+
+  _normalizeReportsPeriodState() {
+    const next = normalizeReportsPeriod(this._reportsPeriod);
+    if (next !== this._reportsPeriod) {
+      this._reportsPeriod = next;
+      this._reportsPeriodOffset = 0;
+      this._energyReport = null;
+      this._energyReportPlantId = undefined;
+    }
   }
 
   _energyReportCacheKey(plant) {
@@ -13223,6 +13247,7 @@ ${body}
   async _loadEnergyReport() {
     const plant = this._getPlant();
     if (!plant || !this._hass || this._view !== "reports") return;
+    this._normalizeReportsPeriodState();
     const cacheKey = this._energyReportCacheKey(plant);
     if (this._energyReportPlantId === cacheKey && this._energyReport) return;
     this._energyReportLoading = true;
