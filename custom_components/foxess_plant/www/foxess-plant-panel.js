@@ -70,6 +70,8 @@ const DEVICE_REALTIME_CHART_SERIES = [
     toKw: true,
     fill: false,
     lineWidth: 1.4,
+    densify: true,
+    showZeroInTooltip: true,
   },
   {
     key: "inv_power",
@@ -2743,20 +2745,25 @@ async function fetchDeviceRealtimeChartSeries(hass, plant, plantState, { dayOffs
     fetchStatisticsDuring(hass, entityIds, start, fetchEnd),
     fetchHistoryDuring(hass, entityIds, start, fetchEnd),
   ]);
-  const series = specs.map((spec) => {
-    const built = buildChartSeriesPointsWithFallback(hass, map, spec.key, spec, range, statsMap, hist);
-    return {
-      id: spec.key,
-      label: spec.label,
-      tooltipLabel: spec.label,
-      legendGroup: spec.legendGroup,
-      color: spec.color,
-      fill: spec.fill,
-      lineWidth: spec.lineWidth,
-      entity_id: built.entityId,
-      points: built.points,
-    };
-  });
+  const series = finalizeDeviceRealtimeChartSeries(
+    specs.map((spec) => {
+      const built = buildChartSeriesPointsWithFallback(hass, map, spec.key, spec, range, statsMap, hist);
+      return {
+        id: spec.key,
+        label: spec.label,
+        tooltipLabel: spec.label,
+        legendGroup: spec.legendGroup,
+        color: spec.color,
+        fill: spec.fill,
+        lineWidth: spec.lineWidth,
+        densify: spec.densify,
+        showZeroInTooltip: spec.showZeroInTooltip,
+        entity_id: built.entityId,
+        points: built.points,
+      };
+    }),
+    range
+  );
   let socSeries = null;
   if (socId) {
     const socPoints = buildSocHistoryPoints(hass, socId, range, statsMap, hist);
@@ -4855,7 +4862,7 @@ function statisticsTooltipRowsHtml(seriesMeta, t, hiddenGroups) {
       if (s.yAxis === "soc") {
         return `<div class="statistics-tooltip-row"><span class="statistics-tooltip-label"><i class="statistics-tooltip-swatch" style="background:${esc(s.color)}"></i>${esc(label)}</span><strong>${esc(formatSocPercent(v))}</strong></div>`;
       }
-      if (Math.abs(v) < 0.001) return "";
+      if (Math.abs(v) < 0.001 && !s.showZeroInTooltip) return "";
       return `<div class="statistics-tooltip-row"><span class="statistics-tooltip-label"><i class="statistics-tooltip-swatch" style="background:${esc(s.color)}"></i>${esc(label)}</span><strong>${formatStatisticsKw(v)}</strong></div>`;
     })
     .filter(Boolean)
@@ -4981,10 +4988,33 @@ function finalizeStatisticsChartSeries(series, range) {
       fill: true,
       lineWidth: 1.2,
       connectGaps: true,
+      showZeroInTooltip: true,
       points: mergeGridImportExportPoints(gridImport?.points, gridExport?.points, range),
     });
   }
   return out;
+}
+
+/** Device real-time curve: densify idle series so EPS/grid-style lines sit on zero, not blobs. */
+function finalizeDeviceRealtimeChartSeries(series, range) {
+  return series.map((s) => {
+    const densify = s.densify === true || seriesHasLargeGaps(s.points);
+    return {
+      ...s,
+      connectGaps: true,
+      points: densify ? densifyStatisticsPoints(s.points, range) : s.points,
+    };
+  });
+}
+
+function seriesHasLargeGaps(points, periodMs = STATISTICS_PERIOD_MS, maxGapPeriods = 4) {
+  if (!points?.length) return true;
+  if (points.length < 2) return true;
+  const maxGap = periodMs * maxGapPeriods;
+  for (let i = 1; i < points.length; i++) {
+    if (points[i].t - points[i - 1].t > maxGap) return true;
+  }
+  return false;
 }
 
 function statisticsRawPointsForEntity(entityId, range, statsMap, hist) {
