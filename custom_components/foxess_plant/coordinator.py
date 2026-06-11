@@ -398,8 +398,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._solcast_forecast_chart_points = []
             return
         stored = await self._solcast_store.async_load()
-        self._solcast_forecast_chart_points = build_forecast_intraday_chart(
-            self.hass, stored, self._solcast_cache
+        self._solcast_forecast_chart_points = await self.hass.async_add_executor_job(
+            build_forecast_intraday_chart,
+            self.hass,
+            stored,
+            self._solcast_cache,
         )
 
     def _solcast_detailed_forecast_rows(self) -> list[dict[str, Any]]:
@@ -1024,7 +1027,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "pv_config": self.plant.pv_config.to_dict(),
             "solcast": self._solcast_state(),
             "tariff": self._tariff_state(),
-            "panel_runtime": get_panel_disk_info(),
+            "panel_runtime": get_panel_disk_info(self.hass),
             "settings": {
                 "max_soc": self._entity_float("max_soc"),
                 "min_soc": self._entity_float("min_soc"),

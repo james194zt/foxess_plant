@@ -102,7 +102,7 @@ def _panel_js_build() -> str:
     return f"{_panel_js_version()}-{_panel_js_fingerprint()}"
 
 
-def get_panel_disk_info() -> dict[str, str]:
+def _compute_panel_disk_info() -> dict[str, str]:
     """Manifest + JS build read from disk (for stale-panel detection in the UI)."""
     info: dict[str, str] = {
         "manifest_version": _panel_js_version(),
@@ -116,6 +116,22 @@ def get_panel_disk_info() -> dict[str, str]:
     return info
 
 
+def get_panel_disk_info(hass: HomeAssistant | None = None) -> dict[str, str]:
+    """Return cached panel build info when available (avoids disk I/O on websocket polls)."""
+    if hass is not None:
+        cached = hass.data.get(_PANEL_DISK_INFO_KEY)
+        if isinstance(cached, dict):
+            return dict(cached)
+    return _compute_panel_disk_info()
+
+
+def _prepare_panel_assets() -> dict[str, str]:
+    """Sync disk work for panel registration (run in executor)."""
+    _sync_versioned_panel_js()
+    return _compute_panel_disk_info()
+
+
+_PANEL_DISK_INFO_KEY = "_foxess_plant_panel_disk_info"
 _REGISTERED_BUILD_KEY = "_foxess_plant_panel_registered_build"
 
 
@@ -203,7 +219,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     if not await _async_ensure_static_paths(hass):
         return
 
-    _sync_versioned_panel_js()
+    hass.data[_PANEL_DISK_INFO_KEY] = await hass.async_add_executor_job(_prepare_panel_assets)
 
     config = _build_frontend_panel_config(hass)
     build = config.get("panel_js_build", "?")
@@ -223,7 +239,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         update=False,
         config_panel_domain=DOMAIN,
     )
-    _LOGGER.warning(
+    _LOGGER.info(
         "Fox Plant panel %s at /%s (element=%s js build=%s url=%s) — "
         "if the browser still shows an old build, restart HA or call foxess_plant.reload_panel",
         "re-registered" if existed else "registered",
