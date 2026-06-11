@@ -192,6 +192,19 @@ def _next_sunrise_local(hass: HomeAssistant, after: datetime) -> datetime | None
     return None
 
 
+def _next_poll_after_quota_reset(hass: HomeAssistant, solcast: SolcastConfig) -> datetime:
+    """When quota resets at UTC midnight, when the next automatic poll can run."""
+    tomorrow = dt_util.utcnow().date() + timedelta(days=1)
+    reset_at_utc = datetime.combine(tomorrow, time.min, tzinfo=dt_util.UTC)
+    if solcast.auto_update == SOLCAST_AUTO_UPDATE_ALL_DAY:
+        return reset_at_utc
+    reset_local = dt_util.as_local(reset_at_utc)
+    next_sun = _next_sunrise_local(hass, reset_local)
+    if next_sun:
+        return dt_util.as_utc(next_sun)
+    return reset_at_utc
+
+
 def solcast_next_fetch(
     hass: HomeAssistant,
     solcast: SolcastConfig,
@@ -205,7 +218,13 @@ def solcast_next_fetch(
     if not can_consume_api(solcast, pv_calls):
         tomorrow = dt_util.utcnow().date() + timedelta(days=1)
         reset_at = datetime.combine(tomorrow, time.min, tzinfo=dt_util.UTC)
-        return {"at": reset_at.isoformat(), "status": "quota_exhausted"}
+        poll_at = _next_poll_after_quota_reset(hass, solcast)
+        return {
+            "at": reset_at.isoformat(),
+            "reset_at": reset_at.isoformat(),
+            "poll_at": poll_at.isoformat(),
+            "status": "quota_exhausted",
+        }
 
     schedule = solcast_poll_schedule(hass, solcast, pv_calls=pv_calls)
     if not schedule.get("in_window", True):
@@ -301,6 +320,10 @@ def solcast_status_dict(
             if next_fetch:
                 out["next_fetch_at"] = next_fetch.get("at")
                 out["next_fetch_status"] = next_fetch.get("status")
+                if next_fetch.get("reset_at"):
+                    out["next_fetch_reset_at"] = next_fetch.get("reset_at")
+                if next_fetch.get("poll_at"):
+                    out["next_fetch_poll_at"] = next_fetch.get("poll_at")
     if cache:
         out["cache_updated_at"] = cache.get("updated_at")
         pv_parsed = cache.get("pv_forecast_parsed")

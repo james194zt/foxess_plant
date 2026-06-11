@@ -763,6 +763,13 @@ function formatSolcastTimestamp(iso) {
   return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "medium" });
 }
 
+function formatSolcastTimeOnly(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
+
 function formatSolcastNextFetch(sc) {
   const status = sc?.next_fetch_status;
   if (status === "disabled") return "Off";
@@ -772,7 +779,17 @@ function formatSolcastNextFetch(sc) {
   }
   const when = formatSolcastTimestamp(sc.next_fetch_at);
   if (status === "due_now") return `${when} (due now)`;
-  if (status === "quota_exhausted") return `${when} (quota resets)`;
+  if (status === "quota_exhausted") {
+    const resetWhen = formatSolcastTimestamp(sc.next_fetch_reset_at || sc.next_fetch_at);
+    const pollAt = sc.next_fetch_poll_at;
+    const schedule = sc.poll_schedule;
+    const sunriseIso = pollAt || schedule?.sunrise;
+    if (schedule?.mode === "all_day" || !sunriseIso) {
+      return `Quota resets ${resetWhen}`;
+    }
+    const sunriseWhen = formatSolcastTimeOnly(sunriseIso);
+    return `Quota resets ${resetWhen} · next poll at sunrise (${sunriseWhen})`;
+  }
   if (status === "before_sunrise") return `${when} (at sunrise)`;
   if (status === "after_sunset") return `${when} (next sunrise)`;
   return when;
