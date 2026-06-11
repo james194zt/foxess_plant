@@ -251,7 +251,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.204";
+const PANEL_VERSION = "0.9.205";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */

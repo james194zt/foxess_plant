@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
+
+_LOGGER = logging.getLogger(__name__)
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
@@ -99,6 +102,35 @@ def _merge_snapshots(
             if len(rows) >= 2:
                 merged[float(fetched_ms)] = rows
     return sorted(merged.items(), key=lambda item: item[0])
+
+
+def collect_revision_snapshots(
+    hass: HomeAssistant | None,
+    stored: dict[str, Any] | None,
+    current_cache: dict[str, Any] | None,
+    day_start_ms: float,
+    *,
+    entry_id: str | None = None,
+    memory_snapshots: list[tuple[float, list[dict[str, Any]]]] | None = None,
+) -> list[tuple[float, list[dict[str, Any]]]]:
+    """Revision poll snapshots from storage, in-memory history, and recorder."""
+    storage_snaps = collect_storage_snapshots(stored, current_cache, day_start_ms)
+    recorder_snaps: list[tuple[float, list[dict[str, Any]]]] = []
+    if hass is not None and entry_id:
+        day_start = dt_util.as_local(_utc_from_timestamp(day_start_ms / 1000))
+        day_end = day_start + timedelta(days=1)
+        entity_id = find_solcast_forecast_entity(hass, entry_id)
+        if entity_id:
+            try:
+                recorder_snaps = collect_recorder_snapshots(
+                    hass, entity_id, day_start, day_end
+                )
+            except Exception:
+                _LOGGER.debug(
+                    "Recorder Solcast forecast snapshots unavailable",
+                    exc_info=True,
+                )
+    return _merge_snapshots(storage_snaps, list(memory_snapshots or []), recorder_snaps)
 
 
 def collect_storage_snapshots(
@@ -321,13 +353,23 @@ def build_forecast_intraday_chart(
     hass: HomeAssistant | None,
     stored: dict[str, Any] | None,
     current_cache: dict[str, Any] | None,
+    *,
+    entry_id: str | None = None,
+    memory_snapshots: list[tuple[float, list[dict[str, Any]]]] | None = None,
 ) -> list[dict[str, float]]:
     """Chart points for today: past slots use the forecast known at that time."""
     now = dt_util.now()
     day_start = dt_util.start_of_local_day(now)
     day_start_ms = day_start.timestamp() * 1000
     now_ms = now.timestamp() * 1000
-    snapshots = collect_storage_snapshots(stored, current_cache, day_start_ms)
+    snapshots = collect_revision_snapshots(
+        hass,
+        stored,
+        current_cache,
+        day_start_ms,
+        entry_id=entry_id,
+        memory_snapshots=memory_snapshots,
+    )
     return build_forecast_intraday_chart_for_range(
         snapshots=snapshots,
         day_start_ms=day_start_ms,
@@ -346,15 +388,23 @@ def _overlay_future_point_count(
 def _append_intraday_future_tail(
     merged: dict[float, float],
     *,
-    hass: HomeAssistant,
+    hass: HomeAssistant | None,
     stored: dict[str, Any] | None,
     current_cache: dict[str, Any] | None,
     as_of_ms: float,
     day_start_ms: float,
     t_max_ms: float,
+    entry_id: str | None = None,
+    memory_snapshots: list[tuple[float, list[dict[str, Any]]]] | None = None,
 ) -> list[dict[str, float]]:
     """Fill forecast slots after *as_of_ms* when revision history only covered the past."""
-    for point in build_forecast_intraday_chart(hass, stored, current_cache):
+    for point in build_forecast_intraday_chart(
+        hass,
+        stored,
+        current_cache,
+        entry_id=entry_id,
+        memory_snapshots=memory_snapshots,
+    ):
         t = float(point["t"])
         if t > as_of_ms and day_start_ms <= t <= t_max_ms:
             merged.setdefault(t, float(point["v"]))
@@ -363,7 +413,14 @@ def _append_intraday_future_tail(
         [{"t": t, "v": v} for t, v in merged.items()], as_of_ms
     ) < 2:
         detailed_rows = _detailed_rows(current_cache)
-        snapshots = collect_storage_snapshots(stored, current_cache, day_start_ms)
+        snapshots = collect_revision_snapshots(
+            hass,
+            stored,
+            current_cache,
+            day_start_ms,
+            entry_id=entry_id,
+            memory_snapshots=memory_snapshots,
+        )
         if len(detailed_rows) < 2 and snapshots:
             detailed_rows = snapshots[-1][1]
         if len(detailed_rows) >= 2:
@@ -393,6 +450,9 @@ def _fill_revision_past_merged(
     current_cache: dict[str, Any] | None,
     day_start_ms: float,
     as_of_ms: float,
+    hass: HomeAssistant | None = None,
+    entry_id: str | None = None,
+    memory_snapshots: list[tuple[float, list[dict[str, Any]]]] | None = None,
 ) -> None:
     """Ensure revision-style past slots exist through *as_of_ms*."""
     if sum(1 for t in merged if t <= as_of_ms) >= 2:
@@ -409,16 +469,25 @@ def _fill_revision_past_merged(
                 merged.setdefault(t, float(point["v"]))
     if sum(1 for t in merged if t <= as_of_ms) >= 2:
         return
-    for point in build_forecast_intraday_chart(None, stored, current_cache):
+    for point in build_forecast_intraday_chart(
+        hass,
+        stored,
+        current_cache,
+        entry_id=entry_id,
+        memory_snapshots=memory_snapshots,
+    ):
         t = float(point["t"])
         if t <= as_of_ms:
             merged.setdefault(t, float(point["v"]))
 
 
 def build_statistics_forecast_overlay(
-    hass: HomeAssistant,
+    hass: HomeAssistant | None,
     stored: dict[str, Any] | None,
     current_cache: dict[str, Any] | None,
+    *,
+    entry_id: str | None = None,
+    memory_snapshots: list[tuple[float, list[dict[str, Any]]]] | None = None,
 ) -> list[dict[str, float]]:
     """Statistics chart: revision past + cached detailed forecast slots through midnight."""
     now = dt_util.now()
@@ -427,7 +496,14 @@ def build_statistics_forecast_overlay(
     as_of_ms = now.timestamp() * 1000
     t_max_ms = day_start_ms + 24 * 60 * 60 * 1000
 
-    snapshots = collect_storage_snapshots(stored, current_cache, day_start_ms)
+    snapshots = collect_revision_snapshots(
+        hass,
+        stored,
+        current_cache,
+        day_start_ms,
+        entry_id=entry_id,
+        memory_snapshots=memory_snapshots,
+    )
     detailed_rows = _detailed_rows(current_cache)
     if len(detailed_rows) < 2 and snapshots:
         detailed_rows = snapshots[-1][1]
@@ -465,6 +541,9 @@ def build_statistics_forecast_overlay(
             current_cache=current_cache,
             day_start_ms=day_start_ms,
             as_of_ms=as_of_ms,
+            hass=hass,
+            entry_id=entry_id,
+            memory_snapshots=memory_snapshots,
         )
         points = [
             {"t": t, "v": v}
@@ -481,9 +560,17 @@ def build_statistics_forecast_overlay(
             as_of_ms=as_of_ms,
             day_start_ms=day_start_ms,
             t_max_ms=t_max_ms,
+            entry_id=entry_id,
+            memory_snapshots=memory_snapshots,
         )
 
-    points = build_forecast_intraday_chart(hass, stored, current_cache)
+    points = build_forecast_intraday_chart(
+        hass,
+        stored,
+        current_cache,
+        entry_id=entry_id,
+        memory_snapshots=memory_snapshots,
+    )
     if len(points) >= 2:
         return points
 

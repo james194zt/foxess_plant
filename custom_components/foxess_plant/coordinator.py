@@ -38,6 +38,7 @@ from .const import (
     CONF_STORM_PREP,
     CONF_TARIFF,
     IDENTITY_ENTITY_SUFFIXES,
+    SOLCAST_FORECAST_HISTORY_MAX,
     EVENT_BASELINE_RESTORED,
     EVENT_CONTROL_DRIFT,
     EVENT_EXTERNAL_WRITE,
@@ -105,6 +106,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._solcast_stored_snapshot: dict[str, Any] = {}
         self._solcast_history_count = 0
         self._solcast_forecast_chart_points: list[dict[str, float]] = []
+        self._solcast_memory_snapshots: list[tuple[float, list[dict[str, Any]]]] = []
         self._solcast_refresh_lock = asyncio.Lock()
         self._solcast_store_lock = asyncio.Lock()
         self._tariff_store = None
@@ -129,25 +131,128 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return stored
         return self._solcast_stored_snapshot
 
+    def _append_solcast_memory_snapshot(self) -> None:
+        """Keep in-memory poll history when .storage reads fail."""
+        rows = self._solcast_detailed_forecast_rows()
+        if len(rows) < 2:
+            return
+        from .solcast_forecast_chart import _parse_fetched_at_ms
+
+        fetched_ms = _parse_fetched_at_ms(
+            self._solcast_cache.get("updated_at")
+            or self._solcast_cache.get("pv_forecast_fetched_at")
+        )
+        if fetched_ms is None:
+            fetched_ms = time.time() * 1000
+        key = float(fetched_ms)
+        rows_copy = list(rows)
+        for index, (ms, _) in enumerate(self._solcast_memory_snapshots):
+            if abs(ms - key) < 1000:
+                self._solcast_memory_snapshots[index] = (key, rows_copy)
+                return
+        self._solcast_memory_snapshots.append((key, rows_copy))
+        if len(self._solcast_memory_snapshots) > SOLCAST_FORECAST_HISTORY_MAX:
+            self._solcast_memory_snapshots = self._solcast_memory_snapshots[
+                -SOLCAST_FORECAST_HISTORY_MAX:
+            ]
+
+    def _restore_solcast_memory_from_stored(self, stored: dict[str, Any]) -> None:
+        """Rebuild in-memory poll history after a successful .storage load."""
+        from .solcast_forecast_chart import _detailed_rows, _parse_fetched_at_ms
+        from .solcast_store import _snapshot_has_forecast
+
+        merged: dict[float, list[dict[str, Any]]] = {}
+        history = stored.get("history") if isinstance(stored, dict) else None
+        if isinstance(history, list):
+            for item in history:
+                if not isinstance(item, dict):
+                    continue
+                cache = item.get("cache")
+                if not _snapshot_has_forecast(cache):
+                    continue
+                fetched_ms = _parse_fetched_at_ms(item.get("fetched_at"))
+                if fetched_ms is None:
+                    fetched_ms = _parse_fetched_at_ms(
+                        (cache or {}).get("updated_at")
+                        or (cache or {}).get("pv_forecast_fetched_at")
+                    )
+                rows = _detailed_rows(cache)
+                if fetched_ms is not None and len(rows) >= 2:
+                    merged[float(fetched_ms)] = list(rows)
+        if _snapshot_has_forecast(self._solcast_cache):
+            fetched_ms = _parse_fetched_at_ms(
+                self._solcast_cache.get("updated_at")
+                or self._solcast_cache.get("pv_forecast_fetched_at")
+            )
+            rows = self._solcast_detailed_forecast_rows()
+            if fetched_ms is not None and len(rows) >= 2:
+                merged[float(fetched_ms)] = list(rows)
+        self._solcast_memory_snapshots = sorted(merged.items(), key=lambda item: item[0])[
+            -SOLCAST_FORECAST_HISTORY_MAX:
+        ]
+
+    def _stored_from_memory_snapshots(self) -> dict[str, Any]:
+        """Synthesize a .storage-shaped document from in-memory poll history."""
+        from homeassistant.util import dt as dt_util
+
+        from .solcast_forecast_chart import _utc_from_timestamp
+
+        if not self._solcast_memory_snapshots:
+            return {}
+        history: list[dict[str, Any]] = []
+        for fetched_ms, rows in self._solcast_memory_snapshots:
+            when = dt_util.as_local(_utc_from_timestamp(fetched_ms / 1000))
+            fetched_at = when.isoformat()
+            history.append(
+                {
+                    "fetched_at": fetched_at,
+                    "cache": {
+                        "updated_at": fetched_at,
+                        "pv_forecast_parsed": {"detailed_forecast": list(rows)},
+                    },
+                }
+            )
+        current = self._solcast_cache if self._solcast_detailed_forecast_rows() else None
+        return {
+            "version": 1,
+            "current": current,
+            "history": history,
+            "daily_intraday": dict(
+                (self._solcast_stored_snapshot or {}).get("daily_intraday") or {}
+            ),
+        }
+
     async def _async_load_solcast_store_document(self) -> dict[str, Any]:
         """Load HA .storage under lock; returns last good snapshot on failure."""
         if self._solcast_stored_snapshot:
             return self._solcast_stored_snapshot
         if not await self._ensure_solcast_store():
+            if self._solcast_memory_snapshots:
+                return self._remember_solcast_stored(self._stored_from_memory_snapshots())
             return {}
         async with self._solcast_store_lock:
             if self._solcast_stored_snapshot:
                 return self._solcast_stored_snapshot
-            try:
-                stored = await self._solcast_store.async_load()
-                return self._remember_solcast_stored(
-                    stored if isinstance(stored, dict) else {}
-                )
-            except Exception:
-                _LOGGER.exception("Solcast forecast store read failed")
-                self._solcast_storage_load_failed = True
-                self._solcast_storage_last_fail_monotonic = time.monotonic()
-                return self._solcast_stored_snapshot
+            for attempt in range(2):
+                try:
+                    stored = await self._solcast_store.async_load()
+                    stored = stored if isinstance(stored, dict) else {}
+                    self._solcast_storage_load_failed = False
+                    remembered = self._remember_solcast_stored(stored)
+                    self._restore_solcast_memory_from_stored(remembered)
+                    return remembered
+                except Exception:
+                    if attempt == 0:
+                        await asyncio.sleep(0.05)
+                        continue
+                    _LOGGER.exception("Solcast forecast store read failed")
+                    self._solcast_storage_load_failed = True
+                    self._solcast_storage_last_fail_monotonic = time.monotonic()
+                    if self._solcast_memory_snapshots:
+                        return self._remember_solcast_stored(
+                            self._stored_from_memory_snapshots()
+                        )
+                    return self._solcast_stored_snapshot
 
     async def async_read_solcast_stored(self) -> dict[str, Any]:
         """Read HA .storage document; never raises (websocket-safe)."""
@@ -178,7 +283,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         stored = await self._async_load_solcast_store_document()
-        self._remember_solcast_stored(stored)
+        stored = self._remember_solcast_stored(stored)
+        if stored:
+            self._restore_solcast_memory_from_stored(stored)
 
         try:
             self._solcast_cache = cache_from_storage(stored)
@@ -462,15 +569,22 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         if stored is None:
             stored = await self._async_load_solcast_store_document()
-        if not stored and len(self._solcast_detailed_forecast_rows()) < 2:
+        if (
+            not stored
+            and not self._solcast_memory_snapshots
+            and len(self._solcast_detailed_forecast_rows()) < 2
+        ):
             self._solcast_forecast_chart_points = []
             return
 
-        def _build_chart() -> list[dict[str, float]]:
-            return build_forecast_intraday_chart(None, stored, self._solcast_cache)
-
-        self._solcast_forecast_chart_points = await self.hass.async_add_executor_job(
-            _build_chart
+        entry_id = self.config_entry.entry_id
+        memory_snapshots = list(self._solcast_memory_snapshots)
+        self._solcast_forecast_chart_points = build_forecast_intraday_chart(
+            self.hass,
+            stored,
+            self._solcast_cache,
+            entry_id=entry_id,
+            memory_snapshots=memory_snapshots,
         )
 
     def _solcast_detailed_forecast_rows(self) -> list[dict[str, Any]]:
@@ -640,6 +754,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 _LOGGER.exception("Solcast PV forecast fetch failed")
                 return
             if self._solcast_cache.get("pv_forecast_parsed"):
+                self._append_solcast_memory_snapshot()
                 if await self._ensure_solcast_store():
                     try:
                         async with self._solcast_store_lock:
@@ -648,10 +763,18 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                     self._solcast_cache
                                 )
                             )
-                            stored = await self._solcast_store.async_load()
-                            self._remember_solcast_stored(
-                                stored if isinstance(stored, dict) else {}
-                            )
+                            try:
+                                stored = await self._solcast_store.async_load()
+                                self._remember_solcast_stored(
+                                    stored if isinstance(stored, dict) else {}
+                                )
+                            except Exception:
+                                _LOGGER.exception(
+                                    "Solcast forecast store read failed after persist"
+                                )
+                                self._remember_solcast_stored(
+                                    self._stored_from_memory_snapshots()
+                                )
                         await self._safe_archive_solcast_daily_forecasts()
                         _LOGGER.debug(
                             "Persisted Solcast forecast to storage (%s periods)",

@@ -364,9 +364,21 @@ def _predicted_kw_for_accuracy_day(
     *,
     entry_id: str | None,
     is_today: bool,
+    memory_snapshots: list[tuple[float, list[dict[str, Any]]]] | None = None,
 ) -> list[dict[str, float]]:
     """Predicted kW series; recorder failures must not break the whole report."""
     if is_today:
+        from .solcast_forecast_chart import build_forecast_intraday_chart
+
+        predicted_kw = build_forecast_intraday_chart(
+            hass,
+            stored,
+            current_cache,
+            entry_id=entry_id,
+            memory_snapshots=memory_snapshots,
+        )
+        if len(predicted_kw) >= 2:
+            return predicted_kw
         predicted_kw = build_forecast_intraday_chart_for_day(
             hass,
             stored,
@@ -464,6 +476,7 @@ def build_forecast_accuracy_report(
     *,
     entry_id: str | None = None,
     storm_prep: Any | None = None,
+    memory_snapshots: list[tuple[float, list[dict[str, Any]]]] | None = None,
 ) -> dict[str, Any]:
     """Actual vs Solcast forecast with per-poll revision history for one local day."""
     day_start, day_end, day_start_ms, day_end_ms = _day_bounds(target_day)
@@ -502,6 +515,7 @@ def build_forecast_accuracy_report(
         target_day,
         entry_id=entry_id,
         is_today=is_today,
+        memory_snapshots=memory_snapshots,
     )
     predicted_in_range = [p for p in predicted_kw if p["t"] <= as_of_ms]
     predicted_cumulative = _integrate_kw_to_cumulative(predicted_in_range, day_start_ms, as_of_ms)
