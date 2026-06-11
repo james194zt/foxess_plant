@@ -2720,9 +2720,10 @@ ${body}
 
 async function fetchDeviceRealtimeChartSeries(hass, plant, plantState, { dayOffset = 0 } = {}) {
   const map = resolveEntityMap(hass, plant, plantState);
-  const specs = DEVICE_REALTIME_CHART_SERIES.map((s) => ({ ...s, entity_id: map[s.key] })).filter(
-    (s) => s.entity_id
-  );
+  const specs = DEVICE_REALTIME_CHART_SERIES.map((s) => {
+    const candidates = chartEntityCandidates(hass, map, s.key);
+    return { ...s, entity_id: candidates[0] || null };
+  }).filter((s) => s.entity_id);
   if (!specs.length) {
     return { empty: "Map inverter power entities in FoxESS Modbus, then reload FoxESS Plant." };
   }
@@ -2733,21 +2734,29 @@ async function fetchDeviceRealtimeChartSeries(hass, plant, plantState, { dayOffs
   const fetchEnd = new Date(range.nowMs);
   const start = new Date(range.tMin);
   const socId = map.battery_soc;
-  const entityIds = [...new Set([...specs.map((s) => s.entity_id), socId].filter(Boolean))];
+  const entityIds = [
+    ...new Set(
+      [...specs.flatMap((s) => chartEntityCandidates(hass, map, s.key)), socId].filter(Boolean)
+    ),
+  ];
   const [statsMap, hist] = await Promise.all([
     fetchStatisticsDuring(hass, entityIds, start, fetchEnd),
     fetchHistoryDuring(hass, entityIds, start, fetchEnd),
   ]);
-  const series = specs.map((spec) => ({
-    id: spec.key,
-    label: spec.label,
-    tooltipLabel: spec.label,
-    legendGroup: spec.legendGroup,
-    color: spec.color,
-    fill: spec.fill,
-    lineWidth: spec.lineWidth,
-    points: buildStatisticsSeriesPoints(hass, spec.entity_id, spec, range, statsMap, hist),
-  }));
+  const series = specs.map((spec) => {
+    const built = buildChartSeriesPointsWithFallback(hass, map, spec.key, spec, range, statsMap, hist);
+    return {
+      id: spec.key,
+      label: spec.label,
+      tooltipLabel: spec.label,
+      legendGroup: spec.legendGroup,
+      color: spec.color,
+      fill: spec.fill,
+      lineWidth: spec.lineWidth,
+      entity_id: built.entityId,
+      points: built.points,
+    };
+  });
   let socSeries = null;
   if (socId) {
     const socPoints = buildSocHistoryPoints(hass, socId, range, statsMap, hist);
@@ -3663,7 +3672,7 @@ function endOfLocalDay(d) {
 const CHART_ENTITY_FALLBACKS = {
   pv1_power: ["pv1_power"],
   pv2_power: ["pv2_power"],
-  pv_power: ["pv_power_now", "pv_power_evo_10", "pv_power", "pv_power_total", "pv1_power"],
+  pv_power: ["pv_power_evo_10", "pv_power_now", "pv_power", "pv_power_total", "pv1_power"],
   battery_soc: ["battery_soc_1", "battery_soc"],
   battery_charge: ["battery_charge_1", "battery_charge"],
   battery_discharge: ["battery_discharge_1", "battery_discharge"],
@@ -3692,7 +3701,7 @@ const DEVICE_ENTITY_FALLBACKS = {
   pv4_voltage: ["pv4_voltage"],
   pv4_current: ["pv4_current"],
   pv4_power: ["pv4_power"],
-  pv_power: ["pv_power_now", "pv_power_evo_10", "pv_power", "pv_power_total", "pv1_power"],
+  pv_power: ["pv_power_evo_10", "pv_power_now", "pv_power", "pv_power_total", "pv1_power"],
   battery_power: ["invbatpower_1", "invbatpower", "battery_power"],
   solar_energy_today: ["solar_energy_today"],
   solar_energy_total: ["solar_energy_total"],
@@ -4329,7 +4338,10 @@ function entityValueToKw(hass, entityId, value) {
     .toLowerCase()
     .replace(/\s/g, "");
   if (unit === "kw") return value;
-  return value / 1000;
+  if (unit === "w") return value / 1000;
+  // foxess_modbus power sensors are kW; very large bare numbers are likely watts
+  if (Math.abs(value) > 500) return value / 1000;
+  return value;
 }
 
 const STATISTICS_SIGNED_EPS_KW = 0.05;
@@ -4862,6 +4874,119 @@ function statisticsPointsHaveSignal(points) {
   return (points || []).some((p) => Math.abs(p.v) > STATISTICS_SIGNED_EPS_KW);
 }
 
+function chartEntityCandidates(hass, map, key) {
+  const suffixes = CHART_ENTITY_FALLBACKS[key] || DEVICE_ENTITY_FALLBACKS[key] || [];
+  const seen = new Set();
+  const out = [];
+  const primary = map?.[key];
+  if (primary) {
+    seen.add(primary);
+    out.push(primary);
+  }
+  if (!hass?.states) return out;
+  for (const suffix of suffixes) {
+    for (const id of Object.keys(hass.states)) {
+      if (!seen.has(id) && entityIdMatchesSuffix(id, suffix)) {
+        seen.add(id);
+        out.push(id);
+      }
+    }
+  }
+  return out;
+}
+
+function buildChartSeriesPointsWithFallback(hass, map, key, spec, range, statsMap, hist) {
+  const candidates = chartEntityCandidates(hass, map, key);
+  let best = [];
+  let bestId = candidates[0] || null;
+  for (const entityId of candidates) {
+    const pts = buildStatisticsSeriesPoints(hass, entityId, spec, range, statsMap, hist);
+    if (statisticsPointsHaveSignal(pts)) {
+      return { entityId, points: pts };
+    }
+    if (pts.length > best.length) {
+      best = pts;
+      bestId = entityId;
+    }
+  }
+  return { entityId: bestId, points: best };
+}
+
+/** Fill every 5-minute bucket so idle series draw a flat zero line, not isolated blobs. */
+function densifyStatisticsPoints(points, range) {
+  const period = STATISTICS_PERIOD_MS;
+  const byTime = new Map();
+  for (const p of points || []) {
+    if (!Number.isFinite(p.t)) continue;
+    const bucket = range.tMin + Math.floor((p.t - range.tMin) / period) * period;
+    byTime.set(bucket, p.v);
+  }
+  const out = [];
+  for (let t = range.tMin; t <= range.nowMs; t += period) {
+    out.push({ t, v: byTime.has(t) ? byTime.get(t) : 0 });
+  }
+  return out.length ? out : [...(points || [])];
+}
+
+function mergeGridImportExportPoints(importPts, exportPts, range) {
+  const period = STATISTICS_PERIOD_MS;
+  const byTime = new Map();
+  const stamp = (pts) => {
+    for (const p of pts || []) {
+      if (!Number.isFinite(p.t)) continue;
+      const bucket = range.tMin + Math.floor((p.t - range.tMin) / period) * period;
+      byTime.set(bucket, (byTime.get(bucket) || 0) + p.v);
+    }
+  };
+  stamp(importPts);
+  stamp(exportPts);
+  const out = [];
+  for (let t = range.tMin; t <= range.nowMs; t += period) {
+    out.push({ t, v: byTime.get(t) ?? 0 });
+  }
+  return out;
+}
+
+function finalizeStatisticsChartSeries(series, range) {
+  const out = [];
+  let gridImport = null;
+  let gridExport = null;
+  for (const s of series) {
+    if (s.id === "grid_import") {
+      gridImport = s;
+      continue;
+    }
+    if (s.id === "grid_export") {
+      gridExport = s;
+      continue;
+    }
+    if (s.id === "pv_power") {
+      out.push({
+        ...s,
+        connectGaps: true,
+        points: densifyStatisticsPoints(s.points, range),
+      });
+      continue;
+    }
+    out.push(s);
+  }
+  if (gridImport || gridExport) {
+    out.push({
+      id: "grid_net",
+      label: "Grid",
+      tooltipLabel: "Grid",
+      legendGroup: "grid",
+      color: "#FF6FAF",
+      fillColor: "rgba(255,111,175,0.14)",
+      fill: true,
+      lineWidth: 1.2,
+      connectGaps: true,
+      points: mergeGridImportExportPoints(gridImport?.points, gridExport?.points, range),
+    });
+  }
+  return out;
+}
+
 function statisticsRawPointsForEntity(entityId, range, statsMap, hist) {
   const statRows = statsMap?.[entityId];
   let statPoints = [];
@@ -5240,9 +5365,10 @@ function bindBatterySocChart(root, chart) {
 
 async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset = 0 } = {}) {
   const map = resolveEntityMap(hass, plant, plantState);
-  const specs = STATISTICS_CHART_SERIES.map((s) => ({ ...s, entity_id: map[s.key] })).filter(
-    (s) => s.entity_id
-  );
+  const specs = STATISTICS_CHART_SERIES.map((s) => {
+    const candidates = chartEntityCandidates(hass, map, s.key);
+    return { ...s, entity_id: candidates[0] || null };
+  }).filter((s) => s.entity_id);
   if (!specs.length) {
     return { empty: "Map power entities in FoxESS Modbus, then reload FoxESS Plant." };
   }
@@ -5262,23 +5388,34 @@ async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset =
   const fetchEnd = new Date(range.nowMs);
   const start = new Date(range.tMin);
   const socId = map.battery_soc;
-  const entityIds = [...new Set([...specs.map((s) => s.entity_id), socId].filter(Boolean))];
+  const entityIds = [
+    ...new Set(
+      [...specs.flatMap((s) => chartEntityCandidates(hass, map, s.key)), socId].filter(Boolean)
+    ),
+  ];
   const [statsMap, hist] = await Promise.all([
     fetchStatisticsDuring(hass, entityIds, start, fetchEnd),
     fetchHistoryDuring(hass, entityIds, start, fetchEnd),
   ]);
-  const series = specs.map((spec) => ({
-    id: spec.key,
-    label: spec.label,
-    tooltipLabel: spec.tooltipLabel,
-    legendGroup: spec.legendGroup,
-    color: spec.color,
-    fill: spec.fill,
-    fillColor: spec.fillColor,
-    hideLegend: spec.hideLegend,
-    lineWidth: spec.lineWidth,
-    points: buildStatisticsSeriesPoints(hass, spec.entity_id, spec, range, statsMap, hist),
-  }));
+  let series = finalizeStatisticsChartSeries(
+    specs.map((spec) => {
+      const built = buildChartSeriesPointsWithFallback(hass, map, spec.key, spec, range, statsMap, hist);
+      return {
+        id: spec.key,
+        label: spec.label,
+        tooltipLabel: spec.tooltipLabel,
+        legendGroup: spec.legendGroup,
+        color: spec.color,
+        fill: spec.fill,
+        fillColor: spec.fillColor,
+        hideLegend: spec.hideLegend,
+        lineWidth: spec.lineWidth,
+        entity_id: built.entityId,
+        points: built.points,
+      };
+    }),
+    range
+  );
   let socSeries = null;
   if (socId) {
     const socPoints = buildSocHistoryPoints(hass, socId, range, statsMap, hist);
