@@ -234,13 +234,9 @@ def build_forecast_intraday_chart_for_range(
             kw_fn = _kw_at_or_after
         else:
             rows = _snapshot_for_time(snapshots, slot)
-            if rows is None and snapshots:
-                rows = snapshots[0][1]
             kw_fn = _kw_at_time
         if rows:
             kw = kw_fn(rows, when)
-            if kw is None and not (include_future and slot > as_of_ms):
-                kw = _kw_at_or_after(rows, when)
             if kw is not None:
                 out.append({"t": float(slot), "v": float(kw)})
         slot += STATISTICS_PERIOD_MS
@@ -417,17 +413,6 @@ def _fill_revision_past_merged(
         t = float(point["t"])
         if t <= as_of_ms:
             merged.setdefault(t, float(point["v"]))
-    if sum(1 for t in merged if t <= as_of_ms) >= 2 or len(detailed_rows) < 2:
-        return
-    slot = int(day_start_ms)
-    while slot <= as_of_ms:
-        when = _utc_from_timestamp(slot / 1000)
-        kw = _kw_at_time(detailed_rows, when)
-        if kw is None:
-            kw = _kw_at_or_after(detailed_rows, when)
-        if kw is not None:
-            merged.setdefault(float(slot), float(kw))
-        slot += STATISTICS_PERIOD_MS
 
 
 def build_statistics_forecast_overlay(

@@ -251,7 +251,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.203";
+const PANEL_VERSION = "0.9.204";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -969,7 +969,7 @@ function buildStatisticsForecastPoints(
   const nowMs = range?.nowMs ?? Date.now();
   const detailedRows = resolveBestSolcastDetailedRows(plantState, forecastState, hass);
   const server = filterStatisticsForecastServerPoints(serverPoints, range);
-  const detailed = detailedForecastToChartPoints(detailedRows, range);
+  const detailed = detailedForecastToChartPoints(detailedRows, range, { extendFuture: true });
   const revisionPast = forecastRevisionPastPoints(
     plantState,
     forecastState,
@@ -1008,13 +1008,7 @@ function buildStatisticsForecastPoints(
         nowMs
       );
     } else if (forecastPastCount(fPoints) < 2) {
-      let basePast = revisionPast;
-      if (basePast.length < 2) {
-        basePast = detailed.filter((p) => p.t <= nowMs);
-      }
-      if (basePast.length < 2) {
-        basePast = statisticsForecastPastBase(fPoints, revisionPast, nowMs);
-      }
+      const basePast = statisticsForecastPastBase(fPoints, revisionPast, nowMs);
       if (basePast.length >= 2) {
         fPoints = stitchForecastPastWithFutureTail(basePast, fPoints, nowMs);
       }
@@ -1675,7 +1669,7 @@ function parseSolcastPeriodMs(raw) {
   return NaN;
 }
 
-function detailedForecastToChartPoints(rows, range) {
+function detailedForecastToChartPoints(rows, range, { extendFuture = false } = {}) {
   if (!Array.isArray(rows) || rows.length < 2) return [];
   const raw = rows
     .map((row) => {
@@ -1700,17 +1694,12 @@ function detailedForecastToChartPoints(rows, range) {
     allowBackfill: false,
   });
   const nowMs = range?.nowMs ?? Date.now();
-  if (out.length >= 2 && out[0].t > range.tMin + STATISTICS_PERIOD_MS) {
-    const intervals = buildSolcastIntervalSeries(rows);
-    const head = [];
-    for (let t = range.tMin; t < out[0].t; t += STATISTICS_PERIOD_MS) {
-      let v = solcastKwAtTime(rows, t);
-      if (v == null && intervals.length) v = intervals[0].v;
-      if (v != null) head.push({ t, v });
-    }
-    if (head.length) out = [...head, ...out];
-  }
-  if (out.length >= 2 && range.tMax > nowMs + STATISTICS_PERIOD_MS && !forecastHasFuturePoints(out, nowMs)) {
+  if (
+    extendFuture &&
+    out.length >= 2 &&
+    range.tMax > nowMs + STATISTICS_PERIOD_MS &&
+    !forecastHasFuturePoints(out, nowMs)
+  ) {
     const intervals = buildSolcastIntervalSeries(rows);
     const extra = [];
     for (let t = Math.max(out[out.length - 1].t + STATISTICS_PERIOD_MS, nowMs); t <= range.tMax; t += STATISTICS_PERIOD_MS) {
@@ -5856,17 +5845,21 @@ function renderStatisticsChartHtml(series, range, options = {}) {
     const clipped = s.points.filter((p) => p.t >= tMin && p.t <= clipEnd);
     let segmentGroups;
     if (isForecast && clipped.length >= 2) {
-      const past = clipped.filter((p) => p.t <= nowMs);
-      const future = clipped.filter((p) => p.t >= nowMs);
-      segmentGroups = [];
-      if (past.length >= 2) segmentGroups.push({ pts: past, dash: "" });
-      const futurePts =
-        past.length && past[past.length - 1].t < nowMs
-          ? [past[past.length - 1], ...future.filter((p) => p.t > past[past.length - 1].t)]
-          : future;
-      if (futurePts.length >= 2) segmentGroups.push({ pts: futurePts, dash: "5 4" });
-      else if (!past.length && future.length >= 2) segmentGroups.push({ pts: future, dash: "5 4" });
-      if (!segmentGroups.length) segmentGroups.push({ pts: clipped, dash: "" });
+      if (options.forecastFullDaySolid) {
+        segmentGroups = [{ pts: clipped, dash: "" }];
+      } else {
+        const past = clipped.filter((p) => p.t <= nowMs);
+        const future = clipped.filter((p) => p.t > nowMs + STATISTICS_PERIOD_MS * 0.5);
+        segmentGroups = [];
+        if (past.length >= 2) segmentGroups.push({ pts: past, dash: "" });
+        const futurePts =
+          past.length && past[past.length - 1].t < nowMs
+            ? [past[past.length - 1], ...future.filter((p) => p.t > past[past.length - 1].t)]
+            : future;
+        if (futurePts.length >= 2) segmentGroups.push({ pts: futurePts, dash: "5 4" });
+        else if (!past.length && future.length >= 2) segmentGroups.push({ pts: future, dash: "5 4" });
+        if (!segmentGroups.length) segmentGroups.push({ pts: clipped, dash: "" });
+      }
     } else {
       const segmentPoints = s.connectGaps ? [clipped] : splitStatisticsSegments(clipped);
       segmentGroups = segmentPoints.map((pts) => ({ pts, dash: "" }));
@@ -12092,6 +12085,7 @@ ${this._renderDeviceNewChartDateNav()}
       includeSoc: true,
       socSeries,
       legendFromSeries: true,
+      forecastFullDaySolid: dayOffset > 0,
     });
   }
 
@@ -12408,6 +12402,7 @@ ${body}
       return renderStatisticsChartHtml(series || [], range, {
         ...options,
         socSeries,
+        forecastFullDaySolid: dayOffset > 0,
       });
     }
     return `<p class="placeholder chart-empty">Open Analysis or wait for history to load.</p>`;
