@@ -255,7 +255,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.215";
+const PANEL_VERSION = "0.9.216";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -3158,7 +3158,7 @@ function buildEnergyBreakdownLoadRow(a) {
 
 function renderEnergyReportBalanceCard(a) {
   const data = foxAnalysisTopCardsData(a);
-  return `<div class="card fox-analysis-top-card fox-analysis-top-card--balance fox-report-balance-card">
+  return `<div class="card fox-report-balance-card">
 <div class="fox-analysis-balance-icon" aria-hidden="true">
 <svg viewBox="0 0 48 48"><circle cx="19" cy="24" r="13" fill="${FOX_ANALYSIS_SPLIT_COLORS.selfConsumption}" opacity="0.88"/><circle cx="29" cy="24" r="13" fill="${FOX_ANALYSIS_SPLIT_COLORS.export}" opacity="0.88"/></svg>
 </div>
@@ -8014,26 +8014,82 @@ const STYLES = `
 .fox-analysis-toolbar .energy-period-tabs { margin-bottom: 0; flex: 1 1 280px; }
 .fox-report-summary-row {
   display: grid;
-  grid-template-columns: minmax(120px, 0.9fr) minmax(0, 1.2fr) minmax(0, 1.2fr);
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.15fr) minmax(0, 1.15fr);
   gap: 12px;
   margin-bottom: 14px;
+  align-items: stretch;
+}
+.fox-report-summary-row > .card {
+  margin-bottom: 0;
+  padding: 14px 16px;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  align-self: stretch;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+.fox-report-balance-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 6px;
+}
+.fox-report-balance-card .fox-analysis-top-value {
+  margin-bottom: 0;
+  font-size: 26px;
+}
+.fox-report-balance-card .fox-analysis-balance-icon svg {
+  width: 46px;
+  height: 46px;
 }
 .fox-report-donut-card {
-  padding: 14px 16px 10px;
+  padding: 14px 16px;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+.fox-report-donut-card .fox-energy-panel--single {
+  display: block;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .fox-report-donut-card .fox-energy-panel--single .fox-energy-row {
-  grid-template-columns: minmax(0, 1fr) minmax(110px, 150px);
-  gap: 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 116px;
+  gap: 8px 14px;
+  align-items: center;
   padding: 0;
   border: none;
+  min-height: 0;
 }
 .fox-report-donut-card .fox-energy-panel--single .fox-energy-row + .fox-energy-row {
   margin-top: 0;
   padding-top: 0;
   border-top: none;
 }
-.fox-report-balance-card { min-height: 100%; }
+.fox-report-donut-card .fox-energy-heading {
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+.fox-report-donut-card .fox-energy-total {
+  font-size: 22px;
+  margin-bottom: 8px;
+}
+.fox-report-donut-card .fox-energy-metric {
+  margin-bottom: 6px;
+}
+.fox-report-donut-card .fox-energy-metric-value {
+  font-size: 17px;
+}
+.fox-report-donut-card .fox-energy-chart {
+  width: 116px;
+  height: 116px;
+  margin-left: 0;
+}
 .fox-report-details {
   margin-top: 14px;
   padding: 14px 16px 16px;
@@ -8083,7 +8139,12 @@ const STYLES = `
   padding: 14px 16px 8px;
 }
 @media (max-width: 960px) {
-  .fox-report-summary-row { grid-template-columns: 1fr; }
+  .fox-report-summary-row {
+    grid-template-columns: 1fr;
+  }
+  .fox-report-summary-row > .card {
+    min-height: 0;
+  }
 }
 .fox-analysis-toolbar .energy-date-nav { margin: 0; flex: 0 0 auto; }
 .fox-analysis-panels-row {
