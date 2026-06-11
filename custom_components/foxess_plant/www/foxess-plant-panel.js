@@ -1,14 +1,16 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.197
+ * @version 0.9.198
  */
+
+/** @deprecated Legacy device UI — not in nav (replaced by device_new). */
+const PANEL_VIEW_DEVICE_LEGACY = "device_legacy";
 
 const NAV = [
   { id: "overview", label: "Overview" },
-  { id: "device", label: "Device" },
-  { id: "device_new", label: "Devices (new)" },
-  { id: "energy_analysis", label: "Analysis" },
+  { id: "device_new", label: "Device" },
+  { id: "energy_analysis", label: "Energy Analysis" },
   { id: "settings", label: "Settings" },
 ];
 
@@ -91,6 +93,7 @@ const DEVICE_REALTIME_CHART_SERIES = [
 
 function normalizePanelView(view) {
   if (view === "energy") return "energy_analysis";
+  if (view === "device") return "device_new";
   return view;
 }
 
@@ -248,10 +251,10 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.197";
-/** Bump when Devices (new) Analysis DOM/CSS layout changes (forces full re-render). */
+const PANEL_VERSION = "0.9.198";
+/** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
-/** Extra .main max-width on Devices (new) ≈ sidebar column (280px) + layout gap (16px). */
+/** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
 const DEVICE_NEW_MAIN_WIDTH_EXTRA_PX = 296;
 /** Max wait for recorder/history websocket round-trips (prevents infinite loading spinners). */
 const HA_WS_TIMEOUT_MS = 90000;
@@ -11601,7 +11604,8 @@ ${this._renderOverviewAfterHero(plant)}`;
 </div>`;
   }
 
-  _renderDevice(plant) {
+  /** @deprecated Devices Legacy — use _renderDeviceNew. */
+  _renderDeviceLegacy(plant) {
     if (this._deviceSub === "system") {
       return `<button type="button" class="back-btn" data-action="device-back">← Device</button><header class="header"><h1>System info</h1><p>From Modbus (matches Fox app where confirmed)</p></header>${this._identityValueList(this._identityRows(plant))}`;
     }
@@ -11637,7 +11641,7 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
   }
 
   _isDeviceMainView() {
-    return this._view === "device" && this._deviceSub === "main";
+    return this._view === PANEL_VIEW_DEVICE_LEGACY && this._deviceSub === "main";
   }
 
   _renderDeviceLiveHtml(plant) {
@@ -14210,8 +14214,8 @@ ${active
     switch (this._view) {
       case "overview":
         return this._renderOverview(plant);
-      case "device":
-        return this._renderDevice(plant);
+      case PANEL_VIEW_DEVICE_LEGACY:
+        return this._renderDeviceLegacy(plant);
       case "device_new":
         return this._renderDeviceNew(plant);
       case "energy_analysis":
