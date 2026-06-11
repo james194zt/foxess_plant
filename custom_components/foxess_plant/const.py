@@ -384,6 +384,7 @@ DEFAULT_PV_STRING = {
     "efficiency_factor": 100.0,
     "tilt": 25,
     "azimuth": 180,
+    "installation_cost_minor": 0,
 }
 
 DEFAULT_SOLCAST = {

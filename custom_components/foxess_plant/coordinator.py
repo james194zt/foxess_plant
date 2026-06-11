@@ -213,6 +213,15 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 }
             )
         current = self._solcast_cache if self._solcast_detailed_forecast_rows() else None
+        if current is None and self._solcast_memory_snapshots:
+            fetched_ms, rows = self._solcast_memory_snapshots[-1]
+            when = dt_util.as_local(_utc_from_timestamp(fetched_ms / 1000))
+            fetched_at = when.isoformat()
+            current = {
+                "updated_at": fetched_at,
+                "pv_forecast_fetched_at": fetched_at,
+                "pv_forecast_parsed": {"detailed_forecast": list(rows)},
+            }
         return {
             "version": 1,
             "current": current,
@@ -221,6 +230,22 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 (self._solcast_stored_snapshot or {}).get("daily_intraday") or {}
             ),
         }
+
+    def _restore_solcast_cache_from_memory(self) -> bool:
+        """Rebuild coordinator forecast cache from in-memory poll history."""
+        from .solcast_store import _snapshot_has_forecast, cache_from_storage
+
+        if len(self._solcast_detailed_forecast_rows()) >= 2:
+            return True
+        if not self._solcast_memory_snapshots:
+            return False
+        stored = self._stored_from_memory_snapshots()
+        cache = cache_from_storage(stored)
+        if not _snapshot_has_forecast(cache):
+            return False
+        self._solcast_cache = cache
+        _LOGGER.debug("Restored Solcast forecast cache from in-memory poll history")
+        return True
 
     async def _async_load_solcast_store_document(self) -> dict[str, Any]:
         """Load HA .storage under lock; returns last good snapshot on failure."""
@@ -245,13 +270,16 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     if attempt == 0:
                         await asyncio.sleep(0.05)
                         continue
-                    _LOGGER.exception("Solcast forecast store read failed")
                     self._solcast_storage_load_failed = True
                     self._solcast_storage_last_fail_monotonic = time.monotonic()
                     if self._solcast_memory_snapshots:
+                        _LOGGER.warning(
+                            "Solcast forecast store read failed; using in-memory poll history"
+                        )
                         return self._remember_solcast_stored(
                             self._stored_from_memory_snapshots()
                         )
+                    _LOGGER.exception("Solcast forecast store read failed")
                     return self._solcast_stored_snapshot
 
     async def async_read_solcast_stored(self) -> dict[str, Any]:
@@ -289,6 +317,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         try:
             self._solcast_cache = cache_from_storage(stored)
+            if len(self._solcast_detailed_forecast_rows()) < 2:
+                self._restore_solcast_cache_from_memory()
             self._solcast_history_count = SolcastForecastStore.history_count(stored)
             self._solcast_storage_load_failed = False
             if self._solcast_detailed_forecast_rows():
@@ -316,7 +346,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             await self._archive_solcast_daily_forecasts()
         except Exception:
-            _LOGGER.exception("Solcast daily forecast archive failed")
+            _LOGGER.debug("Solcast daily forecast archive failed", exc_info=True)
 
     async def _archive_solcast_daily_forecasts(self) -> None:
         """Persist per-day forecast chart lines so Analysis can show past days."""
@@ -334,13 +364,28 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             use_recorder=False,
         )
         if updates:
-            async with self._solcast_store_lock:
-                await self._solcast_store.async_merge_daily_intraday(updates)
-                self._solcast_stored_snapshot = await self._solcast_store.async_load()
-            _LOGGER.debug(
-                "Archived Solcast daily forecast charts for %s",
-                ", ".join(sorted(updates.keys())),
-            )
+            try:
+                async with self._solcast_store_lock:
+                    await self._solcast_store.async_merge_daily_intraday(updates)
+                    try:
+                        loaded = await self._solcast_store.async_load()
+                        self._remember_solcast_stored(
+                            loaded if isinstance(loaded, dict) else {}
+                        )
+                    except Exception:
+                        synth = self._stored_from_memory_snapshots()
+                        if synth:
+                            self._remember_solcast_stored(synth)
+                        _LOGGER.debug(
+                            "Solcast daily archive store re-read skipped",
+                            exc_info=True,
+                        )
+                _LOGGER.debug(
+                    "Archived Solcast daily forecast charts for %s",
+                    ", ".join(sorted(updates.keys())),
+                )
+            except Exception:
+                _LOGGER.debug("Solcast daily forecast archive skipped", exc_info=True)
 
     async def _async_load_tariff_storage(self) -> None:
         from .tariff_store import TariffRateStore
@@ -417,7 +462,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             TARIFF_SOURCE_SCHEDULE,
             resolve_tariff_rates,
         )
-        from .tariff_schedule import scheduled_rates_at
+        from .tariff_rates import scheduled_rates_at
 
         tariff = self.plant.tariff
         scheduled = scheduled_rates_at(tariff)
@@ -651,16 +696,20 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return True
         return (time.monotonic() - self._solcast_storage_last_fail_monotonic) >= 300.0
 
-    async def async_ensure_solcast_cache(self) -> None:
-        """Load persisted forecast; poll when due if cache is empty or stale."""
-        if len(self._solcast_detailed_forecast_rows()) < 2 and self._solcast_storage_reload_due():
-            await self._async_load_solcast_storage()
+    async def async_ensure_solcast_cache(self, *, allow_poll: bool = True) -> None:
+        """Load persisted forecast; poll only on the normal schedule (never force on empty cache)."""
+        if len(self._solcast_detailed_forecast_rows()) < 2:
+            if self._solcast_storage_reload_due():
+                await self._async_load_solcast_storage()
+            if len(self._solcast_detailed_forecast_rows()) < 2:
+                self._restore_solcast_cache_from_memory()
+        if not allow_poll:
+            return
         if self._solcast_forecast_covers_now():
             return
-        cache_empty = len(self._solcast_detailed_forecast_rows()) < 2
-        if self._solcast_poll_due() or (cache_empty and self._solcast_pv_active()):
+        if self._solcast_poll_due():
             try:
-                await self._async_refresh_solcast_pv(force=cache_empty)
+                await self._async_refresh_solcast_pv(force=False)
             except Exception:
                 _LOGGER.exception("Opportunistic Solcast PV poll failed")
 
@@ -680,10 +729,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._async_refresh_storm_weather()
         except Exception as err:
             _LOGGER.warning("Initial storm weather sync failed: %s", err)
-        try:
-            await self._async_refresh_solcast_pv()
-        except Exception as err:
-            _LOGGER.warning("Initial Solcast PV poll failed: %s", err)
         try:
             if self._octopus_native_active():
                 await self._async_refresh_octopus()
@@ -763,18 +808,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                     self._solcast_cache
                                 )
                             )
-                            try:
-                                stored = await self._solcast_store.async_load()
-                                self._remember_solcast_stored(
-                                    stored if isinstance(stored, dict) else {}
-                                )
-                            except Exception:
-                                _LOGGER.exception(
-                                    "Solcast forecast store read failed after persist"
-                                )
-                                self._remember_solcast_stored(
-                                    self._stored_from_memory_snapshots()
-                                )
+                            synth = self._stored_from_memory_snapshots()
+                            if synth:
+                                self._remember_solcast_stored(synth)
                         await self._safe_archive_solcast_daily_forecasts()
                         _LOGGER.debug(
                             "Persisted Solcast forecast to storage (%s periods)",
@@ -783,7 +819,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             ),
                         )
                     except Exception:
-                        _LOGGER.exception("Solcast forecast persist failed after poll")
+                        synth = self._stored_from_memory_snapshots()
+                        if synth:
+                            self._remember_solcast_stored(synth)
+                        _LOGGER.warning(
+                            "Solcast forecast persist failed after poll; kept in-memory cache"
+                        )
                 try:
                     await self._rebuild_solcast_forecast_chart()
                 except Exception:

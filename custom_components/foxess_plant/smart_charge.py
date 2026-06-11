@@ -114,7 +114,7 @@ def rate_slots_from_schedule(
     *,
     horizon_hours: int = 30,
 ) -> list[RateSlot]:
-    from .tariff_schedule import scheduled_rates_at
+    from .tariff_rates import scheduled_rates_at
 
     now = dt_util.now()
     end = now + timedelta(hours=horizon_hours)

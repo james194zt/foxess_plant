@@ -60,6 +60,9 @@ PV_STRING_SCHEMA = vol.Schema(
         vol.Required("efficiency_factor"): vol.All(vol.Coerce(float), vol.Range(min=1, max=100)),
         vol.Required("tilt"): vol.All(vol.Coerce(int), vol.Range(min=0, max=90)),
         vol.Required("azimuth"): vol.All(vol.Coerce(int), vol.Range(min=0, max=359)),
+        vol.Optional("installation_cost_minor", default=0): vol.All(
+            vol.Coerce(float), vol.Range(min=0, max=99_999_999)
+        ),
     }
 )
 
@@ -326,7 +329,7 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             connection.send_error(msg["id"], err_code, err_msg)
             return
         try:
-            await coordinator.async_ensure_solcast_cache()
+            await coordinator.async_ensure_solcast_cache(allow_poll=False)
             connection.send_result(msg["id"], coordinator.get_plant_state())
         except Exception as err:
             _LOGGER.exception("plant_state websocket failed")
@@ -753,12 +756,14 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
         end_utc = dt_util.as_utc(end)
         entity_ids = list(msg["entity_ids"])
         result = await get_instance(hass).async_add_executor_job(
-            _fetch_history_points,
-            hass,
-            start_utc,
-            end_utc,
-            entity_ids,
-            msg.get("significant_changes_only", False),
+            partial(
+                _fetch_history_points,
+                hass,
+                start_utc,
+                end_utc,
+                entity_ids,
+                significant_changes_only=msg.get("significant_changes_only", False),
+            )
         )
         connection.send_result(msg["id"], result)
 
@@ -791,13 +796,15 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
         end_utc = dt_util.as_utc(end)
         entity_ids = list(msg["entity_ids"])
         result = await get_instance(hass).async_add_executor_job(
-            _fetch_statistics_points,
-            hass,
-            start_utc,
-            end_utc,
-            entity_ids,
-            period=msg.get("period", "5minute"),
-            statistic=msg.get("statistic", "mean"),
+            partial(
+                _fetch_statistics_points,
+                hass,
+                start_utc,
+                end_utc,
+                entity_ids,
+                period=msg.get("period", "5minute"),
+                statistic=msg.get("statistic", "mean"),
+            )
         )
         connection.send_result(msg["id"], result)
 
@@ -835,7 +842,7 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             stored = await coordinator.async_read_solcast_stored()
             local_today = dt_util.as_local(dt_util.utcnow()).date()
             if target_day == local_today:
-                await coordinator.async_ensure_solcast_cache()
+                await coordinator.async_ensure_solcast_cache(allow_poll=False)
                 if len(coordinator._solcast_forecast_chart_points) < 2:
                     await coordinator._rebuild_solcast_forecast_chart(stored=stored)
                 points = list(coordinator._solcast_forecast_chart_points)
@@ -886,7 +893,7 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
         from .solcast_forecast_chart import build_statistics_forecast_overlay
 
         try:
-            await coordinator.async_ensure_solcast_cache()
+            await coordinator.async_ensure_solcast_cache(allow_poll=False)
             stored = await coordinator.async_read_solcast_stored()
             if len(coordinator._solcast_forecast_chart_points) < 2:
                 await coordinator._rebuild_solcast_forecast_chart(stored=stored)
@@ -936,7 +943,7 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
         from .solcast_forecast_accuracy import build_forecast_accuracy_report
 
         try:
-            await coordinator.async_ensure_solcast_cache()
+            await coordinator.async_ensure_solcast_cache(allow_poll=False)
             stored = await coordinator.async_read_solcast_stored()
             job = partial(
                 build_forecast_accuracy_report,

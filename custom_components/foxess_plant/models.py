@@ -305,6 +305,7 @@ class PvStringConfig:
     efficiency_factor: float = 100.0
     tilt: int = 25
     azimuth: int = 180
+    installation_cost_minor: float = 0.0
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], *, defaults: dict[str, Any] | None = None) -> PvStringConfig:
@@ -337,6 +338,13 @@ class PvStringConfig:
             azimuth = 180
         tilt = max(0, min(90, tilt))
         azimuth = max(0, min(359, azimuth))
+        try:
+            installation_cost_minor = float(
+                data.get("installation_cost_minor", base.get("installation_cost_minor", 0)) or 0
+            )
+        except (TypeError, ValueError):
+            installation_cost_minor = 0.0
+        installation_cost_minor = max(0.0, min(99_999_999.0, installation_cost_minor))
         return cls(
             enabled=bool(data.get("enabled", base.get("enabled", True))),
             panel_count=panel_count,
@@ -344,6 +352,7 @@ class PvStringConfig:
             efficiency_factor=efficiency_factor,
             tilt=tilt,
             azimuth=azimuth,
+            installation_cost_minor=installation_cost_minor,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -354,6 +363,7 @@ class PvStringConfig:
             "efficiency_factor": self.efficiency_factor,
             "tilt": self.tilt,
             "azimuth": self.azimuth,
+            "installation_cost_minor": round(self.installation_cost_minor, 4),
         }
 
     @property

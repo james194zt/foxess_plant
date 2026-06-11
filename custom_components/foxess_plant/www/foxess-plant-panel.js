@@ -117,6 +117,7 @@ const DEFAULT_PV_STRING = {
   efficiency_factor: 100,
   tilt: 25,
   azimuth: 180,
+  installation_cost_minor: 0,
 };
 
 const DEFAULT_PV_CONFIG = {
@@ -251,7 +252,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.205";
+const PANEL_VERSION = "0.9.209";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -643,6 +644,9 @@ function normalizePvString(raw, defaults) {
   let azimuth = parseInt(src.azimuth, 10);
   if (!Number.isFinite(azimuth)) azimuth = base.azimuth ?? 180;
   azimuth = Math.max(0, Math.min(359, azimuth));
+  let installationCostMinor = parseFloat(src.installation_cost_minor);
+  if (!Number.isFinite(installationCostMinor)) installationCostMinor = base.installation_cost_minor ?? 0;
+  installationCostMinor = Math.max(0, Math.min(99_999_999, installationCostMinor));
   return {
     enabled: Boolean(src.enabled ?? base.enabled),
     panel_count: panelCount,
@@ -650,7 +654,13 @@ function normalizePvString(raw, defaults) {
     efficiency_factor: eff,
     tilt,
     azimuth,
+    installation_cost_minor: installationCostMinor,
   };
+}
+
+function pvConfigCurrency(plantState, tariffDraft) {
+  if (tariffDraft?.currency) return normalizeTariffCurrency(tariffDraft.currency);
+  return tariffCurrencyFromTariff(plantState?.tariff);
 }
 
 function normalizePvConfig(raw) {
@@ -2498,6 +2508,13 @@ function foxDeviceCheckPillIcon() {
   return `<svg class="fox-device-new-check-pill-icon" viewBox="0 0 14 14" aria-hidden="true"><circle cx="7" cy="7" r="6.25" fill="currentColor" opacity="0.2"/><path d="M4.2 7.1l1.85 1.9 3.75-3.95" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 }
 
+function formatFoxTonePill(text, toneClass, { showCheckIcon = false } = {}) {
+  const label = String(text || "—");
+  if (label === "—") return esc(label);
+  const icon = showCheckIcon ? foxDeviceCheckPillIcon() : "";
+  return `<span class="fox-device-new-check-pill ${toneClass}">${icon}<span class="fox-device-new-check-pill-text">${esc(label)}</span></span>`;
+}
+
 /** Fox device card status pill (Normal / Online with tick). */
 function formatFoxDeviceCheckPill(value) {
   const text = String(value || "—");
@@ -2509,8 +2526,31 @@ function formatFoxDeviceCheckPill(value) {
     : lower === "fault"
       ? "fox-device-new-check-pill--fault"
       : "fox-device-new-check-pill--off";
-  const icon = positive ? foxDeviceCheckPillIcon() : "";
-  return `<span class="fox-device-new-check-pill ${cls}">${icon}<span class="fox-device-new-check-pill-text">${esc(text)}</span></span>`;
+  return formatFoxTonePill(text, cls, { showCheckIcon: positive });
+}
+
+function formatFoxOverviewStatusPill(value) {
+  const text = String(value || "—");
+  if (text === "—") return esc(text);
+  const lower = text.trim().toLowerCase();
+  if (/^(normal|online|on)$/.test(lower)) return formatFoxDeviceCheckPill(value);
+  if (lower === "fault") return formatFoxDeviceCheckPill(value);
+  if (lower === "checking") return formatFoxTonePill(text, "fox-overview-pill--checking");
+  if (lower === "off grid") return formatFoxTonePill(text, "fox-overview-pill--offgrid");
+  return formatFoxTonePill(text, "fox-device-new-check-pill--off");
+}
+
+function formatFoxOverviewWorkModePill(label) {
+  const text = foxWorkModeDisplay(label);
+  if (text === "—") return esc(text);
+  return formatFoxTonePill(text, `fox-overview-pill--${foxWorkModeToneClass(label)}`);
+}
+
+function formatFoxOverviewPlantModePill(mode) {
+  const raw = String(mode || "baseline").trim();
+  const display = raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "Baseline";
+  const tone = modeClass(mode).replace(/^mode-/, "plant-");
+  return formatFoxTonePill(display, `fox-overview-pill--${tone}`);
 }
 
 function formatDeviceNewOnlineBadge(value) {
@@ -6868,24 +6908,7 @@ const STYLES = `
 .overview-status-row {
   display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; line-height: 1.35;
 }
-.fox-pill {
-  display: inline-flex; align-items: center; justify-content: center;
-  padding: 5px 14px; border-radius: 999px;
-  font-size: 13px; font-weight: 700; line-height: 1.2;
-  letter-spacing: -0.01em; white-space: nowrap;
-}
-.overview-fox-status.fox-pill.is-normal { background: #569e5c; color: #fff; }
-.overview-fox-status.fox-pill.is-fault { background: #c62828; color: #fff; }
-.overview-fox-status.fox-pill.is-checking { background: #5c6370; color: #fff; }
-.overview-fox-status.fox-pill.is-offgrid { background: #e6a817; color: #1a1a1a; }
-.overview-fox-status.fox-pill.is-default { background: var(--secondary-background-color); color: var(--primary-text-color); }
-.overview-work-mode.fox-pill.work-self-use { background: #f4d05d; color: #1a1a1a; }
-.overview-work-mode.fox-pill.work-feed-in { background: #7eb8ff; color: #12253d; }
-.overview-work-mode.fox-pill.work-back-up { background: #90a4ae; color: #fff; }
-.overview-work-mode.fox-pill.work-force-charge { background: #7e57c2; color: #fff; }
-.overview-work-mode.fox-pill.work-force-discharge { background: #ef6c57; color: #fff; }
-.overview-work-mode.fox-pill.work-default { background: #f4d05d; color: #1a1a1a; }
-.overview-status-row .mode-pill { flex-shrink: 0; }
+.overview-status-row .fox-device-new-check-pill { flex-shrink: 0; }
 .overview-control-hint { font-size: 13px; color: var(--secondary-text-color); white-space: nowrap; }
 .overview-weather {
   display: flex; align-items: center; gap: 6px; margin-top: 8px;
@@ -8197,6 +8220,55 @@ const STYLES = `
 }
 .fox-device-new-check-pill--fault {
   color: #ff7875; border-color: rgba(255, 120, 117, 0.45);
+  background: rgba(255, 120, 117, 0.1);
+}
+.fox-overview-pill--checking {
+  color: #8c8c8c; border-color: rgba(140, 140, 140, 0.45);
+  background: rgba(140, 140, 140, 0.1);
+}
+.fox-overview-pill--offgrid {
+  color: #faad14; border-color: rgba(250, 173, 20, 0.5);
+  background: rgba(250, 173, 20, 0.1);
+}
+.fox-overview-pill--work-self-use,
+.fox-overview-pill--work-default {
+  color: #d4b429; border-color: rgba(244, 208, 93, 0.55);
+  background: rgba(244, 208, 93, 0.12);
+}
+.fox-overview-pill--work-feed-in {
+  color: #5a9fd4; border-color: rgba(126, 184, 255, 0.5);
+  background: rgba(126, 184, 255, 0.1);
+}
+.fox-overview-pill--work-back-up {
+  color: #90a4ae; border-color: rgba(144, 164, 174, 0.5);
+  background: rgba(144, 164, 174, 0.12);
+}
+.fox-overview-pill--work-force-charge {
+  color: #b39ddb; border-color: rgba(126, 87, 194, 0.5);
+  background: rgba(126, 87, 194, 0.12);
+}
+.fox-overview-pill--work-force-discharge {
+  color: #ff8a65; border-color: rgba(239, 108, 87, 0.5);
+  background: rgba(239, 108, 87, 0.12);
+}
+.fox-overview-pill--plant-baseline {
+  color: var(--fp-green, #52c41a); border-color: rgba(82, 196, 26, 0.35);
+  background: rgba(82, 196, 26, 0.08);
+}
+.fox-overview-pill--plant-storm {
+  color: var(--fp-amber, #faad14); border-color: rgba(250, 173, 20, 0.45);
+  background: rgba(250, 173, 20, 0.1);
+}
+.fox-overview-pill--plant-override {
+  color: #b39ddb; border-color: rgba(126, 87, 194, 0.45);
+  background: rgba(126, 87, 194, 0.1);
+}
+.fox-overview-pill--plant-manual {
+  color: var(--secondary-text-color); border-color: var(--divider-color);
+  background: var(--secondary-background-color);
+}
+.fox-overview-pill--plant-outage {
+  color: var(--fp-red, #ff7875); border-color: rgba(255, 120, 117, 0.45);
   background: rgba(255, 120, 117, 0.1);
 }
 .fox-device-new-check-pill-icon { width: 14px; height: 14px; flex-shrink: 0; }
@@ -10751,6 +10823,16 @@ Reloading panel registration…
         cfg.tilt = Math.max(0, Math.min(90, parseInt(el.value, 10) || 25));
       } else if (field === "azimuth") {
         cfg.azimuth = Math.max(0, Math.min(359, parseInt(el.value, 10) || 180));
+      } else if (field === "installation_cost") {
+        const currency = pvConfigCurrency(this._plantState, this._tariffDraft);
+        const raw = String(el.value).trim();
+        if (raw === "") {
+          cfg.installation_cost_minor = 0;
+        } else {
+          cfg.installation_cost_minor = majorToMinor(parseTariffRate(el.value), currency);
+        }
+        if (e.type === "change") this._scheduleRender();
+        return;
       } else {
         return;
       }
@@ -11171,19 +11253,13 @@ ${renderSocFeedbackHtml(validateSocLimits(clamped, live), this._socSaveError)}
     const systemStatus = foxInverterStateLabel(this._hass, plant, this._plantState);
     const workMode = foxWorkModeLabel(this._hass, plant, this._plantState);
     const plantMode = st.mode ?? "baseline";
-    const statusPart =
-      systemStatus !== "—"
-        ? `<span class="fox-pill overview-fox-status ${foxStatusToneClass(systemStatus)}">${esc(systemStatus)}</span>`
-        : "";
-    const workPart =
-      workMode !== "—"
-        ? `<span class="fox-pill overview-work-mode ${foxWorkModeToneClass(workMode)}">${esc(foxWorkModeDisplay(workMode))}</span>`
-        : "";
+    const statusPart = systemStatus !== "—" ? formatFoxOverviewStatusPill(systemStatus) : "";
+    const workPart = workMode !== "—" ? formatFoxOverviewWorkModePill(workMode) : "";
     return `<div class="overview-status-block">
 <div class="overview-status-row">
 ${statusPart}
 ${workPart}
-<span class="mode-pill ${modeClass(plantMode)}">${esc(plantMode)}</span>
+${formatFoxOverviewPlantModePill(plantMode)}
 <span class="overview-control-hint">${st.control_active ? "Plant control active" : "Plant control off"}</span>
 </div>
 ${this._renderOverviewWeather()}
@@ -11651,7 +11727,7 @@ ${this._renderOverviewAfterHero(plant)}`;
     if (systemStatus === "—") return "";
     return `<div class="overview-status-block">
 <div class="overview-status-row">
-<span class="fox-pill overview-fox-status ${foxStatusToneClass(systemStatus)}">${esc(systemStatus)}</span>
+${formatFoxOverviewStatusPill(systemStatus)}
 </div>
 </div>`;
   }
@@ -13778,6 +13854,10 @@ ${this._renderPeriodCard(1, draft.charge_periods[1], "storm-period", "Storm peri
       (cfg.panel_count * cfg.watts_per_panel * cfg.efficiency_factor) /
       100000
     ).toFixed(2);
+    const currency = pvConfigCurrency(this._plantState, this._tariffDraft);
+    const costStep = tariffRateInputStep(currency);
+    const costDisplay =
+      cfg.installation_cost_minor > 0 ? minorToMajor(cfg.installation_cost_minor, currency) : "";
     return `<div class="card pv-string-card${disabledClass}">
 <p class="card-title">${esc(sectionTitle)}</p>
 <div class="toggle-row"><span><strong>${esc(enabledLabel)}</strong></span>
@@ -13802,6 +13882,11 @@ ${this._renderPeriodCard(1, draft.charge_periods[1], "storm-period", "Storm peri
 <label>Efficiency Factor</label>
 <p class="field-hint"><a class="field-link" href="${esc(PV_EFFICIENCY_FACTOR_URL)}" target="_blank" rel="noopener noreferrer">What is the efficiency factor?</a></p>
 <input type="number" class="pv-eff-input" min="1" max="100" step="1" data-field="pv:${which}:efficiency_factor" value="${esc(String(cfg.efficiency_factor))}" ${disabled ? "disabled" : ""} aria-label="Efficiency factor percent"> <span style="font-size:14px">%</span>
+</div>
+<div class="field">
+<label>Installation cost</label>
+<p class="field-hint">Optional total cost for this PV string in ${esc(currency)} — for future payback analysis (uses your tariff currency)</p>
+<input type="number" class="pv-eff-input" min="0" step="${esc(costStep)}" inputmode="decimal" data-field="pv:${which}:installation_cost" value="${costDisplay !== "" ? esc(String(costDisplay)) : ""}" placeholder="0" ${disabled ? "disabled" : ""} aria-label="Installation cost">
 </div>
 ${this._renderPvTiltAzimuthFields(which)}
 <p class="field-hint" style="margin-top:4px">Nameplate ${esc(nameplateKw)} kW DC · Effective ${esc(effectiveKw)} kW (after efficiency)</p>

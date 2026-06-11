@@ -83,7 +83,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    await coordinator.async_update_tariff_sensors(record_history=False)
+    try:
+        await coordinator.async_update_tariff_sensors(record_history=False)
+    except Exception:
+        _LOGGER.exception("FoxESS Plant tariff sensor sync failed during setup")
     register_services(hass)
 
     try:
