@@ -251,7 +251,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.198";
+const PANEL_VERSION = "0.9.200";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -939,11 +939,14 @@ function stitchForecastPastWithFutureTail(pastPts, tailPts, nowMs) {
     .filter((p) => Number.isFinite(p.t) && p.t <= nowMs)
     .sort((a, b) => a.t - b.t);
   if (past.length < 2) return tailPts?.length >= 2 ? tailPts : past;
+  const futureGrace = nowMs + STATISTICS_PERIOD_MS * 0.5;
+  const futureTail = (tailPts || []).filter((p) => Number.isFinite(p.t) && p.t > futureGrace);
   const tail = (tailPts || []).filter((p) => Number.isFinite(p.t) && p.t >= nowMs - STATISTICS_PERIOD_MS);
-  if (!tail.length) return past;
+  if (!tail.length && futureTail.length < 2) return past;
   const merged = [...past];
   const lastPast = merged[merged.length - 1];
-  for (const p of tail) {
+  const append = futureTail.length >= 2 ? futureTail : tail;
+  for (const p of append) {
     if (!lastPast || p.t > lastPast.t) merged.push(p);
   }
   return merged.length >= 2 ? merged : past;
@@ -1677,9 +1680,21 @@ function detailedForecastToChartPoints(rows, range) {
   }
   if (relevant.length < 2) return [];
 
-  return interpolatePointsToPeriod(relevant, STATISTICS_PERIOD_MS, range.tMin, range.tMax, {
+  let out = interpolatePointsToPeriod(relevant, STATISTICS_PERIOD_MS, range.tMin, range.tMax, {
     allowBackfill: false,
   });
+  const nowMs = range?.nowMs ?? Date.now();
+  if (out.length >= 2 && range.tMax > nowMs + STATISTICS_PERIOD_MS && !forecastHasFuturePoints(out, nowMs)) {
+    const intervals = buildSolcastIntervalSeries(rows);
+    const extra = [];
+    for (let t = Math.max(out[out.length - 1].t + STATISTICS_PERIOD_MS, nowMs); t <= range.tMax; t += STATISTICS_PERIOD_MS) {
+      let v = solcastKwAtTime(rows, t);
+      if (v == null && intervals.length) v = intervals[intervals.length - 1].v;
+      if (v != null) extra.push({ t, v });
+    }
+    if (extra.length) out = [...out, ...extra];
+  }
+  return out;
 }
 
 function solcastIntradayForecastPoints(plantState, range) {
@@ -9022,15 +9037,33 @@ Reloading panel registration…
   _pickStatisticsForecastState() {
     const live = this._plantState;
     const cached = this._statisticsChart?.forecastState;
+    const detailed = resolveBestSolcastDetailedRows(live, cached, this._hass);
     const liveIntraday = live?.solcast?.forecast_intraday_points;
-    if (Array.isArray(liveIntraday) && liveIntraday.length >= 2) return live;
     const cachedIntraday = cached?.solcast?.forecast_intraday_points;
-    if (Array.isArray(cachedIntraday) && cachedIntraday.length >= 2) return cached;
-    const liveRows = resolveSolcastDetailedForecast(live, this._hass);
-    if (liveRows.length >= 2) return live;
-    const cachedRows = resolveSolcastDetailedForecast(cached, this._hass);
-    if (cachedRows.length >= 2) return cached;
-    return live ?? cached;
+    const intraday =
+      Array.isArray(liveIntraday) && liveIntraday.length >= 2
+        ? liveIntraday
+        : Array.isArray(cachedIntraday) && cachedIntraday.length >= 2
+          ? cachedIntraday
+          : null;
+    const base = live ?? cached;
+    if (!base?.solcast) return base;
+    if (!intraday && detailed.length < 2) {
+      const liveRows = resolveSolcastDetailedForecast(live, this._hass);
+      if (liveRows.length >= 2) return live;
+      const cachedRows = resolveSolcastDetailedForecast(cached, this._hass);
+      if (cachedRows.length >= 2) return cached;
+      return base;
+    }
+    return {
+      ...base,
+      solcast: {
+        ...(cached?.solcast || {}),
+        ...(live?.solcast || {}),
+        ...(detailed.length >= 2 ? { detailed_forecast: detailed } : {}),
+        ...(intraday ? { forecast_intraday_points: intraday } : {}),
+      },
+    };
   }
 
   _forecastFallbackPointsForStatistics(range) {

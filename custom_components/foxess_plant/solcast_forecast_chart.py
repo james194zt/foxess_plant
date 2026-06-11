@@ -336,6 +336,54 @@ def build_forecast_intraday_chart(
     )
 
 
+def _overlay_future_point_count(
+    points: list[dict[str, float]], as_of_ms: float
+) -> int:
+    grace = float(STATISTICS_PERIOD_MS) * 0.5
+    return sum(1 for p in points if float(p["t"]) > as_of_ms + grace)
+
+
+def _append_intraday_future_tail(
+    merged: dict[float, float],
+    *,
+    hass: HomeAssistant,
+    stored: dict[str, Any] | None,
+    current_cache: dict[str, Any] | None,
+    as_of_ms: float,
+    day_start_ms: float,
+    t_max_ms: float,
+) -> list[dict[str, float]]:
+    """Fill forecast slots after *as_of_ms* when revision history only covered the past."""
+    for point in build_forecast_intraday_chart(hass, stored, current_cache):
+        t = float(point["t"])
+        if t > as_of_ms and day_start_ms <= t <= t_max_ms:
+            merged.setdefault(t, float(point["v"]))
+
+    if _overlay_future_point_count(
+        [{"t": t, "v": v} for t, v in merged.items()], as_of_ms
+    ) < 2:
+        detailed_rows = _detailed_rows(current_cache)
+        snapshots = collect_storage_snapshots(stored, current_cache, day_start_ms)
+        if len(detailed_rows) < 2 and snapshots:
+            detailed_rows = snapshots[-1][1]
+        if len(detailed_rows) >= 2:
+            for point in build_forecast_intraday_chart_for_range(
+                snapshots=[(as_of_ms, detailed_rows)],
+                day_start_ms=day_start_ms,
+                as_of_ms=as_of_ms,
+                include_future=True,
+            ):
+                t = float(point["t"])
+                if t > as_of_ms and day_start_ms <= t <= t_max_ms:
+                    merged.setdefault(t, float(point["v"]))
+
+    return [
+        {"t": t, "v": v}
+        for t, v in sorted(merged.items())
+        if day_start_ms <= t <= t_max_ms
+    ]
+
+
 def build_statistics_forecast_overlay(
     hass: HomeAssistant,
     stored: dict[str, Any] | None,
@@ -384,11 +432,22 @@ def build_statistics_forecast_overlay(
                 t = float(point["t"])
                 if t <= as_of_ms:
                     merged[t] = float(point["v"])
-        return [
+        points = [
             {"t": t, "v": v}
             for t, v in sorted(merged.items())
             if day_start_ms <= t <= t_max_ms
         ]
+        if _overlay_future_point_count(points, as_of_ms) >= 2:
+            return points
+        return _append_intraday_future_tail(
+            merged,
+            hass=hass,
+            stored=stored,
+            current_cache=current_cache,
+            as_of_ms=as_of_ms,
+            day_start_ms=day_start_ms,
+            t_max_ms=t_max_ms,
+        )
 
     points = build_forecast_intraday_chart(hass, stored, current_cache)
     if len(points) >= 2:

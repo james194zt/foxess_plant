@@ -394,10 +394,13 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _rebuild_solcast_forecast_chart(self) -> None:
         from .solcast_forecast_chart import build_forecast_intraday_chart
 
-        if not self._solcast_store:
+        if self._solcast_store:
+            stored = await self._solcast_store.async_load()
+        else:
+            stored = {}
+        if not stored and len(self._solcast_detailed_forecast_rows()) < 2:
             self._solcast_forecast_chart_points = []
             return
-        stored = await self._solcast_store.async_load()
         self._solcast_forecast_chart_points = await self.hass.async_add_executor_job(
             build_forecast_intraday_chart,
             self.hass,
@@ -566,11 +569,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self._solcast_cache
                 )
                 await self._safe_archive_solcast_daily_forecasts()
-                await self._rebuild_solcast_forecast_chart()
                 _LOGGER.debug(
                     "Persisted Solcast forecast to storage (%s periods)",
                     (self._solcast_cache.get("pv_forecast_parsed") or {}).get("period_count"),
                 )
+            if self._solcast_cache.get("pv_forecast_parsed"):
+                await self._rebuild_solcast_forecast_chart()
             self._persist_solcast_usage()
         await self.async_request_refresh()
 
