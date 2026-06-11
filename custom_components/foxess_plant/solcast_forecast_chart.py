@@ -234,9 +234,13 @@ def build_forecast_intraday_chart_for_range(
             kw_fn = _kw_at_or_after
         else:
             rows = _snapshot_for_time(snapshots, slot)
+            if rows is None and snapshots:
+                rows = snapshots[0][1]
             kw_fn = _kw_at_time
         if rows:
             kw = kw_fn(rows, when)
+            if kw is None and not (include_future and slot > as_of_ms):
+                kw = _kw_at_or_after(rows, when)
             if kw is not None:
                 out.append({"t": float(slot), "v": float(kw)})
         slot += STATISTICS_PERIOD_MS
@@ -384,6 +388,48 @@ def _append_intraday_future_tail(
     ]
 
 
+def _fill_revision_past_merged(
+    merged: dict[float, float],
+    *,
+    snapshots: list[tuple[float, list[dict[str, Any]]]],
+    detailed_rows: list[dict[str, Any]],
+    stored: dict[str, Any] | None,
+    current_cache: dict[str, Any] | None,
+    day_start_ms: float,
+    as_of_ms: float,
+) -> None:
+    """Ensure revision-style past slots exist through *as_of_ms*."""
+    if sum(1 for t in merged if t <= as_of_ms) >= 2:
+        return
+    if snapshots:
+        for point in build_forecast_intraday_chart_for_range(
+            snapshots=snapshots,
+            day_start_ms=day_start_ms,
+            as_of_ms=as_of_ms,
+            include_future=False,
+        ):
+            t = float(point["t"])
+            if t <= as_of_ms:
+                merged.setdefault(t, float(point["v"]))
+    if sum(1 for t in merged if t <= as_of_ms) >= 2:
+        return
+    for point in build_forecast_intraday_chart(None, stored, current_cache):
+        t = float(point["t"])
+        if t <= as_of_ms:
+            merged.setdefault(t, float(point["v"]))
+    if sum(1 for t in merged if t <= as_of_ms) >= 2 or len(detailed_rows) < 2:
+        return
+    slot = int(day_start_ms)
+    while slot <= as_of_ms:
+        when = _utc_from_timestamp(slot / 1000)
+        kw = _kw_at_time(detailed_rows, when)
+        if kw is None:
+            kw = _kw_at_or_after(detailed_rows, when)
+        if kw is not None:
+            merged.setdefault(float(slot), float(kw))
+        slot += STATISTICS_PERIOD_MS
+
+
 def build_statistics_forecast_overlay(
     hass: HomeAssistant,
     stored: dict[str, Any] | None,
@@ -426,12 +472,15 @@ def build_statistics_forecast_overlay(
             slot += STATISTICS_PERIOD_MS
 
     if len(merged) >= 2:
-        past_count = sum(1 for t in merged if t <= as_of_ms)
-        if past_count < 2:
-            for point in build_forecast_intraday_chart(hass, stored, current_cache):
-                t = float(point["t"])
-                if t <= as_of_ms:
-                    merged[t] = float(point["v"])
+        _fill_revision_past_merged(
+            merged,
+            snapshots=snapshots,
+            detailed_rows=detailed_rows,
+            stored=stored,
+            current_cache=current_cache,
+            day_start_ms=day_start_ms,
+            as_of_ms=as_of_ms,
+        )
         points = [
             {"t": t, "v": v}
             for t, v in sorted(merged.items())

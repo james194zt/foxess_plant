@@ -251,7 +251,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.200";
+const PANEL_VERSION = "0.9.203";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -996,13 +996,29 @@ function buildStatisticsForecastPoints(
     fPoints = stitchForecastPastWithFutureTail(revisionPast, fPoints, nowMs);
   }
 
-  // Append server overlay future when the client series is still missing a dashed tail.
-  if (server.length >= 2 && !forecastHasFuturePoints(fPoints, nowMs)) {
-    fPoints = mergeForecastPointsWithFuture(
-      statisticsForecastPastBase(fPoints, revisionPast, nowMs),
-      server,
-      nowMs
-    );
+  const forecastPastCount = (pts) =>
+    (pts || []).filter((p) => Number.isFinite(p.t) && p.t <= nowMs).length;
+
+  // Server overlay may be future-only when poll history is unavailable.
+  if (server.length >= 2) {
+    if (!forecastHasFuturePoints(fPoints, nowMs)) {
+      fPoints = mergeForecastPointsWithFuture(
+        statisticsForecastPastBase(fPoints, revisionPast, nowMs),
+        server,
+        nowMs
+      );
+    } else if (forecastPastCount(fPoints) < 2) {
+      let basePast = revisionPast;
+      if (basePast.length < 2) {
+        basePast = detailed.filter((p) => p.t <= nowMs);
+      }
+      if (basePast.length < 2) {
+        basePast = statisticsForecastPastBase(fPoints, revisionPast, nowMs);
+      }
+      if (basePast.length >= 2) {
+        fPoints = stitchForecastPastWithFutureTail(basePast, fPoints, nowMs);
+      }
+    }
   }
 
   if (!forecastHasFuturePoints(fPoints, nowMs) && detailed.length >= 2) {
@@ -1684,6 +1700,16 @@ function detailedForecastToChartPoints(rows, range) {
     allowBackfill: false,
   });
   const nowMs = range?.nowMs ?? Date.now();
+  if (out.length >= 2 && out[0].t > range.tMin + STATISTICS_PERIOD_MS) {
+    const intervals = buildSolcastIntervalSeries(rows);
+    const head = [];
+    for (let t = range.tMin; t < out[0].t; t += STATISTICS_PERIOD_MS) {
+      let v = solcastKwAtTime(rows, t);
+      if (v == null && intervals.length) v = intervals[0].v;
+      if (v != null) head.push({ t, v });
+    }
+    if (head.length) out = [...head, ...out];
+  }
   if (out.length >= 2 && range.tMax > nowMs + STATISTICS_PERIOD_MS && !forecastHasFuturePoints(out, nowMs)) {
     const intervals = buildSolcastIntervalSeries(rows);
     const extra = [];
