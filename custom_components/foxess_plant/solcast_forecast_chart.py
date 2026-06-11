@@ -318,7 +318,7 @@ def archive_daily_intraday_forecasts(
 
 
 def build_forecast_intraday_chart(
-    hass: HomeAssistant,
+    hass: HomeAssistant | None,
     stored: dict[str, Any] | None,
     current_cache: dict[str, Any] | None,
 ) -> list[dict[str, float]]:
