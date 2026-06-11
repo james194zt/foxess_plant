@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.196
+ * @version 0.9.197
  */
 
 const NAV = [
@@ -248,9 +248,9 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.196";
+const PANEL_VERSION = "0.9.197";
 /** Bump when Devices (new) Analysis DOM/CSS layout changes (forces full re-render). */
-const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "9";
+const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Devices (new) ≈ sidebar column (280px) + layout gap (16px). */
 const DEVICE_NEW_MAIN_WIDTH_EXTRA_PX = 296;
 /** Max wait for recorder/history websocket round-trips (prevents infinite loading spinners). */
@@ -2634,16 +2634,15 @@ function renderDeviceNewSidebar(hass, plant, plantState) {
   const body = rows.length
     ? `<dl class="fox-device-new-sidebar-list">${rows.map(renderDeviceNewSidebarRow).join("")}</dl>`
     : `<p class="placeholder">No device identity available yet.</p>`;
-  return `<div class="fox-device-new-sidebar-col">
+  return `<div class="fox-device-new-sidebar-col"><aside class="fox-device-new-sidebar">
 <div class="fox-device-new-sidebar-hero">
 <img class="fox-device-new-sidebar-img" src="${esc(DEVICE_EVO_IMAGE_STATIC)}" alt="" loading="lazy" />
 ${serialHero}
 </div>
-<aside class="fox-device-new-sidebar">
+<div class="fox-device-new-sidebar-divider" aria-hidden="true"></div>
 <h3 class="fox-device-new-sidebar-section-title">Device Information</h3>
 ${body}
-</aside>
-</div>`;
+</aside></div>`;
 }
 
 async function fetchDeviceRealtimeChartSeries(hass, plant, plantState, { dayOffset = 0 } = {}) {
@@ -8053,7 +8052,6 @@ const STYLES = `
   grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
   column-gap: 16px; align-items: start;
   width: 100%; min-width: 0; box-sizing: border-box;
-  margin-top: 92px;
 }
 .fox-device-new-sidebar-col {
   grid-column: 1; align-self: start;
@@ -8061,9 +8059,8 @@ const STYLES = `
   position: sticky; top: 0; z-index: 1;
 }
 .fox-device-new-sidebar-hero {
-  position: absolute; left: 0; right: 0; bottom: calc(100% + 10px);
   display: flex; flex-direction: column; align-items: center; text-align: center;
-  gap: 6px; margin: 0; padding: 0; width: 100%; box-sizing: border-box;
+  gap: 6px; margin: 0 0 10px; padding: 0; width: 100%; box-sizing: border-box;
 }
 .fox-device-new-content,
 .fox-device-new-analysis-stack {
@@ -8110,6 +8107,9 @@ const STYLES = `
   background: var(--card-background-color); padding: 10px 12px 12px;
 }
 .fox-device-new-sidebar-hero .device-serial-btn { width: auto; max-width: 100%; }
+.fox-device-new-sidebar-divider {
+  height: 1px; background: var(--divider-color); margin: 0 0 12px;
+}
 .fox-device-new-sidebar-img { width: 64px; height: auto; max-height: 72px; object-fit: contain; object-position: top center; flex-shrink: 0; display: block; }
 .fox-device-new-sidebar-serial-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
@@ -8267,12 +8267,11 @@ const STYLES = `
   border-color: #52c41a; color: #52c41a; background: rgba(82, 196, 26, 0.08);
 }
 @media (max-width: 980px) {
-  .fox-device-new-layout { grid-template-columns: 1fr; margin-top: 0; }
+  .fox-device-new-layout { grid-template-columns: 1fr; }
   .fox-device-new-sidebar-col,
   .fox-device-new-content,
   .fox-device-new-analysis-stack { grid-column: 1; }
   .fox-device-new-sidebar-col { position: static; }
-  .fox-device-new-sidebar-hero { position: static; bottom: auto; margin: 0 0 10px; }
   .fox-device-new-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .fox-device-new-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .fox-device-new-metric-item:nth-child(3n) { border-right: 1px solid var(--divider-color); }
