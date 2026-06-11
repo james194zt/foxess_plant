@@ -167,6 +167,7 @@ def _history_state_to_point(state) -> dict[str, float] | None:
             state.get("last_updated")
             or state.get("last_changed")
             or state.get("lu")
+            or state.get("lc")
             or state.get("last_updated_ts")
         )
     else:
@@ -198,8 +199,7 @@ def _fetch_history_points(
     start_time: dt,
     end_time: dt,
     entity_ids: list[str],
-    *,
-    significant_changes_only: bool,
+    significant_changes_only: bool = False,
 ) -> dict[str, list[dict[str, float]]]:
     """Same recorder query Lovelace history graphs use."""
     with session_scope(hass=hass, read_only=True) as session:
@@ -233,9 +233,8 @@ def _fetch_statistics_points(
     start_time: dt,
     end_time: dt,
     entity_ids: list[str],
-    *,
-    period: str,
-    statistic: str,
+    period: str = "5minute",
+    statistic: str = "mean",
 ) -> dict[str, list[dict[str, float]]]:
     """5-minute (etc.) recorder statistics — same source as plotly-graph cards."""
     from homeassistant.components.recorder.statistics import statistics_during_period

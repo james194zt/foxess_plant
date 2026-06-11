@@ -252,7 +252,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.209";
+const PANEL_VERSION = "0.9.210";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -2734,11 +2734,10 @@ async function fetchDeviceRealtimeChartSeries(hass, plant, plantState, { dayOffs
   const start = new Date(range.tMin);
   const socId = map.battery_soc;
   const entityIds = [...new Set([...specs.map((s) => s.entity_id), socId].filter(Boolean))];
-  const statsMap = await fetchStatisticsDuring(hass, entityIds, start, fetchEnd);
-  const missingStatsIds = entityIds.filter((id) => !statsMap?.[id]?.length);
-  const hist = missingStatsIds.length
-    ? await fetchHistoryDuring(hass, missingStatsIds, start, fetchEnd, { significantChangesOnly: true })
-    : {};
+  const [statsMap, hist] = await Promise.all([
+    fetchStatisticsDuring(hass, entityIds, start, fetchEnd),
+    fetchHistoryDuring(hass, entityIds, start, fetchEnd),
+  ]);
   const series = specs.map((spec) => ({
     id: spec.key,
     label: spec.label,
@@ -4826,14 +4825,20 @@ function dailyMaxInRange(points, dayStartMs, dayEndMs) {
   return max;
 }
 
-function buildStatisticsSeriesPoints(hass, entityId, spec, range, statsMap, hist) {
+function statisticsRawPointsForEntity(entityId, range, statsMap, hist) {
   const statRows = statsMap?.[entityId];
-  let rawPoints;
+  let rawPoints = [];
   if (statRows?.length) {
     rawPoints = recorderStatsToPoints(statRows, range);
-  } else {
+  }
+  if (!rawPoints.length) {
     rawPoints = statisticsChartPoints(historyToPoints(historyRowsForEntity(hist, entityId)), range);
   }
+  return rawPoints;
+}
+
+function buildStatisticsSeriesPoints(hass, entityId, spec, range, statsMap, hist) {
+  const rawPoints = statisticsRawPointsForEntity(entityId, range, statsMap, hist);
   return filterStatisticsSpikes(
     rawPoints.map((p) => ({
       t: p.t,
@@ -4859,13 +4864,7 @@ function clampSocPercent(v) {
 }
 
 function buildSocHistoryPoints(hass, entityId, range, statsMap, hist) {
-  const statRows = statsMap?.[entityId];
-  let rawPoints;
-  if (statRows?.length) {
-    rawPoints = recorderStatsToPoints(statRows, range);
-  } else {
-    rawPoints = statisticsChartPoints(historyToPoints(historyRowsForEntity(hist, entityId)), range);
-  }
+  const rawPoints = statisticsRawPointsForEntity(entityId, range, statsMap, hist);
   return rawPoints
     .map((p) => ({ t: p.t, v: clampSocPercent(p.v) }))
     .filter((p) => p.v != null);
@@ -4873,18 +4872,10 @@ function buildSocHistoryPoints(hass, entityId, range, statsMap, hist) {
 
 function buildSocPowerPoints(hass, entityId, range, statsMap, hist) {
   const spec = { toKw: true };
-  const statRows = statsMap?.[entityId];
-  let rawPoints;
-  if (statRows?.length) {
-    rawPoints = recorderStatsToPoints(statRows, range).map((p) => ({
-      t: p.t,
-      v: transformHistoryPoint(hass, entityId, p.v, spec),
-    }));
-  } else {
-    rawPoints = statisticsChartPoints(historyToPoints(historyRowsForEntity(hist, entityId)), range).map(
-      (p) => ({ t: p.t, v: transformHistoryPoint(hass, entityId, p.v, spec) })
-    );
-  }
+  const rawPoints = statisticsRawPointsForEntity(entityId, range, statsMap, hist).map((p) => ({
+    t: p.t,
+    v: transformHistoryPoint(hass, entityId, p.v, spec),
+  }));
   return rawPoints
     .map((p) => ({ t: p.t, v: Math.abs(p.v) }))
     .filter((p) => Number.isFinite(p.v));
@@ -5637,11 +5628,11 @@ function buildIntradayConsumptionSpark(points, startMs, endMs) {
 
 function buildSparkPowerPoints(hass, entityId, spec, range, statsMap, hist) {
   if (!entityId) return [];
-  const statRows = statsMap?.[entityId];
-  let rawPoints;
-  if (statRows?.length) {
-    rawPoints = recorderStatsToPoints(statRows, range);
-  } else {
+  let rawPoints = statisticsRawPointsForEntity(entityId, range, statsMap, hist).map((p) => ({
+    t: p.t,
+    v: transformHistoryPoint(hass, entityId, p.v, spec),
+  }));
+  if (!rawPoints.length) {
     const histPts = historyToPoints(historyRowsForEntity(hist, entityId)).map((p) => ({
       t: p.t,
       v: transformHistoryPoint(hass, entityId, p.v, spec),
