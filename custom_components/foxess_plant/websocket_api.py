@@ -754,16 +754,21 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
         start_utc = dt_util.as_utc(start)
         end_utc = dt_util.as_utc(end)
         entity_ids = list(msg["entity_ids"])
-        result = await get_instance(hass).async_add_executor_job(
-            partial(
-                _fetch_history_points,
-                hass,
-                start_utc,
-                end_utc,
-                entity_ids,
-                significant_changes_only=msg.get("significant_changes_only", False),
+        try:
+            result = await hass.async_add_executor_job(
+                partial(
+                    _fetch_history_points,
+                    hass,
+                    start_utc,
+                    end_utc,
+                    entity_ids,
+                    significant_changes_only=msg.get("significant_changes_only", False),
+                )
             )
-        )
+        except Exception as err:
+            _LOGGER.exception("fetch_history failed for %s", entity_ids)
+            connection.send_error(msg["id"], "fetch_history_failed", str(err))
+            return
         connection.send_result(msg["id"], result)
 
     @websocket_api.websocket_command(
@@ -794,17 +799,22 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
         start_utc = dt_util.as_utc(start)
         end_utc = dt_util.as_utc(end)
         entity_ids = list(msg["entity_ids"])
-        result = await get_instance(hass).async_add_executor_job(
-            partial(
-                _fetch_statistics_points,
-                hass,
-                start_utc,
-                end_utc,
-                entity_ids,
-                period=msg.get("period", "5minute"),
-                statistic=msg.get("statistic", "mean"),
+        try:
+            result = await hass.async_add_executor_job(
+                partial(
+                    _fetch_statistics_points,
+                    hass,
+                    start_utc,
+                    end_utc,
+                    entity_ids,
+                    period=msg.get("period", "5minute"),
+                    statistic=msg.get("statistic", "mean"),
+                )
             )
-        )
+        except Exception as err:
+            _LOGGER.exception("fetch_statistics failed for %s", entity_ids)
+            connection.send_error(msg["id"], "fetch_statistics_failed", str(err))
+            return
         connection.send_result(msg["id"], result)
 
     @websocket_api.websocket_command(

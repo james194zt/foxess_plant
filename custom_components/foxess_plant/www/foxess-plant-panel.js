@@ -3454,7 +3454,7 @@ const STATISTICS_CHART_SERIES = [
     color: "#FF6FAF",
     fillColor: "rgba(255,111,175,0.14)",
     toKw: true,
-    splitSigned: "import",
+    abs: true,
     fill: true,
     lineWidth: 1.2,
   },
@@ -3466,7 +3466,8 @@ const STATISTICS_CHART_SERIES = [
     color: "#FF6FAF",
     fillColor: "rgba(255,111,175,0.14)",
     toKw: true,
-    splitSigned: "export",
+    abs: true,
+    negate: true,
     fill: true,
     hideLegend: true,
     lineWidth: 1.2,
@@ -3662,7 +3663,7 @@ function endOfLocalDay(d) {
 const CHART_ENTITY_FALLBACKS = {
   pv1_power: ["pv1_power"],
   pv2_power: ["pv2_power"],
-  pv_power: ["pv1_power", "pv_power", "pv_power_total", "pv_power_evo_10", "pv_power_now"],
+  pv_power: ["pv_power_now", "pv_power_evo_10", "pv_power", "pv_power_total", "pv1_power"],
   battery_soc: ["battery_soc_1", "battery_soc"],
   battery_charge: ["battery_charge_1", "battery_charge"],
   battery_discharge: ["battery_discharge_1", "battery_discharge"],
@@ -3691,7 +3692,8 @@ const DEVICE_ENTITY_FALLBACKS = {
   pv4_voltage: ["pv4_voltage"],
   pv4_current: ["pv4_current"],
   pv4_power: ["pv4_power"],
-  pv_power: ["pv_power_now", "pv1_power", "pv_power", "pv_power_total", "pv_power_evo_10"],
+  pv_power: ["pv_power_now", "pv_power_evo_10", "pv_power", "pv_power_total", "pv1_power"],
+  battery_power: ["invbatpower_1", "invbatpower", "battery_power"],
   solar_energy_today: ["solar_energy_today"],
   solar_energy_total: ["solar_energy_total"],
   grid_voltage_R: ["grid_voltage_R"],
@@ -4061,7 +4063,6 @@ function resolveEntityMap(hass, plant, plantState) {
   const ids = Object.keys(hass.states);
   const allFallbacks = { ...CHART_ENTITY_FALLBACKS, ...DEVICE_ENTITY_FALLBACKS };
   for (const [key, suffixes] of Object.entries(allFallbacks)) {
-    if (map[key] && hass.states[map[key]]) continue;
     for (const suffix of suffixes) {
       const hit = ids.find((id) => entityIdMatchesSuffix(id, suffix));
       if (hit) {
@@ -4154,9 +4155,25 @@ async function hassMessageWithTimeout(hass, message, timeoutMs = HA_WS_TIMEOUT_M
   }
 }
 
+function recorderEntityRows(map, entityId) {
+  return Array.isArray(map?.[entityId]) ? map[entityId] : [];
+}
+
+/** Prefer plant websocket rows per entity; fill gaps from native recorder API. */
+function mergeRecorderEntityMaps(plantMap, nativeMap, entityIds) {
+  const out = {};
+  for (const id of entityIds) {
+    const plantRows = recorderEntityRows(plantMap, id);
+    const nativeRows = recorderEntityRows(nativeMap, id);
+    out[id] = plantRows.length >= nativeRows.length ? plantRows : nativeRows;
+  }
+  return out;
+}
+
 async function fetchStatisticsDuring(hass, entityIds, start, end) {
   const statistic_ids = entityIds.filter(Boolean);
   if (!statistic_ids.length) return null;
+  let plantMap = null;
   try {
     const viaPlant = await hassMessageWithTimeout(hass, {
       type: "foxess_plant/fetch_statistics",
@@ -4167,11 +4184,12 @@ async function fetchStatisticsDuring(hass, entityIds, start, end) {
       statistic: "mean",
     });
     if (viaPlant && typeof viaPlant === "object" && !Array.isArray(viaPlant)) {
-      return viaPlant;
+      plantMap = viaPlant;
     }
   } catch {
     /* older integration without fetch_statistics, or timeout */
   }
+  let nativeMap = null;
   try {
     const res = await hassMessageWithTimeout(hass, {
       type: "recorder/statistics_during_period",
@@ -4181,10 +4199,14 @@ async function fetchStatisticsDuring(hass, entityIds, start, end) {
       period: "5minute",
       types: ["mean"],
     });
-    return res && typeof res === "object" ? res : null;
+    if (res && typeof res === "object" && !Array.isArray(res)) {
+      nativeMap = res;
+    }
   } catch {
-    return null;
+    /* recorder unavailable or timeout */
   }
+  if (!plantMap && !nativeMap) return null;
+  return mergeRecorderEntityMaps(plantMap, nativeMap, statistic_ids);
 }
 
 function recorderStatsToPoints(rows, range) {
@@ -4206,9 +4228,22 @@ function recorderStatsToPoints(rows, range) {
     .sort((a, b) => a.t - b.t);
 }
 
+function normalizeHistoryDuringResponse(raw, ids) {
+  if (!raw || typeof raw !== "object") return {};
+  if (Array.isArray(raw)) {
+    const map = {};
+    ids.forEach((id, i) => {
+      map[id] = raw[i] || [];
+    });
+    return map;
+  }
+  return raw;
+}
+
 async function fetchHistoryDuring(hass, entityIds, start, end, { significantChangesOnly = false } = {}) {
   const ids = entityIds.filter(Boolean);
   if (!ids.length) return {};
+  let plantMap = null;
   try {
     const viaPlant = await hassMessageWithTimeout(hass, {
       type: "foxess_plant/fetch_history",
@@ -4218,31 +4253,29 @@ async function fetchHistoryDuring(hass, entityIds, start, end, { significantChan
       significant_changes_only: significantChangesOnly,
     });
     if (viaPlant && typeof viaPlant === "object" && !Array.isArray(viaPlant)) {
-      return viaPlant;
+      plantMap = viaPlant;
     }
   } catch {
     /* older integration without fetch_history, or timeout */
   }
-  const raw = await hassMessageWithTimeout(hass, {
-    type: "history/history_during_period",
-    start_time: start.toISOString(),
-    end_time: end.toISOString(),
-    entity_ids: ids,
-    minimal_response: true,
-    significant_changes_only: significantChangesOnly,
-    no_attributes: true,
-    include_start_time_state: true,
-  });
-  if (!raw || typeof raw !== "object") return {};
-  // HA returns { "sensor.foo": [...] }, not a positional array.
-  if (Array.isArray(raw)) {
-    const map = {};
-    ids.forEach((id, i) => {
-      map[id] = raw[i] || [];
+  let nativeMap = null;
+  try {
+    const raw = await hassMessageWithTimeout(hass, {
+      type: "history/history_during_period",
+      start_time: start.toISOString(),
+      end_time: end.toISOString(),
+      entity_ids: ids,
+      minimal_response: true,
+      significant_changes_only: significantChangesOnly,
+      no_attributes: true,
+      include_start_time_state: true,
     });
-    return map;
+    nativeMap = normalizeHistoryDuringResponse(raw, ids);
+  } catch {
+    /* history unavailable or timeout */
   }
-  return raw;
+  if (!plantMap && !nativeMap) return {};
+  return mergeRecorderEntityMaps(plantMap, nativeMap, ids);
 }
 
 function historyRowsForEntity(histMap, entityId) {
@@ -4825,16 +4858,24 @@ function dailyMaxInRange(points, dayStartMs, dayEndMs) {
   return max;
 }
 
+function statisticsPointsHaveSignal(points) {
+  return (points || []).some((p) => Math.abs(p.v) > STATISTICS_SIGNED_EPS_KW);
+}
+
 function statisticsRawPointsForEntity(entityId, range, statsMap, hist) {
   const statRows = statsMap?.[entityId];
-  let rawPoints = [];
+  let statPoints = [];
   if (statRows?.length) {
-    rawPoints = recorderStatsToPoints(statRows, range);
+    statPoints = recorderStatsToPoints(statRows, range);
   }
-  if (!rawPoints.length) {
-    rawPoints = statisticsChartPoints(historyToPoints(historyRowsForEntity(hist, entityId)), range);
+  const histPoints = statisticsChartPoints(
+    historyToPoints(historyRowsForEntity(hist, entityId)),
+    range
+  );
+  if (statPoints.length && (statisticsPointsHaveSignal(statPoints) || !histPoints.length)) {
+    return statPoints;
   }
-  return rawPoints;
+  return histPoints.length ? histPoints : statPoints;
 }
 
 function buildStatisticsSeriesPoints(hass, entityId, spec, range, statsMap, hist) {
