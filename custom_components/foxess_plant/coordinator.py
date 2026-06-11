@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import timedelta
 from typing import Any
 
@@ -100,6 +101,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._solcast_cache: dict[str, Any] = {}
         self._solcast_store = None
         self._solcast_storage_load_failed = False
+        self._solcast_storage_last_fail_monotonic = 0.0
         self._solcast_history_count = 0
         self._solcast_forecast_chart_points: list[dict[str, float]] = []
         self._solcast_refresh_lock = asyncio.Lock()
@@ -119,6 +121,17 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=UPDATE_INTERVAL,
         )
 
+    async def async_read_solcast_stored(self) -> dict[str, Any]:
+        """Read HA .storage document; never raises (websocket-safe)."""
+        if not await self._ensure_solcast_store():
+            return {}
+        try:
+            stored = await self._solcast_store.async_load()
+            return stored if isinstance(stored, dict) else {}
+        except Exception:
+            _LOGGER.exception("Solcast forecast store read failed")
+            return {}
+
     async def _ensure_solcast_store(self) -> bool:
         """Open the HA .storage handle when missing (e.g. after a prior load failure)."""
         if self._solcast_store:
@@ -133,6 +146,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.exception("Could not open Solcast forecast store")
             self._solcast_store = None
             self._solcast_storage_load_failed = True
+            self._solcast_storage_last_fail_monotonic = time.monotonic()
             return False
 
     async def _async_load_solcast_storage(self) -> None:
@@ -148,6 +162,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except Exception:
             _LOGGER.exception("Solcast forecast store read failed")
             self._solcast_storage_load_failed = True
+            self._solcast_storage_last_fail_monotonic = time.monotonic()
             return
 
         try:
@@ -503,18 +518,22 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         return (next_fetch or {}).get("status") == "due_now"
 
+    def _solcast_storage_reload_due(self) -> bool:
+        """Throttle storage reload attempts after a read failure."""
+        if not self._solcast_storage_load_failed:
+            return True
+        return (time.monotonic() - self._solcast_storage_last_fail_monotonic) >= 300.0
+
     async def async_ensure_solcast_cache(self) -> None:
         """Load persisted forecast; poll when due if cache is empty or stale."""
-        if (
-            len(self._solcast_detailed_forecast_rows()) < 2
-            and not self._solcast_storage_load_failed
-        ):
+        if len(self._solcast_detailed_forecast_rows()) < 2 and self._solcast_storage_reload_due():
             await self._async_load_solcast_storage()
         if self._solcast_forecast_covers_now():
             return
-        if self._solcast_poll_due():
+        cache_empty = len(self._solcast_detailed_forecast_rows()) < 2
+        if self._solcast_poll_due() or (cache_empty and self._solcast_pv_active()):
             try:
-                await self._async_refresh_solcast_pv()
+                await self._async_refresh_solcast_pv(force=cache_empty)
             except Exception:
                 _LOGGER.exception("Opportunistic Solcast PV poll failed")
 

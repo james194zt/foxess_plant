@@ -828,18 +828,16 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             target_day = dt_util.as_local(dt_util.utcnow()).date()
         from .solcast_forecast_chart import build_forecast_intraday_chart_for_day
 
-        stored = {}
-        if coordinator._solcast_store:
-            stored = await coordinator._solcast_store.async_load()
-        job = partial(
-            build_forecast_intraday_chart_for_day,
-            hass,
-            stored,
-            coordinator._solcast_cache,
-            target_day,
-            entry_id=coordinator.config_entry.entry_id,
-        )
         try:
+            stored = await coordinator.async_read_solcast_stored()
+            job = partial(
+                build_forecast_intraday_chart_for_day,
+                hass,
+                stored,
+                coordinator._solcast_cache,
+                target_day,
+                entry_id=coordinator.config_entry.entry_id,
+            )
             points = await get_instance(hass).async_add_executor_job(job)
         except Exception as err:
             _LOGGER.exception("solcast_forecast_intraday failed for %s", target_day.isoformat())
@@ -869,23 +867,22 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             return
         from .solcast_forecast_chart import build_statistics_forecast_overlay
 
-        stored = {}
-        if coordinator._solcast_store:
-            stored = await coordinator._solcast_store.async_load()
-        await coordinator.async_ensure_solcast_cache()
-        if len(coordinator._solcast_forecast_chart_points) < 2:
-            await coordinator._rebuild_solcast_forecast_chart()
-
-        def _statistics_forecast_points() -> list[dict[str, float]]:
-            return build_statistics_forecast_overlay(
-                hass,
-                stored,
-                coordinator._solcast_cache,
-            )
-
-        job = _statistics_forecast_points
         try:
-            points = await get_instance(hass).async_add_executor_job(job)
+            await coordinator.async_ensure_solcast_cache()
+            stored = await coordinator.async_read_solcast_stored()
+            if len(coordinator._solcast_forecast_chart_points) < 2:
+                await coordinator._rebuild_solcast_forecast_chart(stored=stored)
+
+            def _statistics_forecast_points() -> list[dict[str, float]]:
+                return build_statistics_forecast_overlay(
+                    hass,
+                    stored,
+                    coordinator._solcast_cache,
+                )
+
+            points = await get_instance(hass).async_add_executor_job(
+                _statistics_forecast_points
+            )
         except Exception as err:
             _LOGGER.exception("solcast_statistics_forecast failed")
             connection.send_error(
@@ -923,20 +920,19 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             target_day = dt_util.as_local(dt_util.utcnow()).date()
         from .solcast_forecast_accuracy import build_forecast_accuracy_report
 
-        stored = {}
-        if coordinator._solcast_store:
-            stored = await coordinator._solcast_store.async_load()
-        job = partial(
-            build_forecast_accuracy_report,
-            hass,
-            stored,
-            coordinator._solcast_cache,
-            coordinator.plant.entity_map,
-            target_day,
-            entry_id=coordinator.config_entry.entry_id,
-            storm_prep=coordinator.plant.storm_prep,
-        )
         try:
+            await coordinator.async_ensure_solcast_cache()
+            stored = await coordinator.async_read_solcast_stored()
+            job = partial(
+                build_forecast_accuracy_report,
+                hass,
+                stored,
+                coordinator._solcast_cache,
+                coordinator.plant.entity_map,
+                target_day,
+                entry_id=coordinator.config_entry.entry_id,
+                storm_prep=coordinator.plant.storm_prep,
+            )
             report = await get_instance(hass).async_add_executor_job(job)
         except Exception as err:
             _LOGGER.exception("solcast_forecast_accuracy failed for %s", target_day.isoformat())

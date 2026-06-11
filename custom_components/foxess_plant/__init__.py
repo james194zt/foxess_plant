@@ -72,10 +72,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
     coordinator = FoxessPlantCoordinator(hass, entry)
-    await coordinator.async_config_entry_first_refresh()
-
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {"coordinator": coordinator}
+    try:
+        await coordinator.async_config_entry_first_refresh()
+    except Exception:
+        _LOGGER.exception(
+            "FoxESS Plant coordinator refresh failed for %s; panel may be degraded",
+            entry.title,
+        )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     await coordinator.async_update_tariff_sensors(record_history=False)
