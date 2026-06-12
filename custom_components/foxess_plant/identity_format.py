@@ -9,6 +9,56 @@ _LEGACY_VERSION_RE = re.compile(r"^(\d+)\.(\d{2})$")
 _INTEGER_RE = re.compile(r"^\d+$")
 
 
+def _parse_raw_register(raw: str | None) -> int | None:
+    if raw in (None, "", "unavailable", "unknown"):
+        return None
+    text = str(raw).strip()
+    if _INTEGER_RE.fullmatch(text):
+        return int(text)
+    return None
+
+
+def format_evo_bcu_version(
+    pack1_raw: str | None,
+    pack2_raw: str | None = None,
+    pack_count: str | None = None,
+) -> str | None:
+    """Decode Version_BCU from pack 1 token (37033) plus optional sub register (37034).
+
+    On some EVO installs the minor revision lives in the next holding register when
+    the pack token low bits are zero (37033=0x1000, 37034=4 → Fox 1.004).
+    """
+    count: int | None = None
+    if pack_count not in (None, "", "unavailable", "unknown"):
+        try:
+            count = int(str(pack_count).strip())
+        except ValueError:
+            count = None
+    pack1_int = _parse_raw_register(pack1_raw)
+    pack2_int = _parse_raw_register(pack2_raw)
+    if (
+        pack1_int is not None
+        and (pack1_int & 0xFFF) == 0
+        and pack2_int is not None
+        and 0 < pack2_int < 0x1000
+        and (count is None or count <= 1)
+    ):
+        merged = format_evo_pack_version(str(pack1_int | (pack2_int & 0xFFF)))
+        if merged:
+            return merged
+    formatted = format_evo_pack_version(pack1_raw)
+    if (
+        formatted
+        and formatted.endswith(".000")
+        and pack2_int is not None
+        and 0 < pack2_int < 0x1000
+        and (count is None or count <= 1)
+    ):
+        major = formatted.split(".", 1)[0]
+        return f"{major}.{pack2_int:03d}"
+    return formatted
+
+
 def format_evo_pack_version(raw: str | None) -> str | None:
     """Decode EVO BMS pack version registers (37033–37036).
 

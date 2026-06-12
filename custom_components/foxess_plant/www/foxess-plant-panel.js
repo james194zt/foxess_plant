@@ -255,7 +255,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.231";
+const PANEL_VERSION = "0.9.232";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -2691,10 +2691,70 @@ function formatEvoPackVersion(raw) {
   return text;
 }
 
-function foxBcuVersionValue(hass, plantState, map) {
+function entityRawRegisterInt(hass, entityId) {
+  if (!entityId || !hass?.states?.[entityId]) return null;
+  const text = String(hass.states[entityId].state ?? "").trim();
+  if (!/^\d+$/.test(text)) return null;
+  const value = Number(text);
+  return Number.isFinite(value) ? value : null;
+}
+
+function formatEvoBcuVersion(hass, plantState, map) {
   const id = plantState?.identity ?? {};
-  const raw = id.bms_pack_1_version || entityDisplayValue(hass, map.bms_pack_1_version) || "—";
-  return formatEvoPackVersion(raw);
+  const pack1Raw = id.bms_pack_1_version || entityDisplayValue(hass, map.bms_pack_1_version) || "—";
+  const pack2Raw = id.bms_pack_2_version || entityDisplayValue(hass, map.bms_pack_2_version) || "—";
+  const packCountRaw = id.bms_pack_count || entityDisplayValue(hass, map.bms_pack_count) || "";
+  const packCount = packCountRaw !== "—" && packCountRaw !== "" ? Number(packCountRaw) : null;
+  const pack1Int = entityRawRegisterInt(hass, map.bms_pack_1_version);
+  const pack2Int = entityRawRegisterInt(hass, map.bms_pack_2_version);
+  const singlePack = packCount == null || !Number.isFinite(packCount) || packCount <= 1;
+  if (
+    singlePack &&
+    pack1Int != null &&
+    (pack1Int & 0xfff) === 0 &&
+    pack2Int != null &&
+    pack2Int > 0 &&
+    pack2Int < 0x1000
+  ) {
+    const merged = formatEvoPackVersion(String(pack1Int | (pack2Int & 0xfff)));
+    if (merged !== "—") return merged;
+  }
+  const formatted = formatEvoPackVersion(pack1Raw);
+  if (formatted !== "—" && /\.000$/.test(formatted) && singlePack && pack2Int != null && pack2Int > 0 && pack2Int < 0x1000) {
+    const major = formatted.split(".", 1)[0];
+    return `${major}.${String(pack2Int).padStart(3, "0")}`;
+  }
+  return formatted;
+}
+
+function foxBcuVersionValue(hass, plantState, map) {
+  return formatEvoBcuVersion(hass, plantState, map);
+}
+
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (_) {
+      /* fall through to execCommand */
+    }
+  }
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.setAttribute("readonly", "");
+  ta.style.position = "fixed";
+  ta.style.left = "-9999px";
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
+  } catch (_) {
+    ta.remove();
+    return false;
+  }
 }
 
 function deviceSerialCopyIconSvg() {
@@ -8875,9 +8935,10 @@ const STYLES = `
 }
 .fox-device-new-sidebar-serial-row .fox-device-new-sidebar-serial-btn {
   flex: 1 1 auto; min-width: 0; justify-content: center;
+  font-size: 12px; color: var(--primary-text-color);
 }
 .fox-device-new-sidebar-serial-prefix {
-  color: var(--secondary-text-color); font-weight: 500; flex-shrink: 0;
+  color: var(--secondary-text-color); font-weight: 500; flex-shrink: 0; font-size: 12px;
 }
 .fox-device-new-sidebar-copy-btn {
   flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
@@ -8900,8 +8961,9 @@ const STYLES = `
   font: inherit; max-width: 100%; width: auto;
 }
 .fox-device-new-sidebar-serial {
-  font-family: ui-monospace, monospace; font-size: 11px; letter-spacing: 0.03em;
-  line-height: 1.35; word-break: break-all;
+  font-family: ui-monospace, monospace; font-size: 12px; font-weight: 600;
+  letter-spacing: 0.03em; line-height: 1.35; word-break: break-all;
+  color: var(--primary-text-color);
 }
 .fox-device-new-sidebar-serial-muted { margin: 0; font-size: 11px; }
 .fox-device-new-sidebar-serial-btn .chev { font-size: 12px; flex-shrink: 0; }
@@ -10927,12 +10989,8 @@ Reloading panel registration…
       e.stopPropagation();
       const serial = btn.dataset.serial;
       if (!serial) return;
-      try {
-        await navigator.clipboard.writeText(serial);
-        this._showToast("Serial number copied");
-      } catch (err) {
-        this._showToast(err?.message || "Copy failed", "err");
-      }
+      const ok = await copyTextToClipboard(serial);
+      this._showToast(ok ? "Serial number copied" : "Copy failed", ok ? "ok" : "err");
       return;
     }
     if (action === "device-new-sub") {

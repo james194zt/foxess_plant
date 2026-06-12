@@ -19,7 +19,7 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .analytics import compute_analytics
-from .identity_format import format_evo_pack_version
+from .identity_format import format_evo_bcu_version, format_evo_pack_version
 from .impact import compute_impact
 from .charge_period import apply_charge_periods
 from .discovery import missing_charge_period_entities
@@ -1316,7 +1316,13 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if not self.plant.entity_map.get(key):
                 continue
             raw = self._entity_state(key)
-            if key.startswith("bms_pack_") and key.endswith("_version"):
+            if key == "bms_pack_1_version":
+                identity[key] = format_evo_bcu_version(
+                    raw,
+                    self._entity_state("bms_pack_2_version"),
+                    self._entity_state("bms_pack_count"),
+                )
+            elif key.startswith("bms_pack_") and key.endswith("_version"):
                 identity[key] = format_evo_pack_version(raw)
             else:
                 identity[key] = raw
