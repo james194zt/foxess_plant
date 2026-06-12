@@ -43,8 +43,9 @@ def register_services(hass: HomeAssistant) -> None:
     """Register plant control services for automations and Node-RED."""
 
     async def reload_panel(call: ServiceCall) -> None:
-        from .panel import async_register_panel
+        from .panel import _PANEL_DISK_INFO_KEY, async_register_panel
 
+        hass.data.pop(_PANEL_DISK_INFO_KEY, None)
         await async_register_panel(hass)
         _LOGGER.info("Fox Plant panel reloaded via foxess_plant.reload_panel service")
 

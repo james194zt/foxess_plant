@@ -117,12 +117,19 @@ def _compute_panel_disk_info() -> dict[str, str]:
 
 
 def get_panel_disk_info(hass: HomeAssistant | None = None) -> dict[str, str]:
-    """Return cached panel build info when available (avoids disk I/O on websocket polls)."""
+    """Return panel build info, refreshing when manifest on disk changes."""
+    live_manifest = _panel_js_version()
     if hass is not None:
         cached = hass.data.get(_PANEL_DISK_INFO_KEY)
-        if isinstance(cached, dict):
+        if (
+            isinstance(cached, dict)
+            and cached.get("manifest_version") == live_manifest
+        ):
             return dict(cached)
-    return _compute_panel_disk_info()
+    info = _compute_panel_disk_info()
+    if hass is not None:
+        hass.data[_PANEL_DISK_INFO_KEY] = info
+    return info
 
 
 def _prepare_panel_assets() -> dict[str, str]:
