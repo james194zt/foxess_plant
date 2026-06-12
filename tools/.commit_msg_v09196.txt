@@ -1,0 +1,3 @@
+Align Device Information card with summary cards on Devices (new) (v0.9.196).
+
+Float the device hero above the sidebar column so the info panel top lines up with PV Power and Analysis summary cards.

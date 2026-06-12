@@ -1,0 +1,3 @@
+Style device summary units like Fox app cards (v0.9.222).
+
+Keep values large; render kW, percent, and celsius unit glyphs smaller with proper ℃ character.

@@ -1,0 +1,3 @@
+Fix forecast accuracy Unknown error by restoring recorder fallbacks (v0.9.159).
+
+Wrap recorder forecast loads in try/except, handle dict recorder rows, and return structured errors instead of failing the websocket call.

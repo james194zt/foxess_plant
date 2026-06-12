@@ -1,0 +1,5 @@
+v0.9.53: Fox-style Energy analysis with period tabs and date navigation.
+
+Add Day/Week/Month/Year/Total tabs above the breakdown, date arrows for
+historical periods, mirrored supply/usage bar charts, and period-aware
+PV/load breakdown cards matching the Fox app.

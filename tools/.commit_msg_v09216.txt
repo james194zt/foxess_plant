@@ -1,0 +1,3 @@
+Fix Energy Report summary row card alignment (v0.9.216).
+
+Remove stacked card margins, equalize grid stretch heights, and tighten balance/donut card layout.

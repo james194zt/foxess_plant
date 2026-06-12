@@ -1,0 +1,3 @@
+Fix panel registration blocking I/O and websocket plant_state errors (v0.9.199).
+
+Run panel asset sync in an executor, cache build info, and return explicit plant_state_failed errors instead of unknown_error.

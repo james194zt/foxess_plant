@@ -1,0 +1,4 @@
+Fix stale panel version cache after HACS update (v0.9.226).
+
+Re-read manifest on disk when reporting panel_runtime so HA detects
+new files without a full restart; bump device summary headers/icons.

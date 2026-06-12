@@ -1,0 +1,4 @@
+v0.9.64: Calculate trees from lifetime generation like Fox app.
+
+Fox uses gross solar kWh for trees (~0.804/kWh) but self-consumed kWh for CO2.
+Stop tying trees 1:1 to CO2 so the two metrics can diverge as in FoxCloud.

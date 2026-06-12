@@ -1,0 +1,4 @@
+Device sidebar SN prefix, copy button, PSC SN row; fix BCU version (v0.9.231).
+
+Decode EVO pack version tokens for Version_BCU (register 37033) when modbus
+returns legacy decimal formatting; add SN: label and clipboard copy on hero.

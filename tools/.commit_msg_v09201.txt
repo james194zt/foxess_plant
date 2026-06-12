@@ -1,0 +1,3 @@
+Stop Solcast storage load failures from wiping forecast cache (v0.9.201).
+
+Isolate store read, cache restore, and chart rebuild so one failure does not erase persisted data, throttle reload spam, and re-open the store after a successful poll.

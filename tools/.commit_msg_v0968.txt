@@ -1,0 +1,5 @@
+v0.9.68: Add Energy Analysis tab with FoxCloud layout.
+
+New Analysis tab with balance/production/consumption summary cards, statistics
+chart with side SUPPLY/USAGE legend and forecast, plus animated supply/usage
+flow panel matching FoxCloud Energy Analysis.

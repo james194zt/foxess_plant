@@ -1,0 +1,3 @@
+Wire derived BMS health metrics to Fox Real-time battery UI (v0.9.167).
+
+Map new modbus health entities for Health and harmful-events rows so the Devices panel shows calculated values instead of placeholders.

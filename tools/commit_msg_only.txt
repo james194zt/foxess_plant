@@ -1,0 +1,3 @@
+Restore cached Solcast forecast after restart and bump to v0.9.31.
+
+Fix empty prior commit, sync panel JS version with manifest, merge forecast at render time, and fix Battery SOC live readout.

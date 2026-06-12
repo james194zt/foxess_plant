@@ -1,0 +1,4 @@
+Match Real-time summary card height to Analysis tab (v0.9.230).
+
+Use height auto on device summary cards everywhere so Real-time no longer
+stretches taller than the Analysis page cards.

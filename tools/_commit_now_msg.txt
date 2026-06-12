@@ -1,0 +1,1 @@
+Bridge statistics forecast at now instead of next 30-minute Solcast slice (v0.9.143).

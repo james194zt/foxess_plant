@@ -1,0 +1,3 @@
+Fix chart metrics entity resolution and recorder fallback (v0.9.211).
+
+Prefer correct power entity IDs, merge plant and native recorder data, and align grid export transforms with the Lovelace statistics chart.

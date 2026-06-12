@@ -1,0 +1,3 @@
+Wire BMS Ah capacity throughput registers to Real-time battery section (v0.9.166).
+
+Maps Fox 37614/37613 charge and discharge capacity throughput from modbus.

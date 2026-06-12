@@ -1,0 +1,5 @@
+v0.9.51: Device parameters — Fox app sections with full Modbus mapping.
+
+Expand entity discovery for PV strings, AC/EPS, load, grid, battery, and
+datalogger sensors. Parameters page uses collapsible sections matching the
+Fox app layout with tables for PV/AC/EPS.

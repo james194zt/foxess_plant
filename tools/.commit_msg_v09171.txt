@@ -1,0 +1,3 @@
+Device Analysis: shared chart period nav, faster loads, Fox summary styling (v0.9.171).
+
+Unify day/week/month navigation above both device charts while keeping live summary cards independent, fix icon-d-battery semantic mapping, and parallelize chart fetches with stats-first history fallback.

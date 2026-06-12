@@ -1,0 +1,3 @@
+Restore Statistics forecast revision past through now (v0.9.203).
+
+Fill past revision slots when only future overlay data exists, cache Solcast store reads under lock, and stitch solid forecast history with the future tail in the panel.

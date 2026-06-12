@@ -1,0 +1,3 @@
+Devices (new): Fox sidebar, PV tab, fix chart hangs, version mappings (v0.9.177).
+
+Match Fox device card with serial hero and status pills, add PV Configuration tab, split chart loads with WS timeouts, and wire AFCI/BCU identity fields.

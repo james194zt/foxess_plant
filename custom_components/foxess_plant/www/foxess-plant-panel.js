@@ -2660,88 +2660,6 @@ function formatFoxDataloggerSoftwareVersion(hass, plantState, map) {
   return slave !== "—" ? slave : "—";
 }
 
-function formatEvoPackVersion(raw) {
-  if (raw == null || raw === "" || raw === "—" || raw === "unavailable" || raw === "unknown") {
-    return "—";
-  }
-  const text = String(raw).trim();
-  if (/^\d\.\d{3}$/.test(text)) return text;
-  const decodeToken = (value) => {
-    if (!Number.isFinite(value) || value < 0x1000) return null;
-    const major = (value >> 12) & 0xf;
-    const minor = value & 0xfff;
-    if (major < 1 || major > 4) return null;
-    return `${major}.${String(minor).padStart(3, "0")}`;
-  };
-  if (/^\d+$/.test(text)) {
-    const decoded = decodeToken(Number(text));
-    if (decoded) return decoded;
-  }
-  const legacy = /^(\d+)\.(\d{2})$/.exec(text);
-  if (legacy) {
-    const combined = Number(legacy[1]) * 100 + Number(legacy[2]);
-    const decoded = decodeToken(combined);
-    if (decoded) return decoded;
-    if (combined >= 1000 && combined < 10000) {
-      const token = Number.parseInt(String(combined), 16);
-      const hexDecoded = decodeToken(token);
-      if (hexDecoded) return hexDecoded;
-    }
-  }
-  return text;
-}
-
-function entityRawRegisterInt(hass, entityId) {
-  if (!entityId || !hass?.states?.[entityId]) return null;
-  const text = String(hass.states[entityId].state ?? "").trim();
-  if (!/^\d+$/.test(text)) return null;
-  const value = Number(text);
-  return Number.isFinite(value) ? value : null;
-}
-
-function packTokenMinorFromFormatted(text) {
-  if (!text || text === "—") return null;
-  const match = /^(\d)\.(\d{3})$/.exec(String(text).trim());
-  if (!match) return null;
-  const major = Number(match[1]);
-  const minor = Number(match[2]);
-  if (major === 0 && minor > 0) return minor;
-  return null;
-}
-
-function formatEvoBcuVersion(hass, plantState, map) {
-  const id = plantState?.identity ?? {};
-  const pack1Raw = id.bms_pack_1_version || entityDisplayValue(hass, map.bms_pack_1_version) || "—";
-  const pack2Raw = id.bms_pack_2_version || entityDisplayValue(hass, map.bms_pack_2_version) || "—";
-  const packCountRaw = id.bms_pack_count || entityDisplayValue(hass, map.bms_pack_count) || "";
-  const packCount = packCountRaw !== "—" && packCountRaw !== "" ? Number(packCountRaw) : null;
-  const pack1Int = entityRawRegisterInt(hass, map.bms_pack_1_version);
-  let pack2Minor = entityRawRegisterInt(hass, map.bms_pack_2_version);
-  if (pack2Minor == null) pack2Minor = packTokenMinorFromFormatted(pack2Raw);
-  const singlePack = packCount == null || !Number.isFinite(packCount) || packCount <= 1;
-  if (
-    singlePack &&
-    pack1Int != null &&
-    (pack1Int & 0xfff) === 0 &&
-    pack2Minor != null &&
-    pack2Minor > 0 &&
-    pack2Minor < 0x1000
-  ) {
-    const merged = formatEvoPackVersion(String(pack1Int | (pack2Minor & 0xfff)));
-    if (merged !== "—") return merged;
-  }
-  const formatted = formatEvoPackVersion(pack1Raw);
-  if (formatted !== "—" && /\.000$/.test(formatted) && singlePack && pack2Minor != null && pack2Minor > 0 && pack2Minor < 0x1000) {
-    const major = formatted.split(".", 1)[0];
-    return `${major}.${String(pack2Minor).padStart(3, "0")}`;
-  }
-  return formatted;
-}
-
-function foxBcuVersionValue(hass, plantState, map) {
-  return formatEvoBcuVersion(hass, plantState, map);
-}
-
 async function copyTextToClipboard(text) {
   if (navigator.clipboard?.writeText) {
     try {
@@ -2891,15 +2809,6 @@ function renderDeviceNewSidebar(hass, plant, plantState) {
     deviceNewSidebarRowValue(id.manager_version || entityDisplayValue(hass, map.manager_version))
       ? { label: "Version_Manager", value: id.manager_version || entityDisplayValue(hass, map.manager_version) }
       : null,
-    (() => {
-      const bcu = foxBcuVersionValue(hass, plantState, map);
-      return bcu !== "—" ? { label: "Version_BCU", value: bcu } : null;
-    })(),
-    (() => {
-      const afci = id.afci_version || entityDisplayValue(hass, map.afci_version);
-      if (!afci || afci === "—" || afci === "unknown" || afci === "unavailable") return null;
-      return { label: "Version_AFCI", value: afci };
-    })(),
   ].filter(Boolean);
   const body = rows.length
     ? `<dl class="fox-device-new-sidebar-list">${rows.map(renderDeviceNewSidebarRow).join("")}</dl>`
@@ -4188,8 +4097,6 @@ const DEVICE_ENTITY_FALLBACKS = {
   master_version: ["master_version"],
   slave_version: ["slave_version"],
   manager_version: ["manager_version"],
-  afci_version: ["afci_version"],
-  bms_pack_1_version: ["bms_pack_1_version"],
 };
 
 const DEVICE_PV_STRINGS = [1, 2, 3, 4];
@@ -12386,55 +12293,11 @@ ${this._renderImpactPanel()}`;
   }
 
   _renderImpactPanel() {
-    let imp = this._plantState?.impact ?? {};
+    const imp = this._plantState?.impact ?? {};
     if (imp.co2_kg == null && imp.trees_planted == null && imp.oil_litres == null) {
-      const map = this._plantState?.entity_map ?? {};
-      let yieldEntity = map.total_yield_total;
-      if (!yieldEntity && this._hass?.states) {
-        for (const entityId of Object.keys(this._hass.states)) {
-          if (
-            !entityId.startsWith("sensor.") ||
-            (!entityId.endsWith("_total_yield_total") && !entityId.endsWith("_yield_total"))
-          ) {
-            continue;
-          }
-          const st = this._hass.states[entityId]?.state;
-          const kwh = Number(st);
-          if (Number.isFinite(kwh) && kwh > 0) {
-            yieldEntity = entityId;
-            break;
-          }
-        }
-      }
-      if (yieldEntity && imp.co2_kg == null) {
-        const kwh = Number(entityDisplayValue(this._hass, yieldEntity));
-        if (Number.isFinite(kwh) && kwh > 0) {
-          imp = {
-            co2_kg: Math.round(kwh * 0.99693 * 10) / 10,
-            oil_litres: Math.round(kwh * 0.123 * 10) / 10,
-            trees_planted: Math.round(kwh * 10) / 10,
-            impact_basis_kwh: Math.round(kwh * 10) / 10,
-          };
-        }
-      }
-    }
-    if (imp.co2_kg == null && imp.trees_planted == null && imp.oil_litres == null) {
-      const map = this._plantState?.entity_map ?? {};
-      const yieldEntity = map.total_yield_total;
-      const yieldState = yieldEntity && this._hass?.states?.[yieldEntity]?.state;
-      let hint =
-        "Lifetime yield not available yet. Check foxess_modbus <strong>Yield Total</strong> (<code>total_yield_total</code>) is enabled and reporting.";
-      if (!yieldEntity) {
-        hint =
-          "Lifetime yield entity not mapped yet. Reload the <strong>FoxESS Plant</strong> integration (Settings → Devices → FoxESS Plant → Reload) after foxess_modbus updates.";
-      } else if (yieldState === "unavailable" || yieldState === "unknown") {
-        hint = `Yield Total is <strong>${esc(yieldState)}</strong> (<code>${esc(yieldEntity)}</code>). Reload foxess_modbus or check Modbus connection.`;
-      } else if (yieldState != null && yieldState !== "" && Number(yieldState) <= 0) {
-        hint = `Yield Total reads <strong>${esc(yieldState)}</strong> kWh — Impact needs a positive lifetime total.`;
-      }
       return `<div class="card impact-card" style="margin-top:14px">
 <p class="card-title">Impact</p>
-<p class="placeholder impact-placeholder">${hint}</p>
+<p class="placeholder impact-placeholder">Lifetime yield not available yet. Reload FoxESS Plant after foxess_modbus exposes <code>total_yield_total</code> (Yield Total).</p>
 </div>`;
     }
     const items = [
@@ -12607,11 +12470,6 @@ ${this._renderOverviewAfterHero(plant)}`;
       ["bms_online", "BMS online"],
       ["bms_pack_serial_modbus", "BMS pack serial (Modbus)"],
       ["bms_pack_count", "BMS pack count"],
-      ["bms_pack_1_version", "Pack 1 version (BCU)"],
-      ["bms_pack_2_version", "Pack 2 version"],
-      ["bms_pack_3_version", "Pack 3 version"],
-      ["bms_pack_4_version", "Pack 4 version"],
-      ["afci_version", "AFCI firmware"],
     ];
     return rows
       .map(([key, label]) => {

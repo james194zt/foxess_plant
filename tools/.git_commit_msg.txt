@@ -1,0 +1,4 @@
+Add Solcast next-fetch status and overview Battery SOC chart (v0.9.29).
+
+Show estimated next PV poll time in Solcast settings. Add a midnight-to-midnight
+SOC chart under Statistics with 0/50/100% scale and charge/discharge coloring.

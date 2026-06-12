@@ -1,0 +1,3 @@
+v0.9.59: Fix Battery SOC overnight discharge misclassified as idle.
+
+Prefer smoothed charge/discharge power over flat-SOC checks so steady low overnight draw stays blue. Reserve grey idle for full-battery plateaus and use a longer SOC slope window only as fallback.

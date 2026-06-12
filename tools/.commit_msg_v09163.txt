@@ -1,0 +1,3 @@
+Fix Devices (new) Fox icons and real-time layout to match Fox Cloud (v0.9.163).
+
+Correct summary card icon mapping, add Fox section order and battery subsections with exact field labels, and fix datalogger and load energy mappings.

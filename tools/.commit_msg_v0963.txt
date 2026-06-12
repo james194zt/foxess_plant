@@ -1,0 +1,5 @@
+v0.9.63: Fix Impact to use self-consumed solar like Fox app.
+
+v0.9.61 regressed to gross generation which inflated CO2, trees, and oil about
+25% above Fox. Restore self-consumption basis (generation minus export) with
+CO2 and oil factors 1.0 and 0.123 per kWh self-consumed.

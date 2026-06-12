@@ -1,0 +1,3 @@
+Fix overview flow badge contrast on HA light theme (v0.9.146).
+
+Use primary and secondary text colors for bottom grid, battery, and home labels so they stay readable on the white scene canvas.

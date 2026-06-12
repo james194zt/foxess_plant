@@ -1,0 +1,3 @@
+Clarify Solcast next fetch when daily quota is exhausted (v0.9.214).
+
+Show quota reset time separately from the next daylight poll at actual sunrise from sun.sun.

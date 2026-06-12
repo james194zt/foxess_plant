@@ -1,0 +1,3 @@
+Enlarge device summary card titles and icons (v0.9.225).
+
+Increase header and icon size only; Min/Max temperature labels unchanged.

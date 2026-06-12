@@ -1,0 +1,3 @@
+Fix forecast accuracy graph disappearing when navigating to other days (v0.9.158).
+
+Use recorder-first loading for past days, cancel stale in-flight fetches on date change, and stop hiding the card when data is empty.

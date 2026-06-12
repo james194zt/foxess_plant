@@ -1,0 +1,3 @@
+Restore full Fox Real-time page with PV, AC, and EPS sections (v0.9.164).
+
+Re-adds the top-half tables removed in v0.9.163 so Devices (new) Real-time matches Fox Cloud end-to-end.

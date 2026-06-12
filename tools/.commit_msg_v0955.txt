@@ -1,0 +1,3 @@
+v0.9.55: Remove duplicate System Information from Parameters page.
+
+Firmware and Modbus identity remain on Device → System info only.

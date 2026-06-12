@@ -1,0 +1,3 @@
+Fix Solar kW scaling and continuous Grid zero line (v0.9.212).
+
+Correct foxess_modbus kW conversion, try PV entity fallbacks, and merge grid import/export into one densified series.

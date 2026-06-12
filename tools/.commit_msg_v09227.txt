@@ -1,0 +1,4 @@
+Tighten device summary card spacing; revert header size (v0.9.227).
+
+Restore 13px labels and 32px icons, remove bottom-align spacer so
+values sit closer to headers including Battery Temperature Min/Max.

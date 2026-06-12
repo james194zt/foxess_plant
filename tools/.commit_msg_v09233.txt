@@ -1,0 +1,1 @@
+Hide Version_AFCI when unavailable (v0.9.233).

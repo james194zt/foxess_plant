@@ -1,0 +1,3 @@
+Fix Solcast cache starvation and websocket unknown_error regressions (v0.9.202).
+
+Poll when the forecast cache is empty after a storage read failure, use safe store reads in websocket handlers, and keep the coordinator registered if first refresh fails.

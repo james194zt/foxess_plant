@@ -1,0 +1,4 @@
+v0.9.49: Rebuild forecast chart from Solcast poll history, not latest value.
+
+Past statistics slots use each poll's cached detailed_forecast instead of
+back-filling the current forecast across the whole day after restart.

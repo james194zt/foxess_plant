@@ -1,0 +1,3 @@
+Fix Devices (new) Analysis layout with CSS grid and sub-nav spacing (v0.9.192).
+
+Replace inline layout hacks with grid-template-areas now that stylesheet rules apply, add sticky header and extra main padding when sub-tabs are shown.

@@ -1,0 +1,3 @@
+Restore Statistics forecast future tail after revision-past overlay (v0.9.200).
+
+Ensure server overlay and coordinator intraday chart keep Solcast slots through midnight, and merge live intraday with cached detailed forecast in the panel.

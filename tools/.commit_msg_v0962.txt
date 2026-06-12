@@ -1,0 +1,3 @@
+v0.9.62: Show Solcast forecast on historical statistics day charts.
+
+Rebuild past-day Forecast lines from persisted poll history and recorder snapshots instead of skipping overlay when navigating back from today.

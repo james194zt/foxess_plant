@@ -1,0 +1,3 @@
+Restore Statistics and device curve metrics when recorder stats are empty (v0.9.210).
+
+Harden fetch_history/fetch_statistics websocket jobs and always fall back to recorder history so Solar, Grid, Load, and device power series render again.

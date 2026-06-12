@@ -1,0 +1,4 @@
+v0.9.52: Fix device parameter sections collapse state.
+
+Use panel state for open/closed sections so live re-renders do not reset
+them. All sections start closed. Rename Datalogger to System Information.

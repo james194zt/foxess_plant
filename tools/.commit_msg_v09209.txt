@@ -1,0 +1,3 @@
+Fix Solcast over-polling, setup errors, and add PV installation cost (v0.9.209).
+
+Stop force-polling on empty cache and startup refresh; fix websocket recorder jobs and tariff import; reduce Solcast storage log noise; match Overview status pills to Device style; add per-PV installation cost in tariff currency.

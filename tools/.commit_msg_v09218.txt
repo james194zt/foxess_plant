@@ -1,0 +1,3 @@
+Fix Overview statistics grid scaling and Y-axis (v0.9.218).
+
+Correct kW/watt recorder mismatch, prefer signed grid_ct net, average grid merge buckets, and use adaptive axis ticks.

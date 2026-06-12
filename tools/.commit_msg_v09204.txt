@@ -1,0 +1,3 @@
+Remove flat forecast fallback and fix historical day dashed duplicate (v0.9.204).
+
+Stop filling revision past with a single kW estimate, render prior days as one solid forecast line, and only extend detailed forecast into the future for today.

@@ -1,0 +1,3 @@
+Use Solcast unmetered location for API test without charging quota v0.9.1
+
+Test connection hits Sydney Opera House (official unmetered list) and skips fetch_now on save during test.

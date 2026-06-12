@@ -1,0 +1,4 @@
+v0.9.66: Apply Fox CO2 discount on yield total for Impact.
+
+Trees and oil use Yield Total at 1.0 and 0.123 per kWh; Fox CO2 is ~99.69% of
+that same yield (~259.8 vs 260.6 trees), not a 1:1 match.

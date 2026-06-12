@@ -1,0 +1,3 @@
+Wire BMS extended Modbus entities for Fox Real-time battery fields (v0.9.165).
+
+Map design energy and remaining Ah capacity from foxess_modbus when available.

@@ -1,0 +1,1 @@
+Center device PV gauge readout inside the arc like the Fox app (v0.9.20).

@@ -1,0 +1,1 @@
+Increase device summary card icons to 42px (v0.9.229).

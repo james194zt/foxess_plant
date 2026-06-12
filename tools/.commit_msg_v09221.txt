@@ -1,0 +1,3 @@
+Show min and max battery temperature on device summary card (v0.9.221).
+
+Rename card to Battery Temperature, side-by-side Min/Max fields, and fix degree Celsius display.

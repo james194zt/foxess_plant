@@ -1,0 +1,3 @@
+Fix broken settings CSS from missing parenthesis in device-new styles (v0.9.191).
+
+A typo in a color-mix fallback invalidated every stylesheet rule after it, breaking settings and PV configuration layout; add paren balance checks to check_styles.py.

@@ -1,0 +1,3 @@
+Add Solcast installation date and tilt/azimuth settings (v0.9.10).
+
+Store optional installation date to match Solcast site fields without sending it to the rooftop API yet; expose tilt/azimuth on the Solcast settings page with validated save.

@@ -37,14 +37,14 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .coordinator import FoxessPlantCoordinator
-    from .discovery import discover_entity_map, merge_entity_maps
+    from .discovery import discover_entity_map
     from .entity import inverter_via_device
     from .panel import async_register_panel
     from .services import register_services
 
     data = dict(entry.data)
     fresh_map = discover_entity_map(hass, data["device_id"])
-    merged_map = merge_entity_maps(hass, data.get("entity_map", {}), fresh_map)
+    merged_map = {**data.get("entity_map", {}), **fresh_map}
     if merged_map != data.get("entity_map"):
         data["entity_map"] = merged_map
         hass.config_entries.async_update_entry(entry, data=data)

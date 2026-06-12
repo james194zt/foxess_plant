@@ -1,0 +1,3 @@
+Fix statistics forecast regression after v0.9.143 bridge change (v0.9.144).
+
+Restore Solcast interval lookup and server overlay grace so the yellow forecast line renders past and future again.

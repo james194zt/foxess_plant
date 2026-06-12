@@ -1,0 +1,5 @@
+v0.9.67: Fix CO2 Impact using solar self-consumption not yield.
+
+Fox CO2 uses Solar Generation Total minus Feed-in Total (~259.8 kWh), while trees
+and oil use Yield Total (~260.6 kWh). Reject inconsistent feed_in readings and
+fall back to Fox yield offset when solar/export totals are unavailable.

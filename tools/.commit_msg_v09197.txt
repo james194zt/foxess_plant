@@ -1,0 +1,3 @@
+Restore device image and serial inside sidebar card (v0.9.197).
+
+Keep the full Device Information card aligned with summary cards without floating the hero outside the border.

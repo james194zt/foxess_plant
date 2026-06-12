@@ -1,0 +1,5 @@
+v0.9.50: Fix statistics chart spikes from signed grid/battery and smoothing.
+
+Plot grid import/export and battery charge/discharge on signed power only (not
+both directions at once). Use straight lines between 5-minute points and drop
+isolated recorder spikes.

@@ -19,10 +19,9 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .analytics import compute_analytics
-from .identity_format import format_evo_bcu_version, format_evo_pack_version
 from .impact import compute_impact
 from .charge_period import apply_charge_periods
-from .discovery import discover_entity_map, merge_entity_maps, missing_charge_period_entities
+from .discovery import missing_charge_period_entities
 from .remote_control import is_charge_period_modbus_blocked
 from .remote_control import periods_want_grid_force_charge
 from .remote_control import set_remote_control_mode
@@ -118,7 +117,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._unsub_smart_charge: callable | None = None
         self._last_tariff_sensor_rates: dict[str, float] = {}
         self._octopus_cache: dict[str, Any] = {}
-        self._entity_map_dirty = False
         super().__init__(
             hass,
             _LOGGER,
@@ -720,7 +718,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_load_tariff_storage()
         self._sync_trigger_membership()
         self.setup_trigger_listeners()
-        self._refresh_entity_map()
         await super().async_config_entry_first_refresh()
         self._setup_drift_timer()
         self._setup_storm_forecast_timer()
@@ -1301,73 +1298,23 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _read_analytics(self) -> dict[str, Any]:
         states = {key: self._entity_state(key) for key in ANALYTICS_ENTITY_SUFFIXES}
-        if not any(self.plant.entity_map.get(key) for key in ANALYTICS_ENTITY_SUFFIXES):
-            if not any(v not in (None, "", "unknown", "unavailable") for v in states.values()):
-                return {}
+        if not any(states.values()):
+            return {}
         return compute_analytics(states)
 
-    def _refresh_entity_map(self) -> bool:
-        """Re-discover foxess_modbus entities (e.g. after modbus integration reload)."""
-        try:
-            fresh = discover_entity_map(self.hass, self.plant.device_id)
-            if not fresh:
-                return False
-            merged = merge_entity_maps(self.hass, self.plant.entity_map, fresh)
-            if merged == self.plant.entity_map:
-                return False
-            self.plant.entity_map = merged
-            self._entity_map_dirty = True
-            _LOGGER.info("Refreshed FoxESS Plant entity map (%d keys)", len(merged))
-            return True
-        except Exception:
-            _LOGGER.exception("Entity map refresh failed")
-            return False
-
-    def _persist_entity_map_if_dirty(self) -> None:
-        if not self._entity_map_dirty:
-            return
-        data = dict(self.config_entry.data)
-        data["entity_map"] = self.plant.entity_map
-        self.hass.config_entries.async_update_entry(self.config_entry, data=data)
-        self._entity_map_dirty = False
-
-    def _collect_impact_states(self) -> dict[str, str | None]:
-        return {key: self._entity_state(key) for key in IMPACT_ENTITY_SUFFIXES}
-
-    @staticmethod
-    def _impact_states_usable(states: dict[str, str | None]) -> bool:
-        return any(v not in (None, "unknown", "unavailable", "") for v in states.values())
-
     def _read_impact(self) -> dict[str, Any]:
-        states = self._collect_impact_states()
-        if self._impact_states_usable(states):
-            result = compute_impact(states)
-            if result:
-                return result
-        if self._refresh_entity_map():
-            states = self._collect_impact_states()
-            if self._impact_states_usable(states):
-                return compute_impact(states)
-        return {}
+        states = {key: self._entity_state(key) for key in IMPACT_ENTITY_SUFFIXES}
+        if not any(v not in (None, "unknown", "unavailable", "") for v in states.values()):
+            return {}
+        return compute_impact(states)
 
     def _read_identity(self) -> dict[str, str | None]:
         """PCS/BMS identity and firmware from discovered foxess_modbus entities."""
-        identity: dict[str, str | None] = {}
-        for key in IDENTITY_ENTITY_SUFFIXES:
-            if not self.plant.entity_map.get(key):
-                continue
-            raw = self._entity_state(key)
-            if key == "bms_pack_1_version":
-                identity[key] = format_evo_bcu_version(
-                    raw,
-                    self._entity_state("bms_pack_2_version"),
-                    self._entity_state("bms_pack_count"),
-                )
-            elif key.startswith("bms_pack_") and key.endswith("_version"):
-                identity[key] = format_evo_pack_version(raw)
-            else:
-                identity[key] = raw
-        return identity
+        return {
+            key: self._entity_state(key)
+            for key in IDENTITY_ENTITY_SUFFIXES
+            if self.plant.entity_map.get(key)
+        }
 
     async def _async_update_data(self) -> dict[str, Any]:
         await self.async_ensure_solcast_cache()
@@ -1379,9 +1326,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._evaluate_forecast_prep()
         except Exception as err:
             _LOGGER.warning("Forecast prep evaluation failed: %s", err)
-        state = self.get_plant_state()
-        self._persist_entity_map_if_dirty()
-        return state
+        return self.get_plant_state()
 
     def _entity_state(self, key: str) -> str | None:
         entity_id = self.plant.entity_map.get(key)

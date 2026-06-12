@@ -1,0 +1,3 @@
+Bottom-align device summary card values (v0.9.223).
+
+Match temperature card baseline; reserve label row space on PV, SOC, and discharge cards.

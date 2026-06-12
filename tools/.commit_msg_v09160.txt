@@ -1,0 +1,3 @@
+Add Devices (new) tab with Fox Cloud Analysis and Real-time sections (v0.9.160).
+
+Sidebar device info, live summary cards, real-time power curve, energy bar chart, and expanded modbus parameter sections reuse existing entity_map data.

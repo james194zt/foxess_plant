@@ -1,0 +1,3 @@
+Limit Energy Report period tabs to Week, Month, Year (v0.9.217).
+
+Match Fox report timelines; normalize stale day/total selections to week on Reports.

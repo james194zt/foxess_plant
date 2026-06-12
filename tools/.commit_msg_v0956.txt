@@ -1,0 +1,4 @@
+v0.9.56: Fix Device page card hover flicker and missed clicks.
+
+Patch live PV/battery values without re-rendering navigation cards on each
+HA update. Use stable hover overlays on list buttons and serial row.

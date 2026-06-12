@@ -1,0 +1,3 @@
+Restore today revision forecast via memory snapshots and recorder (v0.9.205).
+
+Keeps in-memory Solcast poll history when .storage reads fail, merges recorder snapshots for today, and runs forecast overlay on the event loop to stop missing past forecast on Overview and Energy Analysis.

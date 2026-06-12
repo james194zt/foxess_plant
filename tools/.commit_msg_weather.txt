@@ -1,0 +1,1 @@
+Fix overview weather icons when Google type attribute is missing v0.8.157

@@ -1,0 +1,4 @@
+v0.9.48: EVO Remote Control fallback and schedule sync/re-apply UI.
+
+Fall back to Force Charge when EVO charge-period Modbus writes fail; add sync
+from inverter and re-apply to inverter on drift banner and Schedule settings.

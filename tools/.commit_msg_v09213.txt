@@ -1,0 +1,3 @@
+Densify idle EPS line on device real-time curve (v0.9.213).
+
+Fill 5-minute buckets at zero so EPS Power draws a continuous pink baseline and shows 0 kW in the tooltip.

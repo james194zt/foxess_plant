@@ -1,0 +1,3 @@
+Add PV1/PV2 system configuration with efficiency-adjusted DC sizing v0.8.158
+
+Persist panel count, wattage, and Solcast-style efficiency factor for future analysis charts. Device and Settings both expose the editor.

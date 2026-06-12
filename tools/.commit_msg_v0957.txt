@@ -1,0 +1,3 @@
+v0.9.57: Fix Settings main list hover flicker and missed clicks.
+
+Patch mode banner and row subtitles on HA updates instead of re-rendering the full Settings menu, matching the Device page live-patch pattern.

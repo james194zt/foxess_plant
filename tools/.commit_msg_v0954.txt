@@ -1,0 +1,5 @@
+v0.9.54: Restore Energy summary cards and full-period chart slots.
+
+Put Load/Balance stats back above the period navigator. Week/month/year
+charts now show the full period (Mon–Sun, all month days, Jan–Dec) with
+empty slots for days/months without data yet.

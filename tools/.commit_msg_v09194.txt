@@ -1,0 +1,3 @@
+Fix summary cards shrinking after live patch on Devices (new) (v0.9.194).
+
+The realtime patch was nesting a second summary grid inside the first, collapsing cards to a narrow column; patch card items only and flatten any existing nested wrappers.

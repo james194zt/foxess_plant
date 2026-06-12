@@ -1,0 +1,4 @@
+BCU sub-register merge, SN sizing, clipboard fallback (v0.9.232).
+
+Merge holding 37034 into pack 1 BCU when 37033 minor is zero (1.000+4→1.004);
+match hero serial to 12px sidebar text; fix copy in HA panel without Clipboard API.

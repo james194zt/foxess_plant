@@ -1,0 +1,3 @@
+v0.9.61: Align impact metrics with Fox app and show Idle in SOC tooltip.
+
+Use lifetime solar generation for CO₂, trees, and oil (Fox Forest basis). Restore Idle label on Battery SOC hover only, not in the chart legend.

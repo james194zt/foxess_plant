@@ -1,0 +1,3 @@
+Revert shared chart changes; scope grid fixes to Overview statistics only (v0.9.219).
+
+Restore real-time curve scaling. Apply grid watt/kW correction, merge averaging, and signed grid_ct only on statistics grid series.

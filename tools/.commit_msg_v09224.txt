@@ -1,0 +1,3 @@
+Slightly enlarge device summary card headers (v0.9.224).
+
+Increase title font and head spacing only; battery min/max layout unchanged.

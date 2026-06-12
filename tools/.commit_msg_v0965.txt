@@ -1,0 +1,5 @@
+v0.9.65: Use Yield Total sensor for Fox Impact metrics.
+
+Fox Forest uses foxess_modbus total_yield_total (~260 kWh), not self-consumed
+solar or Solar Generation Total (~324 kWh). Align CO2, trees, and oil with that
+yield basis and factors 1.0 / 1.0 / 0.123 per kWh.

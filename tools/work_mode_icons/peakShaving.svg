@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+<g id="Frame 1321316676">
+<rect id="Rectangle 34625412" width="48" height="48" rx="4" fill="#FC355D" />
+<g id="Frame 1321316322">
+<g id="Group 1000004358">
+<path id="Vector 480" d="M12.6494 22.5198C12.899 22.5198 13.473 22.2442 13.7724 21.1419C14.1468 19.7639 15.2698 16.0893 16.3929 21.6012C16.4417 21.821 17.3211 25.1092 18.5159 22.1977C19.7106 19.2862 19.8921 18.9575 21.1913 22.3093C22.2306 24.9907 22.7792 22.718 22.9236 21.2465C22.9997 20.087 23.1033 18.8083 23.2314 17.5844M35.2209 22.5198C34.8662 22.7079 34.3616 22.6402 33.9039 22.4954C33.3174 22.3099 32.9696 21.7466 32.8761 21.1386C32.2139 16.8336 30.7403 11.14 29.1478 16.9445C27.0039 24.7587 26.4404 21.7384 26.2566 20.9341C26.1296 19.6614 26.0048 18.5496 25.8824 17.5844" stroke="white" stroke-width="1.5" stroke-linecap="round" />
+<path id="Vector 479" d="M23.3679 15.9402C23.6839 13.4146 24.634 9.44125 25.8455 15.8182" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-dasharray="3 3" />
+<path id="Vector 481" d="M12.3613 17.8438H33.6387C34.7432 17.8438 35.6387 18.7392 35.6387 19.8437V29.4103C35.6387 30.5149 34.7432 31.4103 33.6387 31.4103H23.0051" stroke="#FFB8C6" stroke-width="1.5" stroke-linecap="round" />
+<rect id="Rectangle 24027" x="18.895" y="26.5547" width="9.31278" height="9.06249" rx="1" fill="white" />
+<g id="Rectangle 24028">
+<mask id="path-6-inside-1_2095_75746" fill="white">
+<rect x="20.7388" y="28.9844" width="1.53526" height="4.7414" rx="0.1" />
+</mask>
+<rect x="20.7388" y="28.9844" width="1.53526" height="4.7414" rx="0.1" stroke="#FC355D" stroke-width="0.4" mask="url(#path-6-inside-1_2095_75746)" />
+</g>
+<rect id="Rectangle 24029" x="21.1538" y="28.4453" width="0.705239" height="0.363547" rx="0.1" fill="#FC355D" />
+<rect id="Rectangle 24030" x="20.8098" y="31.25" width="1.39725" height="2.32806" fill="#FC355D" />
+<g id="Rectangle 24028_2">
+<mask id="path-9-inside-2_2095_75746" fill="white">
+<rect x="22.822" y="28.9844" width="1.53526" height="4.7414" rx="0.1" />
+</mask>
+<rect x="22.822" y="28.9844" width="1.53526" height="4.7414" rx="0.1" stroke="#FC355D" stroke-width="0.4" mask="url(#path-9-inside-2_2095_75746)" />
+</g>
+<rect id="Rectangle 24029_2" x="23.2334" y="28.4453" width="0.705239" height="0.363547" rx="0.1" fill="#FC355D" />
+<rect id="Rectangle 24030_2" x="22.8855" y="29.8047" width="1.39725" height="3.77386" fill="#FC355D" />
+<g id="Rectangle 24028_3">
+<mask id="path-12-inside-3_2095_75746" fill="white">
+<rect x="24.8977" y="28.9844" width="1.53526" height="4.7414" rx="0.1" />
+</mask>
+<rect x="24.8977" y="28.9844" width="1.53526" height="4.7414" rx="0.1" stroke="#FC355D" stroke-width="0.4" mask="url(#path-12-inside-3_2095_75746)" />
+</g>
+<rect id="Rectangle 24029_3" x="25.3127" y="28.4453" width="0.705239" height="0.363547" rx="0.1" fill="#FC355D" />
+<rect id="Rectangle 24030_3" x="24.9648" y="32.2656" width="1.39725" height="1.31359" fill="#FC355D" />
+</g>
+</g>
+</g>
+</svg>

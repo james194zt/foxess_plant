@@ -1,0 +1,3 @@
+v0.9.58: Grey idle segments on Battery SOC chart.
+
+Render flat SOC periods in grey without an idle legend entry, matching the Fox app. Treat near-flat SOC as idle to avoid misclassifying sensor noise as discharge.

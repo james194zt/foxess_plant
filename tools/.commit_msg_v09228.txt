@@ -1,0 +1,4 @@
+Bottom-align summary values; tuck Min/Max under temp header (v0.9.228).
+
+Split temp labels and values into separate rows so Min/Max sit under the
+header while values stay bottom-aligned with the other summary cards.

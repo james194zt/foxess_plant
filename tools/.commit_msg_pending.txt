@@ -1,0 +1,7 @@
+Add native Solcast PV forecast with sun-aware polling and full-day charts.
+
+Solcast is PV-only (Google Weather stays on StormSafe/overview). Rooftop
+forecasts use PV tilt/azimuth, spread API calls across daylight from
+sunrise until 1h before sunset, and require lat/lon matching Solcast site
+listings (not HA coordinates). Charts show rest-of-day forecast with dashed
+future segment; v0.9.7.

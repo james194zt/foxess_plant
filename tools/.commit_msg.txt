@@ -1,0 +1,5 @@
+Fix PV/AIO overlay sprites: strip AIO floor reflection v0.8.156
+
+The house backdrop has no panels or battery; overlays supply them. Strip the
+Fox AIO ground reflection below the cabinet and use black-only matte for PV so
+panel edges stay crisp on the roof. Re-bake all flow_*_scene overlay PNGs.

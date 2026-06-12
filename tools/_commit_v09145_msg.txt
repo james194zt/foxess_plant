@@ -1,0 +1,3 @@
+Restore statistics Solcast forecast overlay after v0.9.144 regression (v0.9.145).
+
+Prefer server-built forecast points, revert broken client interval expansion, and refresh server overlay when Solcast data updates.
