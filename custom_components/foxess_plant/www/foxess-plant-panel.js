@@ -255,7 +255,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.232";
+const PANEL_VERSION = "0.9.233";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -2886,7 +2886,8 @@ function renderDeviceNewSidebar(hass, plant, plantState) {
     })(),
     (() => {
       const afci = id.afci_version || entityDisplayValue(hass, map.afci_version);
-      return afci && afci !== "—" ? { label: "Version_AFCI", value: afci } : null;
+      if (!afci || afci === "—" || afci === "unknown" || afci === "unavailable") return null;
+      return { label: "Version_AFCI", value: afci };
     })(),
   ].filter(Boolean);
   const body = rows.length
