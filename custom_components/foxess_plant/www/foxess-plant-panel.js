@@ -255,7 +255,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.223";
+const PANEL_VERSION = "0.9.224";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -8944,7 +8944,7 @@ const STYLES = `
 .fox-device-new-analysis-stack .fox-device-new-summary-card { height: auto; }
 .fox-device-new-summary-head {
   display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
-  min-height: 32px; flex: 0 0 auto; margin-bottom: 6px;
+  min-height: 36px; flex: 0 0 auto; margin-bottom: 8px;
 }
 .fox-device-new-summary-body {
   flex: 1 1 auto; display: flex; flex-direction: column; justify-content: flex-end;
@@ -8954,8 +8954,8 @@ const STYLES = `
   content: ""; display: block; flex: 1 1 auto; min-height: calc(12px * 1.3 + 4px);
 }
 .fox-device-new-summary-label {
-  font-size: 12px; color: var(--secondary-text-color); font-weight: 500;
-  line-height: 1.3; flex: 1; min-width: 0;
+  font-size: 13px; color: var(--secondary-text-color); font-weight: 500;
+  line-height: 1.35; flex: 1; min-width: 0;
 }
 .fox-device-new-summary-icon {
   width: 32px; height: 32px; flex-shrink: 0;
