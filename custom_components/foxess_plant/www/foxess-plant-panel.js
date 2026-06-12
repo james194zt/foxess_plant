@@ -2699,6 +2699,16 @@ function entityRawRegisterInt(hass, entityId) {
   return Number.isFinite(value) ? value : null;
 }
 
+function packTokenMinorFromFormatted(text) {
+  if (!text || text === "—") return null;
+  const match = /^(\d)\.(\d{3})$/.exec(String(text).trim());
+  if (!match) return null;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  if (major === 0 && minor > 0) return minor;
+  return null;
+}
+
 function formatEvoBcuVersion(hass, plantState, map) {
   const id = plantState?.identity ?? {};
   const pack1Raw = id.bms_pack_1_version || entityDisplayValue(hass, map.bms_pack_1_version) || "—";
@@ -2706,23 +2716,24 @@ function formatEvoBcuVersion(hass, plantState, map) {
   const packCountRaw = id.bms_pack_count || entityDisplayValue(hass, map.bms_pack_count) || "";
   const packCount = packCountRaw !== "—" && packCountRaw !== "" ? Number(packCountRaw) : null;
   const pack1Int = entityRawRegisterInt(hass, map.bms_pack_1_version);
-  const pack2Int = entityRawRegisterInt(hass, map.bms_pack_2_version);
+  let pack2Minor = entityRawRegisterInt(hass, map.bms_pack_2_version);
+  if (pack2Minor == null) pack2Minor = packTokenMinorFromFormatted(pack2Raw);
   const singlePack = packCount == null || !Number.isFinite(packCount) || packCount <= 1;
   if (
     singlePack &&
     pack1Int != null &&
     (pack1Int & 0xfff) === 0 &&
-    pack2Int != null &&
-    pack2Int > 0 &&
-    pack2Int < 0x1000
+    pack2Minor != null &&
+    pack2Minor > 0 &&
+    pack2Minor < 0x1000
   ) {
-    const merged = formatEvoPackVersion(String(pack1Int | (pack2Int & 0xfff)));
+    const merged = formatEvoPackVersion(String(pack1Int | (pack2Minor & 0xfff)));
     if (merged !== "—") return merged;
   }
   const formatted = formatEvoPackVersion(pack1Raw);
-  if (formatted !== "—" && /\.000$/.test(formatted) && singlePack && pack2Int != null && pack2Int > 0 && pack2Int < 0x1000) {
+  if (formatted !== "—" && /\.000$/.test(formatted) && singlePack && pack2Minor != null && pack2Minor > 0 && pack2Minor < 0x1000) {
     const major = formatted.split(".", 1)[0];
-    return `${major}.${String(pack2Int).padStart(3, "0")}`;
+    return `${major}.${String(pack2Minor).padStart(3, "0")}`;
   }
   return formatted;
 }

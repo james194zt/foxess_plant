@@ -18,6 +18,20 @@ def _parse_raw_register(raw: str | None) -> int | None:
     return None
 
 
+def _minor_from_pack_token_formatted(raw: str | None) -> int | None:
+    """Extract sub-register minor from foxess_modbus formatted pack token (e.g. 0.004 → 4)."""
+    if raw in (None, "", "unavailable", "unknown"):
+        return None
+    match = _PACK_TOKEN_RE.fullmatch(str(raw).strip())
+    if not match:
+        return None
+    major = int(match.group(1))
+    minor = int(match.group(2))
+    if major == 0 and minor > 0:
+        return minor
+    return None
+
+
 def format_evo_bcu_version(
     pack1_raw: str | None,
     pack2_raw: str | None = None,
@@ -36,6 +50,8 @@ def format_evo_bcu_version(
             count = None
     pack1_int = _parse_raw_register(pack1_raw)
     pack2_int = _parse_raw_register(pack2_raw)
+    if pack2_int is None:
+        pack2_int = _minor_from_pack_token_formatted(pack2_raw)
     if (
         pack1_int is not None
         and (pack1_int & 0xFFF) == 0
