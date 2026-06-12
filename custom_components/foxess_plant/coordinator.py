@@ -19,6 +19,7 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .analytics import compute_analytics
+from .identity_format import format_evo_pack_version
 from .impact import compute_impact
 from .charge_period import apply_charge_periods
 from .discovery import missing_charge_period_entities
@@ -1310,11 +1311,16 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _read_identity(self) -> dict[str, str | None]:
         """PCS/BMS identity and firmware from discovered foxess_modbus entities."""
-        return {
-            key: self._entity_state(key)
-            for key in IDENTITY_ENTITY_SUFFIXES
-            if self.plant.entity_map.get(key)
-        }
+        identity: dict[str, str | None] = {}
+        for key in IDENTITY_ENTITY_SUFFIXES:
+            if not self.plant.entity_map.get(key):
+                continue
+            raw = self._entity_state(key)
+            if key.startswith("bms_pack_") and key.endswith("_version"):
+                identity[key] = format_evo_pack_version(raw)
+            else:
+                identity[key] = raw
+        return identity
 
     async def _async_update_data(self) -> dict[str, Any]:
         await self.async_ensure_solcast_cache()

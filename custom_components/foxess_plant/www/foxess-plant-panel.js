@@ -255,7 +255,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.230";
+const PANEL_VERSION = "0.9.231";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -2660,9 +2660,45 @@ function formatFoxDataloggerSoftwareVersion(hass, plantState, map) {
   return slave !== "—" ? slave : "—";
 }
 
+function formatEvoPackVersion(raw) {
+  if (raw == null || raw === "" || raw === "—" || raw === "unavailable" || raw === "unknown") {
+    return "—";
+  }
+  const text = String(raw).trim();
+  if (/^\d\.\d{3}$/.test(text)) return text;
+  const decodeToken = (value) => {
+    if (!Number.isFinite(value) || value < 0x1000) return null;
+    const major = (value >> 12) & 0xf;
+    const minor = value & 0xfff;
+    if (major < 1 || major > 4) return null;
+    return `${major}.${String(minor).padStart(3, "0")}`;
+  };
+  if (/^\d+$/.test(text)) {
+    const decoded = decodeToken(Number(text));
+    if (decoded) return decoded;
+  }
+  const legacy = /^(\d+)\.(\d{2})$/.exec(text);
+  if (legacy) {
+    const combined = Number(legacy[1]) * 100 + Number(legacy[2]);
+    const decoded = decodeToken(combined);
+    if (decoded) return decoded;
+    if (combined >= 1000 && combined < 10000) {
+      const token = Number.parseInt(String(combined), 16);
+      const hexDecoded = decodeToken(token);
+      if (hexDecoded) return hexDecoded;
+    }
+  }
+  return text;
+}
+
 function foxBcuVersionValue(hass, plantState, map) {
   const id = plantState?.identity ?? {};
-  return id.bms_pack_1_version || entityDisplayValue(hass, map.bms_pack_1_version) || "—";
+  const raw = id.bms_pack_1_version || entityDisplayValue(hass, map.bms_pack_1_version) || "—";
+  return formatEvoPackVersion(raw);
+}
+
+function deviceSerialCopyIconSvg() {
+  return `<svg class="fox-device-new-sidebar-copy-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>`;
 }
 
 function renderDeviceNewFoxDatalogger(hass, plant, plantState, map) {
@@ -2754,10 +2790,18 @@ function renderDeviceNewSidebar(hass, plant, plantState) {
     meterOnline ? "Online" : id.bms_online === false || id.bms_online === "off" ? "Offline" : null;
   const plantTitle = deviceNewSidebarRowValue(plant?.title);
   const serialHero = pcsSn
-    ? `<button type="button" class="fox-device-new-sidebar-serial-btn device-serial-btn" data-action="device-new-sub" data-sub="system"><span class="device-serial fox-device-new-sidebar-serial">${esc(pcsSn)}</span><span class="fox-device-new-sidebar-chevron chev" aria-hidden="true">›</span></button>`
+    ? `<div class="fox-device-new-sidebar-serial-row">
+<button type="button" class="fox-device-new-sidebar-serial-btn device-serial-btn" data-action="device-new-sub" data-sub="system">
+<span class="fox-device-new-sidebar-serial-prefix">SN:</span>
+<span class="device-serial fox-device-new-sidebar-serial">${esc(pcsSn)}</span>
+<span class="fox-device-new-sidebar-chevron chev" aria-hidden="true">›</span>
+</button>
+<button type="button" class="fox-device-new-sidebar-copy-btn" data-action="copy-device-serial" data-serial="${esc(pcsSn)}" aria-label="Copy serial number">${deviceSerialCopyIconSvg()}</button>
+</div>`
     : `<p class="device-serial device-serial-muted fox-device-new-sidebar-serial-muted">Serial unavailable</p>`;
   const rows = [
     status !== "—" ? { label: "State", html: formatFoxDeviceCheckPill(status) } : null,
+    pcsSn ? { label: "PSC SN", value: pcsSn } : null,
     batterySn ? { label: "Battery SN", value: batterySn } : null,
     plantTitle
       ? {
@@ -8825,6 +8869,26 @@ const STYLES = `
   background: var(--card-background-color); padding: 10px 12px 12px;
 }
 .fox-device-new-sidebar-hero .device-serial-btn { width: auto; max-width: 100%; }
+.fox-device-new-sidebar-serial-row {
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  width: 100%; max-width: 100%; min-width: 0;
+}
+.fox-device-new-sidebar-serial-row .fox-device-new-sidebar-serial-btn {
+  flex: 1 1 auto; min-width: 0; justify-content: center;
+}
+.fox-device-new-sidebar-serial-prefix {
+  color: var(--secondary-text-color); font-weight: 500; flex-shrink: 0;
+}
+.fox-device-new-sidebar-copy-btn {
+  flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; padding: 0; border: none; background: transparent;
+  color: var(--secondary-text-color); cursor: pointer; border-radius: 6px;
+  touch-action: manipulation;
+}
+.fox-device-new-sidebar-copy-icon { display: block; }
+@media (hover: hover) {
+  .fox-device-new-sidebar-copy-btn:hover { color: var(--primary-text-color); background: var(--secondary-background-color, rgba(127,127,127,0.12)); }
+}
 .fox-device-new-sidebar-divider {
   height: 1px; background: var(--divider-color); margin: 0 0 12px;
 }
@@ -10856,6 +10920,19 @@ Reloading panel registration…
       if (sub === "analysis") this._loadDeviceNewCharts();
       if (sub === "pv-config") this._enterPvSettings();
       this._scheduleRender(true);
+      return;
+    }
+    if (action === "copy-device-serial") {
+      e.preventDefault();
+      e.stopPropagation();
+      const serial = btn.dataset.serial;
+      if (!serial) return;
+      try {
+        await navigator.clipboard.writeText(serial);
+        this._showToast("Serial number copied");
+      } catch (err) {
+        this._showToast(err?.message || "Copy failed", "err");
+      }
       return;
     }
     if (action === "device-new-sub") {
