@@ -255,7 +255,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.228";
+const PANEL_VERSION = "0.9.229";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -8956,7 +8956,7 @@ const STYLES = `
   line-height: 1.35; flex: 1; min-width: 0;
 }
 .fox-device-new-summary-icon {
-  width: 32px; height: 32px; flex-shrink: 0;
+  width: 42px; height: 42px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center; pointer-events: none;
 }
 .fox-device-new-summary-icon svg { width: 100%; height: 100%; display: block; }
