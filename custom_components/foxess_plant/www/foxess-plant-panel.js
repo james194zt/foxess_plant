@@ -255,7 +255,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.227";
+const PANEL_VERSION = "0.9.228";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -2477,19 +2477,17 @@ function renderDeviceBatteryTempSummaryCard(hass, map) {
 ${icon ? `<span class="fox-device-new-summary-icon" aria-hidden="true">${icon}</span>` : ""}
 </div>
 <div class="fox-device-new-summary-body">
-<div class="fox-device-new-summary-temps">
-<div class="fox-device-new-summary-temp-col">
+<div class="fox-device-new-summary-temp-labels">
 <span class="fox-device-new-summary-temp-label">Min.</span>
+<span class="fox-device-new-summary-temp-label">Max.</span>
+</div>
+<div class="fox-device-new-summary-temp-values">
 ${renderFoxSummaryMetricValue(minParts.num, minParts.unit, {
     valueClass: "fox-device-new-summary-value fox-device-new-summary-temp-value",
   })}
-</div>
-<div class="fox-device-new-summary-temp-col">
-<span class="fox-device-new-summary-temp-label">Max.</span>
 ${renderFoxSummaryMetricValue(maxParts.num, maxParts.unit, {
     valueClass: "fox-device-new-summary-value fox-device-new-summary-temp-value",
   })}
-</div>
 </div>
 </div>
 </div>`;
@@ -8947,7 +8945,11 @@ const STYLES = `
   flex: 0 0 auto; margin-bottom: 4px;
 }
 .fox-device-new-summary-body {
-  flex: 0 0 auto; display: flex; flex-direction: column; justify-content: flex-start;
+  flex: 1 1 auto; display: flex; flex-direction: column; justify-content: flex-end;
+  min-width: 0;
+}
+.fox-device-new-summary-card--temps .fox-device-new-summary-body {
+  justify-content: flex-start;
 }
 .fox-device-new-summary-label {
   font-size: 13px; color: var(--secondary-text-color); font-weight: 500;
@@ -8967,10 +8969,11 @@ const STYLES = `
   font-size: 0.58em; font-weight: 600; line-height: 1; letter-spacing: 0.02em;
   color: color-mix(in srgb, var(--primary-text-color) 88%, var(--secondary-text-color));
 }
-.fox-device-new-summary-temps {
-  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start;
+.fox-device-new-summary-temp-labels,
+.fox-device-new-summary-temp-values {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; min-width: 0;
 }
-.fox-device-new-summary-temp-col { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.fox-device-new-summary-temp-values { margin-top: auto; padding-top: 4px; }
 .fox-device-new-summary-temp-label {
   font-size: 12px; color: var(--secondary-text-color); font-weight: 500; line-height: 1.3;
 }
