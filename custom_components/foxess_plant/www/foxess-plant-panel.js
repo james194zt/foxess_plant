@@ -255,7 +255,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.221";
+const PANEL_VERSION = "0.9.222";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -554,14 +554,37 @@ function stateString(hass, entityId) {
   return st ? st.state : "—";
 }
 
-const DEGREE_CELSIUS = "\u00B0C";
+/** Fox app uses single-character ℃ (not ° + C). */
+const FOX_UNIT_CELSIUS = "\u2103";
+const FOX_UNIT_KW = "kW";
+const FOX_UNIT_PERCENT = "%";
 
-function formatBatteryTempDisplay(hass, entityId) {
+function batteryTempMetricParts(hass, entityId) {
   const raw = stateString(hass, entityId);
-  if (raw === "—") return "—";
+  if (raw === "—") return { num: "—", unit: "" };
   const n = parseFloat(raw);
-  if (Number.isFinite(n)) return `${n}${DEGREE_CELSIUS}`;
-  return `${raw}${DEGREE_CELSIUS}`;
+  const num = Number.isFinite(n) ? String(n) : raw;
+  return { num, unit: FOX_UNIT_CELSIUS };
+}
+
+function devicePowerKwMetricParts(watts) {
+  const kw = Math.abs(watts) / 1000;
+  const num = kw < 10 ? kw.toFixed(3) : kw.toFixed(2);
+  return { num, unit: FOX_UNIT_KW };
+}
+
+function percentMetricParts(value) {
+  return { num: String(Math.round(value)), unit: FOX_UNIT_PERCENT };
+}
+
+function renderFoxSummaryMetricValue(num, unit, { valueClass = "fox-device-new-summary-value" } = {}) {
+  if (num === "—" || num == null || num === "") {
+    return `<strong class="${valueClass}">${esc("—")}</strong>`;
+  }
+  const unitHtml = unit
+    ? `<span class="fox-summary-metric-unit">${esc(unit)}</span>`
+    : "";
+  return `<strong class="${valueClass}"><span class="fox-summary-metric-num">${esc(String(num))}</span>${unitHtml}</strong>`;
 }
 
 /** foxess_modbus inverter_state → Fox app wording (register logic unchanged). */
@@ -2446,8 +2469,8 @@ function renderDeviceBatteryTempSummaryCard(hass, map) {
   const style = theme.accent
     ? ` style="--fox-summary-accent:${theme.accent};--fox-summary-accent-hi:${theme.accentHi || theme.accent};--fox-summary-bg:${theme.bg};"`
     : "";
-  const minVal = formatBatteryTempDisplay(hass, map.bms_temp_low);
-  const maxVal = formatBatteryTempDisplay(hass, map.bms_temp_high);
+  const minParts = batteryTempMetricParts(hass, map.bms_temp_low);
+  const maxParts = batteryTempMetricParts(hass, map.bms_temp_high);
   return `<div class="fox-device-new-summary-card fox-device-new-summary-card--temp fox-device-new-summary-card--temps"${style}>
 <div class="fox-device-new-summary-head">
 <span class="fox-device-new-summary-label">Battery Temperature</span>
@@ -2456,11 +2479,15 @@ ${icon ? `<span class="fox-device-new-summary-icon" aria-hidden="true">${icon}</
 <div class="fox-device-new-summary-temps">
 <div class="fox-device-new-summary-temp-col">
 <span class="fox-device-new-summary-temp-label">Min.</span>
-<strong class="fox-device-new-summary-temp-value">${esc(minVal)}</strong>
+${renderFoxSummaryMetricValue(minParts.num, minParts.unit, {
+    valueClass: "fox-device-new-summary-value fox-device-new-summary-temp-value",
+  })}
 </div>
 <div class="fox-device-new-summary-temp-col">
 <span class="fox-device-new-summary-temp-label">Max.</span>
-<strong class="fox-device-new-summary-temp-value">${esc(maxVal)}</strong>
+${renderFoxSummaryMetricValue(maxParts.num, maxParts.unit, {
+    valueClass: "fox-device-new-summary-value fox-device-new-summary-temp-value",
+  })}
 </div>
 </div>
 </div>`;
@@ -2471,11 +2498,11 @@ function renderDeviceNewSummaryCardItems(hass, plant, plantState) {
   const map = resolveEntityMap(hass, plant, plantState);
   const iconKeys = { pv: "pv_power", soc: "battery_soc", discharge: "discharging" };
   const cards = [
-    { label: "PV Power", value: formatDevicePowerKw(flows.pvW), tone: "pv" },
-    { label: "Battery SOC", value: formatPercent(flows.batterySoc), tone: "soc" },
+    { label: "PV Power", metric: devicePowerKwMetricParts(flows.pvW), tone: "pv" },
+    { label: "Battery SOC", metric: percentMetricParts(flows.batterySoc), tone: "soc" },
     {
       label: "Discharging power",
-      value: `${deviceNewDischargeKw(flows).toFixed(3)} kW`,
+      metric: { num: deviceNewDischargeKw(flows).toFixed(3), unit: FOX_UNIT_KW },
       tone: "discharge",
     },
   ];
@@ -2491,7 +2518,7 @@ function renderDeviceNewSummaryCardItems(hass, plant, plantState) {
 <span class="fox-device-new-summary-label">${esc(c.label)}</span>
 ${icon ? `<span class="fox-device-new-summary-icon" aria-hidden="true">${icon}</span>` : ""}
 </div>
-<strong class="fox-device-new-summary-value">${esc(c.value)}</strong>
+${renderFoxSummaryMetricValue(c.metric.num, c.metric.unit)}
 </div>`;
     })
     .join("");
@@ -8925,7 +8952,15 @@ const STYLES = `
   display: flex; align-items: center; justify-content: center; pointer-events: none;
 }
 .fox-device-new-summary-icon svg { width: 100%; height: 100%; display: block; }
-.fox-device-new-summary-value { font-size: 20px; font-weight: 700; line-height: 1.15; color: var(--primary-text-color); }
+.fox-device-new-summary-value {
+  display: inline-flex; align-items: baseline; gap: 0.2em;
+  font-size: 20px; font-weight: 700; line-height: 1.15; color: var(--primary-text-color);
+}
+.fox-summary-metric-num { font-size: 1em; font-weight: inherit; line-height: inherit; }
+.fox-summary-metric-unit {
+  font-size: 0.58em; font-weight: 600; line-height: 1; letter-spacing: 0.02em;
+  color: color-mix(in srgb, var(--primary-text-color) 88%, var(--secondary-text-color));
+}
 .fox-device-new-summary-temps {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start;
 }
@@ -8933,7 +8968,7 @@ const STYLES = `
 .fox-device-new-summary-temp-label {
   font-size: 12px; color: var(--secondary-text-color); font-weight: 500; line-height: 1.3;
 }
-.fox-device-new-summary-temp-value { font-size: 20px; font-weight: 700; line-height: 1.15; color: var(--primary-text-color); }
+.fox-device-new-summary-temp-value { font-size: 20px; }
 .fox-device-new-metric-grid {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
   border: 1px solid var(--divider-color); border-radius: 10px; overflow: hidden;
@@ -12457,7 +12492,10 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     const flows = readEnergyFlows(this._hass, plant, this._plantState);
     const pvCard = renderDevicePvCard(this._hass, plant, this._plantState);
     const map = resolveEntityMap(this._hass, plant, this._plantState);
-    const tempDisplay = formatBatteryTempDisplay(this._hass, map.bms_temp_low);
+    const tempParts = batteryTempMetricParts(this._hass, map.bms_temp_low);
+    const tempDisplay = tempParts.unit
+      ? `${tempParts.num}${tempParts.unit}`
+      : tempParts.num;
     return `<div class="device-grid">${pvCard}<div class="device-card device-card--battery">${renderDeviceBatteryCard(flows, tempDisplay)}</div></div>`;
   }
 
