@@ -255,7 +255,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.218";
+const PANEL_VERSION = "0.9.219";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -4611,25 +4611,31 @@ function entityValueToKw(hass, entityId, value) {
   const unit = String(hass?.states?.[entityId]?.attributes?.unit_of_measurement || "")
     .toLowerCase()
     .replace(/\s/g, "");
-  if (unit === "kw") {
-    // Recorder sometimes stores watts while the entity is labelled kW (foxess_modbus quirk).
-    if (Math.abs(value) > 100) return value / 1000;
-    return value;
-  }
+  if (unit === "kw") return value;
   if (unit === "w") return value / 1000;
   // foxess_modbus power sensors are kW; very large bare numbers are likely watts
   if (Math.abs(value) > 500) return value / 1000;
   return value;
 }
 
+/** Overview statistics grid only — recorder may store watts while entity is labelled kW. */
+function gridRecorderValueToKw(hass, entityId, value) {
+  const unit = String(hass?.states?.[entityId]?.attributes?.unit_of_measurement || "")
+    .toLowerCase()
+    .replace(/\s/g, "");
+  if (unit === "kw" && Math.abs(value) > 100) return value / 1000;
+  return entityValueToKw(hass, entityId, value);
+}
+
 const STATISTICS_SIGNED_EPS_KW = 0.05;
 /** Drop isolated 5-minute spikes not seen in neighbours (recorder glitches). */
 const STATISTICS_SPIKE_MAX_DELTA_KW = 8;
-/** Residential/small-site cap — readings above this are treated as recorder glitches for scale/plot. */
-const STATISTICS_ABS_PLAUSIBLE_KW = 80;
+/** Overview grid only — cap implausible recorder spikes before merge/plot. */
+const GRID_STATISTICS_ABS_PLAUSIBLE_KW = 80;
 const STATISTICS_Y_MAX_TICKS = 8;
 /** Signed CT sensors: positive import, negative export (Fox net grid). */
 const SIGNED_GRID_NET_KEYS = ["grid_ct", "grid"];
+const GRID_STATISTICS_KEYS = new Set(["grid_import", "grid_export"]);
 
 function transformHistoryPoint(hass, entityId, v, spec) {
   let x = v;
@@ -4645,6 +4651,34 @@ function transformHistoryPoint(hass, entityId, v, spec) {
 }
 
 function filterStatisticsSpikes(points) {
+  if (points.length < 3) return points;
+  const out = [];
+  for (let i = 0; i < points.length; i++) {
+    const prev = points[i - 1]?.v ?? points[i].v;
+    const next = points[i + 1]?.v ?? points[i].v;
+    const v = points[i].v;
+    const neighbour = (Math.abs(prev) + Math.abs(next)) / 2;
+    const delta = Math.abs(v - prev);
+    if (delta > STATISTICS_SPIKE_MAX_DELTA_KW && Math.abs(v) > neighbour * 2.5 && Math.abs(v) > 1) {
+      continue;
+    }
+    out.push(points[i]);
+  }
+  return out;
+}
+
+function transformGridStatisticsPoint(hass, entityId, v, spec) {
+  let x = v;
+  if (spec.toKw) x = gridRecorderValueToKw(hass, entityId, x);
+  if (spec.splitSigned === "import") return x > STATISTICS_SIGNED_EPS_KW ? x : 0;
+  if (spec.splitSigned === "export") return x < -STATISTICS_SIGNED_EPS_KW ? x : 0;
+  if (spec.clampMin === 0) x = Math.max(0, x);
+  if (spec.abs) x = Math.abs(x);
+  if (spec.negate) x = -x;
+  return x;
+}
+
+function filterGridStatisticsSpikes(points) {
   if (!points?.length) return points;
   const out = [];
   for (let i = 0; i < points.length; i++) {
@@ -4652,7 +4686,7 @@ function filterStatisticsSpikes(points) {
     const next = points[i + 1]?.v ?? points[i].v;
     let v = points[i].v;
     if (!Number.isFinite(v)) continue;
-    if (Math.abs(v) > STATISTICS_ABS_PLAUSIBLE_KW) {
+    if (Math.abs(v) > GRID_STATISTICS_ABS_PLAUSIBLE_KW) {
       v = (prev + next) / 2;
     }
     const neighbour = (Math.abs(prev) + Math.abs(next)) / 2;
@@ -5037,15 +5071,6 @@ function fillToZeroPath(pts, yZero, timePts) {
   return `${line} L${last.x.toFixed(2)},${yZero.toFixed(2)} L${first.x.toFixed(2)},${yZero.toFixed(2)} Z`;
 }
 
-function statisticsPercentile(sorted, p) {
-  if (!sorted.length) return 0;
-  const idx = (sorted.length - 1) * p;
-  const lo = Math.floor(idx);
-  const hi = Math.ceil(idx);
-  if (lo === hi) return sorted[lo];
-  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
-}
-
 function statisticsYTickStep(span, maxTicks = STATISTICS_Y_MAX_TICKS) {
   const rough = Math.max(span / maxTicks, 0.1);
   const magnitude = 10 ** Math.floor(Math.log10(rough));
@@ -5059,36 +5084,27 @@ function statisticsYTickStep(span, maxTicks = STATISTICS_Y_MAX_TICKS) {
 }
 
 function computeStatisticsYDomain(series, padRatio = 0.08) {
-  const raw = [];
+  let yMin = 0;
+  let yMax = 0.25;
   for (const s of series) {
     for (const p of s.points || []) {
-      if (Number.isFinite(p.v)) raw.push(p.v);
+      if (!Number.isFinite(p.v)) continue;
+      yMin = Math.min(yMin, p.v);
+      yMax = Math.max(yMax, p.v);
     }
   }
-  if (!raw.length) return snapStatisticsYDomain(0, 0.25);
-
-  const plausible = raw.filter((v) => Math.abs(v) <= STATISTICS_ABS_PLAUSIBLE_KW);
-  const forScale =
-    plausible.length >= Math.max(3, Math.floor(raw.length * 0.1)) ? plausible : raw;
-  const sorted = [...forScale].sort((a, b) => a - b);
-  let yMin = statisticsPercentile(sorted, 0.03);
-  let yMax = statisticsPercentile(sorted, 0.97);
-  const crossesZero = sorted.some((v) => v <= 0) && sorted.some((v) => v >= 0);
-  if (crossesZero) {
-    yMin = Math.min(yMin, 0);
-    yMax = Math.max(yMax, 0);
-  } else if (yMin > 0) {
-    yMin = Math.max(0, yMin);
-  }
-  if (yMax <= yMin) yMax = yMin + Math.max(Math.abs(yMin) * 0.15, 0.5);
+  if (yMax <= yMin) yMax = yMin + 1;
   const pad = (yMax - yMin) * padRatio;
   return snapStatisticsYDomain(yMin - pad, yMax + pad);
 }
 
-/** Snap Y axis to a readable tick step (Fox-style, adaptive for wide ranges). */
-function snapStatisticsYDomain(yMin, yMax, maxTicks = STATISTICS_Y_MAX_TICKS) {
+/** Snap Y axis to 0.5 kW ticks; widen step when range is large (Overview statistics). */
+function snapStatisticsYDomain(yMin, yMax) {
   const span = Math.max(yMax - yMin, 0.25);
-  const step = statisticsYTickStep(span, maxTicks);
+  let step = STATISTICS_CHART_LAYOUT.yTickStepKw;
+  if (span / step > STATISTICS_Y_MAX_TICKS) {
+    step = statisticsYTickStep(span, STATISTICS_Y_MAX_TICKS);
+  }
   let lo = Math.floor(yMin / step) * step;
   let hi = Math.ceil(yMax / step) * step;
   if (hi - lo < step * 2) {
@@ -5099,19 +5115,26 @@ function snapStatisticsYDomain(yMin, yMax, maxTicks = STATISTICS_Y_MAX_TICKS) {
 }
 
 function statisticsYTicks(yMin, yMax, step) {
-  const tickStep = step || statisticsYTickStep(Math.max(yMax - yMin, 0.25), STATISTICS_Y_MAX_TICKS);
+  const tickStep =
+    step ||
+    (() => {
+      const span = Math.max(yMax - yMin, 0.25);
+      let s = STATISTICS_CHART_LAYOUT.yTickStepKw;
+      if (span / s > STATISTICS_Y_MAX_TICKS) s = statisticsYTickStep(span, STATISTICS_Y_MAX_TICKS);
+      return s;
+    })();
   const ticks = [];
   const start = Math.floor(yMin / tickStep) * tickStep;
   for (let v = start; v <= yMax + tickStep * 0.001; v += tickStep) {
-    if (v >= yMin - tickStep * 0.001) ticks.push(Math.round(v / tickStep) * tickStep);
+    if (v >= yMin - tickStep * 0.001) {
+      const rounded = Math.round(v / tickStep) * tickStep;
+      ticks.push(Math.abs(tickStep - 0.5) < 0.001 ? Math.round(rounded * 2) / 2 : rounded);
+    }
   }
   return ticks;
 }
 
 function formatStatisticsYTick(v) {
-  const abs = Math.abs(v);
-  if (abs >= 100) return String(Math.round(v));
-  if (abs >= 10) return (Math.round(v * 10) / 10).toFixed(1);
   const r = Math.round(v * 2) / 2;
   return Number.isInteger(r) ? String(r) : r.toFixed(1);
 }
@@ -5228,12 +5251,25 @@ function chartEntityCandidates(hass, map, key) {
   return out;
 }
 
+function buildGridStatisticsSeriesPoints(hass, entityId, spec, range, statsMap, hist) {
+  const rawPoints = statisticsRawPointsForEntity(entityId, range, statsMap, hist);
+  return filterGridStatisticsSpikes(
+    rawPoints.map((p) => ({
+      t: p.t,
+      v: transformGridStatisticsPoint(hass, entityId, p.v, spec),
+    }))
+  );
+}
+
 function buildChartSeriesPointsWithFallback(hass, map, key, spec, range, statsMap, hist) {
   const candidates = chartEntityCandidates(hass, map, key);
+  const buildPts = GRID_STATISTICS_KEYS.has(key)
+    ? buildGridStatisticsSeriesPoints
+    : buildStatisticsSeriesPoints;
   let best = [];
   let bestId = candidates[0] || null;
   for (const entityId of candidates) {
-    const pts = buildStatisticsSeriesPoints(hass, entityId, spec, range, statsMap, hist);
+    const pts = buildPts(hass, entityId, spec, range, statsMap, hist);
     if (statisticsPointsHaveSignal(pts)) {
       return { entityId, points: pts };
     }
@@ -5307,7 +5343,7 @@ function mergeGridImportExportPoints(importPts, exportPts, range) {
 function buildSignedGridNetPoints(hass, map, range, statsMap, hist) {
   for (const key of SIGNED_GRID_NET_KEYS) {
     for (const entityId of chartEntityCandidates(hass, map, key)) {
-      const pts = buildStatisticsSeriesPoints(hass, entityId, { toKw: true }, range, statsMap, hist);
+      const pts = buildGridStatisticsSeriesPoints(hass, entityId, { toKw: true }, range, statsMap, hist);
       if (statisticsPointsHaveSignal(pts)) return pts;
     }
   }
@@ -5354,7 +5390,7 @@ function finalizeStatisticsChartSeries(series, range, { signedGridNetPoints = nu
       lineWidth: 1.2,
       connectGaps: true,
       showZeroInTooltip: true,
-      points: filterStatisticsSpikes(densifyStatisticsPoints(gridNetPoints, range)),
+      points: filterGridStatisticsSpikes(densifyStatisticsPoints(gridNetPoints, range)),
     });
   }
   return out;
