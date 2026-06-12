@@ -255,7 +255,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.219";
+const PANEL_VERSION = "0.9.220";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -3719,30 +3719,17 @@ const STATISTICS_CHART_SERIES = [
     lineWidth: 1.2,
   },
   {
-    key: "grid_import",
+    key: "grid_ct",
     label: "Grid",
-    tooltipLabel: "Grid import",
+    tooltipLabel: "Grid",
     legendGroup: "grid",
     color: "#FF6FAF",
     fillColor: "rgba(255,111,175,0.14)",
     toKw: true,
-    clampMin: 0,
+    preferReliableHistory: true,
     fill: true,
     lineWidth: 1.2,
-  },
-  {
-    key: "grid_export",
-    label: "Grid",
-    tooltipLabel: "Grid export",
-    legendGroup: "grid",
-    color: "#FF6FAF",
-    fillColor: "rgba(255,111,175,0.14)",
-    toKw: true,
-    abs: true,
-    negate: true,
-    fill: true,
-    hideLegend: true,
-    lineWidth: 1.2,
+    showZeroInTooltip: true,
   },
   {
     key: "load_power",
@@ -3952,6 +3939,7 @@ const CHART_ENTITY_FALLBACKS = {
   battery_discharge: ["battery_discharge_1", "battery_discharge"],
   grid_import: ["grid_consumption", "grid_import"],
   grid_export: ["feed_in", "grid_ct", "grid_export"],
+  grid_ct: ["grid_ct", "grid"],
   load_power: ["load_power", "load_power_total"],
   solar_energy_today: ["solar_energy_today"],
   feed_in_energy_today: ["feed_in_energy_today", "feed_in_energy"],
@@ -4618,24 +4606,10 @@ function entityValueToKw(hass, entityId, value) {
   return value;
 }
 
-/** Overview statistics grid only — recorder may store watts while entity is labelled kW. */
-function gridRecorderValueToKw(hass, entityId, value) {
-  const unit = String(hass?.states?.[entityId]?.attributes?.unit_of_measurement || "")
-    .toLowerCase()
-    .replace(/\s/g, "");
-  if (unit === "kw" && Math.abs(value) > 100) return value / 1000;
-  return entityValueToKw(hass, entityId, value);
-}
-
 const STATISTICS_SIGNED_EPS_KW = 0.05;
 /** Drop isolated 5-minute spikes not seen in neighbours (recorder glitches). */
 const STATISTICS_SPIKE_MAX_DELTA_KW = 8;
-/** Overview grid only — cap implausible recorder spikes before merge/plot. */
-const GRID_STATISTICS_ABS_PLAUSIBLE_KW = 80;
 const STATISTICS_Y_MAX_TICKS = 8;
-/** Signed CT sensors: positive import, negative export (Fox net grid). */
-const SIGNED_GRID_NET_KEYS = ["grid_ct", "grid"];
-const GRID_STATISTICS_KEYS = new Set(["grid_import", "grid_export"]);
 
 function transformHistoryPoint(hass, entityId, v, spec) {
   let x = v;
@@ -4667,41 +4641,12 @@ function filterStatisticsSpikes(points) {
   return out;
 }
 
-function transformGridStatisticsPoint(hass, entityId, v, spec) {
-  let x = v;
-  if (spec.toKw) x = gridRecorderValueToKw(hass, entityId, x);
-  if (spec.splitSigned === "import") return x > STATISTICS_SIGNED_EPS_KW ? x : 0;
-  if (spec.splitSigned === "export") return x < -STATISTICS_SIGNED_EPS_KW ? x : 0;
-  if (spec.clampMin === 0) x = Math.max(0, x);
-  if (spec.abs) x = Math.abs(x);
-  if (spec.negate) x = -x;
-  return x;
-}
-
-function filterGridStatisticsSpikes(points) {
-  if (!points?.length) return points;
-  const out = [];
-  for (let i = 0; i < points.length; i++) {
-    const prev = out[out.length - 1]?.v ?? points[i].v;
-    const next = points[i + 1]?.v ?? points[i].v;
-    let v = points[i].v;
-    if (!Number.isFinite(v)) continue;
-    if (Math.abs(v) > GRID_STATISTICS_ABS_PLAUSIBLE_KW) {
-      v = (prev + next) / 2;
-    }
-    const neighbour = (Math.abs(prev) + Math.abs(next)) / 2;
-    const delta = Math.abs(v - prev);
-    if (
-      points.length >= 3 &&
-      delta > STATISTICS_SPIKE_MAX_DELTA_KW &&
-      Math.abs(v) > neighbour * 2.5 &&
-      Math.abs(v) > 1
-    ) {
-      v = neighbour;
-    }
-    out.push({ ...points[i], v });
+function statisticsPointsPeakAbs(points) {
+  let peak = 0;
+  for (const p of points || []) {
+    if (Number.isFinite(p.v)) peak = Math.max(peak, Math.abs(p.v));
   }
-  return out;
+  return peak;
 }
 
 function getStatisticsDayRange(now = new Date()) {
@@ -5189,8 +5134,7 @@ function statisticsClientToTime(svg, clientX, padL, plotW, tMin, daySpan) {
 const STATISTICS_TOOLTIP_LABEL_BY_ID = {
   battery_charge: "Battery charging",
   battery_discharge: "Battery discharging",
-  grid_import: "Grid import",
-  grid_export: "Grid export",
+  grid_ct: "Grid",
 };
 
 function statisticsSeriesTooltipLabel(s) {
@@ -5251,25 +5195,12 @@ function chartEntityCandidates(hass, map, key) {
   return out;
 }
 
-function buildGridStatisticsSeriesPoints(hass, entityId, spec, range, statsMap, hist) {
-  const rawPoints = statisticsRawPointsForEntity(entityId, range, statsMap, hist);
-  return filterGridStatisticsSpikes(
-    rawPoints.map((p) => ({
-      t: p.t,
-      v: transformGridStatisticsPoint(hass, entityId, p.v, spec),
-    }))
-  );
-}
-
 function buildChartSeriesPointsWithFallback(hass, map, key, spec, range, statsMap, hist) {
   const candidates = chartEntityCandidates(hass, map, key);
-  const buildPts = GRID_STATISTICS_KEYS.has(key)
-    ? buildGridStatisticsSeriesPoints
-    : buildStatisticsSeriesPoints;
   let best = [];
   let bestId = candidates[0] || null;
   for (const entityId of candidates) {
-    const pts = buildPts(hass, entityId, spec, range, statsMap, hist);
+    const pts = buildStatisticsSeriesPoints(hass, entityId, spec, range, statsMap, hist);
     if (statisticsPointsHaveSignal(pts)) {
       return { entityId, points: pts };
     }
@@ -5297,101 +5228,19 @@ function densifyStatisticsPoints(points, range) {
   return out.length ? out : [...(points || [])];
 }
 
-function bucketStatisticsPointsMean(pts, range) {
-  const period = STATISTICS_PERIOD_MS;
-  const byTime = new Map();
-  for (const p of pts || []) {
-    if (!Number.isFinite(p.t) || !Number.isFinite(p.v)) continue;
-    const bucket = range.tMin + Math.floor((p.t - range.tMin) / period) * period;
-    let entry = byTime.get(bucket);
-    if (!entry) {
-      entry = { sum: 0, count: 0 };
-      byTime.set(bucket, entry);
-    }
-    entry.sum += p.v;
-    entry.count += 1;
-  }
-  return byTime;
-}
-
-function mergeGridImportExportPoints(importPts, exportPts, range) {
-  const period = STATISTICS_PERIOD_MS;
-  const byTime = new Map();
-  const stamp = (pts) => {
-    const buckets = bucketStatisticsPointsMean(pts, range);
-    for (const [bucket, { sum, count }] of buckets) {
-      const v = sum / count;
-      const entry = byTime.get(bucket);
-      if (!entry) {
-        byTime.set(bucket, { sum: v, count: 1 });
-      } else {
-        entry.sum += v;
-        entry.count += 1;
-      }
-    }
-  };
-  stamp(importPts);
-  stamp(exportPts);
+function finalizeStatisticsChartSeries(series, range) {
   const out = [];
-  for (let t = range.tMin; t <= range.nowMs; t += period) {
-    const entry = byTime.get(t);
-    out.push({ t, v: entry ? entry.sum : 0 });
-  }
-  return out;
-}
-
-function buildSignedGridNetPoints(hass, map, range, statsMap, hist) {
-  for (const key of SIGNED_GRID_NET_KEYS) {
-    for (const entityId of chartEntityCandidates(hass, map, key)) {
-      const pts = buildGridStatisticsSeriesPoints(hass, entityId, { toKw: true }, range, statsMap, hist);
-      if (statisticsPointsHaveSignal(pts)) return pts;
-    }
-  }
-  return null;
-}
-
-function finalizeStatisticsChartSeries(series, range, { signedGridNetPoints = null } = {}) {
-  const out = [];
-  let gridImport = null;
-  let gridExport = null;
   for (const s of series) {
-    if (s.id === "grid_import") {
-      gridImport = s;
-      continue;
-    }
-    if (s.id === "grid_export") {
-      gridExport = s;
-      continue;
-    }
-    if (s.id === "pv_power") {
+    if (s.id === "pv_power" || s.id === "grid_ct") {
       out.push({
         ...s,
+        id: s.id === "grid_ct" ? "grid_net" : s.id,
         connectGaps: true,
         points: densifyStatisticsPoints(s.points, range),
       });
       continue;
     }
     out.push(s);
-  }
-  const gridNetPoints =
-    signedGridNetPoints ||
-    (gridImport || gridExport
-      ? mergeGridImportExportPoints(gridImport?.points, gridExport?.points, range)
-      : null);
-  if (gridNetPoints?.length) {
-    out.push({
-      id: "grid_net",
-      label: "Grid",
-      tooltipLabel: "Grid",
-      legendGroup: "grid",
-      color: "#FF6FAF",
-      fillColor: "rgba(255,111,175,0.14)",
-      fill: true,
-      lineWidth: 1.2,
-      connectGaps: true,
-      showZeroInTooltip: true,
-      points: filterGridStatisticsSpikes(densifyStatisticsPoints(gridNetPoints, range)),
-    });
   }
   return out;
 }
@@ -5418,7 +5267,7 @@ function seriesHasLargeGaps(points, periodMs = STATISTICS_PERIOD_MS, maxGapPerio
   return false;
 }
 
-function statisticsRawPointsForEntity(entityId, range, statsMap, hist) {
+function statisticsRawPointsForEntity(entityId, range, statsMap, hist, options = {}) {
   const statRows = statsMap?.[entityId];
   let statPoints = [];
   if (statRows?.length) {
@@ -5428,6 +5277,17 @@ function statisticsRawPointsForEntity(entityId, range, statsMap, hist) {
     historyToPoints(historyRowsForEntity(hist, entityId)),
     range
   );
+  if (
+    options.preferHistoryWhenStatsOutlier &&
+    statPoints.length &&
+    histPoints.length
+  ) {
+    const statPeak = statisticsPointsPeakAbs(statPoints);
+    const histPeak = statisticsPointsPeakAbs(histPoints);
+    if (histPeak > 0 && statPeak > Math.max(histPeak * 4, 12)) {
+      return histPoints;
+    }
+  }
   if (statPoints.length && (statisticsPointsHaveSignal(statPoints) || !histPoints.length)) {
     return statPoints;
   }
@@ -5435,7 +5295,9 @@ function statisticsRawPointsForEntity(entityId, range, statsMap, hist) {
 }
 
 function buildStatisticsSeriesPoints(hass, entityId, spec, range, statsMap, hist) {
-  const rawPoints = statisticsRawPointsForEntity(entityId, range, statsMap, hist);
+  const rawPoints = statisticsRawPointsForEntity(entityId, range, statsMap, hist, {
+    preferHistoryWhenStatsOutlier: spec.preferReliableHistory === true,
+  });
   return filterStatisticsSpikes(
     rawPoints.map((p) => ({
       t: p.t,
@@ -5821,18 +5683,13 @@ async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset =
   const socId = map.battery_soc;
   const entityIds = [
     ...new Set(
-      [
-        ...specs.flatMap((s) => chartEntityCandidates(hass, map, s.key)),
-        ...SIGNED_GRID_NET_KEYS.flatMap((k) => chartEntityCandidates(hass, map, k)),
-        socId,
-      ].filter(Boolean)
+      [...specs.flatMap((s) => chartEntityCandidates(hass, map, s.key)), socId].filter(Boolean)
     ),
   ];
   const [statsMap, hist] = await Promise.all([
     fetchStatisticsDuring(hass, entityIds, start, fetchEnd),
     fetchHistoryDuring(hass, entityIds, start, fetchEnd),
   ]);
-  const signedGridNetPoints = buildSignedGridNetPoints(hass, map, range, statsMap, hist);
   let series = finalizeStatisticsChartSeries(
     specs.map((spec) => {
       const built = buildChartSeriesPointsWithFallback(hass, map, spec.key, spec, range, statsMap, hist);
@@ -5846,12 +5703,12 @@ async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset =
         fillColor: spec.fillColor,
         hideLegend: spec.hideLegend,
         lineWidth: spec.lineWidth,
+        showZeroInTooltip: spec.showZeroInTooltip,
         entity_id: built.entityId,
         points: built.points,
       };
     }),
-    range,
-    { signedGridNetPoints }
+    range
   );
   let socSeries = null;
   if (socId) {
