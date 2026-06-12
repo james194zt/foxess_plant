@@ -12386,7 +12386,38 @@ ${this._renderImpactPanel()}`;
   }
 
   _renderImpactPanel() {
-    const imp = this._plantState?.impact ?? {};
+    let imp = this._plantState?.impact ?? {};
+    if (imp.co2_kg == null && imp.trees_planted == null && imp.oil_litres == null) {
+      const map = this._plantState?.entity_map ?? {};
+      let yieldEntity = map.total_yield_total;
+      if (!yieldEntity && this._hass?.states) {
+        for (const entityId of Object.keys(this._hass.states)) {
+          if (
+            !entityId.startsWith("sensor.") ||
+            (!entityId.endsWith("_total_yield_total") && !entityId.endsWith("_yield_total"))
+          ) {
+            continue;
+          }
+          const st = this._hass.states[entityId]?.state;
+          const kwh = Number(st);
+          if (Number.isFinite(kwh) && kwh > 0) {
+            yieldEntity = entityId;
+            break;
+          }
+        }
+      }
+      if (yieldEntity && imp.co2_kg == null) {
+        const kwh = Number(entityDisplayValue(this._hass, yieldEntity));
+        if (Number.isFinite(kwh) && kwh > 0) {
+          imp = {
+            co2_kg: Math.round(kwh * 0.99693 * 10) / 10,
+            oil_litres: Math.round(kwh * 0.123 * 10) / 10,
+            trees_planted: Math.round(kwh * 10) / 10,
+            impact_basis_kwh: Math.round(kwh * 10) / 10,
+          };
+        }
+      }
+    }
     if (imp.co2_kg == null && imp.trees_planted == null && imp.oil_litres == null) {
       const map = this._plantState?.entity_map ?? {};
       const yieldEntity = map.total_yield_total;

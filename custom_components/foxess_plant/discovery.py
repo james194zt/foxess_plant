@@ -57,6 +57,94 @@ def _should_assign_entity(key: str, entity_id: str, entity_map: dict[str, str]) 
     return not existing.startswith("number.")
 
 
+def _foxess_modbus_friendly_name(device: dr.DeviceEntry | None) -> str | None:
+    if device is None:
+        return None
+    for identifier in device.identifiers:
+        if identifier[0] == MODBUS_DOMAIN and len(identifier) >= 4:
+            friendly_name = identifier[3]
+            if friendly_name:
+                return str(friendly_name)
+    return None
+
+
+def _entry_belongs_to_inverter(
+    entry: er.RegistryEntry,
+    *,
+    device_ids: set[str],
+    friendly_name: str | None,
+) -> bool:
+    if entry.device_id and entry.device_id in device_ids:
+        return True
+    if not friendly_name:
+        return False
+    uid = entry.unique_id or ""
+    if not uid.startswith("foxess_modbus_"):
+        return False
+    return uid.startswith(f"foxess_modbus_{friendly_name}_")
+
+
+def _match_modbus_key(entry: er.RegistryEntry, key: str, suffix: str) -> bool:
+    if _match_suffix(entry, suffix):
+        return True
+    if _match_panel_suffix(entry, suffix):
+        return True
+    uid = entry.unique_id or ""
+    if uid.startswith("foxess_modbus_") and uid.endswith(f"_{key}"):
+        return True
+    return False
+
+
+def _registry_entries_for_inverter(
+    hass: HomeAssistant,
+    device_id: str,
+) -> list[er.RegistryEntry]:
+    """Collect foxess_modbus registry entries for an inverter device.
+
+    After modbus reload/migration, Yield Total and other sensors may remain in the
+    entity registry but no longer be linked to the device_id FoxESS Plant stores.
+    """
+    device_reg = dr.async_get(hass)
+    entity_reg = er.async_get(hass)
+
+    device = device_reg.async_get(device_id)
+    if device is None:
+        return []
+
+    friendly_name = _foxess_modbus_friendly_name(device)
+    device_ids: set[str] = {device_id}
+    if friendly_name:
+        for candidate in device_reg.devices.values():
+            if not is_foxess_modbus_device(candidate):
+                continue
+            if _foxess_modbus_friendly_name(candidate) == friendly_name:
+                device_ids.add(candidate.id)
+
+    by_entity_id: dict[str, er.RegistryEntry] = {}
+    for linked_device_id in device_ids:
+        for entry in entity_reg.async_entries_for_device(
+            linked_device_id,
+            include_disabled_entities=True,
+        ):
+            if entry.entity_id:
+                by_entity_id[entry.entity_id] = entry
+
+    if friendly_name:
+        for entry in entity_reg.entities.values():
+            if entry.entity_id in by_entity_id:
+                continue
+            if entry.platform != MODBUS_DOMAIN:
+                continue
+            if _entry_belongs_to_inverter(
+                entry,
+                device_ids=device_ids,
+                friendly_name=friendly_name,
+            ):
+                by_entity_id[entry.entity_id] = entry
+
+    return list(by_entity_id.values())
+
+
 def merge_entity_maps(
     hass: HomeAssistant,
     existing: dict[str, str],
@@ -76,7 +164,6 @@ def merge_entity_maps(
 def discover_entity_map(hass: HomeAssistant, device_id: str) -> dict[str, str]:
     """Map logical plant keys to entity IDs on the given foxess_modbus device."""
     device_reg = dr.async_get(hass)
-    entity_reg = er.async_get(hass)
 
     device = device_reg.async_get(device_id)
     if device is None:
@@ -84,20 +171,22 @@ def discover_entity_map(hass: HomeAssistant, device_id: str) -> dict[str, str]:
         return {}
 
     entity_map: dict[str, str] = {}
-    entries = er.async_entries_for_device(entity_reg, device_id)
+    entries = _registry_entries_for_inverter(hass, device_id)
 
     for entry in entries:
         if not entry.entity_id:
             continue
         for key, suffix in DISCOVERY_SUFFIXES.items():
-            if _match_suffix(entry, suffix) and _should_assign_entity(key, entry.entity_id, entity_map):
+            if _match_modbus_key(entry, key, suffix) and _should_assign_entity(
+                key, entry.entity_id, entity_map
+            ):
                 entity_map[key] = entry.entity_id
 
         for key, suffixes in PANEL_ENTITY_SUFFIXES.items():
             if key in entity_map:
                 continue
             for suffix in suffixes:
-                if _match_panel_suffix(entry, suffix):
+                if _match_modbus_key(entry, key, suffix):
                     entity_map[key] = entry.entity_id
                     break
 
@@ -105,10 +194,18 @@ def discover_entity_map(hass: HomeAssistant, device_id: str) -> dict[str, str]:
             if key in entity_map:
                 continue
             for suffix in suffixes:
-                if _match_suffix(entry, suffix):
+                if _match_modbus_key(entry, key, suffix):
                     entity_map[key] = entry.entity_id
                     break
 
+    if "total_yield_total" not in entity_map:
+        _LOGGER.warning(
+            "total_yield_total not discovered for device %s (%s); "
+            "scanned %d foxess_modbus registry entries",
+            device_id,
+            device.name,
+            len(entries),
+        )
     _LOGGER.debug("Discovered entity map for %s: %s", device_id, entity_map)
     return entity_map
 

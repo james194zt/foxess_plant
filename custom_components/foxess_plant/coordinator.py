@@ -125,6 +125,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             name=f"FoxESS Plant {entry.title}",
             update_interval=UPDATE_INTERVAL,
         )
+        self._refresh_entity_map()
 
     def _remember_solcast_stored(self, stored: dict[str, Any] | None) -> dict[str, Any]:
         if isinstance(stored, dict):

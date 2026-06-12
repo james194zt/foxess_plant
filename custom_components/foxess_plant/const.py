@@ -124,6 +124,8 @@ PANEL_ENTITY_SUFFIXES: dict[str, tuple[str, ...]] = {
     "grid_export": ("feed_in", "grid_ct"),
     "feed_in_energy_today": ("feed_in_energy_today",),
     "feed_in_energy_total": ("feed_in_energy_total",),
+    "total_yield_total": ("total_yield_total", "yield_total"),
+    "total_yield_today": ("total_yield_today", "yield_today"),
     "grid_consumption_energy_today": ("grid_consumption_energy_today",),
     "grid_consumption_energy_total": ("grid_consumption_energy_total",),
     # Battery / BMS
