@@ -22,7 +22,7 @@ from .analytics import compute_analytics
 from .identity_format import format_evo_bcu_version, format_evo_pack_version
 from .impact import compute_impact
 from .charge_period import apply_charge_periods
-from .discovery import missing_charge_period_entities
+from .discovery import discover_entity_map, merge_entity_maps, missing_charge_period_entities
 from .remote_control import is_charge_period_modbus_blocked
 from .remote_control import periods_want_grid_force_charge
 from .remote_control import set_remote_control_mode
@@ -1303,11 +1303,39 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return {}
         return compute_analytics(states)
 
+    def _refresh_entity_map(self) -> bool:
+        """Re-discover foxess_modbus entities (e.g. after modbus integration reload)."""
+        fresh = discover_entity_map(self.hass, self.plant.device_id)
+        if not fresh:
+            return False
+        merged = merge_entity_maps(self.hass, self.plant.entity_map, fresh)
+        if merged == self.plant.entity_map:
+            return False
+        self.plant.entity_map = merged
+        data = dict(self.config_entry.data)
+        data["entity_map"] = merged
+        self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+        _LOGGER.info("Refreshed FoxESS Plant entity map (%d keys)", len(merged))
+        return True
+
+    def _collect_impact_states(self) -> dict[str, str | None]:
+        return {key: self._entity_state(key) for key in IMPACT_ENTITY_SUFFIXES}
+
+    @staticmethod
+    def _impact_states_usable(states: dict[str, str | None]) -> bool:
+        return any(v not in (None, "unknown", "unavailable", "") for v in states.values())
+
     def _read_impact(self) -> dict[str, Any]:
-        states = {key: self._entity_state(key) for key in IMPACT_ENTITY_SUFFIXES}
-        if not any(v not in (None, "unknown", "unavailable", "") for v in states.values()):
-            return {}
-        return compute_impact(states)
+        states = self._collect_impact_states()
+        if self._impact_states_usable(states):
+            result = compute_impact(states)
+            if result:
+                return result
+        if self._refresh_entity_map():
+            states = self._collect_impact_states()
+            if self._impact_states_usable(states):
+                return compute_impact(states)
+        return {}
 
     def _read_identity(self) -> dict[str, str | None]:
         """PCS/BMS identity and firmware from discovered foxess_modbus entities."""

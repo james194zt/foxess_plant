@@ -57,6 +57,22 @@ def _should_assign_entity(key: str, entity_id: str, entity_map: dict[str, str]) 
     return not existing.startswith("number.")
 
 
+def merge_entity_maps(
+    hass: HomeAssistant,
+    existing: dict[str, str],
+    fresh: dict[str, str],
+) -> dict[str, str]:
+    """Merge discovery results, preferring fresh ids and dropping stale entity references."""
+    merged = {**existing, **fresh}
+    for key, entity_id in list(merged.items()):
+        if key in fresh:
+            continue
+        if not entity_id or hass.states.get(entity_id) is not None:
+            continue
+        del merged[key]
+    return merged
+
+
 def discover_entity_map(hass: HomeAssistant, device_id: str) -> dict[str, str]:
     """Map logical plant keys to entity IDs on the given foxess_modbus device."""
     device_reg = dr.async_get(hass)

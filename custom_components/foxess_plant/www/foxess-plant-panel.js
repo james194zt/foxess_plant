@@ -12388,9 +12388,22 @@ ${this._renderImpactPanel()}`;
   _renderImpactPanel() {
     const imp = this._plantState?.impact ?? {};
     if (imp.co2_kg == null && imp.trees_planted == null && imp.oil_litres == null) {
+      const map = this._plantState?.entity_map ?? {};
+      const yieldEntity = map.total_yield_total;
+      const yieldState = yieldEntity && this._hass?.states?.[yieldEntity]?.state;
+      let hint =
+        "Lifetime yield not available yet. Check foxess_modbus <strong>Yield Total</strong> (<code>total_yield_total</code>) is enabled and reporting.";
+      if (!yieldEntity) {
+        hint =
+          "Lifetime yield entity not mapped yet. Reload the <strong>FoxESS Plant</strong> integration (Settings → Devices → FoxESS Plant → Reload) after foxess_modbus updates.";
+      } else if (yieldState === "unavailable" || yieldState === "unknown") {
+        hint = `Yield Total is <strong>${esc(yieldState)}</strong> (<code>${esc(yieldEntity)}</code>). Reload foxess_modbus or check Modbus connection.`;
+      } else if (yieldState != null && yieldState !== "" && Number(yieldState) <= 0) {
+        hint = `Yield Total reads <strong>${esc(yieldState)}</strong> kWh — Impact needs a positive lifetime total.`;
+      }
       return `<div class="card impact-card" style="margin-top:14px">
 <p class="card-title">Impact</p>
-<p class="placeholder impact-placeholder">Lifetime yield not available yet. Reload FoxESS Plant after foxess_modbus exposes <code>total_yield_total</code> (Yield Total).</p>
+<p class="placeholder impact-placeholder">${hint}</p>
 </div>`;
     }
     const items = [
