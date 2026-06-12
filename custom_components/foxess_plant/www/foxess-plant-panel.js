@@ -255,7 +255,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.222";
+const PANEL_VERSION = "0.9.223";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -2476,6 +2476,7 @@ function renderDeviceBatteryTempSummaryCard(hass, map) {
 <span class="fox-device-new-summary-label">Battery Temperature</span>
 ${icon ? `<span class="fox-device-new-summary-icon" aria-hidden="true">${icon}</span>` : ""}
 </div>
+<div class="fox-device-new-summary-body">
 <div class="fox-device-new-summary-temps">
 <div class="fox-device-new-summary-temp-col">
 <span class="fox-device-new-summary-temp-label">Min.</span>
@@ -2488,6 +2489,7 @@ ${renderFoxSummaryMetricValue(minParts.num, minParts.unit, {
 ${renderFoxSummaryMetricValue(maxParts.num, maxParts.unit, {
     valueClass: "fox-device-new-summary-value fox-device-new-summary-temp-value",
   })}
+</div>
 </div>
 </div>
 </div>`;
@@ -2518,7 +2520,7 @@ function renderDeviceNewSummaryCardItems(hass, plant, plantState) {
 <span class="fox-device-new-summary-label">${esc(c.label)}</span>
 ${icon ? `<span class="fox-device-new-summary-icon" aria-hidden="true">${icon}</span>` : ""}
 </div>
-${renderFoxSummaryMetricValue(c.metric.num, c.metric.unit)}
+<div class="fox-device-new-summary-body">${renderFoxSummaryMetricValue(c.metric.num, c.metric.unit)}</div>
 </div>`;
     })
     .join("");
@@ -8934,14 +8936,22 @@ const STYLES = `
 .fox-device-new-content { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .fox-device-new-summary-card {
   border-radius: 12px; padding: 10px 12px 12px;
-  display: flex; flex-direction: column; gap: 6px; min-height: 0;
+  display: flex; flex-direction: column; gap: 0; min-height: 0; height: 100%;
   border: 1px solid color-mix(in srgb, var(--fox-summary-accent, var(--divider-color)) 22%, var(--divider-color));
   background: var(--fox-summary-bg, var(--card-background-color));
   overflow: hidden;
 }
 .fox-device-new-analysis-stack .fox-device-new-summary-card { height: auto; }
 .fox-device-new-summary-head {
-  display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; min-height: 32px;
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
+  min-height: 32px; flex: 0 0 auto; margin-bottom: 6px;
+}
+.fox-device-new-summary-body {
+  flex: 1 1 auto; display: flex; flex-direction: column; justify-content: flex-end;
+  min-height: calc(12px * 1.3 + 4px + 20px * 1.15);
+}
+.fox-device-new-summary-card:not(.fox-device-new-summary-card--temps) .fox-device-new-summary-body::before {
+  content: ""; display: block; flex: 1 1 auto; min-height: calc(12px * 1.3 + 4px);
 }
 .fox-device-new-summary-label {
   font-size: 12px; color: var(--secondary-text-color); font-weight: 500;
