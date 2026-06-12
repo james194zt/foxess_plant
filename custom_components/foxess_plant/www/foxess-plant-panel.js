@@ -255,7 +255,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.229";
+const PANEL_VERSION = "0.9.230";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -8934,12 +8934,11 @@ const STYLES = `
 .fox-device-new-content { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .fox-device-new-summary-card {
   border-radius: 12px; padding: 10px 12px 12px;
-  display: flex; flex-direction: column; gap: 0; min-height: 0; height: 100%;
+  display: flex; flex-direction: column; gap: 0; min-height: 0; height: auto; align-self: stretch;
   border: 1px solid color-mix(in srgb, var(--fox-summary-accent, var(--divider-color)) 22%, var(--divider-color));
   background: var(--fox-summary-bg, var(--card-background-color));
   overflow: hidden;
 }
-.fox-device-new-analysis-stack .fox-device-new-summary-card { height: auto; }
 .fox-device-new-summary-head {
   display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
   flex: 0 0 auto; margin-bottom: 4px;
