@@ -49,6 +49,10 @@ class _PlantBinary(CoordinatorEntity[FoxessPlantCoordinator], BinarySensorEntity
         self._attr_icon = icon
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
+    @property
+    def available(self) -> bool:
+        return True
+
 
 class FoxessPlantControlActiveBinary(_PlantBinary):
     _attr_entity_category = None

@@ -95,6 +95,29 @@ def _match_modbus_key(entry: er.RegistryEntry, key: str, suffix: str) -> bool:
     return False
 
 
+def _is_foxess_modbus_entry(entry: er.RegistryEntry) -> bool:
+    platform = getattr(entry, "platform", None)
+    if platform == MODBUS_DOMAIN:
+        return True
+    uid = entry.unique_id or ""
+    return uid.startswith("foxess_modbus_")
+
+
+def _device_linked_entries(
+    entity_reg: er.EntityRegistry,
+    device_id: str,
+) -> list[er.RegistryEntry]:
+    try:
+        return list(
+            entity_reg.async_entries_for_device(
+                device_id,
+                include_disabled_entities=True,
+            )
+        )
+    except TypeError:
+        return list(entity_reg.async_entries_for_device(device_id))
+
+
 def _registry_entries_for_inverter(
     hass: HomeAssistant,
     device_id: str,
@@ -104,45 +127,51 @@ def _registry_entries_for_inverter(
     After modbus reload/migration, Yield Total and other sensors may remain in the
     entity registry but no longer be linked to the device_id FoxESS Plant stores.
     """
-    device_reg = dr.async_get(hass)
-    entity_reg = er.async_get(hass)
+    try:
+        device_reg = dr.async_get(hass)
+        entity_reg = er.async_get(hass)
 
-    device = device_reg.async_get(device_id)
-    if device is None:
-        return []
+        device = device_reg.async_get(device_id)
+        if device is None:
+            return []
 
-    friendly_name = _foxess_modbus_friendly_name(device)
-    device_ids: set[str] = {device_id}
-    if friendly_name:
-        for candidate in device_reg.devices.values():
-            if not is_foxess_modbus_device(candidate):
-                continue
-            if _foxess_modbus_friendly_name(candidate) == friendly_name:
-                device_ids.add(candidate.id)
+        friendly_name = _foxess_modbus_friendly_name(device)
+        device_ids: set[str] = {device_id}
+        if friendly_name:
+            for candidate in device_reg.devices.values():
+                if not is_foxess_modbus_device(candidate):
+                    continue
+                if _foxess_modbus_friendly_name(candidate) == friendly_name:
+                    device_ids.add(candidate.id)
 
-    by_entity_id: dict[str, er.RegistryEntry] = {}
-    for linked_device_id in device_ids:
-        for entry in entity_reg.async_entries_for_device(
-            linked_device_id,
-            include_disabled_entities=True,
-        ):
-            if entry.entity_id:
-                by_entity_id[entry.entity_id] = entry
+        by_entity_id: dict[str, er.RegistryEntry] = {}
+        for linked_device_id in device_ids:
+            for entry in _device_linked_entries(entity_reg, linked_device_id):
+                if entry.entity_id:
+                    by_entity_id[entry.entity_id] = entry
 
-    if friendly_name:
-        for entry in entity_reg.entities.values():
-            if entry.entity_id in by_entity_id:
-                continue
-            if entry.platform != MODBUS_DOMAIN:
-                continue
-            if _entry_belongs_to_inverter(
-                entry,
-                device_ids=device_ids,
-                friendly_name=friendly_name,
-            ):
-                by_entity_id[entry.entity_id] = entry
+        if friendly_name:
+            for entry in entity_reg.entities.values():
+                if entry.entity_id in by_entity_id:
+                    continue
+                if not _is_foxess_modbus_entry(entry):
+                    continue
+                if _entry_belongs_to_inverter(
+                    entry,
+                    device_ids=device_ids,
+                    friendly_name=friendly_name,
+                ):
+                    by_entity_id[entry.entity_id] = entry
 
-    return list(by_entity_id.values())
+        return list(by_entity_id.values())
+    except Exception:
+        _LOGGER.exception("Expanded foxess_modbus registry scan failed for %s", device_id)
+        try:
+            entity_reg = er.async_get(hass)
+            return _device_linked_entries(entity_reg, device_id)
+        except Exception:
+            _LOGGER.exception("Fallback entity registry scan failed for %s", device_id)
+            return []
 
 
 def merge_entity_maps(
@@ -150,14 +179,16 @@ def merge_entity_maps(
     existing: dict[str, str],
     fresh: dict[str, str],
 ) -> dict[str, str]:
-    """Merge discovery results, preferring fresh ids and dropping stale entity references."""
+    """Merge discovery results, preferring fresh ids.
+
+    Never drop an existing mapping just because the entity state is temporarily
+    unavailable — that wiped maps after modbus reload and broke Plant sensors.
+    """
     merged = {**existing, **fresh}
+    entity_reg = er.async_get(hass)
     for key, entity_id in list(merged.items()):
-        if key in fresh:
-            continue
-        if not entity_id or hass.states.get(entity_id) is not None:
-            continue
-        del merged[key]
+        if not entity_id or entity_reg.async_get(entity_id) is None:
+            del merged[key]
     return merged
 
 
@@ -170,44 +201,48 @@ def discover_entity_map(hass: HomeAssistant, device_id: str) -> dict[str, str]:
         _LOGGER.warning("Device %s not found for entity discovery", device_id)
         return {}
 
-    entity_map: dict[str, str] = {}
-    entries = _registry_entries_for_inverter(hass, device_id)
+    try:
+        entries = _registry_entries_for_inverter(hass, device_id)
+        entity_map: dict[str, str] = {}
 
-    for entry in entries:
-        if not entry.entity_id:
-            continue
-        for key, suffix in DISCOVERY_SUFFIXES.items():
-            if _match_modbus_key(entry, key, suffix) and _should_assign_entity(
-                key, entry.entity_id, entity_map
-            ):
-                entity_map[key] = entry.entity_id
-
-        for key, suffixes in PANEL_ENTITY_SUFFIXES.items():
-            if key in entity_map:
+        for entry in entries:
+            if not entry.entity_id:
                 continue
-            for suffix in suffixes:
-                if _match_modbus_key(entry, key, suffix):
+            for key, suffix in DISCOVERY_SUFFIXES.items():
+                if _match_modbus_key(entry, key, suffix) and _should_assign_entity(
+                    key, entry.entity_id, entity_map
+                ):
                     entity_map[key] = entry.entity_id
-                    break
 
-        for key, suffixes in IDENTITY_ENTITY_SUFFIXES.items():
-            if key in entity_map:
-                continue
-            for suffix in suffixes:
-                if _match_modbus_key(entry, key, suffix):
-                    entity_map[key] = entry.entity_id
-                    break
+            for key, suffixes in PANEL_ENTITY_SUFFIXES.items():
+                if key in entity_map:
+                    continue
+                for suffix in suffixes:
+                    if _match_modbus_key(entry, key, suffix):
+                        entity_map[key] = entry.entity_id
+                        break
 
-    if "total_yield_total" not in entity_map:
-        _LOGGER.warning(
-            "total_yield_total not discovered for device %s (%s); "
-            "scanned %d foxess_modbus registry entries",
-            device_id,
-            device.name,
-            len(entries),
-        )
-    _LOGGER.debug("Discovered entity map for %s: %s", device_id, entity_map)
-    return entity_map
+            for key, suffixes in IDENTITY_ENTITY_SUFFIXES.items():
+                if key in entity_map:
+                    continue
+                for suffix in suffixes:
+                    if _match_modbus_key(entry, key, suffix):
+                        entity_map[key] = entry.entity_id
+                        break
+
+        if "total_yield_total" not in entity_map:
+            _LOGGER.warning(
+                "total_yield_total not discovered for device %s (%s); "
+                "scanned %d foxess_modbus registry entries",
+                device_id,
+                device.name,
+                len(entries),
+            )
+        _LOGGER.debug("Discovered entity map for %s: %s", device_id, entity_map)
+        return entity_map
+    except Exception:
+        _LOGGER.exception("Entity discovery failed for device %s", device_id)
+        return {}
 
 
 def missing_charge_period_entities(entity_map: dict[str, str]) -> list[str]:

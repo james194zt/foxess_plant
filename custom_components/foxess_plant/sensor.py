@@ -215,6 +215,10 @@ class FoxessPlantModeSensor(CoordinatorEntity[FoxessPlantCoordinator], SensorEnt
         return self.coordinator.plant.plant_mode()
 
     @property
+    def available(self) -> bool:
+        return True
+
+    @property
     def extra_state_attributes(self) -> dict:
         state = self.coordinator.data or {}
         return {
@@ -262,7 +266,9 @@ class FoxessPlantAnalyticsSensor(CoordinatorEntity[FoxessPlantCoordinator], Sens
     @property
     def available(self) -> bool:
         analytics = (self.coordinator.data or {}).get("analytics") or {}
-        return self._key in analytics
+        if self._key in analytics:
+            return True
+        return bool(self.coordinator.plant.entity_map)
 
     @property
     def native_value(self) -> float | None:
