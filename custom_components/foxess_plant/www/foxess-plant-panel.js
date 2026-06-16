@@ -255,7 +255,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.241";
+const PANEL_VERSION = "0.9.242";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -3805,17 +3805,30 @@ const STATISTICS_CHART_SERIES = [
     lineWidth: 1.2,
   },
   {
-    key: "grid_ct",
+    key: "grid_import",
     label: "Grid",
-    tooltipLabel: "Grid",
+    tooltipLabel: "Grid import",
     legendGroup: "grid",
     color: "#FF6FAF",
     fillColor: "rgba(255,111,175,0.14)",
     toKw: true,
-    preferReliableHistory: true,
+    clampMin: 0,
     fill: true,
     lineWidth: 1.2,
-    showZeroInTooltip: true,
+  },
+  {
+    key: "grid_export",
+    label: "Grid",
+    tooltipLabel: "Grid export",
+    legendGroup: "grid",
+    color: "#FF6FAF",
+    fillColor: "rgba(255,111,175,0.14)",
+    toKw: true,
+    abs: true,
+    negate: true,
+    fill: true,
+    hideLegend: true,
+    lineWidth: 1.2,
   },
   {
     key: "load_power",
@@ -4024,8 +4037,7 @@ const CHART_ENTITY_FALLBACKS = {
   battery_charge: ["battery_charge_1", "battery_charge"],
   battery_discharge: ["battery_discharge_1", "battery_discharge"],
   grid_import: ["grid_consumption", "grid_import"],
-  grid_export: ["feed_in", "grid_ct", "grid_export"],
-  grid_ct: ["grid_ct", "grid"],
+  grid_export: ["feed_in", "grid_export"],
   load_power: ["load_power", "load_power_total"],
   solar_energy_today: ["solar_energy_today"],
   feed_in_energy_today: ["feed_in_energy_today", "feed_in_energy"],
@@ -4680,29 +4692,20 @@ function transformPowerPoint(v, spec) {
 }
 
 function entityValueToKw(hass, entityId, value) {
+  if (!Number.isFinite(value)) return value;
   const unit = String(hass?.states?.[entityId]?.attributes?.unit_of_measurement || "")
     .toLowerCase()
     .replace(/\s/g, "");
-  let x = value;
-  if (unit === "kw") {
-    // Recorder statistics often store watts while entity metadata says kW (foxess_modbus quirk).
-    for (let i = 0; i < 2 && Math.abs(x) > STATISTICS_RECORDER_KW_CAP; i++) {
-      x /= 1000;
-    }
-    return x;
-  }
-  if (unit === "w") return x / 1000;
-  // foxess_modbus power sensors are kW; very large bare numbers are likely watts
-  if (Math.abs(x) > 500) return x / 1000;
-  return x;
+  // foxess_modbus applies register scale (e.g. 0.001) before publishing; recorder stats match entity kW.
+  if (unit === "kw") return value;
+  if (unit === "w") return value / 1000;
+  if (Math.abs(value) > 500) return value / 1000;
+  return value;
 }
 
 const STATISTICS_SIGNED_EPS_KW = 0.05;
 /** Drop isolated 5-minute spikes not seen in neighbours (recorder glitches). */
 const STATISTICS_SPIKE_MAX_DELTA_KW = 8;
-/** Residential/small-site cap — readings above this are treated as recorder watt/kW glitches. */
-const STATISTICS_RECORDER_KW_CAP = 25;
-const STATISTICS_ABS_PLAUSIBLE_KW = 25;
 const STATISTICS_Y_MAX_TICKS = 8;
 
 function transformHistoryPoint(hass, entityId, v, spec) {
@@ -4719,27 +4722,18 @@ function transformHistoryPoint(hass, entityId, v, spec) {
 }
 
 function filterStatisticsSpikes(points) {
-  if (!points?.length) return points;
+  if (points.length < 3) return points;
   const out = [];
   for (let i = 0; i < points.length; i++) {
-    const prev = out[out.length - 1]?.v ?? points[i].v;
+    const prev = points[i - 1]?.v ?? points[i].v;
     const next = points[i + 1]?.v ?? points[i].v;
-    let v = points[i].v;
-    if (!Number.isFinite(v)) continue;
-    if (Math.abs(v) > STATISTICS_ABS_PLAUSIBLE_KW) {
-      v = (prev + next) / 2;
-    }
+    const v = points[i].v;
     const neighbour = (Math.abs(prev) + Math.abs(next)) / 2;
     const delta = Math.abs(v - prev);
-    if (
-      points.length >= 3 &&
-      delta > STATISTICS_SPIKE_MAX_DELTA_KW &&
-      Math.abs(v) > neighbour * 2.5 &&
-      Math.abs(v) > 1
-    ) {
-      v = neighbour;
+    if (delta > STATISTICS_SPIKE_MAX_DELTA_KW && Math.abs(v) > neighbour * 2.5 && Math.abs(v) > 1) {
+      continue;
     }
-    out.push({ ...points[i], v });
+    out.push(points[i]);
   }
   return out;
 }
@@ -5149,7 +5143,7 @@ function computeStatisticsYDomain(series, padRatio = 0.08) {
   }
   if (!raw.length) return snapStatisticsYDomain(0, 0.25);
 
-  const plausible = raw.filter((v) => Math.abs(v) <= STATISTICS_ABS_PLAUSIBLE_KW);
+  const plausible = raw.filter((v) => Math.abs(v) <= 25);
   const forScale =
     plausible.length >= Math.max(3, Math.floor(raw.length * 0.1)) ? plausible : raw;
   const sorted = [...forScale].sort((a, b) => a - b);
@@ -5258,7 +5252,9 @@ function statisticsClientToTime(svg, clientX, padL, plotW, tMin, daySpan) {
 const STATISTICS_TOOLTIP_LABEL_BY_ID = {
   battery_charge: "Battery charging",
   battery_discharge: "Battery discharging",
-  grid_ct: "Grid",
+  grid_import: "Grid import",
+  grid_export: "Grid export",
+  grid_net: "Grid",
 };
 
 function statisticsSeriesTooltipLabel(s) {
@@ -5352,19 +5348,90 @@ function densifyStatisticsPoints(points, range) {
   return out.length ? out : [...(points || [])];
 }
 
+function bucketStatisticsPointsMean(pts, range) {
+  const period = STATISTICS_PERIOD_MS;
+  const byTime = new Map();
+  for (const p of pts || []) {
+    if (!Number.isFinite(p.t) || !Number.isFinite(p.v)) continue;
+    const bucket = range.tMin + Math.floor((p.t - range.tMin) / period) * period;
+    let entry = byTime.get(bucket);
+    if (!entry) {
+      entry = { sum: 0, count: 0 };
+      byTime.set(bucket, entry);
+    }
+    entry.sum += p.v;
+    entry.count += 1;
+  }
+  return byTime;
+}
+
+function mergeGridImportExportPoints(importPts, exportPts, range) {
+  const period = STATISTICS_PERIOD_MS;
+  const byTime = new Map();
+  const stamp = (pts) => {
+    const buckets = bucketStatisticsPointsMean(pts, range);
+    for (const [bucket, { sum, count }] of buckets) {
+      const v = sum / count;
+      const entry = byTime.get(bucket);
+      if (!entry) {
+        byTime.set(bucket, { sum: v, count: 1 });
+      } else {
+        entry.sum += v;
+        entry.count += 1;
+      }
+    }
+  };
+  stamp(importPts);
+  stamp(exportPts);
+  const out = [];
+  for (let t = range.tMin; t <= range.nowMs; t += period) {
+    const entry = byTime.get(t);
+    out.push({ t, v: entry ? entry.sum : 0 });
+  }
+  return out;
+}
+
 function finalizeStatisticsChartSeries(series, range) {
   const out = [];
+  let gridImport = null;
+  let gridExport = null;
   for (const s of series) {
-    if (s.id === "pv_power" || s.id === "grid_ct") {
+    if (s.id === "grid_import") {
+      gridImport = s;
+      continue;
+    }
+    if (s.id === "grid_export") {
+      gridExport = s;
+      continue;
+    }
+    if (s.id === "pv_power") {
       out.push({
         ...s,
-        id: s.id === "grid_ct" ? "grid_net" : s.id,
         connectGaps: true,
         points: densifyStatisticsPoints(s.points, range),
       });
       continue;
     }
     out.push(s);
+  }
+  const gridNetPoints =
+    gridImport || gridExport
+      ? mergeGridImportExportPoints(gridImport?.points, gridExport?.points, range)
+      : null;
+  if (gridNetPoints?.length) {
+    out.push({
+      id: "grid_net",
+      label: "Grid",
+      tooltipLabel: "Grid",
+      legendGroup: "grid",
+      color: "#FF6FAF",
+      fillColor: "rgba(255,111,175,0.14)",
+      fill: true,
+      lineWidth: 1.2,
+      connectGaps: true,
+      showZeroInTooltip: true,
+      points: filterStatisticsSpikes(densifyStatisticsPoints(gridNetPoints, range)),
+    });
   }
   return out;
 }
@@ -5391,18 +5458,7 @@ function seriesHasLargeGaps(points, periodMs = STATISTICS_PERIOD_MS, maxGapPerio
   return false;
 }
 
-function statisticsStatsLookLikeOutlier(hass, entityId, statPoints, histPoints) {
-  const statPeak = statisticsPointsPeakAbs(statPoints);
-  if (!statPeak) return false;
-  const histPeak = statisticsPointsPeakAbs(histPoints);
-  if (histPeak > 0 && statPeak > Math.max(histPeak * 4, 5)) return true;
-  if (statPeak > STATISTICS_RECORDER_KW_CAP) return true;
-  if (!hass || !entityId) return false;
-  const liveKw = Math.abs(entityValueToKw(hass, entityId, stateNumber(hass, entityId)));
-  return statPeak > Math.max(liveKw * 8 + 0.5, 8);
-}
-
-function statisticsRawPointsForEntity(hass, entityId, range, statsMap, hist, options = {}) {
+function statisticsRawPointsForEntity(entityId, range, statsMap, hist) {
   const statRows = statsMap?.[entityId];
   let statPoints = [];
   if (statRows?.length) {
@@ -5412,13 +5468,6 @@ function statisticsRawPointsForEntity(hass, entityId, range, statsMap, hist, opt
     historyToPoints(historyRowsForEntity(hist, entityId)),
     range
   );
-  if (
-    options.preferHistoryWhenStatsOutlier &&
-    statPoints.length &&
-    statisticsStatsLookLikeOutlier(hass, entityId, statPoints, histPoints)
-  ) {
-    if (histPoints.length) return histPoints;
-  }
   if (statPoints.length && (statisticsPointsHaveSignal(statPoints) || !histPoints.length)) {
     return statPoints;
   }
@@ -5426,9 +5475,7 @@ function statisticsRawPointsForEntity(hass, entityId, range, statsMap, hist, opt
 }
 
 function buildStatisticsSeriesPoints(hass, entityId, spec, range, statsMap, hist) {
-  const rawPoints = statisticsRawPointsForEntity(hass, entityId, range, statsMap, hist, {
-    preferHistoryWhenStatsOutlier: spec.preferReliableHistory === true,
-  });
+  const rawPoints = statisticsRawPointsForEntity(entityId, range, statsMap, hist);
   return filterStatisticsSpikes(
     rawPoints.map((p) => ({
       t: p.t,
@@ -5454,7 +5501,7 @@ function clampSocPercent(v) {
 }
 
 function buildSocHistoryPoints(hass, entityId, range, statsMap, hist) {
-  const rawPoints = statisticsRawPointsForEntity(hass, entityId, range, statsMap, hist);
+  const rawPoints = statisticsRawPointsForEntity(entityId, range, statsMap, hist);
   return rawPoints
     .map((p) => ({ t: p.t, v: clampSocPercent(p.v) }))
     .filter((p) => p.v != null);
@@ -5462,7 +5509,7 @@ function buildSocHistoryPoints(hass, entityId, range, statsMap, hist) {
 
 function buildSocPowerPoints(hass, entityId, range, statsMap, hist) {
   const spec = { toKw: true };
-  const rawPoints = statisticsRawPointsForEntity(hass, entityId, range, statsMap, hist).map((p) => ({
+  const rawPoints = statisticsRawPointsForEntity(entityId, range, statsMap, hist).map((p) => ({
     t: p.t,
     v: transformHistoryPoint(hass, entityId, p.v, spec),
   }));
@@ -6231,7 +6278,7 @@ function buildIntradayConsumptionSpark(points, startMs, endMs) {
 
 function buildSparkPowerPoints(hass, entityId, spec, range, statsMap, hist) {
   if (!entityId) return [];
-  let rawPoints = statisticsRawPointsForEntity(hass, entityId, range, statsMap, hist).map((p) => ({
+  let rawPoints = statisticsRawPointsForEntity(entityId, range, statsMap, hist).map((p) => ({
     t: p.t,
     v: transformHistoryPoint(hass, entityId, p.v, spec),
   }));
