@@ -255,7 +255,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.240";
+const PANEL_VERSION = "0.9.241";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -4683,16 +4683,26 @@ function entityValueToKw(hass, entityId, value) {
   const unit = String(hass?.states?.[entityId]?.attributes?.unit_of_measurement || "")
     .toLowerCase()
     .replace(/\s/g, "");
-  if (unit === "kw") return value;
-  if (unit === "w") return value / 1000;
+  let x = value;
+  if (unit === "kw") {
+    // Recorder statistics often store watts while entity metadata says kW (foxess_modbus quirk).
+    for (let i = 0; i < 2 && Math.abs(x) > STATISTICS_RECORDER_KW_CAP; i++) {
+      x /= 1000;
+    }
+    return x;
+  }
+  if (unit === "w") return x / 1000;
   // foxess_modbus power sensors are kW; very large bare numbers are likely watts
-  if (Math.abs(value) > 500) return value / 1000;
-  return value;
+  if (Math.abs(x) > 500) return x / 1000;
+  return x;
 }
 
 const STATISTICS_SIGNED_EPS_KW = 0.05;
 /** Drop isolated 5-minute spikes not seen in neighbours (recorder glitches). */
 const STATISTICS_SPIKE_MAX_DELTA_KW = 8;
+/** Residential/small-site cap — readings above this are treated as recorder watt/kW glitches. */
+const STATISTICS_RECORDER_KW_CAP = 25;
+const STATISTICS_ABS_PLAUSIBLE_KW = 25;
 const STATISTICS_Y_MAX_TICKS = 8;
 
 function transformHistoryPoint(hass, entityId, v, spec) {
@@ -4709,18 +4719,27 @@ function transformHistoryPoint(hass, entityId, v, spec) {
 }
 
 function filterStatisticsSpikes(points) {
-  if (points.length < 3) return points;
+  if (!points?.length) return points;
   const out = [];
   for (let i = 0; i < points.length; i++) {
-    const prev = points[i - 1]?.v ?? points[i].v;
+    const prev = out[out.length - 1]?.v ?? points[i].v;
     const next = points[i + 1]?.v ?? points[i].v;
-    const v = points[i].v;
+    let v = points[i].v;
+    if (!Number.isFinite(v)) continue;
+    if (Math.abs(v) > STATISTICS_ABS_PLAUSIBLE_KW) {
+      v = (prev + next) / 2;
+    }
     const neighbour = (Math.abs(prev) + Math.abs(next)) / 2;
     const delta = Math.abs(v - prev);
-    if (delta > STATISTICS_SPIKE_MAX_DELTA_KW && Math.abs(v) > neighbour * 2.5 && Math.abs(v) > 1) {
-      continue;
+    if (
+      points.length >= 3 &&
+      delta > STATISTICS_SPIKE_MAX_DELTA_KW &&
+      Math.abs(v) > neighbour * 2.5 &&
+      Math.abs(v) > 1
+    ) {
+      v = neighbour;
     }
-    out.push(points[i]);
+    out.push({ ...points[i], v });
   }
   return out;
 }
@@ -5100,6 +5119,15 @@ function fillToZeroPath(pts, yZero, timePts) {
   return `${line} L${last.x.toFixed(2)},${yZero.toFixed(2)} L${first.x.toFixed(2)},${yZero.toFixed(2)} Z`;
 }
 
+function statisticsPercentile(sorted, p) {
+  if (!sorted.length) return 0;
+  const idx = (sorted.length - 1) * p;
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  if (lo === hi) return sorted[lo];
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+}
+
 function statisticsYTickStep(span, maxTicks = STATISTICS_Y_MAX_TICKS) {
   const rough = Math.max(span / maxTicks, 0.1);
   const magnitude = 10 ** Math.floor(Math.log10(rough));
@@ -5113,16 +5141,28 @@ function statisticsYTickStep(span, maxTicks = STATISTICS_Y_MAX_TICKS) {
 }
 
 function computeStatisticsYDomain(series, padRatio = 0.08) {
-  let yMin = 0;
-  let yMax = 0.25;
+  const raw = [];
   for (const s of series) {
     for (const p of s.points || []) {
-      if (!Number.isFinite(p.v)) continue;
-      yMin = Math.min(yMin, p.v);
-      yMax = Math.max(yMax, p.v);
+      if (Number.isFinite(p.v)) raw.push(p.v);
     }
   }
-  if (yMax <= yMin) yMax = yMin + 1;
+  if (!raw.length) return snapStatisticsYDomain(0, 0.25);
+
+  const plausible = raw.filter((v) => Math.abs(v) <= STATISTICS_ABS_PLAUSIBLE_KW);
+  const forScale =
+    plausible.length >= Math.max(3, Math.floor(raw.length * 0.1)) ? plausible : raw;
+  const sorted = [...forScale].sort((a, b) => a - b);
+  let yMin = statisticsPercentile(sorted, 0.03);
+  let yMax = statisticsPercentile(sorted, 0.97);
+  const crossesZero = sorted.some((v) => v <= 0) && sorted.some((v) => v >= 0);
+  if (crossesZero) {
+    yMin = Math.min(yMin, 0);
+    yMax = Math.max(yMax, 0);
+  } else if (yMin > 0) {
+    yMin = Math.max(0, yMin);
+  }
+  if (yMax <= yMin) yMax = yMin + Math.max(Math.abs(yMin) * 0.15, 0.5);
   const pad = (yMax - yMin) * padRatio;
   return snapStatisticsYDomain(yMin - pad, yMax + pad);
 }
@@ -5351,7 +5391,18 @@ function seriesHasLargeGaps(points, periodMs = STATISTICS_PERIOD_MS, maxGapPerio
   return false;
 }
 
-function statisticsRawPointsForEntity(entityId, range, statsMap, hist, options = {}) {
+function statisticsStatsLookLikeOutlier(hass, entityId, statPoints, histPoints) {
+  const statPeak = statisticsPointsPeakAbs(statPoints);
+  if (!statPeak) return false;
+  const histPeak = statisticsPointsPeakAbs(histPoints);
+  if (histPeak > 0 && statPeak > Math.max(histPeak * 4, 5)) return true;
+  if (statPeak > STATISTICS_RECORDER_KW_CAP) return true;
+  if (!hass || !entityId) return false;
+  const liveKw = Math.abs(entityValueToKw(hass, entityId, stateNumber(hass, entityId)));
+  return statPeak > Math.max(liveKw * 8 + 0.5, 8);
+}
+
+function statisticsRawPointsForEntity(hass, entityId, range, statsMap, hist, options = {}) {
   const statRows = statsMap?.[entityId];
   let statPoints = [];
   if (statRows?.length) {
@@ -5364,13 +5415,9 @@ function statisticsRawPointsForEntity(entityId, range, statsMap, hist, options =
   if (
     options.preferHistoryWhenStatsOutlier &&
     statPoints.length &&
-    histPoints.length
+    statisticsStatsLookLikeOutlier(hass, entityId, statPoints, histPoints)
   ) {
-    const statPeak = statisticsPointsPeakAbs(statPoints);
-    const histPeak = statisticsPointsPeakAbs(histPoints);
-    if (histPeak > 0 && statPeak > Math.max(histPeak * 4, 12)) {
-      return histPoints;
-    }
+    if (histPoints.length) return histPoints;
   }
   if (statPoints.length && (statisticsPointsHaveSignal(statPoints) || !histPoints.length)) {
     return statPoints;
@@ -5379,7 +5426,7 @@ function statisticsRawPointsForEntity(entityId, range, statsMap, hist, options =
 }
 
 function buildStatisticsSeriesPoints(hass, entityId, spec, range, statsMap, hist) {
-  const rawPoints = statisticsRawPointsForEntity(entityId, range, statsMap, hist, {
+  const rawPoints = statisticsRawPointsForEntity(hass, entityId, range, statsMap, hist, {
     preferHistoryWhenStatsOutlier: spec.preferReliableHistory === true,
   });
   return filterStatisticsSpikes(
@@ -5407,7 +5454,7 @@ function clampSocPercent(v) {
 }
 
 function buildSocHistoryPoints(hass, entityId, range, statsMap, hist) {
-  const rawPoints = statisticsRawPointsForEntity(entityId, range, statsMap, hist);
+  const rawPoints = statisticsRawPointsForEntity(hass, entityId, range, statsMap, hist);
   return rawPoints
     .map((p) => ({ t: p.t, v: clampSocPercent(p.v) }))
     .filter((p) => p.v != null);
@@ -5415,7 +5462,7 @@ function buildSocHistoryPoints(hass, entityId, range, statsMap, hist) {
 
 function buildSocPowerPoints(hass, entityId, range, statsMap, hist) {
   const spec = { toKw: true };
-  const rawPoints = statisticsRawPointsForEntity(entityId, range, statsMap, hist).map((p) => ({
+  const rawPoints = statisticsRawPointsForEntity(hass, entityId, range, statsMap, hist).map((p) => ({
     t: p.t,
     v: transformHistoryPoint(hass, entityId, p.v, spec),
   }));
@@ -6184,7 +6231,7 @@ function buildIntradayConsumptionSpark(points, startMs, endMs) {
 
 function buildSparkPowerPoints(hass, entityId, spec, range, statsMap, hist) {
   if (!entityId) return [];
-  let rawPoints = statisticsRawPointsForEntity(entityId, range, statsMap, hist).map((p) => ({
+  let rawPoints = statisticsRawPointsForEntity(hass, entityId, range, statsMap, hist).map((p) => ({
     t: p.t,
     v: transformHistoryPoint(hass, entityId, p.v, spec),
   }));
