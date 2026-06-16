@@ -255,7 +255,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.244";
+const PANEL_VERSION = "0.9.245";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -3778,6 +3778,7 @@ const STATISTICS_CHART_SERIES = [
     toKw: true,
     fill: true,
     lineWidth: 1.4,
+    statisticsOnly: true,
   },
   {
     key: "battery_charge",
@@ -3790,6 +3791,7 @@ const STATISTICS_CHART_SERIES = [
     splitSigned: "charge",
     fill: true,
     lineWidth: 1.2,
+    statisticsOnly: true,
   },
   {
     key: "battery_discharge",
@@ -3803,6 +3805,7 @@ const STATISTICS_CHART_SERIES = [
     fill: true,
     hideLegend: true,
     lineWidth: 1.2,
+    statisticsOnly: true,
   },
   {
     key: "grid_import",
@@ -3812,7 +3815,8 @@ const STATISTICS_CHART_SERIES = [
     color: "#FF6FAF",
     fillColor: "rgba(255,111,175,0.14)",
     toKw: true,
-    clampMin: 0,
+    abs: true,
+    statisticsOnly: true,
     fill: true,
     lineWidth: 1.2,
   },
@@ -3826,6 +3830,7 @@ const STATISTICS_CHART_SERIES = [
     toKw: true,
     abs: true,
     negate: true,
+    statisticsOnly: true,
     fill: true,
     hideLegend: true,
     lineWidth: 1.2,
@@ -3840,6 +3845,7 @@ const STATISTICS_CHART_SERIES = [
     negate: true,
     fill: true,
     lineWidth: 1.2,
+    statisticsOnly: true,
   },
 ];
 
@@ -4417,11 +4423,12 @@ function readLiveAnalytics(hass, plant, plantState, overviewDaily) {
 }
 
 function entityIdMatchesSuffix(entityId, suffix) {
-  return (
-    entityId.endsWith(`_${suffix}`) ||
-    entityId.includes(`_${suffix}_`) ||
-    entityId.endsWith(suffix)
-  );
+  if (!entityId || !suffix) return false;
+  const id = String(entityId);
+  if (id.endsWith(`_${suffix}`)) return true;
+  const dot = id.lastIndexOf(".");
+  const local = dot >= 0 ? id.slice(dot + 1) : id;
+  return local === suffix;
 }
 
 function resolveEntityMap(hass, plant, plantState) {
@@ -4691,41 +4698,16 @@ function transformPowerPoint(v, spec) {
   return x;
 }
 
-/** foxess_modbus ModbusSensorDescription.scale for grid/pv/load power (register → kW). */
-const FOXESS_MODBUS_POWER_REGISTER_SCALE = 0.001;
-/** Values at/above this are raw modbus register means, not scaled kW (EVO-10 class). */
-const FOXESS_MODBUS_POWER_REGISTER_THRESHOLD_KW = 25;
-/** Net grid above this (kW) on a residential EVO-class site is a recorder/register glitch. */
-const GRID_NET_PLAUSIBLE_KW = 8;
-
-function applyFoxessModbusRegisterScaleKw(value) {
-  let x = value;
-  for (let i = 0; i < 3 && Math.abs(x) >= FOXESS_MODBUS_POWER_REGISTER_THRESHOLD_KW; i++) {
-    x *= FOXESS_MODBUS_POWER_REGISTER_SCALE;
-  }
-  return x;
-}
-
 function entityValueToKw(hass, entityId, value) {
   if (!Number.isFinite(value)) return value;
   const st = hass?.states?.[entityId];
   const unit = String(st?.attributes?.unit_of_measurement || "")
     .toLowerCase()
     .replace(/\s/g, "");
-  let x;
-  if (unit === "kw") x = value;
-  else if (unit === "w") x = value / 1000;
-  else if (Math.abs(value) > 500) x = value / 1000;
-  else x = value;
-  const isPower =
-    st?.attributes?.device_class === "power" ||
-    /_(feed_in|grid_consumption|grid_ct|pv_power|load_power|battery_power|inv_power|eps_power)(_|$)/.test(
-      String(entityId || "")
-    );
-  if (isPower) {
-    x = applyFoxessModbusRegisterScaleKw(x);
-  }
-  return x;
+  if (unit === "kw") return value;
+  if (unit === "w") return value / 1000;
+  if (Math.abs(value) > 500) return value / 1000;
+  return value;
 }
 
 const STATISTICS_SIGNED_EPS_KW = 0.05;
@@ -5279,7 +5261,6 @@ const STATISTICS_TOOLTIP_LABEL_BY_ID = {
   battery_discharge: "Battery discharging",
   grid_import: "Grid import",
   grid_export: "Grid export",
-  grid_net: "Grid",
 };
 
 function statisticsSeriesTooltipLabel(s) {
@@ -5324,7 +5305,7 @@ function chartEntityCandidates(hass, map, key) {
   const seen = new Set();
   const out = [];
   const primary = map?.[key];
-  if (primary) {
+  if (primary && entityIdMatchesChartSuffixes(primary, suffixes)) {
     seen.add(primary);
     out.push(primary);
   }
@@ -5338,6 +5319,10 @@ function chartEntityCandidates(hass, map, key) {
     }
   }
   return out;
+}
+
+function entityIdMatchesChartSuffixes(entityId, suffixes) {
+  return (suffixes || []).some((suffix) => entityIdMatchesSuffix(entityId, suffix));
 }
 
 function buildChartSeriesPointsWithFallback(hass, map, key, spec, range, statsMap, hist) {
@@ -5373,92 +5358,21 @@ function densifyStatisticsPoints(points, range) {
   return out.length ? out : [...(points || [])];
 }
 
-function bucketStatisticsPointsMean(pts, range) {
-  const period = STATISTICS_PERIOD_MS;
-  const byTime = new Map();
-  for (const p of pts || []) {
-    if (!Number.isFinite(p.t) || !Number.isFinite(p.v)) continue;
-    const bucket = range.tMin + Math.floor((p.t - range.tMin) / period) * period;
-    let entry = byTime.get(bucket);
-    if (!entry) {
-      entry = { sum: 0, count: 0 };
-      byTime.set(bucket, entry);
-    }
-    entry.sum += p.v;
-    entry.count += 1;
-  }
-  return byTime;
-}
-
-function mergeGridImportExportPoints(importPts, exportPts, range) {
-  const period = STATISTICS_PERIOD_MS;
-  const byTime = new Map();
-  const stamp = (pts) => {
-    const buckets = bucketStatisticsPointsMean(pts, range);
-    for (const [bucket, { sum, count }] of buckets) {
-      const v = sum / count;
-      const entry = byTime.get(bucket);
-      if (!entry) {
-        byTime.set(bucket, { sum: v, count: 1 });
-      } else {
-        entry.sum += v;
-        entry.count += 1;
-      }
-    }
-  };
-  stamp(importPts);
-  stamp(exportPts);
-  const out = [];
-  for (let t = range.tMin; t <= range.nowMs; t += period) {
-    const entry = byTime.get(t);
-    out.push({ t, v: entry ? entry.sum : 0 });
-  }
-  return out;
-}
-
 function finalizeStatisticsChartSeries(series, range) {
-  const out = [];
-  let gridImport = null;
-  let gridExport = null;
-  for (const s of series) {
-    if (s.id === "grid_import") {
-      gridImport = s;
-      continue;
-    }
-    if (s.id === "grid_export") {
-      gridExport = s;
-      continue;
-    }
+  return series.map((s) => {
     if (s.id === "pv_power") {
-      out.push({
+      return {
         ...s,
         connectGaps: true,
         points: densifyStatisticsPoints(s.points, range),
-      });
-      continue;
+      };
     }
-    out.push(s);
-  }
-  const gridNetPoints =
-    gridImport || gridExport
-      ? mergeGridImportExportPoints(gridImport?.points, gridExport?.points, range)
-      : null;
-  if (gridNetPoints?.length) {
-    out.push({
-      id: "grid_net",
-      label: "Grid",
-      tooltipLabel: "Grid",
-      legendGroup: "grid",
-      color: "#FF6FAF",
-      fillColor: "rgba(255,111,175,0.14)",
-      fill: true,
-      lineWidth: 1.2,
-      connectGaps: true,
-      showZeroInTooltip: true,
-      points: filterGridNetStatisticsPoints(densifyStatisticsPoints(gridNetPoints, range)),
-    });
-  }
-  return out;
+    return {
+      ...s,
+      connectGaps: false,
+      points: s.points || [],
+    };
+  });
 }
 
 /** Device real-time curve: densify idle series so EPS/grid-style lines sit on zero, not blobs. */
@@ -5483,53 +5397,14 @@ function seriesHasLargeGaps(points, periodMs = STATISTICS_PERIOD_MS, maxGapPerio
   return false;
 }
 
-function filterGridLegStatisticsPoints(points) {
-  if (!points?.length) return points;
-  const out = [];
-  for (let i = 0; i < points.length; i++) {
-    const prev = out[out.length - 1]?.v ?? 0;
-    const next = points[i + 1]?.v ?? prev;
-    let v = points[i].v;
-    if (!Number.isFinite(v)) continue;
-    if (Math.abs(v) > GRID_NET_PLAUSIBLE_KW) {
-      v = (prev + next) / 2;
-    }
-    out.push({ ...points[i], v });
-  }
-  return out;
-}
-
-function filterGridNetStatisticsPoints(points) {
-  if (!points?.length) return points;
-  const out = [];
-  for (let i = 0; i < points.length; i++) {
-    const prev = out[out.length - 1]?.v ?? 0;
-    const next = points[i + 1]?.v ?? prev;
-    let v = points[i].v;
-    if (!Number.isFinite(v)) continue;
-    if (Math.abs(v) > GRID_NET_PLAUSIBLE_KW) {
-      v = (prev + next) / 2;
-    }
-    const neighbour = (Math.abs(prev) + Math.abs(next)) / 2;
-    const delta = Math.abs(v - prev);
-    if (
-      points.length >= 3 &&
-      delta > STATISTICS_SPIKE_MAX_DELTA_KW &&
-      Math.abs(v) > neighbour * 2.5 &&
-      Math.abs(v) > 1
-    ) {
-      v = neighbour;
-    }
-    out.push({ ...points[i], v });
-  }
-  return out;
-}
-
 function statisticsRawPointsForEntity(hass, entityId, range, statsMap, hist, options = {}) {
   const statRows = statsMap?.[entityId];
   let statPoints = [];
   if (statRows?.length) {
     statPoints = recorderStatsToPoints(statRows, range);
+  }
+  if (options.statisticsOnly) {
+    return statPoints;
   }
   const histPoints = statisticsChartPoints(
     historyToPoints(historyRowsForEntity(hist, entityId)),
@@ -5567,16 +5442,13 @@ function statisticsRawPointsForEntity(hass, entityId, range, statsMap, hist, opt
 function buildStatisticsSeriesPoints(hass, entityId, spec, range, statsMap, hist) {
   const rawPoints = statisticsRawPointsForEntity(hass, entityId, range, statsMap, hist, {
     preferHistory: spec.preferHistory === true,
+    statisticsOnly: spec.statisticsOnly === true,
   });
   const transformed = rawPoints.map((p) => ({
     t: p.t,
     v: transformHistoryPoint(hass, entityId, p.v, spec),
   }));
-  const filtered =
-    spec.key === "grid_import" || spec.key === "grid_export"
-      ? filterGridLegStatisticsPoints(transformed)
-      : filterStatisticsSpikes(transformed);
-  return filtered;
+  return spec.statisticsOnly ? transformed : filterStatisticsSpikes(transformed);
 }
 
 function interpolatePointsToPeriod(points, periodMs, originMs, endMs, { allowBackfill = true } = {}) {

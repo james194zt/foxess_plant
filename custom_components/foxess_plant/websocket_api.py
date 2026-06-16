@@ -20,45 +20,6 @@ from .panel_config import list_forecast_entity_candidates, list_tariff_entity_ca
 
 _LOGGER = logging.getLogger(__name__)
 
-FOXESS_MODBUS_POWER_REGISTER_SCALE = 0.001
-FOXESS_MODBUS_POWER_REGISTER_THRESHOLD_KW = 25.0
-
-
-def _normalize_power_statistic_kw(hass: HomeAssistant, entity_id: str, value: float) -> float:
-    """Recorder means for foxess_modbus power sensors can leak raw register values."""
-    state = hass.states.get(entity_id)
-    is_power = state and state.attributes.get("device_class") == "power"
-    if not is_power:
-        is_power = any(
-            marker in entity_id
-            for marker in (
-                "feed_in",
-                "grid_consumption",
-                "grid_ct",
-                "pv_power",
-                "load_power",
-                "battery_power",
-                "inv_power",
-                "eps_power",
-            )
-        )
-    if not is_power:
-        return value
-    unit = ""
-    if state:
-        unit = str(state.attributes.get("unit_of_measurement") or "").lower().replace(" ", "")
-    x = float(value)
-    if unit == "w":
-        x /= 1000.0
-    elif unit != "kw" and abs(x) > 500:
-        x /= 1000.0
-    for _ in range(3):
-        if abs(x) < FOXESS_MODBUS_POWER_REGISTER_THRESHOLD_KW:
-            break
-        x *= FOXESS_MODBUS_POWER_REGISTER_SCALE
-    return x
-
-
 WS_TYPE_PLANT_STATE = "foxess_plant/plant_state"
 WS_TYPE_PLANT_LIST = "foxess_plant/plant_list"
 WS_TYPE_TRIGGER_CANDIDATES = "foxess_plant/trigger_candidates"
@@ -304,7 +265,6 @@ def _fetch_statistics_points(
                 start = getattr(row, "start", None)
             if value is None:
                 continue
-            mean = _normalize_power_statistic_kw(hass, entity_id, float(value))
             if isinstance(start, (int, float)):
                 start_ts = float(start)
             else:
@@ -312,7 +272,7 @@ def _fetch_statistics_points(
             out[entity_id].append(
                 {
                     "start": start_ts,
-                    "mean": mean,
+                    "mean": float(value),
                 }
             )
         out[entity_id].sort(key=lambda p: p["start"])
