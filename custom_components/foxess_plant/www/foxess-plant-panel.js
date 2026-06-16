@@ -255,7 +255,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.245";
+const PANEL_VERSION = "0.9.246";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -3788,7 +3788,8 @@ const STATISTICS_CHART_SERIES = [
     color: "#8DB6FF",
     fillColor: "rgba(141,182,255,0.14)",
     toKw: true,
-    splitSigned: "charge",
+    clampMin: 0,
+    negate: true,
     fill: true,
     lineWidth: 1.2,
     statisticsOnly: true,
@@ -3801,7 +3802,7 @@ const STATISTICS_CHART_SERIES = [
     color: "#8DB6FF",
     fillColor: "rgba(141,182,255,0.14)",
     toKw: true,
-    splitSigned: "discharge",
+    clampMin: 0,
     fill: true,
     hideLegend: true,
     lineWidth: 1.2,
@@ -4530,16 +4531,19 @@ async function hassMessageWithTimeout(hass, message, timeoutMs = HA_WS_TIMEOUT_M
 }
 
 function recorderEntityRows(map, entityId) {
-  return Array.isArray(map?.[entityId]) ? map[entityId] : [];
+  const raw = map?.[entityId];
+  if (Array.isArray(raw)) return raw;
+  if (raw && typeof raw === "object" && Array.isArray(raw.mean)) return raw.mean;
+  return [];
 }
 
-/** Prefer plant websocket rows per entity; fill gaps from native recorder API. */
+/** Prefer native recorder statistics (same API as plotly-graph), fall back to plant websocket. */
 function mergeRecorderEntityMaps(plantMap, nativeMap, entityIds) {
   const out = {};
   for (const id of entityIds) {
     const plantRows = recorderEntityRows(plantMap, id);
     const nativeRows = recorderEntityRows(nativeMap, id);
-    out[id] = plantRows.length ? plantRows : nativeRows;
+    out[id] = nativeRows.length ? nativeRows : plantRows;
   }
   return out;
 }
@@ -5359,20 +5363,11 @@ function densifyStatisticsPoints(points, range) {
 }
 
 function finalizeStatisticsChartSeries(series, range) {
-  return series.map((s) => {
-    if (s.id === "pv_power") {
-      return {
-        ...s,
-        connectGaps: true,
-        points: densifyStatisticsPoints(s.points, range),
-      };
-    }
-    return {
-      ...s,
-      connectGaps: false,
-      points: s.points || [],
-    };
-  });
+  return series.map((s) => ({
+    ...s,
+    connectGaps: true,
+    points: densifyStatisticsPoints(s.points, range),
+  }));
 }
 
 /** Device real-time curve: densify idle series so EPS/grid-style lines sit on zero, not blobs. */
@@ -5404,6 +5399,11 @@ function statisticsRawPointsForEntity(hass, entityId, range, statsMap, hist, opt
     statPoints = recorderStatsToPoints(statRows, range);
   }
   if (options.statisticsOnly) {
+    if (statPoints.length >= 2) return statPoints;
+    const histPts = historyToPoints(historyRowsForEntity(hist, entityId));
+    if (histPts.length) {
+      return statisticsChartPoints(histPts, range);
+    }
     return statPoints;
   }
   const histPoints = statisticsChartPoints(
