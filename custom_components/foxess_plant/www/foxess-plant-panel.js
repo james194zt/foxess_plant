@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.251
+ * @version 0.9.254
  */
 
 import { renderFoxAlarmDetailModal } from "./fox-alarm-guide.js";
@@ -4776,6 +4776,171 @@ function foxAlarmMeta(name) {
   return FOX_ALARM_META[name] || { category: "Other", severity: "warning" };
 }
 
+/** Modbus alarm bit index → Fox-style code (register word + bit). */
+const FOX_ALARM_CODE_MAP = (() => {
+  const words = [
+    [
+      "PV Over-voltage",
+      "DC arc fault",
+      "String reverse connection",
+      null,
+      null,
+      null,
+      null,
+      "Grid power outage",
+      "Abnormal grid voltage",
+      null,
+      null,
+      "Abnormal grid frequency",
+      null,
+      null,
+      "Output overcurrent",
+      "Output DC component too large",
+    ],
+    [
+      "Residual current",
+      "Grounding fault",
+      "Low insulation resistance",
+      "Inverter overtemperature",
+      null,
+      null,
+      null,
+      null,
+      null,
+      "Energy storage equipment abnormal",
+      "Islanding",
+      null,
+      null,
+      null,
+      "Off-grid output overload",
+      null,
+    ],
+    [
+      null,
+      null,
+      null,
+      "External fan fault",
+      "Energy storage reverse connection",
+      null,
+      null,
+      null,
+      null,
+      "Meter lost",
+      "BMS lost",
+      null,
+      null,
+      null,
+      null,
+      null,
+    ],
+  ];
+  const map = {};
+  words.forEach((word, wi) => {
+    word.forEach((name, bi) => {
+      if (name) map[name] = `${39067 + wi}-${bi}`;
+    });
+  });
+  return map;
+})();
+
+function foxAlarmCode(name) {
+  return FOX_ALARM_CODE_MAP[name] || "—";
+}
+
+function toDatetimeLocalValue(ms) {
+  if (!Number.isFinite(ms)) return "";
+  const d = new Date(ms);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function parseDatetimeLocalValue(s) {
+  if (!s) return NaN;
+  const t = new Date(s).getTime();
+  return Number.isFinite(t) ? t : NaN;
+}
+
+function defaultAlarmCustomRangeValues() {
+  const end = Date.now();
+  const start = end - 7 * 86400000;
+  return { start: toDatetimeLocalValue(start), end: toDatetimeLocalValue(end) };
+}
+
+function makeHistoricalAlarmRecord(name, occurrenceMs, recoveryMs, deviceName) {
+  const meta = foxAlarmMeta(name);
+  return {
+    name,
+    message: name,
+    device: deviceName,
+    category: meta.category,
+    severity: meta.severity,
+    code: foxAlarmCode(name),
+    occurrenceMs,
+    recoveryMs,
+  };
+}
+
+/** Pair raised/cleared recorder events into Fox historical rows. */
+function pairAlarmHistoryRecords(events, activeNames, deviceName) {
+  const open = new Map();
+  const records = [];
+  const sorted = [...events].sort((a, b) => a.t - b.t);
+  for (const ev of sorted) {
+    if (ev.action === "raised") {
+      if (!open.has(ev.name)) open.set(ev.name, ev.t);
+    } else if (ev.action === "cleared") {
+      const occ = open.get(ev.name);
+      if (occ != null) {
+        records.push(makeHistoricalAlarmRecord(ev.name, occ, ev.t, deviceName));
+        open.delete(ev.name);
+      } else {
+        records.push(makeHistoricalAlarmRecord(ev.name, ev.t, ev.t, deviceName));
+      }
+    }
+  }
+  for (const [name, occ] of open) {
+    records.push(makeHistoricalAlarmRecord(name, occ, null, deviceName));
+  }
+  const activeSet = new Set(activeNames || []);
+  for (const name of activeSet) {
+    if (records.some((r) => r.name === name && r.recoveryMs == null)) continue;
+    let since = null;
+    for (let i = events.length - 1; i >= 0; i -= 1) {
+      if (events[i].name === name && events[i].action === "raised") {
+        since = events[i].t;
+        break;
+      }
+    }
+    records.push(makeHistoricalAlarmRecord(name, since || Date.now(), null, deviceName));
+  }
+  return records.sort((a, b) => (b.occurrenceMs || 0) - (a.occurrenceMs || 0));
+}
+
+function filterHistoricalAlarmRecords(records, { category, severity, device }, timeRange) {
+  let startMs;
+  let endMs;
+  if (timeRange?.mode === "custom") {
+    startMs = parseDatetimeLocalValue(timeRange.start);
+    endMs = parseDatetimeLocalValue(timeRange.end);
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+      const def = defaultAlarmCustomRangeValues();
+      startMs = parseDatetimeLocalValue(def.start);
+      endMs = parseDatetimeLocalValue(def.end);
+    }
+  } else {
+    endMs = Date.now();
+    startMs = endMs - 86400000;
+  }
+  return records.filter((row) => {
+    if (!Number.isFinite(row.occurrenceMs)) return false;
+    if (row.occurrenceMs < startMs || row.occurrenceMs > endMs) return false;
+    if (category && row.category !== category) return false;
+    if (severity && row.severity !== severity) return false;
+    if (device && row.device !== device) return false;
+    return true;
+  });
+}
+
 function parseAlarmStateList(state) {
   if (!state || state === "unknown" || state === "unavailable" || state === "None") return [];
   return String(state)
@@ -4841,6 +5006,8 @@ function eventsFromAlarmsHistory(rows) {
   return events;
 }
 
+const FOX_ALARM_ICONS = {"alarm":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 14 14\" id=\"icon-alarm\">\n  <path d=\"M3.0625 7C3.0625 4.82538 4.82538 3.0625 7 3.0625C9.17462 3.0625 10.9375 4.82538 10.9375 7V12.8516H3.0625V7Z\" fill-opacity=\"0.06\" />\n  <path d=\"M6.99993 5.08594C8.07969 5.08594 8.95501 5.96126 8.95501 7.04102V8.29199H7.75189V7.04102C7.75189 6.62572 7.41523 6.28906 6.99993 6.28906V5.08594Z\" fill-opacity=\"0.88\" />\n  <path fill-rule=\"evenodd\" clip-rule=\"evenodd\" d=\"M6.99993 3.0625C9.17455 3.0625 10.9374 4.82538 10.9374 7V11.6484H12.0312C12.152 11.6484 12.2499 11.7464 12.2499 11.8672V12.6328C12.2499 12.7536 12.152 12.8516 12.0312 12.8516H1.96868C1.84787 12.8516 1.74993 12.7536 1.74993 12.6328V11.8672C1.74993 11.7464 1.84787 11.6484 1.96868 11.6484H3.06243V7C3.06243 4.82538 4.82531 3.0625 6.99993 3.0625ZM6.99993 4.26562C5.48978 4.26562 4.26556 5.48985 4.26556 7V11.6484H9.73431V7C9.73431 5.48985 8.51009 4.26562 6.99993 4.26562Z\" fill-opacity=\"0.88\" />\n  <path d=\"M2.45018 6.39837C2.57099 6.39837 2.66893 6.49631 2.66893 6.61712V7.38275C2.66893 7.50356 2.57099 7.6015 2.45018 7.6015H1.09375C0.972938 7.6015 0.875 7.50356 0.875 7.38275V6.61712C0.875 6.49631 0.972938 6.39837 1.09375 6.39837H2.45018Z\" fill-opacity=\"0.88\" />\n  <path d=\"M12.9062 6.39837C13.0271 6.39837 13.125 6.49631 13.125 6.61712V7.38275C13.125 7.50356 13.0271 7.6015 12.9062 7.6015H11.5801C11.4593 7.6015 11.3613 7.50356 11.3613 7.38275V6.61712C11.3613 6.49631 11.4593 6.39837 11.5801 6.39837H12.9062Z\" fill-opacity=\"0.88\" />\n  <path d=\"M2.93961 2.39833C3.02504 2.31291 3.16354 2.31291 3.24897 2.39833L4.18672 3.33608C4.27214 3.42151 4.27214 3.56001 4.18672 3.64544L3.64533 4.18681C3.5599 4.27223 3.4214 4.27224 3.33598 4.18681L2.39824 3.24906C2.31282 3.16363 2.31282 3.02513 2.39824 2.93971L2.93961 2.39833Z\" fill-opacity=\"0.88\" />\n  <path d=\"M10.7509 2.39823C10.8364 2.3128 10.9749 2.3128 11.0603 2.39823L11.6017 2.93961C11.6871 3.02504 11.6871 3.16354 11.6017 3.24897L10.6639 4.18672C10.5785 4.27214 10.44 4.27214 10.3546 4.18672L9.81319 3.64533C9.72777 3.5599 9.72777 3.4214 9.81319 3.33598L10.7509 2.39823Z\" fill-opacity=\"0.88\" />\n  <path d=\"M7.38275 0.875C7.50356 0.875 7.6015 0.972938 7.6015 1.09375V2.41992C7.6015 2.54073 7.50356 2.63867 7.38275 2.63867H6.61712C6.49631 2.63867 6.39837 2.54073 6.39837 2.41992V1.09375C6.39837 0.972938 6.49631 0.875 6.61712 0.875H7.38275Z\" fill-opacity=\"0.88\" />\n</svg>","alert":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 13 13\" fill=\"none\" id=\"icon-alert\">\n<path d=\"M12 0C11.9406 0 11.8797 0.0109375 11.8187 0.0359375L2.8125 3.65469H0.25C0.1125 3.65469 0 3.77031 0 3.91406V8.58594C0 8.72969 0.1125 8.84531 0.25 8.84531H1.8375C1.77969 9.02656 1.75 9.21875 1.75 9.41406C1.75 10.4437 2.59062 11.2812 3.625 11.2812C4.49062 11.2812 5.22031 10.6937 5.43594 9.9L11.8203 12.4656C11.8812 12.4891 11.9422 12.5016 12.0016 12.5016C12.2656 12.5016 12.5016 12.2797 12.5016 11.9828V0.51875C12.5 0.221875 12.2656 0 12 0ZM3.625 10.1609C3.21094 10.1609 2.875 9.82656 2.875 9.41406C2.875 9.23906 2.93594 9.07187 3.04687 8.93906L4.37344 9.47187C4.34219 9.85625 4.01875 10.1609 3.625 10.1609Z\" fill=\"#FAAD14\" />\n</svg>","warning":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 15 14\" fill=\"none\" id=\"icon-warning\">\n<g id=\"icon-warning_alert-line\">\n<path id=\"icon-warning_Vector\" d=\"M7.83885 1.75008L13.3959 11.3751C13.557 11.6541 13.4614 12.0109 13.1824 12.1719C13.0937 12.2231 12.9931 12.2501 12.8907 12.2501H1.77669C1.45453 12.2501 1.19336 11.9889 1.19336 11.6668C1.19336 11.5643 1.22032 11.4638 1.27151 11.3751L6.82852 1.75008C6.98957 1.47107 7.34634 1.37548 7.62535 1.53656C7.71402 1.58776 7.78769 1.6614 7.83885 1.75008ZM2.78706 11.0834H11.8803L7.33368 3.20841L2.78706 11.0834ZM6.75035 9.33343H7.91702V10.5001H6.75035V9.33343ZM6.75035 5.25008H7.91702V8.16676H6.75035V5.25008Z\" fill=\"white\" />\n</g>\n</svg>","no_alarm":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 41 41\" fill=\"none\" id=\"icon-noAlarm\">\n<g id=\"icon-noAlarm_Icon / CheckCircleFilled\">\n<path id=\"icon-noAlarm_Vector\" d=\"M20.5 3C10.8359 3 3 10.8359 3 20.5C3 30.1641 10.8359 38 20.5 38C30.1641 38 38 30.1641 38 20.5C38 10.8359 30.1641 3 20.5 3ZM28.0586 14.7852L19.832 26.1914C19.7171 26.3519 19.5655 26.4827 19.3899 26.5729C19.2143 26.6631 19.0197 26.7101 18.8223 26.7101C18.6248 26.7101 18.4303 26.6631 18.2547 26.5729C18.0791 26.4827 17.9275 26.3519 17.8125 26.1914L12.9414 19.4414C12.793 19.2344 12.9414 18.9453 13.1953 18.9453H15.0273C15.4258 18.9453 15.8047 19.1367 16.0391 19.4648L18.8203 23.3242L24.9609 14.8086C25.1953 14.4844 25.5703 14.2891 25.9727 14.2891H27.8047C28.0586 14.2891 28.207 14.5781 28.0586 14.7852Z\" fill=\"#49AA19\" />\n</g>\n</svg>","big_empty":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 65 41\" fill=\"none\" id=\"icon-bigEmpty\">\n<g id=\"icon-bigEmpty_Group\">\n<path id=\"icon-bigEmpty_Subtract\" d=\"M9.5 28.5215C3.92848 29.7718 0.5 31.4751 0.5 33.3522C0.5 37.1895 14.8269 40.3003 32.5 40.3003C50.1731 40.3003 64.5 37.1895 64.5 33.3522C64.5 31.4751 61.0715 29.7718 55.5 28.5215V31.5504C55.5 33.6576 54.18 35.3847 52.55 35.3847H12.45C10.82 35.3847 9.5 33.6566 9.5 31.5504V28.5215Z\" fill=\"white\" fill-opacity=\"0.12\" />\n<g id=\"icon-bigEmpty_Group_2\">\n<path id=\"icon-bigEmpty_Vector\" d=\"M42.113 16.4581C42.113 14.865 43.107 13.5498 44.34 13.5488H55.5V31.5512C55.5 33.6584 54.18 35.3855 52.55 35.3855H12.45C10.82 35.3855 9.5 33.6574 9.5 31.5512V13.5488H20.66C21.893 13.5488 22.887 14.862 22.887 16.4551V16.4769C22.887 18.07 23.892 19.3564 25.124 19.3564H39.876C41.108 19.3564 42.113 18.0581 42.113 16.465V16.4581Z\" fill=\"white\" fill-opacity=\"0.08\" stroke=\"#424242\" />\n<path id=\"icon-bigEmpty_Vector_2\" d=\"M55.5 13.6575L45.354 2.24085C44.867 1.46267 44.156 0.992188 43.407 0.992188H21.593C20.844 0.992188 20.133 1.46267 19.646 2.23986L9.5 13.6585\" stroke=\"#424242\" />\n</g>\n</g>\n</svg>","empty":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 64 41\" id=\"icon-empty\"><g transform=\"translate(0 1)\" fill=\"none\" fill-rule=\"evenodd\"><ellipse fill=\"#f5f5f5\" cx=\"32\" cy=\"33\" rx=\"32\" ry=\"7\" /><g fill-rule=\"nonzero\" stroke=\"#d9d9d9\"><path d=\"M55 12.76L44.854 1.258C44.367.474 43.656 0 42.907 0H21.093c-.749 0-1.46.474-1.947 1.257L9 12.761V22h46v-9.24z\" /><path d=\"M41.613 15.931c0-1.605.994-2.93 2.227-2.931H55v18.137C55 33.26 53.68 35 52.05 35h-40.1C10.32 35 9 33.259 9 31.137V13h11.16c1.233 0 2.227 1.323 2.227 2.928v.022c0 1.605 1.005 2.901 2.237 2.901h14.752c1.232 0 2.237-1.308 2.237-2.913v-.007z\" fill=\"#fafafa\" /></g></g></svg>","fault":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 16 16\" fill=\"none\" id=\"icon-fault\">\n<g id=\"icon-fault_Frame\" clip-path=\"url(#icon-fault_clip0_955_19678)\">\n<path id=\"icon-fault_Vector\" d=\"M14.9331 8.00365C14.9331 11.833 11.8291 14.937 7.99974 14.937C4.17041 14.937 1.06641 11.833 1.06641 8.00365C1.06641 4.17431 4.17041 1.07031 7.99974 1.07031C11.8291 1.07031 14.9331 4.17431 14.9331 8.00365Z\" fill=\"#F6453F\" />\n<path id=\"icon-fault_Vector_2\" d=\"M7.99987 1.59792C4.46547 1.59792 1.59987 4.46352 1.59987 7.99792C1.59987 11.5323 4.46547 14.3979 7.99987 14.3979C11.5343 14.3979 14.3999 11.5323 14.3999 7.99792C14.3999 4.46352 11.5343 1.59792 7.99987 1.59792ZM0.533203 7.99792C0.533203 3.87418 3.87614 0.53125 7.99987 0.53125C12.1236 0.53125 15.4665 3.87418 15.4665 7.99792C15.4665 12.1216 12.1236 15.4646 7.99987 15.4646C3.87614 15.4646 0.533203 12.1216 0.533203 7.99792Z\" fill=\"#F6453F\" />\n<path id=\"icon-fault_Vector_3\" d=\"M8.82 3H7.00013L7.1985 10.2294H8.62163L8.82 3ZM8.55187 11.5847C8.46844 11.5064 8.36852 11.4445 8.2582 11.4028C8.14787 11.361 8.02943 11.3402 7.91007 11.3417C7.66135 11.3417 7.44661 11.4229 7.26826 11.5847C7.18159 11.661 7.11304 11.7529 7.0669 11.8546C7.02076 11.9563 6.99803 12.0657 7.00013 12.1758C7.00013 12.4122 7.08931 12.6102 7.26826 12.7703C7.44661 12.9299 7.66074 13.01 7.91007 13.01C8.15878 13.01 8.37353 12.9299 8.55187 12.7703C8.73083 12.6102 8.82 12.4122 8.82 12.1758C8.82 11.9439 8.73083 11.7465 8.55187 11.5847Z\" fill=\"white\" />\n</g>\n<defs>\n<clipPath id=\"icon-fault_clip0_955_19678\">\n<rect width=\"16\" height=\"16\" fill=\"white\" />\n</clipPath>\n</defs>\n</svg>","fault_red":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 16 16\" fill=\"none\" id=\"icon-fault-red\">\n<g id=\"icon-fault-red_Icon / ExclamationCircleOutlined\">\n<g id=\"icon-fault-red_Vector\">\n<path d=\"M8 1C4.13438 1 1 4.13438 1 8C1 11.8656 4.13438 15 8 15C11.8656 15 15 11.8656 15 8C15 4.13438 11.8656 1 8 1ZM8 13.8125C4.79063 13.8125 2.1875 11.2094 2.1875 8C2.1875 4.79063 4.79063 2.1875 8 2.1875C11.2094 2.1875 13.8125 4.79063 13.8125 8C13.8125 11.2094 11.2094 13.8125 8 13.8125Z\" fill=\"#F5222D\" />\n<path d=\"M7.25 10.75C7.25 10.9489 7.32902 11.1397 7.46967 11.2803C7.61032 11.421 7.80109 11.5 8 11.5C8.19891 11.5 8.38968 11.421 8.53033 11.2803C8.67098 11.1397 8.75 10.9489 8.75 10.75C8.75 10.5511 8.67098 10.3603 8.53033 10.2197C8.38968 10.079 8.19891 10 8 10C7.80109 10 7.61032 10.079 7.46967 10.2197C7.32902 10.3603 7.25 10.5511 7.25 10.75ZM7.625 9H8.375C8.44375 9 8.5 8.94375 8.5 8.875V4.625C8.5 4.55625 8.44375 4.5 8.375 4.5H7.625C7.55625 4.5 7.5 4.55625 7.5 4.625V8.875C7.5 8.94375 7.55625 9 7.625 9Z\" fill=\"#F5222D\" />\n</g>\n</g>\n</svg>","faults":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 48 48\" fill=\"none\" id=\"icon-faults\">\n<g id=\"icon-faults_Group 1000006122\">\n<rect id=\"icon-faults_Rectangle 71\" width=\"48\" height=\"48\" rx=\"4\" fill=\"#FC355D\" />\n<g id=\"icon-faults_Frame\">\n<path id=\"icon-faults_Vector\" d=\"M36.0278 32.5028L25.4524 13.7769C25.3062 13.5148 25.0949 13.297 24.8398 13.1454C24.5847 12.9939 24.295 12.9141 24 12.9141C23.705 12.9141 23.4153 12.9939 23.1602 13.1454C22.9051 13.297 22.6938 13.5148 22.5476 13.7769L11.9721 32.5028C11.8258 32.7645 11.7492 33.0609 11.75 33.3624C11.7508 33.6639 11.8289 33.9599 11.9765 34.2208C12.1241 34.4818 12.3361 34.6985 12.5913 34.8494C12.8465 35.0003 13.1359 35.0801 13.4306 35.0807H34.5755C34.8697 35.079 35.1583 34.9984 35.4127 34.8471C35.667 34.6958 35.8781 34.4789 36.025 34.2182C36.1719 33.9574 36.2495 33.6618 36.25 33.3609C36.2505 33.0599 36.1739 32.7641 36.0278 32.5028ZM22.8039 20.4683C22.8039 20.1372 22.9325 19.8197 23.1614 19.5856C23.3903 19.3514 23.7007 19.2199 24.0244 19.2199C24.3428 19.2281 24.6454 19.3632 24.8678 19.5964C25.0901 19.8297 25.2145 20.1425 25.2144 20.4683V26.8975C25.1583 27.1797 25.0087 27.4334 24.7907 27.6157C24.5727 27.7979 24.2998 27.8975 24.0183 27.8975C23.7368 27.8975 23.4639 27.7979 23.2459 27.6157C23.0279 27.4334 22.8783 27.1797 22.8222 26.8975L22.8039 20.4683ZM25.2144 33.2518H22.7734V30.7551H25.2144V33.2518Z\" fill=\"white\" />\n</g>\n</g>\n</svg>","tips_warn":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 16 16\" fill=\"none\" id=\"icon-tipsWarn\">\n<g id=\"icon-tipsWarn_warning-filled\">\n<path id=\"icon-tipsWarn_vector\" d=\"M8 1C9.97933 1.052 11.6278 1.73683 12.9455 3.0545C14.2632 4.37217 14.948 6.02067 15 8C14.948 9.97933 14.2632 11.6278 12.9455 12.9455C11.6278 14.2632 9.97933 14.948 8 15C6.02067 14.948 4.37217 14.2632 3.0545 12.9455C1.73683 11.6278 1.052 9.97933 1 8C1.052 6.02067 1.73683 4.37217 3.0545 3.0545C4.37217 1.73683 6.02067 1.052 8 1ZM8 4C7.729 4 7.505 4.099 7.328 4.297C7.151 4.495 7.07283 4.72933 7.0935 5L7.453 9C7.474 9.146 7.53383 9.26317 7.6325 9.3515C7.73117 9.43983 7.8535 9.48417 7.9995 9.4845C8.1455 9.48483 8.26783 9.4405 8.3665 9.3515C8.46517 9.2625 8.525 9.14533 8.546 9L8.9055 5C8.9265 4.729 8.84833 4.49467 8.671 4.297C8.49367 4.09933 8.26967 4.00033 7.999 4H8ZM8 12C8.22933 11.9897 8.4195 11.9115 8.5705 11.7655C8.7215 11.6195 8.797 11.432 8.797 11.203C8.797 10.974 8.7215 10.7838 8.5705 10.6325C8.4195 10.4812 8.22933 10.4057 8 10.406C7.77067 10.4063 7.5805 10.4818 7.4295 10.6325C7.2785 10.7832 7.203 10.9733 7.203 11.203C7.203 11.4327 7.2785 11.6202 7.4295 11.7655C7.5805 11.9108 7.77067 11.989 8 12Z\" fill=\"#FA7D08\" />\n</g>\n</svg>","active_cog":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1618 1618\" class=\"fox-alarm-cog-svg\" aria-hidden=\"true\">\n  <g class=\"fox-alarm-cog-gear fox-alarm-cog-gear--gray\">\n    <g transform=\"matrix(-0.99955,-0.03,0.03,-0.99955,512,512)\">\n      <path fill=\"#f5f5f5\" d=\"M193.424,0.676 C193.424,-105.775 107.128,-192.071 0.677,-192.071 C-105.775,-192.071 -192.07,-105.775 -192.07,0.676 C-192.07,107.128 -105.775,193.423 0.677,193.423 C107.128,193.423 193.424,107.128 193.424,0.676z M387.089,225.679 C383.343,232.091 375.57,234.849 368.535,232.47 C368.535,232.47 292.651,206.805 292.651,206.805 C269.497,239.636 240.656,268.816 206.816,292.682 C206.816,292.682 232.47,368.535 232.47,368.535 C234.849,375.569 232.091,383.343 225.68,387.089 C191.176,407.248 153.734,422.927 114.153,433.326 C106.97,435.213 99.522,431.666 96.23,425.01 C96.23,425.01 60.716,353.198 60.716,353.198 C19.913,360.251 -21.115,360.011 -60.702,353.169 C-60.702,353.169 -96.23,425.01 -96.23,425.01 C-99.522,431.666 -106.971,435.213 -114.153,433.326 C-153.735,422.927 -191.176,407.248 -225.68,387.089 C-232.091,383.342 -234.85,375.569 -232.471,368.535 C-232.471,368.535 -206.806,292.65 -206.806,292.65 C-239.637,269.497 -268.817,240.655 -292.682,206.816 C-292.682,206.816 -368.535,232.47 -368.535,232.47 C-375.569,234.849 -383.343,232.091 -387.089,225.679 C-407.249,191.176 -422.927,153.734 -433.326,114.153 C-435.213,106.97 -431.667,99.521 -425.01,96.229 C-425.01,96.229 -353.199,60.716 -353.199,60.716 C-360.251,19.913 -360.012,-21.115 -353.169,-60.702 C-353.169,-60.702 -425.01,-96.23 -425.01,-96.23 C-431.667,-99.522 -435.213,-106.971 -433.326,-114.153 C-422.927,-153.735 -407.249,-191.177 -387.089,-225.68 C-383.343,-232.092 -375.569,-234.85 -368.535,-232.471 C-368.535,-232.471 -292.651,-206.806 -292.651,-206.806 C-269.497,-239.637 -240.656,-268.817 -206.816,-292.682 C-206.816,-292.682 -232.471,-368.536 -232.471,-368.536 C-234.849,-375.57 -232.091,-383.343 -225.68,-387.089 C-191.176,-407.249 -153.734,-422.927 -114.153,-433.326 C-106.97,-435.213 -99.522,-431.667 -96.23,-425.01 C-96.23,-425.01 -60.716,-353.199 -60.716,-353.199 C-19.913,-360.252 21.115,-360.012 60.701,-353.17 C60.701,-353.17 96.229,-425.01 96.229,-425.01 C99.521,-431.667 106.97,-435.213 114.153,-433.326 C153.734,-422.927 191.176,-407.249 225.679,-387.09 C232.091,-383.343 234.849,-375.57 232.47,-368.536 C232.47,-368.536 206.805,-292.652 206.805,-292.652 C239.636,-269.498 268.817,-240.656 292.682,-206.817 C292.682,-206.817 368.535,-232.471 368.535,-232.471 C375.57,-234.85 383.343,-232.092 387.089,-225.68 C407.249,-191.176 422.927,-153.735 433.326,-114.153 C435.213,-106.971 431.667,-99.522 425.01,-96.23 C425.01,-96.23 353.199,-60.717 353.199,-60.717 C360.252,-19.913 360.012,21.114 353.169,60.701 C353.169,60.701 425.01,96.229 425.01,96.229 C431.667,99.521 435.213,106.97 433.326,114.152 C422.927,153.734 407.249,191.176 387.089,225.679z\"/>\n      <path fill=\"#d8d8d8\" d=\"M0.677,193.423 C-105.775,193.423 -192.07,107.128 -192.07,0.676 C-192.07,-105.775 -105.775,-192.071 0.677,-192.071 C107.128,-192.071 193.424,-105.775 193.424,0.676 C193.424,107.128 107.128,193.423 0.677,193.423z M203.424,0.676 C203.424,-111.298 112.651,-202.071 0.677,-202.071 C-111.297,-202.071 -202.07,-111.298 -202.07,0.676 C-202.07,112.65 -111.297,203.423 0.677,203.423 C112.651,203.423 203.424,112.65 203.424,0.676z\"/>\n    </g>\n  </g>\n  <g class=\"fox-alarm-cog-gear fox-alarm-cog-gear--green\">\n    <g transform=\"matrix(-0.99955,0.03,-0.03,-0.99955,1106,1106)\">\n      <path fill=\"#f5ffed\" d=\"M178.958,-73.392 C138.218,-171.745 25.468,-218.448 -72.882,-177.71 C-171.227,-136.973 -217.929,-24.222 -177.192,74.128 C-136.455,172.478 -23.702,219.178 74.648,178.438 C172.988,137.698 219.698,24.948 178.958,-73.392z M443.988,60.368 C442.978,67.728 436.848,73.248 429.448,73.738 C429.448,73.738 349.518,79.068 349.518,79.068 C340.688,118.258 325.207,156.258 303.077,191.258 C303.077,191.258 355.808,251.518 355.808,251.518 C360.698,257.108 361.118,265.348 356.628,271.258 C332.468,303.088 303.878,331.898 271.288,356.658 C265.378,361.148 257.138,360.718 251.548,355.828 C251.548,355.828 191.258,303.077 191.258,303.077 C156.258,325.207 118.258,340.688 79.068,349.518 C79.068,349.518 73.738,429.478 73.738,429.478 C73.248,436.888 67.718,443.018 60.358,444.028 C19.818,449.568 -20.782,449.408 -60.372,443.988 C-67.722,442.978 -73.252,436.848 -73.742,429.448 C-73.742,429.448 -79.072,349.518 -79.072,349.518 C-118.265,340.688 -156.261,325.207 -191.259,303.077 C-191.259,303.077 -251.521,355.808 -251.521,355.808 C-257.109,360.698 -265.347,361.118 -271.261,356.628 C-303.09,332.468 -331.904,303.878 -356.658,271.288 C-361.15,265.378 -360.724,257.138 -355.834,251.548 C-355.834,251.548 -303.079,191.258 -303.079,191.258 C-325.21,156.258 -340.689,118.258 -349.517,79.068 C-349.517,79.068 -429.485,73.738 -429.485,73.738 C-436.895,73.248 -443.022,67.718 -444.027,60.358 C-449.567,19.818 -449.41,-20.782 -443.989,-60.372 C-442.982,-67.732 -436.855,-73.252 -429.446,-73.742 C-429.446,-73.742 -349.517,-79.072 -349.517,-79.072 C-340.689,-118.265 -325.21,-156.261 -303.079,-191.259 C-303.079,-191.259 -355.808,-251.521 -355.808,-251.521 C-360.698,-257.11 -361.125,-265.347 -356.635,-271.261 C-332.472,-303.091 -303.881,-331.904 -271.292,-356.658 C-265.378,-361.15 -257.139,-360.724 -251.55,-355.834 C-251.55,-355.834 -191.259,-303.079 -191.259,-303.079 C-156.261,-325.21 -118.265,-340.689 -79.072,-349.517 C-79.072,-349.517 -73.742,-429.485 -73.742,-429.485 C-73.252,-436.895 -67.722,-443.022 -60.362,-444.027 C-19.812,-449.567 20.778,-449.41 60.368,-443.989 C67.728,-442.982 73.248,-436.855 73.738,-429.446 C73.738,-429.446 79.068,-349.517 79.068,-349.517 C118.258,-340.689 156.258,-325.21 191.258,-303.079 C191.258,-303.079 251.518,-355.808 251.518,-355.808 C257.108,-360.698 265.348,-361.125 271.258,-356.635 C303.088,-332.472 331.898,-303.881 356.658,-271.292 C361.148,-265.378 360.718,-257.139 355.828,-251.55 C355.828,-251.55 303.077,-191.259 303.077,-191.259 C325.207,-156.261 340.688,-118.265 349.518,-79.072 C349.518,-79.072 429.478,-73.742 429.478,-73.742 C436.888,-73.252 443.018,-67.722 444.028,-60.362 C449.568,-19.812 449.408,20.778 443.988,60.368z\"/>\n      <path fill=\"#b8eb8f\" d=\"M74.648,178.438 C172.988,137.698 219.698,24.948 178.958,-73.392 C138.218,-171.745 25.468,-218.448 -72.882,-177.71 C-171.227,-136.973 -217.929,-24.222 -177.192,74.128 C-136.455,172.478 -23.702,219.178 74.648,178.438z M188.198,-77.222 C231.048,26.228 181.918,144.828 78.468,187.678 C-24.982,230.528 -143.581,181.408 -186.431,77.948 C-229.282,-25.502 -180.156,-144.099 -76.702,-186.949 C26.748,-229.8 145.348,-180.674 188.198,-77.222z\"/>\n    </g>\n  </g>\n</svg>"};
+
 function mergeAlarmHistoryEvents(lastRows, alarmsRows) {
   const events = [];
   for (const row of historyToStateRows(lastRows)) {
@@ -4882,7 +5049,7 @@ function formatFoxTimeAgo(ms, now = Date.now()) {
   return `Updated ${day} day${day === 1 ? "" : "s"} ago`;
 }
 
-function buildFoxAlarmDashboard(activeNames, historyEvents, { fetchedAt = Date.now() } = {}) {
+function buildFoxAlarmDashboard(activeNames, historyEvents, { fetchedAt = Date.now(), deviceName = "Device" } = {}) {
   const active = activeNames.map((name) => {
     const meta = foxAlarmMeta(name);
     let since = null;
@@ -4896,14 +5063,7 @@ function buildFoxAlarmDashboard(activeNames, historyEvents, { fetchedAt = Date.n
     return { name, ...meta, since, status: "active" };
   });
 
-  const historical = [...historyEvents]
-    .filter((ev) => ev.action === "raised" || ev.action === "cleared")
-    .sort((a, b) => b.t - a.t)
-    .map((ev) => ({
-      ...ev,
-      ...foxAlarmMeta(ev.name),
-      status: ev.action === "raised" ? "raised" : "cleared",
-    }));
+  const historicalRecords = pairAlarmHistoryRecords(historyEvents, activeNames, deviceName);
 
   const categoryCounts = {};
   const severityCounts = { critical: 0, warning: 0, info: 0 };
@@ -4943,8 +5103,10 @@ function buildFoxAlarmDashboard(activeNames, historyEvents, { fetchedAt = Date.n
 
   return {
     fetchedAt,
+    deviceName,
     active,
-    historical,
+    historicalRecords,
+    historyEvents,
     categorySegments: Object.entries(categoryCounts).map(([label, value]) => ({
       label,
       value,
@@ -4984,16 +5146,31 @@ async function fetchDeviceAlarmDashboard(hass, plant, plantState) {
     lastId ? historyRowsForEntity(hist, lastId) : [],
     alarmsId ? historyRowsForEntity(hist, alarmsId) : []
   );
-  return buildFoxAlarmDashboard(activeNames, historyEvents, { fetchedAt: Date.now() });
+  return buildFoxAlarmDashboard(activeNames, historyEvents, {
+    fetchedAt: Date.now(),
+    deviceName: plant.title || "Device",
+  });
 }
 
 function renderFoxAlarmEmptyIcon() {
-  return `<svg class="fox-alarm-empty-icon" viewBox="0 0 120 100" aria-hidden="true">
+  const cog = FOX_ALARM_ICONS.active_cog || "";
+  if (!cog) {
+    return `<svg class="fox-alarm-empty-icon" viewBox="0 0 120 100" aria-hidden="true">
 <circle cx="42" cy="50" r="22" fill="none" stroke="#d9d9d9" stroke-width="6"/>
 <circle cx="78" cy="50" r="22" fill="none" stroke="#b7eb8f" stroke-width="6" opacity="0.85"/>
-<path d="M42 34 L50 50 L34 50 Z" fill="#d9d9d9" opacity="0.5"/>
-<path d="M78 34 L86 50 L70 50 Z" fill="#b7eb8f" opacity="0.45"/>
 </svg>`;
+  }
+  return `<div class="fox-alarm-cog-wrap" aria-hidden="true">${cog}</div>`;
+}
+
+/** Fox Cloud `#icon-empty` — Category / Severity / Trend no-data illustration. */
+function renderFoxAlarmNoDataIcon() {
+  let svg = FOX_ALARM_ICONS.empty || "";
+  if (!svg) return "";
+  if (!svg.includes("fox-alarm-icon-empty")) {
+    svg = svg.replace("<svg ", '<svg class="fox-alarm-icon-empty" ');
+  }
+  return `<span class="fox-alarm-no-data-svg">${svg}</span>`;
 }
 
 function renderFoxAlarmMiniCard(title, bodyHtml, { wide = false } = {}) {
@@ -5014,7 +5191,7 @@ function renderFoxAlarmDonutCard(title, segments) {
               `<li><span class="fox-alarm-legend-dot" style="background:${s.color}"></span><span>${esc(s.label)}</span><strong>${esc(String(s.value))}</strong></li>`
           )
           .join("")}</ul>`
-      : `<div class="fox-alarm-no-data"><span class="fox-alarm-no-data-icon" aria-hidden="true">📊</span><span>No data</span></div>`;
+      : `<div class="fox-alarm-no-data">${renderFoxAlarmNoDataIcon()}<span>No data</span></div>`;
   return renderFoxAlarmMiniCard(title, body);
 }
 
@@ -5022,7 +5199,7 @@ function renderFoxAlarmTrendCard(groups, labels) {
   const hasData = groups.some((g) => g.values.some((v) => v > 0));
   const body = hasData
     ? renderBarChartSvg(groups, labels, { height: 180 })
-    : `<div class="fox-alarm-no-data"><span class="fox-alarm-no-data-icon" aria-hidden="true">📈</span><span>No data</span></div>`;
+    : `<div class="fox-alarm-no-data">${renderFoxAlarmNoDataIcon()}<span>No data</span></div>`;
   return renderFoxAlarmMiniCard("Trend by Category", body, { wide: true });
 }
 
@@ -5031,7 +5208,7 @@ function renderFoxAlarmSeverityPill(severity) {
   return `<span class="fox-alarm-severity fox-alarm-severity--${tone}">${esc(tone)}</span>`;
 }
 
-function renderFoxAlarmTableRows(rows, mode) {
+function renderFoxAlarmActiveTableRows(rows) {
   if (!rows.length) {
     return `<div class="fox-alarm-empty-list">${renderFoxAlarmEmptyIcon()}<p>No Alerts</p></div>`;
   }
@@ -5039,28 +5216,103 @@ function renderFoxAlarmTableRows(rows, mode) {
 <th>Time</th><th>Alarm</th><th>Category</th><th>Severity</th><th>Status</th>
 </tr></thead><tbody>${rows
     .map((row) => {
-      const time =
-        mode === "active" && row.since
-          ? formatFoxAlarmDateTime(row.since)
-          : formatFoxAlarmDateTime(row.t);
-      const status =
-        mode === "active"
-          ? "Active"
-          : row.status === "cleared"
-            ? "Cleared"
-            : "Raised";
+      const time = row.since ? formatFoxAlarmDateTime(row.since) : "—";
       return `<tr class="fox-alarm-row fox-alarm-row--clickable" data-action="device-alarm-detail-open" data-alarm="${esc(row.name)}" title="View troubleshooting guide">
 <td>${esc(time)}</td>
 <td class="fox-alarm-name-cell">${esc(row.name)}<span class="fox-alarm-row-chev" aria-hidden="true">›</span></td>
 <td>${esc(row.category)}</td>
 <td>${renderFoxAlarmSeverityPill(row.severity)}</td>
-<td><span class="fox-alarm-status fox-alarm-status--${mode === "active" || row.status === "raised" ? "warn" : "ok"}">${esc(status)}</span></td>
+<td><span class="fox-alarm-status fox-alarm-status--warn">Active</span></td>
 </tr>`;
     })
     .join("")}</tbody></table></div>`;
 }
 
-function renderFoxAlarmPage(data, { tab = "active", loading = false } = {}) {
+function renderFoxAlarmHistoricalEmpty() {
+  return `<div class="fox-alarm-table-empty">${renderFoxAlarmNoDataIcon()}<span>No data</span></div>`;
+}
+
+function renderFoxAlarmHistoricalToolbar(data, { filters, timeRange }) {
+  const categories = [
+    ...new Set((data.historicalRecords || []).map((r) => r.category).filter(Boolean)),
+  ].sort();
+  const severities = ["critical", "warning", "info"];
+  const devices = [...new Set((data.historicalRecords || []).map((r) => r.device).filter(Boolean))].sort();
+  const mode = timeRange?.mode === "custom" ? "custom" : "24h";
+  const custom = defaultAlarmCustomRangeValues();
+  const startVal = timeRange?.start || custom.start;
+  const endVal = timeRange?.end || custom.end;
+  const catOpts = `<option value="">Category</option>${categories
+    .map((c) => `<option value="${esc(c)}"${filters?.category === c ? " selected" : ""}>${esc(c)}</option>`)
+    .join("")}`;
+  const sevOpts = `<option value="">Severity</option>${severities
+    .map(
+      (s) =>
+        `<option value="${esc(s)}"${filters?.severity === s ? " selected" : ""}>${esc(s.charAt(0).toUpperCase() + s.slice(1))}</option>`
+    )
+    .join("")}`;
+  const devOpts = `<option value="">Device</option>${devices
+    .map((d) => `<option value="${esc(d)}"${filters?.device === d ? " selected" : ""}>${esc(d)}</option>`)
+    .join("")}`;
+  return `<div class="fox-alarm-hist-toolbar">
+<div class="fox-alarm-hist-filters">
+<label class="fox-alarm-hist-select-wrap"><select class="fox-alarm-hist-select" data-field="device-alarm:category" aria-label="Category">${catOpts}</select></label>
+<label class="fox-alarm-hist-select-wrap"><select class="fox-alarm-hist-select" data-field="device-alarm:severity" aria-label="Severity">${sevOpts}</select></label>
+<label class="fox-alarm-hist-select-wrap"><select class="fox-alarm-hist-select" data-field="device-alarm:device" aria-label="Device">${devOpts}</select></label>
+<button type="button" class="fox-alarm-hist-clear" data-action="device-alarm-filter-clear">Clear</button>
+</div>
+<div class="fox-alarm-hist-range">
+<div class="fox-alarm-hist-dates${mode === "custom" ? "" : " fox-alarm-hist-dates--hidden"}">
+<input type="datetime-local" class="fox-alarm-hist-date" data-field="device-alarm:range-start" value="${esc(startVal)}" aria-label="Start date and time"${mode === "custom" ? "" : " disabled"}>
+<span class="fox-alarm-hist-date-sep" aria-hidden="true">→</span>
+<input type="datetime-local" class="fox-alarm-hist-date" data-field="device-alarm:range-end" value="${esc(endVal)}" aria-label="End date and time"${mode === "custom" ? "" : " disabled"}>
+</div>
+<button type="button" class="fox-alarm-hist-range-btn${mode === "custom" ? " active" : ""}" data-action="device-alarm-range" data-range="custom">Custom</button>
+<button type="button" class="fox-alarm-hist-range-btn${mode === "24h" ? " active" : ""}" data-action="device-alarm-range" data-range="24h">Last 24H</button>
+</div>
+</div>`;
+}
+
+function renderFoxAlarmHistoricalTableRows(rows) {
+  if (!rows.length) return renderFoxAlarmHistoricalEmpty();
+  return `<div class="fox-alarm-table-wrap fox-alarm-table-wrap--historical"><table class="fox-alarm-table fox-alarm-table--historical"><thead><tr>
+<th>Device</th><th>Severity</th><th>Code</th><th>Message</th><th>Category</th><th>Occurrence time</th><th>Recovery time</th>
+</tr></thead><tbody>${rows
+    .map((row) => {
+      const recovery =
+        row.recoveryMs == null ? "—" : formatFoxAlarmDateTime(row.recoveryMs);
+      return `<tr class="fox-alarm-row fox-alarm-row--clickable" data-action="device-alarm-detail-open" data-alarm="${esc(row.name)}" title="View troubleshooting guide">
+<td>${esc(row.device)}</td>
+<td>${renderFoxAlarmSeverityPill(row.severity)}</td>
+<td>${esc(row.code)}</td>
+<td class="fox-alarm-name-cell">${esc(row.message)}<span class="fox-alarm-row-chev" aria-hidden="true">›</span></td>
+<td>${esc(row.category)}</td>
+<td>${esc(formatFoxAlarmDateTime(row.occurrenceMs))}</td>
+<td>${esc(recovery)}</td>
+</tr>`;
+    })
+    .join("")}</tbody></table></div>`;
+}
+
+function renderFoxAlarmListSection(data, { tab, filters, timeRange }) {
+  const listBody =
+    tab === "active"
+      ? renderFoxAlarmActiveTableRows(data.active || [])
+      : renderFoxAlarmHistoricalTableRows(
+          filterHistoricalAlarmRecords(data.historicalRecords || [], filters, timeRange)
+        );
+  const toolbar = tab === "historical" ? renderFoxAlarmHistoricalToolbar(data, { filters, timeRange }) : "";
+  return `<div class="card fox-alarm-list-card">
+<div class="fox-alarm-tabs" role="tablist">
+<button type="button" class="fox-alarm-tab${tab === "active" ? " active" : ""}" data-action="device-alarm-tab" data-tab="active" role="tab">Active Warning</button>
+<button type="button" class="fox-alarm-tab${tab === "historical" ? " active" : ""}" data-action="device-alarm-tab" data-tab="historical" role="tab">Historical Warning</button>
+</div>
+${toolbar}
+${listBody}
+</div>`;
+}
+
+function renderFoxAlarmPage(data, { tab = "active", loading = false, filters = {}, timeRange = { mode: "24h" } } = {}) {
   if (loading) {
     return `<div class="fox-alarm-page"><div class="fox-alarm-head"><h2 class="fox-alarm-title">Alert</h2></div><p class="chart-loading">Loading alarm history…</p></div>`;
   }
@@ -5068,7 +5320,6 @@ function renderFoxAlarmPage(data, { tab = "active", loading = false } = {}) {
     return `<div class="fox-alarm-page"><div class="fox-alarm-head"><h2 class="fox-alarm-title">Alert</h2></div><p class="placeholder chart-empty">${esc(data.error)}</p></div>`;
   }
   const updated = formatFoxTimeAgo(data.fetchedAt);
-  const listRows = tab === "active" ? data.active : data.historical;
   return `<div class="fox-alarm-page">
 <div class="fox-alarm-head">
 <h2 class="fox-alarm-title">Alert</h2>
@@ -5079,13 +5330,7 @@ ${renderFoxAlarmDonutCard("Category", data.categorySegments)}
 ${renderFoxAlarmDonutCard("Severity", data.severitySegments)}
 ${renderFoxAlarmTrendCard(data.trendGroups, data.trendLabels)}
 </div>
-<div class="card fox-alarm-list-card">
-<div class="fox-alarm-tabs" role="tablist">
-<button type="button" class="fox-alarm-tab${tab === "active" ? " active" : ""}" data-action="device-alarm-tab" data-tab="active" role="tab">Active Warning</button>
-<button type="button" class="fox-alarm-tab${tab === "historical" ? " active" : ""}" data-action="device-alarm-tab" data-tab="historical" role="tab">Historical Warning</button>
-</div>
-${renderFoxAlarmTableRows(listRows, tab)}
-</div>
+${renderFoxAlarmListSection(data, { tab, filters, timeRange })}
 </div>`;
 }
 
@@ -9462,7 +9707,6 @@ const STYLES = `
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
   min-height: 140px; color: var(--secondary-text-color); font-size: 13px;
 }
-.fox-alarm-no-data-icon { font-size: 28px; opacity: 0.45; line-height: 1; }
 .fox-alarm-list-card { margin: 0; padding: 0; overflow: hidden; }
 .fox-alarm-tabs {
   display: flex; gap: 0; border-bottom: 1px solid var(--divider-color); padding: 0 16px;
@@ -9490,8 +9734,75 @@ const STYLES = `
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 10px; padding: 48px 20px; color: var(--secondary-text-color);
 }
+.fox-alarm-cog-wrap {
+  width: 120px; height: 120px; display: flex; align-items: center; justify-content: center;
+}
+.fox-alarm-cog-wrap .fox-alarm-cog-svg { width: 100%; height: 100%; display: block; }
+.fox-alarm-cog-gear--gray {
+  transform-origin: 512px 512px;
+  animation: fox-alarm-cog-spin 20s linear infinite;
+}
+.fox-alarm-cog-gear--green {
+  transform-origin: 1106px 1106px;
+  animation: fox-alarm-cog-spin 20s linear infinite reverse;
+}
+@keyframes fox-alarm-cog-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 .fox-alarm-empty-icon { width: 96px; height: auto; opacity: 0.9; }
 .fox-alarm-empty-list p { margin: 0; font-size: 15px; font-weight: 500; }
+.fox-alarm-no-data-svg { width: 64px; height: auto; display: block; }
+.fox-alarm-no-data-svg svg { width: 100%; height: auto; display: block; }
+.fox-alarm-no-data-svg .fox-alarm-icon-empty ellipse {
+  fill: color-mix(in srgb, var(--secondary-text-color) 16%, transparent);
+}
+.fox-alarm-no-data-svg .fox-alarm-icon-empty path[fill="#fafafa"] {
+  fill: color-mix(in srgb, var(--card-background-color, var(--ha-card-background, #fff)) 88%, var(--primary-text-color) 12%);
+}
+.fox-alarm-no-data-svg .fox-alarm-icon-empty g[stroke="#d9d9d9"] path,
+.fox-alarm-no-data-svg .fox-alarm-icon-empty path[stroke="#d9d9d9"] {
+  stroke: color-mix(in srgb, var(--secondary-text-color) 38%, transparent);
+}
+.fox-alarm-table-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; padding: 56px 20px 64px; color: var(--secondary-text-color); font-size: 13px;
+}
+.fox-alarm-hist-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 16px; border-bottom: 1px solid var(--divider-color);
+}
+.fox-alarm-hist-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.fox-alarm-hist-select-wrap { margin: 0; }
+.fox-alarm-hist-select {
+  min-width: 108px; padding: 6px 28px 6px 10px; font-size: 13px; border-radius: 6px;
+  border: 1px solid var(--divider-color); background: var(--card-background-color, var(--ha-card-background));
+  color: var(--primary-text-color);
+}
+.fox-alarm-hist-clear {
+  appearance: none; border: none; background: transparent; cursor: pointer;
+  font-size: 13px; color: var(--secondary-text-color); padding: 6px 8px;
+}
+.fox-alarm-hist-clear:hover { color: #7c3aed; }
+.fox-alarm-hist-range { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
+.fox-alarm-hist-dates { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fox-alarm-hist-dates--hidden { display: none; }
+.fox-alarm-hist-date {
+  padding: 6px 10px; font-size: 13px; border-radius: 6px; border: 1px solid var(--divider-color);
+  background: var(--card-background-color, var(--ha-card-background)); color: var(--primary-text-color);
+  min-width: 0; max-width: 180px;
+}
+.fox-alarm-hist-date-sep { color: var(--secondary-text-color); font-size: 12px; }
+.fox-alarm-hist-range-btn {
+  appearance: none; cursor: pointer; padding: 6px 14px; font-size: 13px; border-radius: 6px;
+  border: 1px solid var(--divider-color); background: transparent; color: var(--primary-text-color);
+}
+.fox-alarm-hist-range-btn.active {
+  border-color: #7c3aed; color: #7c3aed; font-weight: 600;
+}
+.fox-alarm-table--historical { font-size: 12px; }
+.fox-alarm-table--historical th, .fox-alarm-table--historical td { white-space: nowrap; }
+.fox-alarm-table--historical .fox-alarm-name-cell { white-space: normal; min-width: 140px; }
 .fox-alarm-row--clickable { cursor: pointer; }
 .fox-alarm-row--clickable:hover td { background: color-mix(in srgb, #7c3aed 6%, transparent); }
 .fox-alarm-name-cell { font-weight: 600; }
@@ -10008,6 +10319,12 @@ class FoxessPlantPanel extends HTMLElement {
     this._deviceNewEnergyChartLoading = false;
     this._deviceNewEnergyChartPlantId = undefined;
     this._deviceNewAlarmTab = "active";
+    this._deviceNewAlarmHistoryRange = "24h";
+    this._deviceNewAlarmHistoryStart = "";
+    this._deviceNewAlarmHistoryEnd = "";
+    this._deviceNewAlarmFilterCategory = "";
+    this._deviceNewAlarmFilterSeverity = "";
+    this._deviceNewAlarmFilterDevice = "";
     this._deviceNewAlarmData = null;
     this._deviceNewAlarmLoading = false;
     this._deviceNewAlarmInflight = undefined;
@@ -11521,8 +11838,26 @@ Reloading panel registration…
       const tab = btn.dataset.tab;
       if (!tab || tab === this._deviceNewAlarmTab) return;
       this._deviceNewAlarmTab = tab;
-      const slot = this._root?.querySelector?.("[data-device-new-alarms]");
-      if (slot) slot.innerHTML = this._renderDeviceNewAlarmsBody();
+      this._patchDeviceNewAlarmsList();
+      return;
+    }
+    if (action === "device-alarm-range") {
+      const range = btn.dataset.range;
+      if (!range || range === this._deviceNewAlarmHistoryRange) return;
+      this._deviceNewAlarmHistoryRange = range;
+      if (range === "custom") {
+        const def = defaultAlarmCustomRangeValues();
+        if (!this._deviceNewAlarmHistoryStart) this._deviceNewAlarmHistoryStart = def.start;
+        if (!this._deviceNewAlarmHistoryEnd) this._deviceNewAlarmHistoryEnd = def.end;
+      }
+      this._patchDeviceNewAlarmsList();
+      return;
+    }
+    if (action === "device-alarm-filter-clear") {
+      this._deviceNewAlarmFilterCategory = "";
+      this._deviceNewAlarmFilterSeverity = "";
+      this._deviceNewAlarmFilterDevice = "";
+      this._patchDeviceNewAlarmsList();
       return;
     }
     if (action === "copy-device-serial") {
@@ -11901,6 +12236,36 @@ Reloading panel registration…
   _handleChange(e) {
     const el = e.target;
     if (this._busy) return;
+    if (el?.dataset?.field?.startsWith("device-alarm:")) {
+      const sub = el.dataset.field.split(":")[1];
+      if (sub === "category") {
+        this._deviceNewAlarmFilterCategory = el.value || "";
+        this._patchDeviceNewAlarmsList();
+        return;
+      }
+      if (sub === "severity") {
+        this._deviceNewAlarmFilterSeverity = el.value || "";
+        this._patchDeviceNewAlarmsList();
+        return;
+      }
+      if (sub === "device") {
+        this._deviceNewAlarmFilterDevice = el.value || "";
+        this._patchDeviceNewAlarmsList();
+        return;
+      }
+      if (sub === "range-start") {
+        this._deviceNewAlarmHistoryStart = el.value || "";
+        this._deviceNewAlarmHistoryRange = "custom";
+        this._patchDeviceNewAlarmsList();
+        return;
+      }
+      if (sub === "range-end") {
+        this._deviceNewAlarmHistoryEnd = el.value || "";
+        this._deviceNewAlarmHistoryRange = "custom";
+        this._patchDeviceNewAlarmsList();
+        return;
+      }
+    }
     if (el?.dataset?.field) {
       const parts = el.dataset.field.split(":");
       if (parts[0] === "solcast" && this._solcastDraft) {
@@ -13368,10 +13733,26 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
   }
 
   _renderDeviceNewAlarmsBody() {
+    const def = defaultAlarmCustomRangeValues();
     return renderFoxAlarmPage(this._deviceNewAlarmData, {
       tab: this._deviceNewAlarmTab || "active",
       loading: this._deviceNewAlarmLoading,
+      filters: {
+        category: this._deviceNewAlarmFilterCategory || "",
+        severity: this._deviceNewAlarmFilterSeverity || "",
+        device: this._deviceNewAlarmFilterDevice || "",
+      },
+      timeRange: {
+        mode: this._deviceNewAlarmHistoryRange || "24h",
+        start: this._deviceNewAlarmHistoryStart || def.start,
+        end: this._deviceNewAlarmHistoryEnd || def.end,
+      },
     });
+  }
+
+  _patchDeviceNewAlarmsList() {
+    const slot = this._root?.querySelector?.("[data-device-new-alarms]");
+    if (slot) slot.innerHTML = this._renderDeviceNewAlarmsBody();
   }
 
   async _loadDeviceNewAlarms({ force = false } = {}) {
