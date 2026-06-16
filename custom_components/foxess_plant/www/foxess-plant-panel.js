@@ -255,7 +255,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.243";
+const PANEL_VERSION = "0.9.244";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -3813,7 +3813,6 @@ const STATISTICS_CHART_SERIES = [
     fillColor: "rgba(255,111,175,0.14)",
     toKw: true,
     clampMin: 0,
-    preferHistory: true,
     fill: true,
     lineWidth: 1.2,
   },
@@ -3827,7 +3826,6 @@ const STATISTICS_CHART_SERIES = [
     toKw: true,
     abs: true,
     negate: true,
-    preferHistory: true,
     fill: true,
     hideLegend: true,
     lineWidth: 1.2,
@@ -4534,7 +4532,7 @@ function mergeRecorderEntityMaps(plantMap, nativeMap, entityIds) {
   for (const id of entityIds) {
     const plantRows = recorderEntityRows(plantMap, id);
     const nativeRows = recorderEntityRows(nativeMap, id);
-    out[id] = plantRows.length >= nativeRows.length ? plantRows : nativeRows;
+    out[id] = plantRows.length ? plantRows : nativeRows;
   }
   return out;
 }
@@ -4695,12 +4693,14 @@ function transformPowerPoint(v, spec) {
 
 /** foxess_modbus ModbusSensorDescription.scale for grid/pv/load power (register → kW). */
 const FOXESS_MODBUS_POWER_REGISTER_SCALE = 0.001;
+/** Values at/above this are raw modbus register means, not scaled kW (EVO-10 class). */
+const FOXESS_MODBUS_POWER_REGISTER_THRESHOLD_KW = 25;
 /** Net grid above this (kW) on a residential EVO-class site is a recorder/register glitch. */
-const GRID_NET_PLAUSIBLE_KW = 15;
+const GRID_NET_PLAUSIBLE_KW = 8;
 
 function applyFoxessModbusRegisterScaleKw(value) {
   let x = value;
-  for (let i = 0; i < 2 && Math.abs(x) >= 100; i++) {
+  for (let i = 0; i < 3 && Math.abs(x) >= FOXESS_MODBUS_POWER_REGISTER_THRESHOLD_KW; i++) {
     x *= FOXESS_MODBUS_POWER_REGISTER_SCALE;
   }
   return x;
@@ -4717,7 +4717,12 @@ function entityValueToKw(hass, entityId, value) {
   else if (unit === "w") x = value / 1000;
   else if (Math.abs(value) > 500) x = value / 1000;
   else x = value;
-  if (st?.attributes?.device_class === "power") {
+  const isPower =
+    st?.attributes?.device_class === "power" ||
+    /_(feed_in|grid_consumption|grid_ct|pv_power|load_power|battery_power|inv_power|eps_power)(_|$)/.test(
+      String(entityId || "")
+    );
+  if (isPower) {
     x = applyFoxessModbusRegisterScaleKw(x);
   }
   return x;
@@ -5478,6 +5483,22 @@ function seriesHasLargeGaps(points, periodMs = STATISTICS_PERIOD_MS, maxGapPerio
   return false;
 }
 
+function filterGridLegStatisticsPoints(points) {
+  if (!points?.length) return points;
+  const out = [];
+  for (let i = 0; i < points.length; i++) {
+    const prev = out[out.length - 1]?.v ?? 0;
+    const next = points[i + 1]?.v ?? prev;
+    let v = points[i].v;
+    if (!Number.isFinite(v)) continue;
+    if (Math.abs(v) > GRID_NET_PLAUSIBLE_KW) {
+      v = (prev + next) / 2;
+    }
+    out.push({ ...points[i], v });
+  }
+  return out;
+}
+
 function filterGridNetStatisticsPoints(points) {
   if (!points?.length) return points;
   const out = [];
@@ -5504,7 +5525,7 @@ function filterGridNetStatisticsPoints(points) {
   return out;
 }
 
-function statisticsRawPointsForEntity(entityId, range, statsMap, hist, options = {}) {
+function statisticsRawPointsForEntity(hass, entityId, range, statsMap, hist, options = {}) {
   const statRows = statsMap?.[entityId];
   let statPoints = [];
   if (statRows?.length) {
@@ -5514,13 +5535,26 @@ function statisticsRawPointsForEntity(entityId, range, statsMap, hist, options =
     historyToPoints(historyRowsForEntity(hist, entityId)),
     range
   );
+  const scaledStatPeak = statisticsPointsPeakAbs(
+    statPoints.map((p) => ({ v: entityValueToKw(hass, entityId, p.v) }))
+  );
+  const scaledHistPeak = statisticsPointsPeakAbs(
+    histPoints.map((p) => ({ v: entityValueToKw(hass, entityId, p.v) }))
+  );
+  const liveKw = Math.abs(entityValueToKw(hass, entityId, stateNumber(hass, entityId)));
   if (options.preferHistory && histPoints.length) {
-    return histPoints;
+    if (scaledStatPeak > Math.max(liveKw * 15 + 0.25, 5) && scaledHistPeak <= scaledStatPeak) {
+      return histPoints;
+    }
+    if (!statPoints.length || scaledHistPeak <= scaledStatPeak) {
+      return histPoints;
+    }
   }
   if (statPoints.length && histPoints.length) {
-    const statPeak = statisticsPointsPeakAbs(statPoints);
-    const histPeak = statisticsPointsPeakAbs(histPoints);
-    if (histPeak > 0 && statPeak > Math.max(histPeak * 4, 10)) {
+    if (scaledHistPeak > 0 && scaledStatPeak > Math.max(scaledHistPeak * 4, 5)) {
+      return histPoints;
+    }
+    if (scaledStatPeak > Math.max(liveKw * 15 + 0.25, 5)) {
       return histPoints;
     }
   }
@@ -5531,15 +5565,18 @@ function statisticsRawPointsForEntity(entityId, range, statsMap, hist, options =
 }
 
 function buildStatisticsSeriesPoints(hass, entityId, spec, range, statsMap, hist) {
-  const rawPoints = statisticsRawPointsForEntity(entityId, range, statsMap, hist, {
+  const rawPoints = statisticsRawPointsForEntity(hass, entityId, range, statsMap, hist, {
     preferHistory: spec.preferHistory === true,
   });
-  return filterStatisticsSpikes(
-    rawPoints.map((p) => ({
-      t: p.t,
-      v: transformHistoryPoint(hass, entityId, p.v, spec),
-    }))
-  );
+  const transformed = rawPoints.map((p) => ({
+    t: p.t,
+    v: transformHistoryPoint(hass, entityId, p.v, spec),
+  }));
+  const filtered =
+    spec.key === "grid_import" || spec.key === "grid_export"
+      ? filterGridLegStatisticsPoints(transformed)
+      : filterStatisticsSpikes(transformed);
+  return filtered;
 }
 
 function interpolatePointsToPeriod(points, periodMs, originMs, endMs, { allowBackfill = true } = {}) {
@@ -5559,7 +5596,7 @@ function clampSocPercent(v) {
 }
 
 function buildSocHistoryPoints(hass, entityId, range, statsMap, hist) {
-  const rawPoints = statisticsRawPointsForEntity(entityId, range, statsMap, hist);
+  const rawPoints = statisticsRawPointsForEntity(hass, entityId, range, statsMap, hist);
   return rawPoints
     .map((p) => ({ t: p.t, v: clampSocPercent(p.v) }))
     .filter((p) => p.v != null);
@@ -5567,7 +5604,7 @@ function buildSocHistoryPoints(hass, entityId, range, statsMap, hist) {
 
 function buildSocPowerPoints(hass, entityId, range, statsMap, hist) {
   const spec = { toKw: true };
-  const rawPoints = statisticsRawPointsForEntity(entityId, range, statsMap, hist).map((p) => ({
+  const rawPoints = statisticsRawPointsForEntity(hass, entityId, range, statsMap, hist).map((p) => ({
     t: p.t,
     v: transformHistoryPoint(hass, entityId, p.v, spec),
   }));
@@ -6336,7 +6373,7 @@ function buildIntradayConsumptionSpark(points, startMs, endMs) {
 
 function buildSparkPowerPoints(hass, entityId, spec, range, statsMap, hist) {
   if (!entityId) return [];
-  let rawPoints = statisticsRawPointsForEntity(entityId, range, statsMap, hist).map((p) => ({
+  let rawPoints = statisticsRawPointsForEntity(hass, entityId, range, statsMap, hist).map((p) => ({
     t: p.t,
     v: transformHistoryPoint(hass, entityId, p.v, spec),
   }));
