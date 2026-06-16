@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.263
+ * @version 0.9.264
  */
 
 import { renderFoxAlarmDetailModal } from "./fox-alarm-guide.js";
@@ -6627,6 +6627,7 @@ async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset =
     const listed = specs.map((s) => s.entity_id).join(", ");
     return {
       empty: `No statistics for: ${listed}. Confirm the Recorder stores 5-minute means for these entities (same as your Lovelace plotly-graph card).`,
+      dayOffset,
     };
   }
   return { series, socSeries, range, forecastState, dayOffset, serverForecastPoints: null };
@@ -11091,6 +11092,14 @@ Reloading panel registration…
     );
   }
 
+  _statisticsChartNeedsReload(plant) {
+    if (this._view !== "energy_analysis" || this._energyPeriod !== "day" || !plant) return false;
+    const cacheKey = this._energyChartCacheKey(plant);
+    if (this._statisticsChartPlantId !== cacheKey) return true;
+    if ((this._statisticsChart?.dayOffset ?? 0) !== this._energyPeriodOffset) return true;
+    return !this._statisticsChart?.range;
+  }
+
   _ensureStatisticsChartLoaded() {
     if (!this._statisticsChartVisible()) return;
     const plant = this._getPlant();
@@ -11102,8 +11111,7 @@ Reloading panel registration…
       }
       return;
     }
-    const cacheKey = this._energyChartCacheKey(plant);
-    if (this._statisticsChartPlantId !== cacheKey || !this._statisticsChart?.range) {
+    if (this._statisticsChartNeedsReload(plant)) {
       void this._loadStatisticsChart();
     }
   }
@@ -12227,6 +12235,8 @@ Reloading panel registration…
       this._forecastAccuracyAnalysisKey = undefined;
       this._forecastAccuracyAnalysisSlotCache = undefined;
       this._energyAnalysisSummaryCache = undefined;
+      this._energyAnalysisChartSlotCache = undefined;
+      this._energyAnalysisToolbarCache = undefined;
       this._beginForecastAccuracyAnalysisLoad();
       this._loadEnergyCharts();
       this._scheduleRender(true);
@@ -14549,7 +14559,13 @@ ${body}
     if (!plant || !this._hass) return;
     const cacheKey = this._energyChartCacheKey(plant);
     if (this._energyPeriod === "day") {
-      if (this._statisticsChartPlantId === cacheKey && this._statisticsChart) return;
+      if (
+        this._statisticsChartPlantId === cacheKey &&
+        this._statisticsChart &&
+        (this._statisticsChart.dayOffset ?? 0) === this._energyPeriodOffset
+      ) {
+        return;
+      }
       return this._loadStatisticsChart();
     }
     if (this._energyChartPlantId === cacheKey && this._energyChart) return;
@@ -14617,7 +14633,13 @@ ${body}
     const plant = this._getPlant();
     if (!plant || !this._hass) return;
     const cacheKey = this._energyChartCacheKey(plant);
-    if (this._statisticsChartPlantId === cacheKey && this._statisticsChart) return;
+    if (
+      this._statisticsChartPlantId === cacheKey &&
+      this._statisticsChart &&
+      (this._statisticsChart.dayOffset ?? 0) === this._energyPeriodOffset
+    ) {
+      return;
+    }
     this._statisticsChartLoading = true;
     this._statisticsChart = null;
     this._statisticsChartPlantId = cacheKey;
@@ -14656,6 +14678,7 @@ ${body}
       this._statisticsChartLoading = false;
       if (this._energyChartCacheKey(this._getPlant()) === cacheKey) {
         if (this._energyPeriodOffset === 0) void this._refreshStatisticsServerForecast();
+        if (this._view === "energy_analysis") this._energyAnalysisChartSlotCache = undefined;
         this._scheduleRender();
       }
     }
@@ -15343,14 +15366,15 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
 
   _energyAnalysisChartSlotKey() {
     if (this._energyPeriod === "day") {
-      if (this._statisticsChartLoading) return "stat:loading";
+      const offsetPart = `offset:${this._energyPeriodOffset}|`;
+      if (this._statisticsChartLoading) return `${offsetPart}stat:loading`;
       const chart = this._statisticsChart;
-      if (chart?.error) return `stat:err:${chart.error}`;
-      if (chart?.empty) return `stat:empty:${chart.empty}`;
-      if (!chart?.series?.length && !chart?.socSeries?.points?.length) return "stat:none";
+      if (chart?.error) return `${offsetPart}stat:err:${chart.error}`;
+      if (chart?.empty) return `${offsetPart}stat:empty:${chart.empty}`;
+      if (!chart?.series?.length && !chart?.socSeries?.points?.length) return `${offsetPart}stat:none`;
       const socLen = chart?.socSeries?.points?.length ?? 0;
       const forecastPart = this._forecastStatisticsSlotPart();
-      return `stat:${this._statisticsChartPlantId ?? ""}|soc:${socLen}|${forecastPart}`;
+      return `${offsetPart}stat:${this._statisticsChartPlantId ?? ""}|soc:${socLen}|${forecastPart}`;
     }
     if (this._energyChartLoading) return "energy:loading";
     return `energy:${this._energyChartPlantId ?? ""}|${this._energyChart?.svg ? 1 : 0}|${this._energyChart?.error ?? ""}`;
@@ -15433,6 +15457,14 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
         toolbar.innerHTML = `${this._renderEnergyPeriodTabs()}${this._renderEnergyDateNav()}`;
       }
       this._energyAnalysisToolbarCache = toolbarKey;
+      if (this._energyPeriod === "day") {
+        this._energyAnalysisChartSlotCache = undefined;
+        if (!this._statisticsChartLoading && this._statisticsChartNeedsReload(plant)) {
+          this._statisticsChart = null;
+          this._statisticsChartPlantId = undefined;
+          void this._loadStatisticsChart();
+        }
+      }
     }
 
     const top = root.querySelector("[data-energy-analysis-top]");
@@ -16793,7 +16825,10 @@ ${active
       if (!plant) return;
       const cacheKey = this._energyChartCacheKey(plant);
       if (this._energyPeriod === "day") {
-        if (!this._statisticsChartLoading && (this._statisticsChartPlantId !== cacheKey || !this._statisticsChart)) {
+        if (
+          !this._statisticsChartLoading &&
+          this._statisticsChartNeedsReload(plant)
+        ) {
           this._loadStatisticsChart();
         }
       } else if (!this._energyChartLoading && (this._energyChartPlantId !== cacheKey || !this._energyChart)) {
