@@ -161,6 +161,15 @@ PANEL_ENTITY_SUFFIXES: dict[str, tuple[str, ...]] = {
     "master_version": ("master_version",),
     "slave_version": ("slave_version",),
     "manager_version": ("manager_version",),
+    "inverter_alarms": ("inverter_alarms",),
+    "inverter_alarm_last": ("inverter_alarm_last",),
+    "inverter_fault_code": ("inverter_fault_code",),
+    "bms_fault_1_raw": ("bms_fault_1_raw",),
+    "bms_fault_2_raw": ("bms_fault_2_raw",),
+    "bms_fault_3_raw": ("bms_fault_3_raw",),
+    "bms_fault_4_raw": ("bms_fault_4_raw",),
+    "bms_fault_5_raw": ("bms_fault_5_raw",),
+    "bms_fault_6_raw": ("bms_fault_6_raw",),
 }
 
 PANEL_URL_PATH = "foxess-plant"

@@ -1,8 +1,10 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.198
+ * @version 0.9.250
  */
+
+import { renderFoxAlarmDetailModal } from "./fox-alarm-guide.js";
 
 /** @deprecated Legacy device UI — not in nav (replaced by device_new). */
 const PANEL_VIEW_DEVICE_LEGACY = "device_legacy";
@@ -17,6 +19,7 @@ const NAV = [
 
 const DEVICE_NEW_NAV = [
   { id: "analysis", label: "Analysis" },
+  { id: "alarms", label: "Alarms" },
   { id: "realtime", label: "Real-time" },
   { id: "pv-config", label: "PV Configuration" },
 ];
@@ -4124,6 +4127,15 @@ const DEVICE_ENTITY_FALLBACKS = {
   master_version: ["master_version"],
   slave_version: ["slave_version"],
   manager_version: ["manager_version"],
+  inverter_alarms: ["inverter_alarms"],
+  inverter_alarm_last: ["inverter_alarm_last"],
+  inverter_fault_code: ["inverter_fault_code"],
+  bms_fault_1_raw: ["bms_fault_1_raw"],
+  bms_fault_2_raw: ["bms_fault_2_raw"],
+  bms_fault_3_raw: ["bms_fault_3_raw"],
+  bms_fault_4_raw: ["bms_fault_4_raw"],
+  bms_fault_5_raw: ["bms_fault_5_raw"],
+  bms_fault_6_raw: ["bms_fault_6_raw"],
 };
 
 const DEVICE_PV_STRINGS = [1, 2, 3, 4];
@@ -4700,6 +4712,381 @@ function historyToPoints(rows) {
     else out.push(p);
   }
   return out;
+}
+
+const FOX_ALARM_HISTORY_DAYS = 30;
+
+const FOX_ALARM_META = {
+  "PV Over-voltage": { category: "PV", severity: "warning" },
+  "DC arc fault": { category: "PV", severity: "critical" },
+  "String reverse connection": { category: "PV", severity: "warning" },
+  "Grid power outage": { category: "Grid", severity: "critical" },
+  "Abnormal grid voltage": { category: "Grid", severity: "warning" },
+  "Abnormal grid frequency": { category: "Grid", severity: "warning" },
+  "Output overcurrent": { category: "Output", severity: "warning" },
+  "Output DC component too large": { category: "Output", severity: "warning" },
+  "Residual current": { category: "Safety", severity: "critical" },
+  "Grounding fault": { category: "Safety", severity: "critical" },
+  "Low insulation resistance": { category: "Safety", severity: "critical" },
+  "Inverter overtemperature": { category: "Thermal", severity: "warning" },
+  "Energy storage equipment abnormal": { category: "Storage", severity: "warning" },
+  "Islanding": { category: "Safety", severity: "critical" },
+  "Off-grid output overload": { category: "Output", severity: "warning" },
+  "External fan fault": { category: "Other", severity: "warning" },
+  "Energy storage reverse connection": { category: "Storage", severity: "critical" },
+  "Meter lost": { category: "Communication", severity: "warning" },
+  "BMS lost": { category: "Communication", severity: "warning" },
+  // Legacy fault-code names (inverter_fault_code fallback)
+  "Grid Lost Fault": { category: "Grid", severity: "critical" },
+  "Grid Voltage Fault": { category: "Grid", severity: "warning" },
+  "Grid Frequency Fault": { category: "Grid", severity: "warning" },
+  "Output Over-current Fault": { category: "Output", severity: "warning" },
+  "Output DC Over-current Fault": { category: "Output", severity: "warning" },
+  "Residual Current Consistency Fault": { category: "Safety", severity: "critical" },
+  "Ground Connection Fault": { category: "Safety", severity: "critical" },
+  "Low Insulation Resistante Fault": { category: "Safety", severity: "critical" },
+  "Inverter Over-temperature Fault": { category: "Thermal", severity: "warning" },
+  "Energy Storage Equipment Abnormal Fault": { category: "Storage", severity: "warning" },
+  "Isolated Island Fault": { category: "Safety", severity: "critical" },
+  "Off-grid Output Overload Fault": { category: "Output", severity: "warning" },
+  "External Fan Fault": { category: "Other", severity: "warning" },
+  "Energy Storage Reverse Connection Fault": { category: "Storage", severity: "critical" },
+  "Meter Lost Fault": { category: "Communication", severity: "warning" },
+  "BMS Lost Fault": { category: "Communication", severity: "warning" },
+};
+
+const FOX_ALARM_CATEGORY_COLORS = {
+  PV: "#19D4DE",
+  Grid: "#7F3DFF",
+  Output: "#08979C",
+  Safety: "#EB6D48",
+  Thermal: "#FAAD14",
+  Storage: "#52C41A",
+  Communication: "#699BFF",
+  Other: "#8c8c8c",
+};
+
+const FOX_ALARM_SEVERITY_COLORS = {
+  critical: "#ff4d4f",
+  warning: "#faad14",
+  info: "#1890ff",
+};
+
+function foxAlarmMeta(name) {
+  return FOX_ALARM_META[name] || { category: "Other", severity: "warning" };
+}
+
+function parseAlarmStateList(state) {
+  if (!state || state === "unknown" || state === "unavailable" || state === "None") return [];
+  return String(state)
+    .split(";")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function historyToStateRows(rows) {
+  if (!rows?.length) return [];
+  const sorted = rows
+    .map((row) => {
+      const t = historyRowTimeMs(row);
+      const s = row.s ?? row.state;
+      if (!Number.isFinite(t) || s == null) return null;
+      return { t, s: String(s) };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.t - b.t);
+  const out = [];
+  for (const p of sorted) {
+    const last = out[out.length - 1];
+    if (last && last.t === p.t && last.s === p.s) continue;
+    if (last && last.t === p.t) out[out.length - 1] = p;
+    else out.push(p);
+  }
+  return out;
+}
+
+function parseAlarmLastStateEvents(state) {
+  if (!state || state === "unknown" || state === "unavailable" || state === "None") return [];
+  const events = [];
+  for (const part of String(state)
+    .split(";")
+    .map((s) => s.trim())
+    .filter(Boolean)) {
+    const m = part.match(/^(Raised|Cleared):\s*(.+)$/i);
+    if (!m) continue;
+    const action = m[1].toLowerCase();
+    for (const name of m[2]
+      .split(";")
+      .map((s) => s.trim())
+      .filter(Boolean)) {
+      events.push({ action, name });
+    }
+  }
+  return events;
+}
+
+function eventsFromAlarmsHistory(rows) {
+  const events = [];
+  let prev = new Set();
+  for (const row of historyToStateRows(rows)) {
+    const active = new Set(parseAlarmStateList(row.s));
+    for (const name of active) {
+      if (!prev.has(name)) events.push({ action: "raised", name, t: row.t });
+    }
+    for (const name of prev) {
+      if (!active.has(name)) events.push({ action: "cleared", name, t: row.t });
+    }
+    prev = active;
+  }
+  return events;
+}
+
+function mergeAlarmHistoryEvents(lastRows, alarmsRows) {
+  const events = [];
+  for (const row of historyToStateRows(lastRows)) {
+    for (const ev of parseAlarmLastStateEvents(row.s)) {
+      events.push({ ...ev, t: row.t, source: "last" });
+    }
+  }
+  if (!events.length) {
+    for (const ev of eventsFromAlarmsHistory(alarmsRows)) {
+      events.push({ ...ev, source: "alarms" });
+    }
+  }
+  events.sort((a, b) => a.t - b.t);
+  return events;
+}
+
+function formatFoxAlarmDateTime(ms) {
+  if (!Number.isFinite(ms)) return "—";
+  return new Date(ms).toLocaleString(undefined, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+
+function formatFoxTimeAgo(ms, now = Date.now()) {
+  if (!Number.isFinite(ms)) return "";
+  const sec = Math.max(0, Math.floor((now - ms) / 1000));
+  if (sec < 60) return "Updated just now";
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `Updated ${min} minute${min === 1 ? "" : "s"} ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 48) return `Updated ${hr} hour${hr === 1 ? "" : "s"} ago`;
+  const day = Math.floor(hr / 24);
+  return `Updated ${day} day${day === 1 ? "" : "s"} ago`;
+}
+
+function buildFoxAlarmDashboard(activeNames, historyEvents, { fetchedAt = Date.now() } = {}) {
+  const active = activeNames.map((name) => {
+    const meta = foxAlarmMeta(name);
+    let since = null;
+    for (let i = historyEvents.length - 1; i >= 0; i -= 1) {
+      const ev = historyEvents[i];
+      if (ev.name === name && ev.action === "raised") {
+        since = ev.t;
+        break;
+      }
+    }
+    return { name, ...meta, since, status: "active" };
+  });
+
+  const historical = [...historyEvents]
+    .filter((ev) => ev.action === "raised" || ev.action === "cleared")
+    .sort((a, b) => b.t - a.t)
+    .map((ev) => ({
+      ...ev,
+      ...foxAlarmMeta(ev.name),
+      status: ev.action === "raised" ? "raised" : "cleared",
+    }));
+
+  const categoryCounts = {};
+  const severityCounts = { critical: 0, warning: 0, info: 0 };
+  for (const ev of historyEvents) {
+    if (ev.action !== "raised") continue;
+    const meta = foxAlarmMeta(ev.name);
+    categoryCounts[meta.category] = (categoryCounts[meta.category] || 0) + 1;
+    severityCounts[meta.severity] = (severityCounts[meta.severity] || 0) + 1;
+  }
+  for (const row of active) {
+    const meta = foxAlarmMeta(row.name);
+    categoryCounts[meta.category] = (categoryCounts[meta.category] || 0) + 1;
+    severityCounts[meta.severity] = (severityCounts[meta.severity] || 0) + 1;
+  }
+
+  const dayMs = 86400000;
+  const startDay = startOfLocalDay(new Date(fetchedAt - (FOX_ALARM_HISTORY_DAYS - 1) * dayMs));
+  const labels = [];
+  const categorySeries = {};
+  for (let i = 0; i < FOX_ALARM_HISTORY_DAYS; i += 1) {
+    labels.push(new Date(startDay.getTime() + i * dayMs));
+  }
+  for (const cat of Object.keys(FOX_ALARM_CATEGORY_COLORS)) {
+    categorySeries[cat] = new Array(FOX_ALARM_HISTORY_DAYS).fill(0);
+  }
+  for (const ev of historyEvents) {
+    if (ev.action !== "raised" || !Number.isFinite(ev.t)) continue;
+    const idx = Math.floor((startOfLocalDay(new Date(ev.t)).getTime() - startDay.getTime()) / dayMs);
+    if (idx < 0 || idx >= FOX_ALARM_HISTORY_DAYS) continue;
+    const cat = foxAlarmMeta(ev.name).category;
+    categorySeries[cat][idx] += 1;
+  }
+
+  const trendGroups = Object.entries(FOX_ALARM_CATEGORY_COLORS)
+    .filter(([cat]) => categorySeries[cat]?.some((v) => v > 0))
+    .map(([cat, color]) => ({ label: cat, color, values: categorySeries[cat] }));
+
+  return {
+    fetchedAt,
+    active,
+    historical,
+    categorySegments: Object.entries(categoryCounts).map(([label, value]) => ({
+      label,
+      value,
+      color: FOX_ALARM_CATEGORY_COLORS[label] || FOX_ALARM_CATEGORY_COLORS.Other,
+    })),
+    severitySegments: Object.entries(severityCounts)
+      .filter(([, value]) => value > 0)
+      .map(([label, value]) => ({
+        label: label.charAt(0).toUpperCase() + label.slice(1),
+        value,
+        color: FOX_ALARM_SEVERITY_COLORS[label] || FOX_ALARM_SEVERITY_COLORS.warning,
+      })),
+    trendGroups,
+    trendLabels: labels,
+  };
+}
+
+async function fetchDeviceAlarmDashboard(hass, plant, plantState) {
+  const map = resolveEntityMap(hass, plant, plantState);
+  const alarmsId = map.inverter_alarms || map.inverter_fault_code;
+  const lastId = map.inverter_alarm_last;
+  if (!alarmsId && !lastId) {
+    return {
+      error:
+        "Alarm sensors not found. Update foxess_modbus, reload the integration, then reload this panel.",
+      missingEntities: true,
+    };
+  }
+
+  const now = new Date();
+  const start = startOfLocalDay(new Date(now.getTime() - (FOX_ALARM_HISTORY_DAYS - 1) * 86400000));
+  const end = now;
+  const ids = [alarmsId, lastId].filter(Boolean);
+  const hist = await fetchHistoryDuring(hass, ids, start, end, { significantChangesOnly: true });
+  const activeNames = alarmsId ? parseAlarmStateList(stateString(hass, alarmsId)) : [];
+  const historyEvents = mergeAlarmHistoryEvents(
+    lastId ? historyRowsForEntity(hist, lastId) : [],
+    alarmsId ? historyRowsForEntity(hist, alarmsId) : []
+  );
+  return buildFoxAlarmDashboard(activeNames, historyEvents, { fetchedAt: Date.now() });
+}
+
+function renderFoxAlarmEmptyIcon() {
+  return `<svg class="fox-alarm-empty-icon" viewBox="0 0 120 100" aria-hidden="true">
+<circle cx="42" cy="50" r="22" fill="none" stroke="#d9d9d9" stroke-width="6"/>
+<circle cx="78" cy="50" r="22" fill="none" stroke="#b7eb8f" stroke-width="6" opacity="0.85"/>
+<path d="M42 34 L50 50 L34 50 Z" fill="#d9d9d9" opacity="0.5"/>
+<path d="M78 34 L86 50 L70 50 Z" fill="#b7eb8f" opacity="0.45"/>
+</svg>`;
+}
+
+function renderFoxAlarmMiniCard(title, bodyHtml, { wide = false } = {}) {
+  return `<div class="card fox-alarm-mini-card${wide ? " fox-alarm-mini-card--wide" : ""}">
+<div class="fox-alarm-mini-head"><h4 class="fox-alarm-mini-title">${esc(title)}</h4></div>
+<div class="fox-alarm-mini-body">${bodyHtml}</div>
+</div>`;
+}
+
+function renderFoxAlarmDonutCard(title, segments) {
+  const total = segments.reduce((sum, s) => sum + (s.value || 0), 0);
+  const body =
+    total > 0
+      ? `<div class="fox-alarm-donut-wrap">${renderEnergyDonut(segments)}</div><ul class="fox-alarm-legend">${segments
+          .filter((s) => s.value > 0)
+          .map(
+            (s) =>
+              `<li><span class="fox-alarm-legend-dot" style="background:${s.color}"></span><span>${esc(s.label)}</span><strong>${esc(String(s.value))}</strong></li>`
+          )
+          .join("")}</ul>`
+      : `<div class="fox-alarm-no-data"><span class="fox-alarm-no-data-icon" aria-hidden="true">📊</span><span>No data</span></div>`;
+  return renderFoxAlarmMiniCard(title, body);
+}
+
+function renderFoxAlarmTrendCard(groups, labels) {
+  const hasData = groups.some((g) => g.values.some((v) => v > 0));
+  const body = hasData
+    ? renderBarChartSvg(groups, labels, { height: 180 })
+    : `<div class="fox-alarm-no-data"><span class="fox-alarm-no-data-icon" aria-hidden="true">📈</span><span>No data</span></div>`;
+  return renderFoxAlarmMiniCard("Trend by Category", body, { wide: true });
+}
+
+function renderFoxAlarmSeverityPill(severity) {
+  const tone = FOX_ALARM_SEVERITY_COLORS[severity] ? severity : "warning";
+  return `<span class="fox-alarm-severity fox-alarm-severity--${tone}">${esc(tone)}</span>`;
+}
+
+function renderFoxAlarmTableRows(rows, mode) {
+  if (!rows.length) {
+    return `<div class="fox-alarm-empty-list">${renderFoxAlarmEmptyIcon()}<p>No Alerts</p></div>`;
+  }
+  return `<div class="fox-alarm-table-wrap"><table class="fox-alarm-table"><thead><tr>
+<th>Time</th><th>Alarm</th><th>Category</th><th>Severity</th><th>Status</th>
+</tr></thead><tbody>${rows
+    .map((row) => {
+      const time =
+        mode === "active" && row.since
+          ? formatFoxAlarmDateTime(row.since)
+          : formatFoxAlarmDateTime(row.t);
+      const status =
+        mode === "active"
+          ? "Active"
+          : row.status === "cleared"
+            ? "Cleared"
+            : "Raised";
+      return `<tr class="fox-alarm-row fox-alarm-row--clickable" data-action="device-alarm-detail-open" data-alarm="${esc(row.name)}" title="View troubleshooting guide">
+<td>${esc(time)}</td>
+<td class="fox-alarm-name-cell">${esc(row.name)}<span class="fox-alarm-row-chev" aria-hidden="true">›</span></td>
+<td>${esc(row.category)}</td>
+<td>${renderFoxAlarmSeverityPill(row.severity)}</td>
+<td><span class="fox-alarm-status fox-alarm-status--${mode === "active" || row.status === "raised" ? "warn" : "ok"}">${esc(status)}</span></td>
+</tr>`;
+    })
+    .join("")}</tbody></table></div>`;
+}
+
+function renderFoxAlarmPage(data, { tab = "active", loading = false } = {}) {
+  if (loading) {
+    return `<div class="fox-alarm-page"><div class="fox-alarm-head"><h2 class="fox-alarm-title">Alert</h2></div><p class="chart-loading">Loading alarm history…</p></div>`;
+  }
+  if (data?.error) {
+    return `<div class="fox-alarm-page"><div class="fox-alarm-head"><h2 class="fox-alarm-title">Alert</h2></div><p class="placeholder chart-empty">${esc(data.error)}</p></div>`;
+  }
+  const updated = formatFoxTimeAgo(data.fetchedAt);
+  const listRows = tab === "active" ? data.active : data.historical;
+  return `<div class="fox-alarm-page">
+<div class="fox-alarm-head">
+<h2 class="fox-alarm-title">Alert</h2>
+<span class="fox-alarm-updated">${esc(updated)}</span>
+</div>
+<div class="fox-alarm-summary-grid">
+${renderFoxAlarmDonutCard("Category", data.categorySegments)}
+${renderFoxAlarmDonutCard("Severity", data.severitySegments)}
+${renderFoxAlarmTrendCard(data.trendGroups, data.trendLabels)}
+</div>
+<div class="card fox-alarm-list-card">
+<div class="fox-alarm-tabs" role="tablist">
+<button type="button" class="fox-alarm-tab${tab === "active" ? " active" : ""}" data-action="device-alarm-tab" data-tab="active" role="tab">Active Warning</button>
+<button type="button" class="fox-alarm-tab${tab === "historical" ? " active" : ""}" data-action="device-alarm-tab" data-tab="historical" role="tab">Historical Warning</button>
+</div>
+${renderFoxAlarmTableRows(listRows, tab)}
+</div>
+</div>`;
 }
 
 function transformPowerPoint(v, spec) {
@@ -9053,6 +9440,85 @@ const STYLES = `
 .fox-device-new-check-pill-icon { width: 14px; height: 14px; flex-shrink: 0; }
 .fox-device-new-check-pill-text { white-space: nowrap; }
 .fox-device-new-content { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.fox-alarm-page { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.fox-alarm-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.fox-alarm-title { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+.fox-alarm-updated { font-size: 13px; color: var(--secondary-text-color); white-space: nowrap; }
+.fox-alarm-summary-grid {
+  display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 14px; align-items: stretch;
+}
+.fox-alarm-mini-card { margin: 0; padding: 12px 14px 14px; min-height: 220px; display: flex; flex-direction: column; }
+.fox-alarm-mini-card--wide { min-height: 220px; }
+.fox-alarm-mini-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.fox-alarm-mini-title { margin: 0; font-size: 15px; font-weight: 700; }
+.fox-alarm-mini-body { flex: 1; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
+.fox-alarm-donut-wrap { width: 120px; margin: 0 auto; }
+.fox-alarm-donut-wrap svg { width: 100%; height: auto; display: block; }
+.fox-alarm-legend { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.fox-alarm-legend li { display: flex; align-items: center; gap: 8px; }
+.fox-alarm-legend li strong { margin-left: auto; font-weight: 700; }
+.fox-alarm-legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.fox-alarm-no-data {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  min-height: 140px; color: var(--secondary-text-color); font-size: 13px;
+}
+.fox-alarm-no-data-icon { font-size: 28px; opacity: 0.45; line-height: 1; }
+.fox-alarm-list-card { margin: 0; padding: 0; overflow: hidden; }
+.fox-alarm-tabs {
+  display: flex; gap: 0; border-bottom: 1px solid var(--divider-color); padding: 0 16px;
+}
+.fox-alarm-tab {
+  appearance: none; border: none; background: transparent; cursor: pointer;
+  padding: 12px 16px 10px; font-size: 14px; color: var(--secondary-text-color);
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.fox-alarm-tab.active { color: #7c3aed; font-weight: 600; border-bottom-color: #7c3aed; }
+.fox-alarm-table-wrap { overflow-x: auto; padding: 8px 12px 16px; }
+.fox-alarm-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.fox-alarm-table th, .fox-alarm-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--divider-color); }
+.fox-alarm-table th { font-weight: 600; color: var(--secondary-text-color); font-size: 12px; }
+.fox-alarm-severity {
+  display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; text-transform: capitalize;
+}
+.fox-alarm-severity--critical { color: #cf1322; background: rgba(255, 77, 79, 0.12); }
+.fox-alarm-severity--warning { color: #d48806; background: rgba(250, 173, 20, 0.14); }
+.fox-alarm-severity--info { color: #096dd9; background: rgba(24, 144, 255, 0.12); }
+.fox-alarm-status { font-weight: 600; font-size: 12px; }
+.fox-alarm-status--warn { color: #d48806; }
+.fox-alarm-status--ok { color: #389e0d; }
+.fox-alarm-empty-list {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; padding: 48px 20px; color: var(--secondary-text-color);
+}
+.fox-alarm-empty-icon { width: 96px; height: auto; opacity: 0.9; }
+.fox-alarm-empty-list p { margin: 0; font-size: 15px; font-weight: 500; }
+.fox-alarm-row--clickable { cursor: pointer; }
+.fox-alarm-row--clickable:hover td { background: color-mix(in srgb, #7c3aed 6%, transparent); }
+.fox-alarm-name-cell { font-weight: 600; }
+.fox-alarm-row-chev { margin-left: 6px; color: var(--secondary-text-color); font-size: 12px; }
+.fox-alarm-detail-modal { max-width: 560px; }
+.fox-alarm-detail-body { font-size: 14px; line-height: 1.5; }
+.fox-alarm-detail-manual { margin: 0 0 10px; color: var(--secondary-text-color); font-size: 13px; }
+.fox-alarm-detail-label { font-weight: 600; color: var(--primary-text-color); margin-right: 6px; }
+.fox-alarm-detail-desc { margin: 0 0 14px; }
+.fox-alarm-detail-subtitle { margin: 0 0 8px; font-size: 15px; font-weight: 700; }
+.fox-alarm-detail-solutions { margin: 0 0 16px; padding-left: 18px; }
+.fox-alarm-detail-solutions li { margin-bottom: 6px; }
+.fox-alarm-detail-section { margin-top: 8px; padding-top: 12px; border-top: 1px solid var(--divider-color); }
+.fox-alarm-detail-meta { display: grid; gap: 8px; margin: 0 0 12px; }
+.fox-alarm-detail-meta div { display: flex; gap: 8px; font-size: 13px; }
+.fox-alarm-detail-meta dt { margin: 0; color: var(--secondary-text-color); min-width: 110px; }
+.fox-alarm-detail-meta dd { margin: 0; font-weight: 600; }
+.fox-alarm-detail-bits-title { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+.fox-alarm-detail-table-wrap { overflow-x: auto; margin-bottom: 8px; }
+.fox-alarm-detail-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.fox-alarm-detail-table th, .fox-alarm-detail-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--divider-color); }
+.fox-alarm-detail-note, .fox-alarm-detail-source { margin: 8px 0 0; font-size: 12px; color: var(--secondary-text-color); }
+.fox-device-new-layout--alarms .fox-device-new-content { gap: 0; }
+@media (max-width: 900px) {
+  .fox-alarm-summary-grid { grid-template-columns: 1fr; }
+  .fox-alarm-mini-card--wide { min-height: 200px; }
+}
 .fox-device-new-summary-card {
   border-radius: 12px; padding: 10px 12px 12px;
   display: flex; flex-direction: column; gap: 0; min-height: 0; height: auto; align-self: stretch;
@@ -9541,6 +10007,12 @@ class FoxessPlantPanel extends HTMLElement {
     this._deviceNewEnergyChart = null;
     this._deviceNewEnergyChartLoading = false;
     this._deviceNewEnergyChartPlantId = undefined;
+    this._deviceNewAlarmTab = "active";
+    this._deviceNewAlarmData = null;
+    this._deviceNewAlarmLoading = false;
+    this._deviceNewAlarmInflight = undefined;
+    this._deviceNewAlarmPlantId = undefined;
+    this._foxAlarmDetailName = null;
     this._deviceParamOpen = new Set();
     this._plantState = undefined;
     this._selectedPlantId = undefined;
@@ -10944,6 +11416,26 @@ Reloading panel registration…
     const action = btn.dataset.action;
 
     if (action === "energy-balance-help-dialog") return;
+    if (action === "device-alarm-detail-dialog") return;
+    if (action === "device-alarm-detail-open") {
+      const alarm = btn.dataset.alarm;
+      if (!alarm) return;
+      this._foxAlarmDetailName = alarm;
+      this._syncFoxAlarmDetailModal(this._root.querySelector(".shell"));
+      return;
+    }
+    if (action === "device-alarm-detail-close") {
+      this._foxAlarmDetailName = null;
+      this._syncFoxAlarmDetailModal(this._root.querySelector(".shell"));
+      return;
+    }
+    if (action === "device-alarm-detail-backdrop") {
+      if (e.target === btn) {
+        this._foxAlarmDetailName = null;
+        this._syncFoxAlarmDetailModal(this._root.querySelector(".shell"));
+      }
+      return;
+    }
     if (action === "energy-balance-help-open") {
       this._energyBalanceHelpOpen = true;
       this._syncEnergyBalanceHelpModal(this._root.querySelector(".shell"));
@@ -10994,6 +11486,7 @@ Reloading panel registration…
       if (nextView !== "device_new") {
         this._deviceNewSub = "analysis";
         this._deviceNewScreen = "main";
+        this._foxAlarmDetailName = null;
         this._deviceNewStatisticsChart = null;
         this._deviceNewStatisticsChartPlantId = undefined;
         this._deviceNewEnergyChart = null;
@@ -11005,7 +11498,10 @@ Reloading panel registration…
         this._loadEnergyReport();
       }
       if (this._view === "overview") this._loadOverviewStatisticsChart();
-      if (this._view === "device_new") this._loadDeviceNewCharts();
+      if (this._view === "device_new") {
+        this._loadDeviceNewCharts();
+        if (this._deviceNewSub === "alarms") void this._loadDeviceNewAlarms({ force: true });
+      }
       this._render();
       return;
     }
@@ -11014,9 +11510,19 @@ Reloading panel registration…
       if (!sub || sub === this._deviceNewSub) return;
       this._deviceNewSub = sub;
       this._deviceNewScreen = "main";
+      this._foxAlarmDetailName = null;
       if (sub === "analysis") this._loadDeviceNewCharts();
+      if (sub === "alarms") void this._loadDeviceNewAlarms({ force: true });
       if (sub === "pv-config") this._enterPvSettings();
       this._scheduleRender(true);
+      return;
+    }
+    if (action === "device-alarm-tab") {
+      const tab = btn.dataset.tab;
+      if (!tab || tab === this._deviceNewAlarmTab) return;
+      this._deviceNewAlarmTab = tab;
+      const slot = this._root?.querySelector?.("[data-device-new-alarms]");
+      if (slot) slot.innerHTML = this._renderDeviceNewAlarmsBody();
       return;
     }
     if (action === "copy-device-serial") {
@@ -12850,6 +13356,67 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     this._deviceNewEnergyInflight = undefined;
     this._deviceNewStatisticsChartLoading = false;
     this._deviceNewEnergyChartLoading = false;
+    this._deviceNewAlarmData = null;
+    this._deviceNewAlarmPlantId = undefined;
+    this._deviceNewAlarmInflight = undefined;
+    this._deviceNewAlarmLoading = false;
+  }
+
+  _deviceNewAlarmCacheKey(plant) {
+    const tab = this._deviceNewAlarmTab || "active";
+    return `${plant.entry_id}:device-new:alarms:${tab}`;
+  }
+
+  _renderDeviceNewAlarmsBody() {
+    return renderFoxAlarmPage(this._deviceNewAlarmData, {
+      tab: this._deviceNewAlarmTab || "active",
+      loading: this._deviceNewAlarmLoading,
+    });
+  }
+
+  async _loadDeviceNewAlarms({ force = false } = {}) {
+    const plant = this._getPlant();
+    if (!plant || !this._hass || this._view !== "device_new" || this._deviceNewSub !== "alarms") return;
+    const cacheKey = this._deviceNewAlarmCacheKey(plant);
+    if (!force && this._deviceNewAlarmPlantId === cacheKey && this._deviceNewAlarmData) return;
+    if (this._deviceNewAlarmInflight === cacheKey) return;
+    this._deviceNewAlarmInflight = cacheKey;
+    this._deviceNewAlarmLoading = true;
+    this._scheduleRender();
+    try {
+      const data = await fetchDeviceAlarmDashboard(this._hass, plant, this._plantState);
+      if (this._view !== "device_new" || this._deviceNewSub !== "alarms") return;
+      if (this._deviceNewAlarmCacheKey(this._getPlant()) !== cacheKey) return;
+      this._deviceNewAlarmData = data;
+      this._deviceNewAlarmPlantId = cacheKey;
+    } catch (err) {
+      if (this._view !== "device_new" || this._deviceNewSub !== "alarms") return;
+      if (this._deviceNewAlarmCacheKey(this._getPlant()) !== cacheKey) return;
+      this._deviceNewAlarmData = {
+        error: err?.message || "Could not load alarm history. Enable the Home Assistant recorder for alarm sensors.",
+      };
+      this._deviceNewAlarmPlantId = cacheKey;
+    } finally {
+      if (this._deviceNewAlarmInflight === cacheKey) this._deviceNewAlarmInflight = undefined;
+      this._deviceNewAlarmLoading = false;
+      if (this._view === "device_new" && this._deviceNewSub === "alarms") {
+        this._patchDeviceNewAlarmsIfNeeded();
+        this._scheduleRender();
+      }
+    }
+  }
+
+  _patchDeviceNewAlarmsIfNeeded() {
+    if (this._view !== "device_new" || this._deviceNewSub !== "alarms") return false;
+    const slot = this._root?.querySelector?.("[data-device-new-alarms]");
+    if (!slot) return false;
+    const plant = this._getPlant();
+    if (!plant) return false;
+    const cacheKey = this._deviceNewAlarmCacheKey(plant);
+    if (this._deviceNewAlarmLoading || this._deviceNewAlarmPlantId !== cacheKey || !this._deviceNewAlarmData) return false;
+    if (!slot.querySelector(".chart-loading")) return false;
+    slot.innerHTML = this._renderDeviceNewAlarmsBody();
+    return true;
   }
 
   _loadDeviceNewCharts() {
@@ -13176,6 +13743,14 @@ ${sidebar}
 </div>
 </div>`;
     }
+    if (this._deviceNewSub === "alarms") {
+      return `<div data-device-new-main="1" data-plant-id="${esc(plant.entry_id)}">
+<div class="fox-device-new-layout fox-device-new-layout--alarms">
+${sidebar}
+<div class="fox-device-new-content" data-device-new-alarms="1">${this._renderDeviceNewAlarmsBody()}</div>
+</div>
+</div>`;
+    }
     const body = this._renderDeviceNewRealtimeSections(plant);
     return `<div data-device-new-main="1" data-plant-id="${esc(plant.entry_id)}">
 <div class="fox-device-new-layout">
@@ -13190,7 +13765,7 @@ ${body}
 
   _patchDeviceNewLiveIfNeeded() {
     if (this._view !== "device_new" || !this._hass) return false;
-    if (this._deviceNewSub === "analysis" || this._deviceNewSub === "pv-config") return false;
+    if (this._deviceNewSub === "analysis" || this._deviceNewSub === "pv-config" || this._deviceNewSub === "alarms") return false;
     if (this._deviceNewScreen !== "main") return false;
     if (this._deviceNewAnalysisChartsStale()) return false;
     const root = this._root.querySelector("[data-device-new-main]");
@@ -14225,6 +14800,23 @@ ${body}
     if (!this._energyBalanceHelpOpen) return;
     const wrap = document.createElement("div");
     wrap.innerHTML = renderEnergyBalanceHelpModal();
+    const modal = wrap.firstElementChild;
+    if (modal) shell.appendChild(modal);
+  }
+
+  _syncFoxAlarmDetailModal(shell) {
+    if (!shell) return;
+    shell.querySelector("[data-fox-alarm-detail-modal]")?.remove();
+    if (!this._foxAlarmDetailName || !this._hass) return;
+    const plant = this._getPlant();
+    if (!plant) return;
+    const map = resolveEntityMap(this._hass, plant, this._plantState);
+    const wrap = document.createElement("div");
+    wrap.innerHTML = renderFoxAlarmDetailModal(this._foxAlarmDetailName, {
+      hass: this._hass,
+      map,
+      esc,
+    });
     const modal = wrap.firstElementChild;
     if (modal) shell.appendChild(modal);
   }
@@ -15431,6 +16023,7 @@ ${active
       mainEl.innerHTML = this._renderView(plant);
     }
     this._syncEnergyBalanceHelpModal(shell);
+    this._syncFoxAlarmDetailModal(shell);
 
     if (this._view === "settings" && this._settingsView === "quick") {
       this._bindTripleSoc();
@@ -15550,6 +16143,23 @@ ${active
           void this._loadDeviceNewEnergyChart();
         }
         this._bindDeviceNewCharts();
+      }
+      if (plant && this._deviceNewSub === "alarms") {
+        const alarmKey = this._deviceNewAlarmCacheKey(plant);
+        const alarmReady = this._deviceNewAlarmPlantId === alarmKey && this._deviceNewAlarmData;
+        if (!this._deviceNewAlarmLoading && !alarmReady) {
+          void this._loadDeviceNewAlarms();
+        } else if (!this._deviceNewAlarmLoading && this._deviceNewAlarmData?.fetchedAt) {
+          const map = resolveEntityMap(this._hass, plant, this._plantState);
+          const watchIds = [map.inverter_alarms, map.inverter_alarm_last, map.inverter_fault_code].filter(Boolean);
+          const stale = watchIds.some((id) => {
+            const st = this._hass?.states?.[id];
+            if (!st?.last_changed) return false;
+            return new Date(st.last_changed).getTime() > this._deviceNewAlarmData.fetchedAt;
+          });
+          if (stale) void this._loadDeviceNewAlarms({ force: true });
+        }
+        this._patchDeviceNewAlarmsIfNeeded();
       }
     }
     if (this._view === "reports") {
