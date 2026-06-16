@@ -255,9 +255,9 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.247";
+const PANEL_VERSION = "0.9.248";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
-const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
+const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
 const DEVICE_NEW_MAIN_WIDTH_EXTRA_PX = 296;
 /** Max wait for recorder/history websocket round-trips (prevents infinite loading spinners). */
@@ -3963,6 +3963,14 @@ const REPORTS_PERIOD_TABS = [
   { id: "year", label: "Year" },
 ];
 
+/** Device → Analysis energy chart (no day — real-time curve has its own day nav). */
+const DEVICE_NEW_ENERGY_PERIOD_TABS = [
+  { id: "week", label: "Week" },
+  { id: "month", label: "Month" },
+  { id: "year", label: "Year" },
+  { id: "total", label: "Total" },
+];
+
 function normalizeReportsPeriod(period) {
   return REPORTS_PERIOD_TABS.some((t) => t.id === period) ? period : "week";
 }
@@ -4836,25 +4844,29 @@ function energyPeriodNavLabel(period, offset = 0, now = new Date()) {
   return "Total";
 }
 
-/** Day offset for device real-time curve from shared period navigation. */
-function deviceNewCurveDayOffset(period, offset = 0, now = new Date()) {
-  if (period === "day") return Math.max(0, Number(offset) || 0);
-  const bounds = energyPeriodBounds(period, offset, now);
-  const today = startOfLocalDay(now);
-  let target = today.getTime() <= bounds.end.getTime() ? today : startOfLocalDay(bounds.end);
-  if (target.getTime() < bounds.start.getTime()) target = startOfLocalDay(bounds.start);
-  return Math.max(0, Math.round((today.getTime() - target.getTime()) / 86400000));
+function formatDeviceCurveDateLabel(d) {
+  const day = String(d.getDate()).padStart(2, "0");
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const y = d.getFullYear();
+  return `${day}/${mo}/${y}`;
 }
 
-/** Energy bar chart period: Day tab navigates days but shows the containing Mon–Sun week. */
-function deviceNewEnergyPeriodAndOffset(period, offset = 0, now = new Date()) {
-  const o = Math.max(0, Number(offset) || 0);
-  if (period !== "day") return { period, offset: o };
-  const { start: selectedDay } = energyPeriodBounds("day", o, now);
-  const selectedWeekStart = startOfWeekMonday(selectedDay);
-  const currentWeekStart = startOfWeekMonday(now);
-  const weekOffset = Math.round((currentWeekStart.getTime() - selectedWeekStart.getTime()) / (7 * 86400000));
-  return { period: "week", offset: Math.max(0, weekOffset) };
+function formatDeviceShortDayMonth(d) {
+  const day = String(d.getDate()).padStart(2, "0");
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  return `${day}/${mo}`;
+}
+
+function deviceNewEnergyPeriodNavLabel(period, offset = 0, now = new Date()) {
+  const { start, end } = energyPeriodBounds(period, offset, now);
+  if (period === "week") {
+    return `${formatDeviceShortDayMonth(start)} - ${formatDeviceShortDayMonth(end)}`;
+  }
+  if (period === "month") {
+    return start.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  }
+  if (period === "year") return String(start.getFullYear());
+  return "Total";
 }
 
 function energyBreakdownTitle(period, offset = 0, now = new Date()) {
@@ -9139,6 +9151,15 @@ const STYLES = `
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
   gap: 10px 16px; margin-bottom: 12px;
 }
+.fox-device-new-card-head--energy { align-items: flex-start; }
+.fox-device-new-card-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end;
+  gap: 10px 14px; margin-left: auto; max-width: 100%;
+}
+.fox-device-new-card-toolbar .energy-period-tabs { margin: 0; flex: 1 1 auto; justify-content: flex-end; }
+.fox-device-new-card-toolbar .energy-date-nav { margin: 0; flex: 0 0 auto; }
+.fox-device-new-date-nav .energy-date-label { min-width: 108px; font-size: 14px; }
+.fox-device-new-date-nav button { width: 32px; height: 32px; font-size: 18px; }
 .fox-device-new-card-title { margin: 0; font-size: 16px; font-weight: 700; }
 .fox-device-new-section { margin-bottom: 18px; }
 .fox-device-new-section:last-child { margin-bottom: 0; }
@@ -9508,8 +9529,9 @@ class FoxessPlantPanel extends HTMLElement {
     this._deviceSub = "main";
     this._deviceNewSub = "analysis";
     this._deviceNewScreen = "main";
-    this._deviceNewPeriod = "day";
-    this._deviceNewPeriodOffset = 0;
+    this._deviceNewCurveDayOffset = 0;
+    this._deviceNewEnergyPeriod = "week";
+    this._deviceNewEnergyPeriodOffset = 0;
     this._deviceNewChartsGen = 0;
     this._deviceNewCurveInflight = undefined;
     this._deviceNewEnergyInflight = undefined;
@@ -11018,23 +11040,38 @@ Reloading panel registration…
       this._scheduleRender(true);
       return;
     }
-    if (action === "device-new-period") {
+    if (action === "device-new-energy-period") {
       const period = btn.dataset.period;
-      if (!period || period === this._deviceNewPeriod) return;
-      this._deviceNewPeriod = period;
-      this._deviceNewPeriodOffset = 0;
+      if (!period || period === this._deviceNewEnergyPeriod) return;
+      this._deviceNewEnergyPeriod = period;
+      this._deviceNewEnergyPeriodOffset = 0;
       this._invalidateDeviceNewCharts();
       void this._loadDeviceNewCharts();
       this._scheduleRender(true);
       return;
     }
-    if (action === "device-new-chart-nav") {
+    if (action === "device-new-curve-nav") {
       const dir = btn.dataset.dir;
-      const bounds = energyPeriodBounds(this._deviceNewPeriod, this._deviceNewPeriodOffset);
+      const offset = Math.max(0, this._deviceNewCurveDayOffset || 0);
       if (dir === "prev") {
-        this._deviceNewPeriodOffset += 1;
+        this._deviceNewCurveDayOffset = offset + 1;
+      } else if (dir === "next" && offset > 0) {
+        this._deviceNewCurveDayOffset = offset - 1;
+      } else {
+        return;
+      }
+      this._invalidateDeviceNewCharts();
+      void this._loadDeviceNewCharts();
+      this._scheduleRender(true);
+      return;
+    }
+    if (action === "device-new-energy-nav") {
+      const dir = btn.dataset.dir;
+      const bounds = energyPeriodBounds(this._deviceNewEnergyPeriod, this._deviceNewEnergyPeriodOffset);
+      if (dir === "prev") {
+        this._deviceNewEnergyPeriodOffset += 1;
       } else if (dir === "next" && bounds.canNext) {
-        this._deviceNewPeriodOffset = Math.max(0, this._deviceNewPeriodOffset - 1);
+        this._deviceNewEnergyPeriodOffset = Math.max(0, this._deviceNewEnergyPeriodOffset - 1);
       } else {
         return;
       }
@@ -12789,19 +12826,17 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
   }
 
   _deviceNewChartsCacheKey(plant) {
-    return `${plant.entry_id}:device-new:${this._deviceNewPeriod}:${this._deviceNewPeriodOffset}`;
+    return `${plant.entry_id}:device-new:curve:${this._deviceNewCurveDayOffset}:energy:${this._deviceNewEnergyPeriod}:${this._deviceNewEnergyPeriodOffset}`;
   }
 
   _deviceNewCurveChartCacheKey(plant) {
-    const dayOffset = deviceNewCurveDayOffset(this._deviceNewPeriod, this._deviceNewPeriodOffset);
+    const dayOffset = Math.max(0, this._deviceNewCurveDayOffset || 0);
     return `${this._deviceNewChartsCacheKey(plant)}:curve:${dayOffset}`;
   }
 
   _deviceNewEnergyChartCacheKey(plant) {
-    const { period, offset } = deviceNewEnergyPeriodAndOffset(
-      this._deviceNewPeriod,
-      this._deviceNewPeriodOffset
-    );
+    const period = this._deviceNewEnergyPeriod || "week";
+    const offset = Math.max(0, this._deviceNewEnergyPeriodOffset || 0);
     return `${plant.entry_id}:device-new:energy:${period}:${offset}`;
   }
 
@@ -12901,7 +12936,7 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     this._deviceNewStatisticsChartLoading = true;
     this._scheduleRender();
     try {
-      const dayOffset = deviceNewCurveDayOffset(this._deviceNewPeriod, this._deviceNewPeriodOffset);
+      const dayOffset = Math.max(0, this._deviceNewCurveDayOffset || 0);
       const curve = await fetchDeviceRealtimeChartSeries(this._hass, plant, this._plantState, { dayOffset });
       if (gen !== this._deviceNewChartsGen || this._view !== "device_new") return;
       if (this._deviceNewCurveChartCacheKey(this._getPlant()) !== cacheKey) return;
@@ -12939,16 +12974,14 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     this._deviceNewEnergyChartLoading = true;
     this._scheduleRender();
     try {
-      const energyPeriod = deviceNewEnergyPeriodAndOffset(
-        this._deviceNewPeriod,
-        this._deviceNewPeriodOffset
-      );
+      const period = this._deviceNewEnergyPeriod || "week";
+      const offset = Math.max(0, this._deviceNewEnergyPeriodOffset || 0);
       const bar = await fetchFoxMirroredBarChart(
         this._hass,
         plant,
         this._plantState,
-        energyPeriod.period,
-        energyPeriod.offset
+        period,
+        offset
       );
       if (gen !== this._deviceNewChartsGen || this._view !== "device_new") return;
       if (this._deviceNewEnergyChartCacheKey(this._getPlant()) !== cacheKey) return;
@@ -12975,30 +13008,42 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     }
   }
 
-  _renderDeviceNewChartPeriodTabs() {
-    const tabs = ENERGY_PERIOD_TABS.map(
+  _renderDeviceNewCurveDateNav() {
+    const offset = Math.max(0, this._deviceNewCurveDayOffset || 0);
+    const { start } = energyPeriodBounds("day", offset);
+    const label = formatDeviceCurveDateLabel(start);
+    const canNext = offset > 0;
+    return `<div class="energy-date-nav fox-device-new-date-nav">
+<button type="button" data-action="device-new-curve-nav" data-dir="prev" aria-label="Previous day">‹</button>
+<span class="energy-date-label">${esc(label)}</span>
+<button type="button" data-action="device-new-curve-nav" data-dir="next" aria-label="Next day"${canNext ? "" : " disabled"}>›</button>
+</div>`;
+  }
+
+  _renderDeviceNewEnergyPeriodTabs() {
+    const tabs = DEVICE_NEW_ENERGY_PERIOD_TABS.map(
       (p) =>
-        `<button type="button" data-action="device-new-period" data-period="${p.id}" class="${p.id === this._deviceNewPeriod ? "active" : ""}">${p.label}</button>`
+        `<button type="button" data-action="device-new-energy-period" data-period="${p.id}" class="${p.id === this._deviceNewEnergyPeriod ? "active" : ""}">${p.label}</button>`
     ).join("");
     return `<div class="energy-period-tabs">${tabs}</div>`;
   }
 
-  _renderDeviceNewChartDateNav() {
-    if (this._deviceNewPeriod === "total") return "";
-    const bounds = energyPeriodBounds(this._deviceNewPeriod, this._deviceNewPeriodOffset);
-    const label = energyPeriodNavLabel(this._deviceNewPeriod, this._deviceNewPeriodOffset);
-    return `<div class="energy-date-nav">
-<button type="button" data-action="device-new-chart-nav" data-dir="prev" aria-label="Previous period">‹</button>
+  _renderDeviceNewEnergyDateNav() {
+    if (this._deviceNewEnergyPeriod === "total") return "";
+    const bounds = energyPeriodBounds(this._deviceNewEnergyPeriod, this._deviceNewEnergyPeriodOffset);
+    const label = deviceNewEnergyPeriodNavLabel(
+      this._deviceNewEnergyPeriod,
+      this._deviceNewEnergyPeriodOffset
+    );
+    return `<div class="energy-date-nav fox-device-new-date-nav">
+<button type="button" data-action="device-new-energy-nav" data-dir="prev" aria-label="Previous period">‹</button>
 <span class="energy-date-label">${esc(label)}</span>
-<button type="button" data-action="device-new-chart-nav" data-dir="next" aria-label="Next period"${bounds.canNext ? "" : " disabled"}>›</button>
+<button type="button" data-action="device-new-energy-nav" data-dir="next" aria-label="Next period"${bounds.canNext ? "" : " disabled"}>›</button>
 </div>`;
   }
 
-  _renderDeviceNewChartToolbar() {
-    return `<div class="card fox-analysis-toolbar fox-device-new-chart-toolbar" data-device-new-chart-toolbar="1">
-${this._renderDeviceNewChartPeriodTabs()}
-${this._renderDeviceNewChartDateNav()}
-</div>`;
+  _renderDeviceNewEnergyCardToolbar() {
+    return `<div class="fox-device-new-card-toolbar">${this._renderDeviceNewEnergyPeriodTabs()}${this._renderDeviceNewEnergyDateNav()}</div>`;
   }
 
   _renderDeviceNewCurveBody() {
@@ -13051,12 +13096,14 @@ ${this._renderDeviceNewChartDateNav()}
     return `<div class="card fox-device-new-card">
 <div class="fox-device-new-card-head">
 <h3 class="fox-device-new-card-title">Real-time curve</h3>
+${this._renderDeviceNewCurveDateNav()}
 </div>
 <div data-device-new-curve="1">${this._renderDeviceNewCurveBody()}</div>
 </div>
 <div class="card fox-device-new-card">
-<div class="fox-device-new-card-head">
+<div class="fox-device-new-card-head fox-device-new-card-head--energy">
 <h3 class="fox-device-new-card-title">Energy analysis</h3>
+${this._renderDeviceNewEnergyCardToolbar()}
 </div>
 <div data-device-new-energy-chart="1">${this._renderDeviceNewEnergyBody()}</div>
 </div>`;
@@ -13124,7 +13171,6 @@ ${this._renderPvConfiguration({
 ${sidebar}
 <div class="fox-device-new-analysis-stack">
 <div class="fox-device-new-summary-row">${summary}</div>
-<div class="fox-device-new-toolbar-row">${this._renderDeviceNewChartToolbar()}</div>
 <div class="fox-device-new-charts-col">${this._renderDeviceNewAnalysisCharts()}</div>
 </div>
 </div>
