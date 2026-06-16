@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.256
+ * @version 0.9.259
  */
 
 import { renderFoxAlarmDetailModal } from "./fox-alarm-guide.js";
@@ -20,7 +20,7 @@ const NAV = [
 const DEVICE_NEW_NAV = [
   { id: "analysis", label: "Analysis" },
   { id: "realtime", label: "Real-time" },
-  { id: "alarms", label: "Alarms" },
+  { id: "alarms", label: "Alerts" },
   { id: "pv-config", label: "PV Configuration" },
 ];
 
@@ -2599,6 +2599,19 @@ function formatFoxTonePill(text, toneClass, { showCheckIcon = false } = {}) {
   return `<span class="fox-device-new-check-pill ${toneClass}">${icon}<span class="fox-device-new-check-pill-text">${esc(label)}</span></span>`;
 }
 
+function isFoxFaultInverterState(label) {
+  return String(label || "").trim().toLowerCase() === "fault";
+}
+
+/** Link Fault state pills to the Device → Alerts tab. */
+function wrapFoxInverterStatePillLink(label, pillHtml, { fromOverview = false } = {}) {
+  if (!pillHtml || !isFoxFaultInverterState(label)) return pillHtml;
+  const attrs = fromOverview
+    ? `data-action="nav" data-view="device_new" data-device-sub="alarms"`
+    : `data-action="device-new-tab" data-sub="alarms"`;
+  return `<button type="button" class="fox-inverter-state-pill-link" ${attrs} title="View alerts">${pillHtml}</button>`;
+}
+
 /** Fox device card status pill (Normal / Online with tick). */
 function formatFoxDeviceCheckPill(value) {
   const text = String(value || "—");
@@ -2792,7 +2805,12 @@ function renderDeviceNewSidebar(hass, plant, plantState) {
 </div>`
     : `<p class="device-serial device-serial-muted fox-device-new-sidebar-serial-muted">Serial unavailable</p>`;
   const rows = [
-    status !== "—" ? { label: "State", html: formatFoxDeviceCheckPill(status) } : null,
+    status !== "—"
+      ? {
+          label: "State",
+          html: wrapFoxInverterStatePillLink(status, formatFoxDeviceCheckPill(status)),
+        }
+      : null,
     pcsSn ? { label: "PSC SN", value: pcsSn } : null,
     batterySn ? { label: "Battery SN", value: batterySn } : null,
     plantTitle
@@ -4947,6 +4965,51 @@ function filterHistoricalAlarmRecords(records, { category, severity, device }, t
     if (device && row.device !== device) return false;
     return true;
   });
+}
+
+function countOverviewFaultsLast24h(alarmData) {
+  if (!alarmData || alarmData.error) return null;
+  const rows = filterHistoricalAlarmRecords(alarmData.historicalRecords || [], {}, { mode: "24h" });
+  const seen = new Set(rows.map((r) => r.name));
+  let extra = 0;
+  for (const a of alarmData.active || []) {
+    if (!seen.has(a.name)) {
+      extra += 1;
+      seen.add(a.name);
+    }
+  }
+  return rows.length + extra;
+}
+
+function formatOverviewFaultDetectedText(count) {
+  const n = Math.max(0, Number(count) || 0);
+  return n === 1 ? "1 fault detected" : `${n} faults detected`;
+}
+
+function overviewSystemStatusOkIcon() {
+  return `<svg class="overview-system-status-glyph overview-system-status-glyph--ok" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="8" fill="#52c41a"/><path d="M4.5 8.2l2.1 2.1 5-5.2" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
+function overviewSystemStatusFaultIcon() {
+  return `<svg class="overview-system-status-glyph overview-system-status-glyph--fault" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="8" fill="#ff4d4f"/><path d="M5.5 5.5l5 5M10.5 5.5l-5 5" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+}
+
+function renderOverviewSystemStatusCard({ loading = false, faultCount = null, error = null } = {}) {
+  const detailsBtn = `<button type="button" class="overview-system-status-details" data-action="nav" data-view="device_new" data-device-sub="alarms">Details <span aria-hidden="true">›</span></button>`;
+  let body;
+  if (loading) {
+    body = `<div class="overview-system-status-body overview-system-status-body--loading"><span>Checking system status…</span></div>`;
+  } else if (faultCount == null && error) {
+    body = `<div class="overview-system-status-body"><span class="overview-system-status-text">${esc(error)}</span></div>`;
+  } else if ((faultCount ?? 0) > 0) {
+    body = `<div class="overview-system-status-body">${overviewSystemStatusFaultIcon()}<span class="overview-system-status-text overview-system-status-text--fault">${esc(formatOverviewFaultDetectedText(faultCount))}</span></div>`;
+  } else {
+    body = `<div class="overview-system-status-body">${overviewSystemStatusOkIcon()}<span class="overview-system-status-text">System working normally.</span></div>`;
+  }
+  return `<div class="overview-system-status-card">
+<div class="overview-system-status-head"><span class="overview-system-status-title">System Status</span>${detailsBtn}</div>
+${body}
+</div>`;
 }
 
 function parseAlarmStateList(state) {
@@ -8170,6 +8233,15 @@ const STYLES = `
   display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; line-height: 1.35;
 }
 .overview-status-row .fox-device-new-check-pill { flex-shrink: 0; }
+.fox-inverter-state-pill-link {
+  display: inline-flex; align-items: center; padding: 0; margin: 0; border: none;
+  background: transparent; font: inherit; color: inherit; cursor: pointer;
+  border-radius: 999px;
+}
+.fox-inverter-state-pill-link:hover { filter: brightness(1.08); }
+.fox-inverter-state-pill-link:focus-visible {
+  outline: 2px solid var(--primary-color, #894bfc); outline-offset: 2px;
+}
 .overview-control-hint { font-size: 13px; color: var(--secondary-text-color); white-space: nowrap; }
 .overview-weather {
   display: flex; align-items: center; gap: 6px; margin-top: 8px;
@@ -8297,6 +8369,41 @@ const STYLES = `
   width: 100%; max-width: none; min-width: 0;
   box-sizing: border-box; align-self: stretch;
 }
+.overview-hero-daily-charts {
+  display: flex; flex-direction: column; gap: 12px;
+  flex: 1 1 auto; min-height: 0; width: 100%;
+}
+.overview-system-status-card {
+  flex: 0 0 auto;
+  background: var(--card-background-color); border-radius: var(--fp-radius);
+  border: 1px solid var(--divider-color, transparent);
+  box-shadow: var(--ha-card-box-shadow, 0 1px 2px rgba(0,0,0,0.06));
+  padding: 12px 14px; width: 100%; box-sizing: border-box;
+}
+.overview-system-status-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-bottom: 8px; min-height: 24px;
+}
+.overview-system-status-title {
+  font-size: 14px; font-weight: 600; color: var(--primary-text-color); letter-spacing: -0.01em;
+}
+.overview-system-status-details {
+  flex-shrink: 0; padding: 4px 12px; border-radius: 999px;
+  border: 1px solid var(--divider-color, rgba(127,127,127,0.35));
+  background: transparent; color: var(--secondary-text-color);
+  font-size: 12px; font-weight: 500; line-height: 1.2; cursor: pointer; font-family: inherit;
+}
+.overview-system-status-details:hover { background: var(--secondary-background-color); }
+.overview-system-status-details:focus-visible {
+  outline: 2px solid var(--primary-color, #894bfc); outline-offset: 2px;
+}
+.overview-system-status-body {
+  display: flex; align-items: center; gap: 8px; min-height: 20px;
+  font-size: 13px; line-height: 1.35; color: var(--secondary-text-color);
+}
+.overview-system-status-body--loading { color: var(--secondary-text-color); opacity: 0.85; }
+.overview-system-status-glyph { width: 16px; height: 16px; flex-shrink: 0; display: block; }
+.overview-system-status-text--fault { color: var(--primary-text-color); font-weight: 500; }
 .overview-daily-card {
   background: var(--card-background-color); border-radius: var(--fp-radius);
   border: 1px solid var(--divider-color, transparent);
@@ -10398,6 +10505,11 @@ class FoxessPlantPanel extends HTMLElement {
     this._overviewDailyLoading = false;
     this._overviewDailyPlantId = undefined;
     this._overviewDailySlotCache = undefined;
+    this._overviewSystemStatus = null;
+    this._overviewSystemStatusLoading = false;
+    this._overviewSystemStatusPlantId = undefined;
+    this._overviewSystemStatusSlotCache = undefined;
+    this._overviewSystemStatusInflight = undefined;
     this._overviewHourlyWeatherSlotCache = undefined;
     this._overviewBreakdownSlotCache = undefined;
     this._overviewSummarySlotCache = undefined;
@@ -11911,6 +12023,10 @@ Reloading panel registration…
         this._deviceNewStatisticsChartPlantId = undefined;
         this._deviceNewEnergyChart = null;
         this._deviceNewEnergyChartPlantId = undefined;
+      } else if (btn.dataset.deviceSub) {
+        this._deviceNewSub = btn.dataset.deviceSub;
+        this._deviceNewScreen = "main";
+        this._foxAlarmDetailName = null;
       }
       if (this._view === "energy_analysis") this._loadEnergyCharts();
       if (this._view === "reports") {
@@ -13136,7 +13252,14 @@ ${renderSocFeedbackHtml(validateSocLimits(clamped, live), this._socSaveError)}
     const systemStatus = foxInverterStateLabel(this._hass, plant, this._plantState);
     const workMode = foxWorkModeLabel(this._hass, plant, this._plantState);
     const plantMode = st.mode ?? "baseline";
-    const statusPart = systemStatus !== "—" ? formatFoxOverviewStatusPill(systemStatus) : "";
+    const statusPart =
+      systemStatus !== "—"
+        ? wrapFoxInverterStatePillLink(
+            systemStatus,
+            formatFoxOverviewStatusPill(systemStatus),
+            { fromOverview: true }
+          )
+        : "";
     const workPart = workMode !== "—" ? formatFoxOverviewWorkModePill(workMode) : "";
     return `<div class="overview-status-block">
 <div class="overview-status-row">
@@ -13328,6 +13451,7 @@ ${this._renderImpactPanel()}`;
       this._flowSceneKeyPending = undefined;
       this._flowSceneKeyPendingN = 0;
       this._overviewDailySlotCache = undefined;
+      this._overviewSystemStatusSlotCache = undefined;
       this._overviewHourlyWeatherSlotCache = undefined;
       this._overviewBreakdownSlotCache = undefined;
       this._overviewSummarySlotCache = undefined;
@@ -13355,9 +13479,22 @@ ${this._renderImpactPanel()}`;
       this._renderOverviewHeader(plant) + this._renderPanelStaleBanner();
     const dailyKey = this._overviewDailySlotKey();
     const dailySlot = mainEl.querySelector(".overview-hero-daily-slot");
-    if (dailyKey !== this._overviewDailySlotCache) {
-      dailySlot.innerHTML = this._renderOverviewDailyCards();
+    if (!dailySlot.querySelector(".overview-hero-daily")) {
+      dailySlot.innerHTML = `<div class="overview-hero-daily"><div class="overview-system-status-slot"></div><div class="overview-hero-daily-charts"></div></div>`;
+    }
+    const statusKey = this._overviewSystemStatusSlotKey();
+    if (statusKey !== this._overviewSystemStatusSlotCache) {
+      const statusSlot = dailySlot.querySelector(".overview-system-status-slot");
+      if (statusSlot) {
+        statusSlot.innerHTML = this._renderOverviewSystemStatusCard();
+        this._overviewSystemStatusSlotCache = statusKey;
+      }
+    }
+    const chartsSlot = dailySlot.querySelector(".overview-hero-daily-charts");
+    if (chartsSlot && dailyKey !== this._overviewDailySlotCache) {
+      chartsSlot.innerHTML = this._renderOverviewDailyCharts();
       this._overviewDailySlotCache = dailyKey;
+      bindOverviewDailyCharts(dailySlot);
     }
     const breakdownKey = this._overviewEnergyBandKey(plant);
     const energyBandSlot = mainEl.querySelector(".overview-energy-band-slot");
@@ -13481,34 +13618,98 @@ ${chart}
     return `${dates}|${prod}|${cons}|${a.pv_production_kwh_today ?? ""}|${a.load_consumption_kwh_today ?? ""}`;
   }
 
-  _renderOverviewDailyCards() {
+  _overviewSystemStatusSlotKey() {
+    if (this._overviewSystemStatusLoading) return "loading";
+    const data = this._overviewSystemStatus;
+    if (!data) return "pending";
+    if (data.error) return `err:${data.error}`;
+    return `ok:${data.faultCount ?? 0}`;
+  }
+
+  _renderOverviewSystemStatusCard() {
+    if (this._overviewSystemStatusLoading) {
+      return renderOverviewSystemStatusCard({ loading: true });
+    }
+    const data = this._overviewSystemStatus;
+    if (!data) {
+      return renderOverviewSystemStatusCard({ loading: true });
+    }
+    if (data.error) {
+      return renderOverviewSystemStatusCard({ error: data.error, faultCount: null });
+    }
+    return renderOverviewSystemStatusCard({ faultCount: data.faultCount ?? 0 });
+  }
+
+  _renderOverviewDailyCharts() {
     if (this._overviewDailyLoading) {
-      return `<div class="overview-hero-daily"><div class="overview-daily-loading">Loading daily energy…</div></div>`;
+      return `<div class="overview-daily-loading">Loading daily energy…</div>`;
     }
     const data = this._overviewDaily;
     if (data?.error) {
-      return `<div class="overview-hero-daily"><div class="overview-daily-card"><p class="overview-daily-empty">${esc(data.error)}</p></div></div>`;
+      return `<div class="overview-daily-card"><p class="overview-daily-empty">${esc(data.error)}</p></div>`;
     }
     if (!data?.labels?.length) {
       return "";
     }
     const a = this._plantState?.analytics ?? {};
+    return `${this._renderOverviewDailyCard(
+      "Daily Production",
+      data.production,
+      data.labels,
+      OVERVIEW_DAILY_COLORS.production,
+      a.pv_production_kwh_today
+    )}${this._renderOverviewDailyCard(
+      "Daily Consumption",
+      data.consumption,
+      data.labels,
+      OVERVIEW_DAILY_COLORS.consumption,
+      a.load_consumption_kwh_today
+    )}`;
+  }
+
+  _renderOverviewHeroDailyColumn() {
     return `<div class="overview-hero-daily">
-${this._renderOverviewDailyCard(
-  "Daily Production",
-  data.production,
-  data.labels,
-  OVERVIEW_DAILY_COLORS.production,
-  a.pv_production_kwh_today
-)}
-${this._renderOverviewDailyCard(
-  "Daily Consumption",
-  data.consumption,
-  data.labels,
-  OVERVIEW_DAILY_COLORS.consumption,
-  a.load_consumption_kwh_today
-)}
+${this._renderOverviewSystemStatusCard()}
+<div class="overview-hero-daily-charts">${this._renderOverviewDailyCharts()}</div>
 </div>`;
+  }
+
+  async _loadOverviewSystemStatus({ force = false } = {}) {
+    const plant = this._getPlant();
+    if (!plant || !this._hass || this._view !== "overview") return;
+    const plantId = plant.entry_id;
+    if (!force && this._overviewSystemStatusPlantId === plantId && this._overviewSystemStatus) return;
+    if (this._overviewSystemStatusInflight === plantId) return;
+    this._overviewSystemStatusInflight = plantId;
+    this._overviewSystemStatusLoading = true;
+    this._overviewSystemStatusSlotCache = undefined;
+    this._scheduleRender();
+    try {
+      if (!this._plantState) await this._refreshPlantState();
+      const data = await fetchDeviceAlarmDashboard(this._hass, plant, this._plantState);
+      if (this._view !== "overview" || this._getPlant()?.entry_id !== plantId) return;
+      const faultCount = countOverviewFaultsLast24h(data);
+      if (faultCount == null) {
+        this._overviewSystemStatus = { error: data.error || "System status unavailable.", faultCount: null };
+      } else {
+        this._overviewSystemStatus = { faultCount, fetchedAt: Date.now() };
+      }
+      this._overviewSystemStatusPlantId = plantId;
+    } catch (err) {
+      if (this._view !== "overview" || this._getPlant()?.entry_id !== plantId) return;
+      this._overviewSystemStatus = {
+        error: err?.message || "Could not load system status.",
+        faultCount: null,
+      };
+      this._overviewSystemStatusPlantId = plantId;
+    } finally {
+      if (this._overviewSystemStatusInflight === plantId) this._overviewSystemStatusInflight = undefined;
+      this._overviewSystemStatusLoading = false;
+      if (this._view === "overview" && this._getPlant()?.entry_id === plantId) {
+        this._overviewSystemStatusSlotCache = undefined;
+        this._scheduleRender();
+      }
+    }
   }
 
   async _loadOverviewDailyCards() {
@@ -13555,7 +13756,7 @@ ${this._renderPanelStaleBanner()}
 <div class="overview-hero-scene">
 ${this._renderEnergyScene(plant)}
 </div>
-${this._renderOverviewDailyCards()}
+${this._renderOverviewHeroDailyColumn()}
 </div>
 ${this._renderOverviewEnergyBand(plant)}
 ${this._renderOverviewAfterHero(plant)}`;
@@ -13605,7 +13806,7 @@ ${this._renderOverviewAfterHero(plant)}`;
     if (systemStatus === "—") return "";
     return `<div class="overview-status-block">
 <div class="overview-status-row">
-${formatFoxOverviewStatusPill(systemStatus)}
+${wrapFoxInverterStatePillLink(systemStatus, formatFoxOverviewStatusPill(systemStatus), { fromOverview: true })}
 </div>
 </div>`;
   }
@@ -16608,6 +16809,23 @@ ${active
         (this._overviewDailyPlantId !== plant.entry_id || !this._overviewDaily)
       ) {
         this._loadOverviewDailyCards();
+      }
+      if (
+        plant &&
+        !this._overviewSystemStatusLoading &&
+        (this._overviewSystemStatusPlantId !== plant.entry_id || !this._overviewSystemStatus)
+      ) {
+        void this._loadOverviewSystemStatus();
+      }
+      const map = plant ? resolveEntityMap(this._hass, plant, this._plantState) : {};
+      const alarmWatch = [map.inverter_alarms, map.inverter_alarm_last, map.inverter_fault_code].filter(Boolean);
+      if (plant && alarmWatch.length && !this._overviewSystemStatusLoading && this._overviewSystemStatus?.fetchedAt) {
+        const stale = alarmWatch.some((id) => {
+          const st = this._hass?.states?.[id];
+          if (!st?.last_changed) return false;
+          return new Date(st.last_changed).getTime() > this._overviewSystemStatus.fetchedAt;
+        });
+        if (stale) void this._loadOverviewSystemStatus({ force: true });
       }
       if (
         plant &&
