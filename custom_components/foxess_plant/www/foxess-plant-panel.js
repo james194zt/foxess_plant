@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.261
+ * @version 0.9.262
  */
 
 import { renderFoxAlarmDetailModal } from "./fox-alarm-guide.js";
@@ -9961,6 +9961,7 @@ const STYLES = `
 .fox-alarm-detail-table th, .fox-alarm-detail-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--divider-color); }
 .fox-alarm-detail-note, .fox-alarm-detail-source { margin: 8px 0 0; font-size: 12px; color: var(--secondary-text-color); }
 .fox-device-new-layout--alarms .fox-device-new-content { gap: 0; }
+.fox-device-new-layout--alarms .fox-device-new-content > [data-device-new-alarms] { min-width: 0; width: 100%; }
 @media (max-width: 900px) {
   .fox-alarm-summary-grid { grid-template-columns: 1fr; }
   .fox-alarm-mini-card--wide { min-height: 200px; }
@@ -10880,6 +10881,14 @@ Reloading panel registration…
   _patchDeviceNewAlarmsLiveIfNeeded() {
     if (this._view !== "device_new" || this._deviceNewSub !== "alarms") return false;
     if (this._deviceNewAlarmLoading) return false;
+    const root = this._root?.querySelector?.("[data-device-new-main]");
+    const plant = this._getPlant();
+    if (root && plant && this._hass) {
+      const summary = repairDeviceNewSummaryElement(root.querySelector("[data-device-new-summary]"));
+      if (summary) {
+        summary.innerHTML = renderDeviceNewSummaryCardItems(this._hass, plant, this._plantState);
+      }
+    }
     return true;
   }
 
@@ -14471,7 +14480,10 @@ ${sidebar}
       return `<div data-device-new-main="1" data-plant-id="${esc(plant.entry_id)}">
 <div class="fox-device-new-layout fox-device-new-layout--alarms">
 ${sidebar}
-<div class="fox-device-new-content" data-device-new-alarms="1">${this._renderDeviceNewAlarmsBody()}</div>
+<div class="fox-device-new-content">
+${summary}
+<div data-device-new-alarms="1">${this._renderDeviceNewAlarmsBody()}</div>
+</div>
 </div>
 </div>`;
     }
