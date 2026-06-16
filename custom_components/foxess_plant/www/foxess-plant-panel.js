@@ -255,7 +255,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.233";
+const PANEL_VERSION = "0.9.240";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -7527,13 +7527,16 @@ const STYLES = `
 .card-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--secondary-text-color); margin: 0 0 14px; }
 .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 12px; }
 .overview-hero-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   gap: 14px;
   margin-bottom: 14px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
-.overview-hero-scene { width: 100%; max-width: none; margin: 0; min-width: 0; }
+.overview-hero-scene { width: 100%; max-width: none; margin: 0; min-width: 0; align-self: stretch; }
 .overview-hero-scene .scene-card--fox-flow { margin-bottom: 0; width: 100%; }
 .overview-energy-band {
   display: flex; flex-direction: column; gap: 14px;
@@ -7577,14 +7580,17 @@ const STYLES = `
 .overview-hero-daily,
 .overview-hero-daily-slot {
   display: flex; flex-direction: column; gap: 12px;
-  min-width: 0;
+  width: 100%; max-width: none; min-width: 0;
+  box-sizing: border-box; align-self: stretch;
 }
 .overview-daily-card {
   background: var(--card-background-color); border-radius: var(--fp-radius);
   border: 1px solid var(--divider-color, transparent);
   box-shadow: var(--ha-card-box-shadow, 0 1px 2px rgba(0,0,0,0.06));
-  padding: 14px 14px 10px; min-width: 0; text-align: left;
+  padding: 14px 14px 10px; min-width: 0; width: 100%; max-width: none;
+  box-sizing: border-box; text-align: left;
   cursor: pointer; font-family: inherit; color: inherit;
+  display: block;
 }
 .overview-daily-card:hover { background: var(--secondary-background-color); }
 .overview-daily-card:has(.overview-daily-chart-wrap:hover) { background: var(--card-background-color); }
@@ -9103,7 +9109,7 @@ const STYLES = `
   border-color: #52c41a; color: #52c41a; background: rgba(82, 196, 26, 0.08);
 }
 @media (max-width: 980px) {
-  .fox-device-new-layout { grid-template-columns: 1fr; }
+  .fox-device-new-layout { grid-template-columns: 1fr; row-gap: 14px; }
   .fox-device-new-sidebar-col,
   .fox-device-new-content,
   .fox-device-new-analysis-stack { grid-column: 1; }
@@ -9113,6 +9119,18 @@ const STYLES = `
   .fox-device-new-metric-item:nth-child(3n) { border-right: 1px solid var(--divider-color); }
   .fox-device-new-metric-item:nth-child(2n) { border-right: none; }
 }
+@container fp-main (max-width: 700px) {
+  .fox-device-new-layout { grid-template-columns: 1fr; row-gap: 14px; }
+  .fox-device-new-sidebar-col,
+  .fox-device-new-content,
+  .fox-device-new-analysis-stack { grid-column: 1; }
+  .fox-device-new-sidebar-col { position: static; }
+}
+.shell.narrow .fox-device-new-layout { grid-template-columns: 1fr; row-gap: 14px; }
+.shell.narrow .fox-device-new-sidebar-col,
+.shell.narrow .fox-device-new-content,
+.shell.narrow .fox-device-new-analysis-stack { grid-column: 1; }
+.shell.narrow .fox-device-new-sidebar-col { position: static; }
 @media (max-width: 520px) {
   .fox-device-new-summary { grid-template-columns: 1fr; }
   .fox-device-new-metric-grid { grid-template-columns: 1fr; }
@@ -9370,15 +9388,33 @@ const STYLES = `
   }
   .overview-hero-daily,
   .overview-hero-daily-slot {
-    flex: none;
+    width: 100%;
     min-width: 0;
   }
+}
+.shell.narrow .overview-hero-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+.shell.narrow .overview-hero-daily,
+.shell.narrow .overview-hero-daily-slot,
+.shell.narrow .overview-daily-card {
+  width: 100%;
+  max-width: none;
 }
 @media (max-width: 720px) {
   .overview-hero-row {
     display: flex;
     flex-direction: column;
+    align-items: stretch;
     gap: 14px;
+  }
+  .overview-hero-daily,
+  .overview-hero-daily-slot,
+  .overview-daily-card {
+    width: 100%;
+    max-width: none;
   }
   .device-grid { grid-template-columns: 1fr; gap: 12px; }
   .overview-energy-stats-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
