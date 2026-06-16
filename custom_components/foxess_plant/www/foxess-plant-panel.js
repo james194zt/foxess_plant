@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.262
+ * @version 0.9.263
  */
 
 import { renderFoxAlarmDetailModal } from "./fox-alarm-guide.js";
@@ -5389,15 +5389,15 @@ function renderFoxAlarmListSection(data, { tab, filters, timeRange }) {
 
 function renderFoxAlarmPage(data, { tab = "active", loading = false, filters = {}, timeRange = { mode: "24h" } } = {}) {
   if (loading) {
-    return `<div class="fox-alarm-page"><div class="fox-alarm-head"><h2 class="fox-alarm-title">Alert</h2></div><p class="chart-loading">Loading alarm history…</p></div>`;
+    return `<div class="fox-alarm-page"><div class="fox-alarm-head"><h2 class="fox-alarm-title">Alerts</h2></div><p class="chart-loading">Loading alarm history…</p></div>`;
   }
   if (data?.error) {
-    return `<div class="fox-alarm-page"><div class="fox-alarm-head"><h2 class="fox-alarm-title">Alert</h2></div><p class="placeholder chart-empty">${esc(data.error)}</p></div>`;
+    return `<div class="fox-alarm-page"><div class="fox-alarm-head"><h2 class="fox-alarm-title">Alerts</h2></div><p class="placeholder chart-empty">${esc(data.error)}</p></div>`;
   }
   const updated = formatFoxTimeAgo(data.fetchedAt);
   return `<div class="fox-alarm-page">
 <div class="fox-alarm-head">
-<h2 class="fox-alarm-title">Alert</h2>
+<h2 class="fox-alarm-title">Alerts</h2>
 <span class="fox-alarm-updated">${esc(updated)}</span>
 </div>
 <div class="fox-alarm-summary-grid">
