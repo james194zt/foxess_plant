@@ -255,7 +255,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.242";
+const PANEL_VERSION = "0.9.243";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -3813,6 +3813,7 @@ const STATISTICS_CHART_SERIES = [
     fillColor: "rgba(255,111,175,0.14)",
     toKw: true,
     clampMin: 0,
+    preferHistory: true,
     fill: true,
     lineWidth: 1.2,
   },
@@ -3826,6 +3827,7 @@ const STATISTICS_CHART_SERIES = [
     toKw: true,
     abs: true,
     negate: true,
+    preferHistory: true,
     fill: true,
     hideLegend: true,
     lineWidth: 1.2,
@@ -4691,16 +4693,34 @@ function transformPowerPoint(v, spec) {
   return x;
 }
 
+/** foxess_modbus ModbusSensorDescription.scale for grid/pv/load power (register → kW). */
+const FOXESS_MODBUS_POWER_REGISTER_SCALE = 0.001;
+/** Net grid above this (kW) on a residential EVO-class site is a recorder/register glitch. */
+const GRID_NET_PLAUSIBLE_KW = 15;
+
+function applyFoxessModbusRegisterScaleKw(value) {
+  let x = value;
+  for (let i = 0; i < 2 && Math.abs(x) >= 100; i++) {
+    x *= FOXESS_MODBUS_POWER_REGISTER_SCALE;
+  }
+  return x;
+}
+
 function entityValueToKw(hass, entityId, value) {
   if (!Number.isFinite(value)) return value;
-  const unit = String(hass?.states?.[entityId]?.attributes?.unit_of_measurement || "")
+  const st = hass?.states?.[entityId];
+  const unit = String(st?.attributes?.unit_of_measurement || "")
     .toLowerCase()
     .replace(/\s/g, "");
-  // foxess_modbus applies register scale (e.g. 0.001) before publishing; recorder stats match entity kW.
-  if (unit === "kw") return value;
-  if (unit === "w") return value / 1000;
-  if (Math.abs(value) > 500) return value / 1000;
-  return value;
+  let x;
+  if (unit === "kw") x = value;
+  else if (unit === "w") x = value / 1000;
+  else if (Math.abs(value) > 500) x = value / 1000;
+  else x = value;
+  if (st?.attributes?.device_class === "power") {
+    x = applyFoxessModbusRegisterScaleKw(x);
+  }
+  return x;
 }
 
 const STATISTICS_SIGNED_EPS_KW = 0.05;
@@ -5430,7 +5450,7 @@ function finalizeStatisticsChartSeries(series, range) {
       lineWidth: 1.2,
       connectGaps: true,
       showZeroInTooltip: true,
-      points: filterStatisticsSpikes(densifyStatisticsPoints(gridNetPoints, range)),
+      points: filterGridNetStatisticsPoints(densifyStatisticsPoints(gridNetPoints, range)),
     });
   }
   return out;
@@ -5458,7 +5478,33 @@ function seriesHasLargeGaps(points, periodMs = STATISTICS_PERIOD_MS, maxGapPerio
   return false;
 }
 
-function statisticsRawPointsForEntity(entityId, range, statsMap, hist) {
+function filterGridNetStatisticsPoints(points) {
+  if (!points?.length) return points;
+  const out = [];
+  for (let i = 0; i < points.length; i++) {
+    const prev = out[out.length - 1]?.v ?? 0;
+    const next = points[i + 1]?.v ?? prev;
+    let v = points[i].v;
+    if (!Number.isFinite(v)) continue;
+    if (Math.abs(v) > GRID_NET_PLAUSIBLE_KW) {
+      v = (prev + next) / 2;
+    }
+    const neighbour = (Math.abs(prev) + Math.abs(next)) / 2;
+    const delta = Math.abs(v - prev);
+    if (
+      points.length >= 3 &&
+      delta > STATISTICS_SPIKE_MAX_DELTA_KW &&
+      Math.abs(v) > neighbour * 2.5 &&
+      Math.abs(v) > 1
+    ) {
+      v = neighbour;
+    }
+    out.push({ ...points[i], v });
+  }
+  return out;
+}
+
+function statisticsRawPointsForEntity(entityId, range, statsMap, hist, options = {}) {
   const statRows = statsMap?.[entityId];
   let statPoints = [];
   if (statRows?.length) {
@@ -5468,6 +5514,16 @@ function statisticsRawPointsForEntity(entityId, range, statsMap, hist) {
     historyToPoints(historyRowsForEntity(hist, entityId)),
     range
   );
+  if (options.preferHistory && histPoints.length) {
+    return histPoints;
+  }
+  if (statPoints.length && histPoints.length) {
+    const statPeak = statisticsPointsPeakAbs(statPoints);
+    const histPeak = statisticsPointsPeakAbs(histPoints);
+    if (histPeak > 0 && statPeak > Math.max(histPeak * 4, 10)) {
+      return histPoints;
+    }
+  }
   if (statPoints.length && (statisticsPointsHaveSignal(statPoints) || !histPoints.length)) {
     return statPoints;
   }
@@ -5475,7 +5531,9 @@ function statisticsRawPointsForEntity(entityId, range, statsMap, hist) {
 }
 
 function buildStatisticsSeriesPoints(hass, entityId, spec, range, statsMap, hist) {
-  const rawPoints = statisticsRawPointsForEntity(entityId, range, statsMap, hist);
+  const rawPoints = statisticsRawPointsForEntity(entityId, range, statsMap, hist, {
+    preferHistory: spec.preferHistory === true,
+  });
   return filterStatisticsSpikes(
     rawPoints.map((p) => ({
       t: p.t,
