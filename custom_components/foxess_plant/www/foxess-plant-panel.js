@@ -255,7 +255,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.246";
+const PANEL_VERSION = "0.9.247";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "10";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -5157,18 +5157,15 @@ function computeStatisticsYDomain(series, padRatio = 0.08) {
   const plausible = raw.filter((v) => Math.abs(v) <= 25);
   const forScale =
     plausible.length >= Math.max(3, Math.floor(raw.length * 0.1)) ? plausible : raw;
-  const sorted = [...forScale].sort((a, b) => a - b);
-  let yMin = statisticsPercentile(sorted, 0.03);
-  let yMax = statisticsPercentile(sorted, 0.97);
-  const crossesZero = sorted.some((v) => v <= 0) && sorted.some((v) => v >= 0);
-  if (crossesZero) {
-    yMin = Math.min(yMin, 0);
-    yMax = Math.max(yMax, 0);
-  } else if (yMin > 0) {
-    yMin = Math.max(0, yMin);
+  let yMin = Math.min(...forScale);
+  let yMax = Math.max(...forScale);
+  if (yMin < 0 && yMax > 0) {
+    /* signed power chart — keep zero visible */
+  } else if (yMin >= 0) {
+    yMin = 0;
   }
   if (yMax <= yMin) yMax = yMin + Math.max(Math.abs(yMin) * 0.15, 0.5);
-  const pad = (yMax - yMin) * padRatio;
+  const pad = Math.max((yMax - yMin) * padRatio, 0.05);
   return snapStatisticsYDomain(yMin - pad, yMax + pad);
 }
 
