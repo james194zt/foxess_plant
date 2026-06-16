@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.259
+ * @version 0.9.261
  */
 
 import { renderFoxAlarmDetailModal } from "./fox-alarm-guide.js";
@@ -8322,8 +8322,13 @@ const STYLES = `
   min-width: 0;
   box-sizing: border-box;
 }
-.overview-hero-scene { width: 100%; max-width: none; margin: 0; min-width: 0; align-self: stretch; }
-.overview-hero-scene .scene-card--fox-flow { margin-bottom: 0; width: 100%; }
+.overview-hero-scene {
+  width: 100%; max-width: none; margin: 0; min-width: 0; align-self: stretch;
+  display: flex; flex-direction: column; gap: 12px; min-height: 0;
+}
+.overview-hero-scene-slot { flex: 1 1 auto; min-height: 0; }
+.overview-hero-scene .scene-card--fox-flow { margin-bottom: 0; width: 100%; height: 100%; }
+.overview-system-status-slot { flex: 0 0 auto; width: 100%; }
 .overview-energy-band {
   display: flex; flex-direction: column; gap: 14px;
   width: 100%; margin-bottom: 14px; min-width: 0;
@@ -8363,16 +8368,16 @@ const STYLES = `
 .overview-balance-spark {
   width: 132px; max-width: 42vw; flex-shrink: 0; display: flex; align-items: center; justify-content: flex-end;
 }
-.overview-hero-daily,
 .overview-hero-daily-slot {
-  display: flex; flex-direction: column; gap: 12px;
+  display: flex; flex-direction: column; gap: 0;
   width: 100%; max-width: none; min-width: 0;
-  box-sizing: border-box; align-self: stretch;
+  box-sizing: border-box; align-self: stretch; min-height: 0;
 }
 .overview-hero-daily-charts {
-  display: flex; flex-direction: column; gap: 12px;
-  flex: 1 1 auto; min-height: 0; width: 100%;
+  display: grid; grid-template-rows: 1fr 1fr; gap: 12px;
+  flex: 1 1 auto; min-height: 0; width: 100%; height: 100%;
 }
+.overview-hero-daily-charts .overview-daily-card { min-height: 0; height: 100%; }
 .overview-system-status-card {
   flex: 0 0 auto;
   background: var(--card-background-color); border-radius: var(--fp-radius);
@@ -8381,11 +8386,11 @@ const STYLES = `
   padding: 12px 14px; width: 100%; box-sizing: border-box;
 }
 .overview-system-status-head {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  margin-bottom: 8px; min-height: 24px;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  margin-bottom: 6px; min-height: 24px;
 }
 .overview-system-status-title {
-  font-size: 14px; font-weight: 600; color: var(--primary-text-color); letter-spacing: -0.01em;
+  font-size: 12px; font-weight: 600; color: var(--secondary-text-color); letter-spacing: 0.01em;
 }
 .overview-system-status-details {
   flex-shrink: 0; padding: 4px 12px; border-radius: 999px;
@@ -8409,9 +8414,10 @@ const STYLES = `
   border: 1px solid var(--divider-color, transparent);
   box-shadow: var(--ha-card-box-shadow, 0 1px 2px rgba(0,0,0,0.06));
   padding: 14px 14px 10px; min-width: 0; width: 100%; max-width: none;
+  min-height: 0;
   box-sizing: border-box; text-align: left;
   cursor: pointer; font-family: inherit; color: inherit;
-  display: block;
+  display: flex; flex-direction: column;
 }
 .overview-daily-card:hover { background: var(--secondary-background-color); }
 .overview-daily-card:has(.overview-daily-chart-wrap:hover) { background: var(--card-background-color); }
@@ -8425,9 +8431,13 @@ const STYLES = `
 .overview-daily-chev { font-size: 16px; line-height: 1; color: var(--secondary-text-color); opacity: 0.55; }
 .overview-daily-value {
   font-size: 22px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 8px; line-height: 1.15;
+  flex: 0 0 auto;
 }
-.overview-daily-chart-wrap { position: relative; width: 100%; }
-.overview-daily-chart { width: 100%; height: auto; display: block; }
+.overview-daily-chart-wrap {
+  position: relative; width: 100%; flex: 1 1 auto; min-height: 0;
+  display: flex; align-items: flex-end;
+}
+.overview-daily-chart { width: 100%; height: auto; max-height: 100%; display: block; }
 .overview-daily-bar-hit { cursor: default; pointer-events: all; }
 .overview-daily-tooltip {
   position: absolute; z-index: 2; pointer-events: none;
@@ -10358,7 +10368,7 @@ const STYLES = `
   .overview-hero-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    align-items: start;
+    align-items: stretch;
     gap: 14px;
   }
   .overview-hero-scene {
@@ -10366,11 +10376,12 @@ const STYLES = `
     max-width: none;
     margin: 0;
     min-width: 0;
+    height: 100%;
   }
-  .overview-hero-daily,
   .overview-hero-daily-slot {
     width: 100%;
     min-width: 0;
+    height: 100%;
   }
 }
 .shell.narrow .overview-hero-row {
@@ -10378,7 +10389,6 @@ const STYLES = `
   flex-direction: column;
   align-items: stretch;
 }
-.shell.narrow .overview-hero-daily,
 .shell.narrow .overview-hero-daily-slot,
 .shell.narrow .overview-daily-card {
   width: 100%;
@@ -10391,7 +10401,6 @@ const STYLES = `
     align-items: stretch;
     gap: 14px;
   }
-  .overview-hero-daily,
   .overview-hero-daily-slot,
   .overview-daily-card {
     width: 100%;
@@ -13426,6 +13435,34 @@ ${this._renderImpactPanel()}`;
     return `ok:${slots.map((s) => s.t).join(",")}`;
   }
 
+  _ensureOverviewHeroLayout(mainEl) {
+    const heroRow = mainEl?.querySelector?.(".overview-hero-row");
+    if (!heroRow || heroRow.dataset.overviewHeroLayout === "2") return;
+    const sceneSlot = heroRow.querySelector(".overview-hero-scene-slot");
+    let sceneHtml = sceneSlot?.innerHTML || "";
+    if (!sceneHtml) {
+      const sceneEl = heroRow.querySelector(".overview-hero-scene");
+      if (sceneEl) {
+        const scratch = document.createElement("div");
+        scratch.innerHTML = sceneEl.innerHTML;
+        scratch.querySelector(".overview-system-status-slot, .overview-system-status-card")?.remove();
+        sceneHtml = scratch.innerHTML.trim();
+      }
+    }
+    const chartsEl =
+      heroRow.querySelector(".overview-hero-daily .overview-hero-daily-charts") ||
+      heroRow.querySelector(".overview-hero-daily-charts");
+    const chartsHtml = chartsEl?.innerHTML || "";
+    heroRow.innerHTML = `<div class="overview-hero-scene">
+<div class="overview-hero-scene-slot">${sceneHtml}</div>
+<div class="overview-system-status-slot"></div>
+</div>
+<div class="overview-hero-daily-slot"><div class="overview-hero-daily-charts">${chartsHtml}</div></div>`;
+    heroRow.dataset.overviewHeroLayout = "2";
+    this._overviewDailySlotCache = undefined;
+    this._overviewSystemStatusSlotCache = undefined;
+  }
+
   _patchOverviewHourlyWeatherSlot(mainEl) {
     const slot = mainEl.querySelector(".overview-hourly-weather-slot");
     if (!slot) return;
@@ -13463,38 +13500,36 @@ ${this._renderImpactPanel()}`;
     if (!mainEl.querySelector(".overview-root")) {
       mainEl.innerHTML = `<div class="overview-root">
 <div class="overview-chrome"></div>
-<div class="overview-hero-row">
+<div class="overview-hero-row" data-overview-hero-layout="2">
 <div class="overview-hero-scene">
 <div class="overview-hero-scene-slot"></div>
+<div class="overview-system-status-slot"></div>
 </div>
-<div class="overview-hero-daily-slot"></div>
+<div class="overview-hero-daily-slot"><div class="overview-hero-daily-charts"></div></div>
 </div>
 <div class="overview-energy-band-slot"></div>
 <div class="overview-hourly-weather-slot"></div>
 <div class="overview-after-hero"></div>
 </div>`;
     }
+    this._ensureOverviewHeroLayout(mainEl);
 
     mainEl.querySelector(".overview-chrome").innerHTML =
       this._renderOverviewHeader(plant) + this._renderPanelStaleBanner();
     const dailyKey = this._overviewDailySlotKey();
-    const dailySlot = mainEl.querySelector(".overview-hero-daily-slot");
-    if (!dailySlot.querySelector(".overview-hero-daily")) {
-      dailySlot.innerHTML = `<div class="overview-hero-daily"><div class="overview-system-status-slot"></div><div class="overview-hero-daily-charts"></div></div>`;
-    }
     const statusKey = this._overviewSystemStatusSlotKey();
     if (statusKey !== this._overviewSystemStatusSlotCache) {
-      const statusSlot = dailySlot.querySelector(".overview-system-status-slot");
+      const statusSlot = mainEl.querySelector(".overview-system-status-slot");
       if (statusSlot) {
         statusSlot.innerHTML = this._renderOverviewSystemStatusCard();
         this._overviewSystemStatusSlotCache = statusKey;
       }
     }
-    const chartsSlot = dailySlot.querySelector(".overview-hero-daily-charts");
+    const chartsSlot = mainEl.querySelector(".overview-hero-daily-charts");
     if (chartsSlot && dailyKey !== this._overviewDailySlotCache) {
       chartsSlot.innerHTML = this._renderOverviewDailyCharts();
       this._overviewDailySlotCache = dailyKey;
-      bindOverviewDailyCharts(dailySlot);
+      bindOverviewDailyCharts(mainEl.querySelector(".overview-hero-daily-slot"));
     }
     const breakdownKey = this._overviewEnergyBandKey(plant);
     const energyBandSlot = mainEl.querySelector(".overview-energy-band-slot");
@@ -13668,10 +13703,7 @@ ${chart}
   }
 
   _renderOverviewHeroDailyColumn() {
-    return `<div class="overview-hero-daily">
-${this._renderOverviewSystemStatusCard()}
-<div class="overview-hero-daily-charts">${this._renderOverviewDailyCharts()}</div>
-</div>`;
+    return `<div class="overview-hero-daily-slot"><div class="overview-hero-daily-charts">${this._renderOverviewDailyCharts()}</div></div>`;
   }
 
   async _loadOverviewSystemStatus({ force = false } = {}) {
@@ -13752,9 +13784,10 @@ ${this._renderOverviewSystemStatusCard()}
   _renderOverview(plant) {
     return `${this._renderOverviewHeader(plant)}
 ${this._renderPanelStaleBanner()}
-<div class="overview-hero-row">
+<div class="overview-hero-row" data-overview-hero-layout="2">
 <div class="overview-hero-scene">
-${this._renderEnergyScene(plant)}
+<div class="overview-hero-scene-slot">${this._renderEnergyScene(plant)}</div>
+<div class="overview-system-status-slot">${this._renderOverviewSystemStatusCard()}</div>
 </div>
 ${this._renderOverviewHeroDailyColumn()}
 </div>
