@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.250
+ * @version 0.9.251
  */
 
 import { renderFoxAlarmDetailModal } from "./fox-alarm-guide.js";
@@ -19,8 +19,8 @@ const NAV = [
 
 const DEVICE_NEW_NAV = [
   { id: "analysis", label: "Analysis" },
-  { id: "alarms", label: "Alarms" },
   { id: "realtime", label: "Real-time" },
+  { id: "alarms", label: "Alarms" },
   { id: "pv-config", label: "PV Configuration" },
 ];
 
