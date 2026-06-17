@@ -12,6 +12,7 @@ from homeassistant.components import websocket_api
 from homeassistant.components.recorder import get_instance, history
 from homeassistant.components.recorder.util import session_scope
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.util import dt as dt_util
 
@@ -407,12 +408,22 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
         if coordinator is None:
             connection.send_error(msg["id"], err_code, err_msg)
             return
-        await coordinator.async_set_soc_limits(
-            msg["min_soc"],
-            msg["min_soc_on_grid"],
-            msg["max_soc"],
+        try:
+            soc_write_results = await coordinator.async_set_soc_limits(
+                msg["min_soc"],
+                msg["min_soc_on_grid"],
+                msg["max_soc"],
+            )
+        except HomeAssistantError as err:
+            connection.send_error(msg["id"], "soc_save_failed", str(err))
+            return
+        connection.send_result(
+            msg["id"],
+            {
+                **coordinator.get_plant_state(),
+                "soc_write_results": soc_write_results,
+            },
         )
-        connection.send_result(msg["id"], coordinator.get_plant_state())
 
     @websocket_api.websocket_command({vol.Required("type"): WS_TYPE_FORECAST_ENTITY_CANDIDATES})
     @websocket_api.async_response

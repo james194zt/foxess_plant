@@ -1165,11 +1165,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "min_soc_on_grid": self._entity_float("min_soc_on_grid"),
             "max_soc": self._entity_float("max_soc"),
         }
-        target = clamp_soc_values(
-            int(current.get("min_soc") or 10),
-            int(current.get("min_soc_on_grid") or 10),
-            int(round(value)),
-        )
+        min_soc = int(current.get("min_soc") or 10)
+        min_soc_on_grid = int(current.get("min_soc_on_grid") or 10)
+        max_soc = int(round(value))
+        target = clamp_soc_values(min_soc, min_soc_on_grid, max_soc)
         await apply_soc_limits(
             self.hass,
             self.plant.entity_map,
@@ -1177,6 +1176,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             min_soc_on_grid=target["min_soc_on_grid"],
             max_soc=target["max_soc"],
             current=current,
+            force_write=True,
         )
 
     async def async_set_soc_limits(
@@ -1184,9 +1184,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         min_soc: int,
         min_soc_on_grid: int,
         max_soc: int,
-    ) -> None:
+    ) -> list[dict[str, Any]]:
         """Write all three SOC limits in an inverter-safe order."""
-        await apply_soc_limits(
+        return await apply_soc_limits(
             self.hass,
             self.plant.entity_map,
             min_soc=min_soc,

@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.264
+ * @version 0.9.266
  */
 
 import { renderFoxAlarmDetailModal } from "./fox-alarm-guide.js";
@@ -8073,7 +8073,30 @@ function validateSocLimits(draft, liveSoc) {
   return { errors, warnings };
 }
 
-function renderSocFeedbackHtml(validation, saveError) {
+function renderSocResultHtml(results) {
+  if (!results?.length) return "";
+  const items = results
+    .map((row) => {
+      const ok = row.success;
+      const icon = ok ? "✓" : "✕";
+      const cls = ok ? "ok" : "err";
+      const detail = row.skipped && ok ? "Already set" : row.message || (ok ? "Operation successful" : "Failed");
+      return `<li class="soc-result-item ${cls}">
+<span class="soc-result-icon" aria-hidden="true">${icon}</span>
+<span class="soc-result-text"><strong>${esc(row.label || row.key)}</strong> ${esc(detail)}</span>
+</li>`;
+    })
+    .join("");
+  return `<div class="soc-result-panel" role="dialog" aria-label="SOC save result">
+<div class="soc-result-head">
+<strong>Result</strong>
+<button type="button" class="soc-result-close" data-action="soc-result-close" aria-label="Close result">×</button>
+</div>
+<ul class="soc-result-list">${items}</ul>
+</div>`;
+}
+
+function renderSocFeedbackHtml(validation, saveError, saveResults) {
   const parts = [];
   if (validation?.errors?.length) {
     parts.push(
@@ -8084,6 +8107,9 @@ function renderSocFeedbackHtml(validation, saveError) {
     parts.push(
       `<div class="soc-validation warn" role="status">${validation.warnings.map((msg) => `<p>${esc(msg)}</p>`).join("")}</div>`
     );
+  }
+  if (saveResults?.length) {
+    parts.push(renderSocResultHtml(saveResults));
   }
   if (saveError) {
     parts.push(`<div class="soc-validation" role="alert"><p>${esc(saveError)}</p></div>`);
@@ -10266,6 +10292,72 @@ const STYLES = `
   background: color-mix(in srgb, var(--fp-amber) 18%, var(--card-background-color));
   border-color: color-mix(in srgb, var(--fp-amber) 45%, transparent);
 }
+.soc-result-panel {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--divider-color);
+  background: var(--card-background-color);
+}
+.soc-result-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.soc-result-head strong {
+  font-size: 15px;
+  font-weight: 600;
+}
+.soc-result-close {
+  border: 0;
+  background: transparent;
+  color: var(--secondary-text-color);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.soc-result-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.soc-result-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.35;
+}
+.soc-result-icon {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  margin-top: 1px;
+}
+.soc-result-item.ok .soc-result-icon {
+  background: #2e7d32;
+  color: #fff;
+}
+.soc-result-item.err .soc-result-icon {
+  background: #c62828;
+  color: #fff;
+}
+.soc-result-text strong {
+  display: block;
+  margin-bottom: 2px;
+}
 .mode-grid { display: grid; gap: 8px; }
 .mode-option {
   display: flex; align-items: flex-start; gap: 12px; width: 100%; text-align: left; padding: 14px 16px;
@@ -10476,6 +10568,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._chargeDraft = null;
     this._socDraft = null;
     this._socSaveError = null;
+    this._socSaveResults = null;
     this._workModeDraft = null;
     this._stormDraft = null;
     this._triggerMeta = null;
@@ -12388,6 +12481,11 @@ Reloading panel registration…
       await this._saveSoc();
       return;
     }
+    if (action === "soc-result-close") {
+      this._socSaveResults = null;
+      this._render();
+      return;
+    }
     if (action === "save-work-mode") {
       await this._saveWorkMode();
       return;
@@ -12884,6 +12982,7 @@ Reloading panel registration…
       if (Number.isNaN(v)) return;
       if (e.type === "change" || (v >= SOC_MIN_PCT && v <= 100)) {
         this._socSaveError = null;
+        this._socSaveResults = null;
         applySocDrag(this._socDraft, field, v);
         this._updateTripleSocDom();
       }
@@ -12901,6 +13000,7 @@ Reloading panel registration…
   _onSocMove(e) {
     if (!this._socDrag || !this._socDraft) return;
     this._socSaveError = null;
+    this._socSaveResults = null;
     const rect = this._socDrag.track.getBoundingClientRect();
     const pct = socPctFromTrackPointer(e.clientX, rect, this._socDrag.grabOffset ?? 0);
     applySocDrag(this._socDraft, this._socDrag.thumb, pct);
@@ -12927,8 +13027,8 @@ Reloading panel registration…
     const validation = this._socValidationIssues();
     const wrap = this._root.querySelector(".triple-soc");
     if (!wrap) return;
-    const html = renderSocFeedbackHtml(validation, this._socSaveError);
-    wrap.querySelectorAll(".soc-validation").forEach((el) => el.remove());
+    const html = renderSocFeedbackHtml(validation, this._socSaveError, this._socSaveResults);
+    wrap.querySelectorAll(".soc-validation, .soc-result-panel").forEach((el) => el.remove());
     if (html) wrap.querySelector(".soc-numeric")?.insertAdjacentHTML("afterend", html);
     const saveBtn = this._root.querySelector('[data-action="save-soc"]');
     if (saveBtn) saveBtn.disabled = Boolean(this._busy || validation.errors.length);
@@ -12942,6 +13042,7 @@ Reloading panel registration…
         if (this._busy) return;
         e.preventDefault();
         this._socSaveError = null;
+        this._socSaveResults = null;
         track.querySelectorAll(".triple-soc-thumb").forEach((t) => t.classList.remove("is-dragging"));
         thumb.classList.add("is-dragging");
         thumb.setPointerCapture(e.pointerId);
@@ -13052,7 +13153,7 @@ ${thumbsHtml}
 <span><i style="background:var(--fp-accent)"></i> Charge headroom</span>
 </div>
 <div class="soc-numeric">${numericHtml}</div>
-${renderSocFeedbackHtml(validateSocLimits(clamped, live), this._socSaveError)}
+${renderSocFeedbackHtml(validateSocLimits(clamped, live), this._socSaveError, this._socSaveResults)}
 <p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. The inverter may reject limits that conflict with the current battery level — Save will show the error if it does.</p>
 </div>`;
   }
@@ -13133,21 +13234,34 @@ ${renderSocFeedbackHtml(validateSocLimits(clamped, live), this._socSaveError)}
     const { min_soc, min_soc_on_grid, max_soc } = clamped;
     this._socDraft = clamped;
     this._socSaveError = null;
+    this._socSaveResults = null;
     this._busy = true;
     this._render();
     try {
-      const state = await this._hass.connection.sendMessagePromise({
+      const response = await this._hass.connection.sendMessagePromise({
         type: "foxess_plant/set_soc_limits",
         plant_id: plant.entry_id,
         min_soc,
         min_soc_on_grid,
         max_soc,
       });
-      if (state) this._plantState = state;
+      if (response) {
+        const { soc_write_results: socResults, ...plantState } = response;
+        this._plantState = plantState;
+        this._socSaveResults = Array.isArray(socResults) ? socResults : null;
+      }
       await this._refreshPlantState();
-      this._socSaveError = null;
-      this._showToast("SOC limits saved");
+      const allOk = !this._socSaveResults?.length || this._socSaveResults.every((row) => row.success);
+      if (allOk) {
+        this._socSaveError = null;
+        this._showToast("SOC limits saved");
+      } else {
+        const failed = this._socSaveResults.filter((row) => !row.success).map((row) => row.label);
+        this._socSaveError = `Save incomplete: ${failed.join(", ")}`;
+        this._showToast(this._socSaveError, "err");
+      }
     } catch (err) {
+      this._socSaveResults = null;
       this._socSaveError = err?.message || "SOC save failed";
       this._render();
     } finally {

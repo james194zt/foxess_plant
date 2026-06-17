@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import asdict
+from dataclasses import dataclass
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -12,6 +14,27 @@ from homeassistant.exceptions import HomeAssistantError
 _LOGGER = logging.getLogger(__name__)
 
 SOC_KEYS = ("min_soc", "min_soc_on_grid", "max_soc")
+SOC_DISPLAY_ORDER = ("min_soc", "min_soc_on_grid", "max_soc")
+SOC_LABELS = {
+    "min_soc": "Off-grid Min. SOC",
+    "min_soc_on_grid": "System Min. SOC",
+    "max_soc": "System Max. SOC",
+}
+
+
+@dataclass
+class SocWriteResult:
+    """Outcome of one SOC limit write (Fox app shows one row per limit)."""
+
+    key: str
+    label: str
+    value: int
+    success: bool
+    message: str
+    skipped: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
 _ILLEGAL_VALUE_HINT = (
     "Modbus IllegalValue on an SOC register (EVO/H3 Pro: 46609 min, 46610 max, 46611 on-grid). "
@@ -139,22 +162,28 @@ def compute_soc_write_sequence(
     return seq
 
 
-def force_soc_write_sequence(target: dict[str, int]) -> list[tuple[str, int]]:
-    """Always write all three SOC registers in inverter-safe order (explicit save)."""
-    t = clamp_soc_values(target["min_soc"], target["min_soc_on_grid"], target["max_soc"])
-    return [(key, t[key]) for key in ("max_soc", "min_soc_on_grid", "min_soc")]
+async def _refresh_soc_entity(hass: HomeAssistant, entity_map: dict[str, str], key: str) -> None:
+    entity_id = entity_map.get(key)
+    if entity_id:
+        await hass.services.async_call(
+            "homeassistant",
+            "update_entity",
+            {"entity_id": entity_id},
+            blocking=True,
+        )
 
 
 async def _refresh_soc_entities(hass: HomeAssistant, entity_map: dict[str, str]) -> None:
     for key in SOC_KEYS:
-        entity_id = entity_map.get(key)
-        if entity_id:
-            await hass.services.async_call(
-                "homeassistant",
-                "update_entity",
-                {"entity_id": entity_id},
-                blocking=True,
-            )
+        await _refresh_soc_entity(hass, entity_map, key)
+
+
+def _read_soc_key(hass: HomeAssistant, entity_map: dict[str, str], key: str) -> int | None:
+    entity_id = entity_map.get(key)
+    if not entity_id:
+        return None
+    state = hass.states.get(entity_id)
+    return _coerce_soc(state.state if state else None)
 
 
 def read_soc_current(hass: HomeAssistant, entity_map: dict[str, str]) -> dict[str, int]:
@@ -192,11 +221,75 @@ async def verify_soc_limits(
         raise HomeAssistantError(f"{_VERIFY_FAIL_HINT} {'; '.join(mismatches)}.")
 
 
-def _raise_soc_error(err: BaseException) -> None:
+def _format_soc_error(err: BaseException) -> str:
     message = str(err)
     if "IllegalValue" in message or "46609" in message or "46610" in message or "46611" in message:
-        raise HomeAssistantError(f"{_ILLEGAL_VALUE_HINT} Details: {message}") from err
-    raise HomeAssistantError(message) from err
+        return f"{_ILLEGAL_VALUE_HINT} Details: {message}"
+    return message
+
+
+def _raise_soc_error(err: BaseException) -> None:
+    raise HomeAssistantError(_format_soc_error(err)) from err
+
+
+def _soc_result(
+    key: str,
+    value: int,
+    *,
+    success: bool,
+    message: str,
+    skipped: bool = False,
+) -> SocWriteResult:
+    return SocWriteResult(
+        key=key,
+        label=SOC_LABELS[key],
+        value=value,
+        success=success,
+        message=message,
+        skipped=skipped,
+    )
+
+
+async def _verify_soc_key(
+    hass: HomeAssistant,
+    entity_map: dict[str, str],
+    key: str,
+    want: int,
+) -> SocWriteResult:
+    await _refresh_soc_entity(hass, entity_map, key)
+    await asyncio.sleep(0.25)
+    got = _read_soc_key(hass, entity_map, key)
+    if got is None:
+        return _soc_result(key, want, success=False, message="No read-back from inverter")
+    if got == want:
+        return _soc_result(key, want, success=True, message="Operation successful")
+    return _soc_result(
+        key,
+        want,
+        success=False,
+        message=f"Inverter reports {got}% (expected {want}%)",
+    )
+
+
+def _build_soc_results(
+    target: dict[str, int],
+    outcomes: dict[str, SocWriteResult],
+) -> list[dict[str, Any]]:
+    """One Fox-app-style row per limit, in display order."""
+    rows: list[dict[str, Any]] = []
+    for key in SOC_DISPLAY_ORDER:
+        if key in outcomes:
+            rows.append(outcomes[key].to_dict())
+        else:
+            rows.append(
+                _soc_result(
+                    key,
+                    target[key],
+                    success=False,
+                    message="Not written (a previous step failed)",
+                ).to_dict()
+            )
+    return rows
 
 
 async def apply_soc_limits(
@@ -209,7 +302,7 @@ async def apply_soc_limits(
     current: dict[str, Any] | None = None,
     force_write: bool = False,
     verify: bool = False,
-) -> None:
+) -> list[dict[str, Any]]:
     """Write min / on-grid / max SOC through foxess_modbus number entities."""
     target = validate_soc_limits_for_write(min_soc, min_soc_on_grid, max_soc)
 
@@ -223,12 +316,15 @@ async def apply_soc_limits(
             if (parsed := _coerce_soc(current.get(key))) is not None
         }
 
-    if force_write:
-        sequence = force_soc_write_sequence(target)
-    else:
-        sequence = compute_soc_write_sequence(target, live_current)
+    # Ordered transitions (e.g. lower mid before max) — never blind max-first writes.
+    sequence = compute_soc_write_sequence(target, live_current)
+    outcomes: dict[str, SocWriteResult] = {}
+    errors: dict[str, str] = {}
+    write_failed = False
 
     for key, value in sequence:
+        if write_failed:
+            break
         entity_id = entity_map.get(key)
         if not entity_id:
             raise HomeAssistantError(
@@ -247,10 +343,79 @@ async def apply_soc_limits(
                 {"entity_id": entity_id, "value": value},
                 blocking=True,
             )
+            if verify:
+                outcomes[key] = await _verify_soc_key(hass, entity_map, key, value)
+                if not outcomes[key].success:
+                    errors[key] = outcomes[key].message
+                    write_failed = True
+            else:
+                outcomes[key] = _soc_result(key, value, success=True, message="Operation successful")
         except Exception as err:
-            _raise_soc_error(err)
+            msg = _format_soc_error(err)
+            errors[key] = msg
+            outcomes[key] = _soc_result(key, value, success=False, message=msg)
+            write_failed = True
 
     if verify:
-        await verify_soc_limits(hass, entity_map, target)
+        await _refresh_soc_entities(hass, entity_map)
+        for key in SOC_DISPLAY_ORDER:
+            want = target[key]
+            if key in outcomes and outcomes[key].success:
+                continue
+            if key in outcomes and not outcomes[key].success:
+                continue
+            got = _read_soc_key(hass, entity_map, key)
+            if got == want:
+                outcomes[key] = _soc_result(
+                    key,
+                    want,
+                    success=True,
+                    message="Already set",
+                    skipped=True,
+                )
+            elif key in errors:
+                outcomes[key] = _soc_result(key, want, success=False, message=errors[key])
+            else:
+                outcomes[key] = _soc_result(
+                    key,
+                    want,
+                    success=False,
+                    message=f"Inverter reports {got}% (expected {want}%)"
+                    if got is not None
+                    else "No read-back from inverter",
+                )
+    else:
+        await _refresh_soc_entities(hass, entity_map)
+        for key in SOC_DISPLAY_ORDER:
+            if key in outcomes:
+                continue
+            want = target[key]
+            got = _read_soc_key(hass, entity_map, key)
+            if got == want:
+                outcomes[key] = _soc_result(
+                    key,
+                    want,
+                    success=True,
+                    message="Already set",
+                    skipped=True,
+                )
+            else:
+                outcomes[key] = _soc_result(
+                    key,
+                    want,
+                    success=False,
+                    message="Not written (a previous step failed)"
+                    if write_failed
+                    else f"Inverter reports {got}% (expected {want}%)"
+                    if got is not None
+                    else "No read-back from inverter",
+                )
 
-    _LOGGER.debug("Applied SOC limits %s (%d writes)", target, len(sequence))
+    results = _build_soc_results(target, outcomes)
+    _LOGGER.debug(
+        "Applied SOC limits %s (%d writes, %d ok)",
+        target,
+        len(sequence),
+        sum(1 for row in results if row["success"]),
+    )
+    return results
