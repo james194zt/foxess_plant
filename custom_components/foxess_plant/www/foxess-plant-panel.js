@@ -1,7 +1,7 @@
 /**
  * FoxESS Plant panel — HA sidebar app (phases 5a–5e).
  * hass / narrow / panel / route from Home Assistant.
- * @version 0.9.266
+ * @version 0.9.267
  */
 
 import { renderFoxAlarmDetailModal } from "./fox-alarm-guide.js";

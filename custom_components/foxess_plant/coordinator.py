@@ -1177,6 +1177,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             max_soc=target["max_soc"],
             current=current,
             force_write=True,
+            inverter_target=self.plant.inverter_target,
+            device_id=self.plant.device_id,
+            live_battery_soc=self._entity_float("battery_soc"),
         )
 
     async def async_set_soc_limits(
@@ -1194,6 +1197,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             max_soc=max_soc,
             force_write=True,
             verify=True,
+            inverter_target=self.plant.inverter_target,
+            device_id=self.plant.device_id,
+            live_battery_soc=self._entity_float("battery_soc"),
         )
 
     async def _persist(self) -> None:

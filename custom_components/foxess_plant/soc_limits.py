@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from dataclasses import asdict
 from dataclasses import dataclass
 from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+
+from .const import MODBUS_DOMAIN
+from .discovery import device_uses_h3_pro_soc_block
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -20,6 +24,10 @@ SOC_LABELS = {
     "min_soc_on_grid": "System Min. SOC",
     "max_soc": "System Max. SOC",
 }
+
+# Physical holding register layout (not logical sort order): 46609=min, 46610=max, 46611=on-grid.
+H3_PRO_SOC_BLOCK_START = 46609
+H3_PRO_SOC_BLOCK_KEYS = ("min_soc", "max_soc", "min_soc_on_grid")
 
 
 @dataclass
@@ -221,8 +229,33 @@ async def verify_soc_limits(
         raise HomeAssistantError(f"{_VERIFY_FAIL_HINT} {'; '.join(mismatches)}.")
 
 
-def _format_soc_error(err: BaseException) -> str:
+def _max_soc_battery_hint(live_battery_soc: float | None, target_max: int) -> str | None:
+    if live_battery_soc is None:
+        return None
+    try:
+        live = int(math.ceil(float(live_battery_soc)))
+    except (TypeError, ValueError):
+        return None
+    if 0 < live <= 100 and live > target_max:
+        return (
+            f"System max cannot be below the current battery level ({live}%). "
+            "Discharge or wait for SOC to drop, then try again."
+        )
+    return None
+
+
+def _format_soc_error(
+    err: BaseException,
+    *,
+    key: str | None = None,
+    target_max: int | None = None,
+    live_battery_soc: float | None = None,
+) -> str:
     message = str(err)
+    if key == "max_soc" and "IllegalValue" in message:
+        battery_hint = _max_soc_battery_hint(live_battery_soc, target_max or 0)
+        if battery_hint:
+            return battery_hint
     if "IllegalValue" in message or "46609" in message or "46610" in message or "46611" in message:
         return f"{_ILLEGAL_VALUE_HINT} Details: {message}"
     return message
@@ -292,6 +325,64 @@ def _build_soc_results(
     return rows
 
 
+async def _atomic_h3_pro_soc_write(
+    hass: HomeAssistant,
+    inverter_target: str,
+    target: dict[str, int],
+) -> None:
+    """One FC16 write for 46609–46611 (min, max, on-grid) — matches Fox app behaviour."""
+    values = [target[key] for key in H3_PRO_SOC_BLOCK_KEYS]
+    await hass.services.async_call(
+        MODBUS_DOMAIN,
+        "write_registers",
+        {
+            "inverter": inverter_target,
+            "start_address": H3_PRO_SOC_BLOCK_START,
+            "values": ",".join(str(v) for v in values),
+        },
+        blocking=True,
+    )
+
+
+async def _apply_atomic_soc_block(
+    hass: HomeAssistant,
+    entity_map: dict[str, str],
+    target: dict[str, int],
+    *,
+    inverter_target: str,
+    live_battery_soc: float | None,
+) -> list[dict[str, Any]] | None:
+    """Try a single contiguous SOC block write; return results or None to fall back."""
+    try:
+        await _atomic_h3_pro_soc_write(hass, inverter_target, target)
+    except Exception as err:
+        _LOGGER.info(
+            "Atomic SOC block write failed (%s); falling back to per-register writes",
+            err,
+        )
+        return None
+
+    outcomes: dict[str, SocWriteResult] = {}
+    for key in SOC_DISPLAY_ORDER:
+        outcomes[key] = await _verify_soc_key(hass, entity_map, key, target[key])
+        if not outcomes[key].success and key == "max_soc":
+            battery_hint = _max_soc_battery_hint(live_battery_soc, target["max_soc"])
+            if battery_hint:
+                outcomes[key] = _soc_result(
+                    key,
+                    target[key],
+                    success=False,
+                    message=battery_hint,
+                )
+
+    results = _build_soc_results(target, outcomes)
+    if all(row["success"] for row in results):
+        return results
+
+    _LOGGER.info("Atomic SOC block read-back incomplete; falling back to per-register writes")
+    return None
+
+
 async def apply_soc_limits(
     hass: HomeAssistant,
     entity_map: dict[str, str],
@@ -302,6 +393,9 @@ async def apply_soc_limits(
     current: dict[str, Any] | None = None,
     force_write: bool = False,
     verify: bool = False,
+    inverter_target: str | None = None,
+    device_id: str | None = None,
+    live_battery_soc: float | None = None,
 ) -> list[dict[str, Any]]:
     """Write min / on-grid / max SOC through foxess_modbus number entities."""
     target = validate_soc_limits_for_write(min_soc, min_soc_on_grid, max_soc)
@@ -316,8 +410,41 @@ async def apply_soc_limits(
             if (parsed := _coerce_soc(current.get(key))) is not None
         }
 
-    # Ordered transitions (e.g. lower mid before max) — never blind max-first writes.
     sequence = compute_soc_write_sequence(target, live_current)
+    if not sequence and verify:
+        outcomes = {
+            key: _soc_result(
+                key,
+                target[key],
+                success=True,
+                message="Already set",
+                skipped=True,
+            )
+            for key in SOC_DISPLAY_ORDER
+        }
+        return _build_soc_results(target, outcomes)
+
+    if (
+        verify
+        and inverter_target
+        and device_id
+        and device_uses_h3_pro_soc_block(hass, device_id)
+        and sequence
+    ):
+        atomic_results = await _apply_atomic_soc_block(
+            hass,
+            entity_map,
+            target,
+            inverter_target=inverter_target,
+            live_battery_soc=live_battery_soc,
+        )
+        if atomic_results is not None:
+            return atomic_results
+        await _refresh_soc_entities(hass, entity_map)
+        live_current = read_soc_current(hass, entity_map)
+        sequence = compute_soc_write_sequence(target, live_current)
+
+    # Ordered transitions (e.g. lower mid before max) — never blind max-first writes.
     outcomes: dict[str, SocWriteResult] = {}
     errors: dict[str, str] = {}
     write_failed = False
@@ -345,13 +472,22 @@ async def apply_soc_limits(
             )
             if verify:
                 outcomes[key] = await _verify_soc_key(hass, entity_map, key, value)
+                if not outcomes[key].success and key == "max_soc":
+                    battery_hint = _max_soc_battery_hint(live_battery_soc, value)
+                    if battery_hint:
+                        outcomes[key] = _soc_result(key, value, success=False, message=battery_hint)
                 if not outcomes[key].success:
                     errors[key] = outcomes[key].message
                     write_failed = True
             else:
                 outcomes[key] = _soc_result(key, value, success=True, message="Operation successful")
         except Exception as err:
-            msg = _format_soc_error(err)
+            msg = _format_soc_error(
+                err,
+                key=key,
+                target_max=target["max_soc"] if key == "max_soc" else None,
+                live_battery_soc=live_battery_soc,
+            )
             errors[key] = msg
             outcomes[key] = _soc_result(key, value, success=False, message=msg)
             write_failed = True

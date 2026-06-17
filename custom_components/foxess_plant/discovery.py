@@ -34,6 +34,23 @@ def inverter_target_from_device(device: dr.DeviceEntry) -> str:
     return device.id
 
 
+# H3 Pro / Smart / EVO expose min/max/on-grid SOC at contiguous holding 46609–46611.
+_H3_PRO_SOC_MODELS = frozenset({"EVO", "H3_PRO", "H3_SMART"})
+
+
+def device_uses_h3_pro_soc_block(hass: HomeAssistant, device_id: str) -> bool:
+    """True when the linked foxess_modbus inverter uses the 46609–46611 SOC block."""
+    device = dr.async_get(hass).async_get(device_id)
+    if device is None:
+        return False
+    for identifier in device.identifiers:
+        if identifier[0] == MODBUS_DOMAIN and len(identifier) >= 2:
+            model = str(identifier[1]).upper()
+            if model in _H3_PRO_SOC_MODELS:
+                return True
+    return False
+
+
 def _match_suffix(entry: er.RegistryEntry, suffix: str) -> bool:
     return entry.entity_id.endswith(f"_{suffix}") or entry.unique_id.endswith(f"_{suffix}")
 
