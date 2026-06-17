@@ -97,6 +97,7 @@ class OverrideState:
     periods: list[ChargePeriodConfig] | None = None
     reason: str = ""
     saved_max_soc: float | None = None
+    saved_work_mode: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> OverrideState:
@@ -107,22 +108,27 @@ class OverrideState:
             else None
         )
         saved = data.get("saved_max_soc")
+        saved_work_mode = data.get("saved_work_mode")
         return cls(
             active=bool(data.get("active", False)),
             mode=str(data.get("mode", "baseline")),
             periods=periods,
             reason=str(data.get("reason", "")),
             saved_max_soc=float(saved) if saved is not None else None,
+            saved_work_mode=str(saved_work_mode) if saved_work_mode else None,
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "active": self.active,
             "mode": self.mode,
             "periods": [p.to_dict() for p in self.periods] if self.periods else None,
             "reason": self.reason,
             "saved_max_soc": self.saved_max_soc,
         }
+        if self.saved_work_mode:
+            out["saved_work_mode"] = self.saved_work_mode
+        return out
 
 
 @dataclass

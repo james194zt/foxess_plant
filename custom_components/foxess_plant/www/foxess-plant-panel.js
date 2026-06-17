@@ -7940,6 +7940,41 @@ const DEFAULT_BRAND_ICON_STATIC = "/foxess_plant_panel/icon.png";
 const DEVICE_EVO_IMAGE_STATIC = "/foxess_plant_panel/evo10.png?v=15";
 const STORM_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_storm_safe_charging.png?v=1";
 const STORM_WEATHER_ICON_VER = 1;
+
+function formatStormMatchedCategories(categories) {
+  if (!categories?.length) return "";
+  return categories.map((c) => c.label).join(", ");
+}
+
+function formatStormGoogleConditionToken(condition) {
+  if (condition == null || condition === "") return "—";
+  return String(condition);
+}
+
+function formatStormForecastActiveLine(nextStorm) {
+  if (!nextStorm) return "";
+  const hours = esc(String(nextStorm.hours_until));
+  const token = esc(formatStormGoogleConditionToken(nextStorm.condition));
+  const labels = formatStormMatchedCategories(nextStorm.matched_categories);
+  if (labels) {
+    return `Forecast: <strong>${esc(labels)}</strong> in ~${hours}h (Google hourly: <code>${token}</code>) — <strong style="color:var(--fp-amber)">pre-charge active</strong>. Uncheck that category below to stop.`;
+  }
+  return `Forecast: storm in ~${hours}h (<code>${token}</code>) — <strong style="color:var(--fp-amber)">pre-charge active</strong>.`;
+}
+
+function formatStormNowLine(cond) {
+  if (!cond) return "";
+  const token = esc(formatStormGoogleConditionToken(cond.type ?? cond.text));
+  const labels = formatStormMatchedCategories(cond.matched_categories);
+  const stormNow = cond.is_storm
+    ? '<strong style="color:var(--fp-amber)">storm now</strong>'
+    : "clear now";
+  if (labels && cond.is_storm) {
+    return `Now: <strong>${esc(labels)}</strong> (Google: <code>${token}</code>) — ${stormNow}.`;
+  }
+  return `Now: <strong>${esc(cond.label || cond.text)}</strong> (<code>${token}</code>) — ${stormNow}.`;
+}
+
 const STORM_WEATHER_CATEGORY_FALLBACK = [
   { id: "extreme_heat", label: "Extreme heat", icon: "storm_weather_extreme_heat.png" },
   { id: "extreme_cold", label: "Extreme cold", icon: "storm_weather_extreme_cold.png" },
@@ -10456,6 +10491,29 @@ const STYLES = `
 .storm-weather-category-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .storm-weather-category-note { font-size: 11px; line-height: 1.35; color: var(--secondary-text-color); }
 .storm-weather-category-via { font-size: 11px; color: var(--secondary-text-color); opacity: 0.85; }
+.storm-weather-category-forecast {
+  font-size: 11px; line-height: 1.35; color: var(--secondary-text-color);
+}
+.storm-weather-category-forecast code {
+  font-size: 10px; padding: 1px 4px; border-radius: 4px;
+  background: color-mix(in srgb, var(--primary-text-color) 8%, transparent);
+}
+.storm-weather-category-row--active {
+  background: color-mix(in srgb, var(--fp-amber) 12%, var(--card-background-color));
+  border-radius: 8px;
+  margin: 0 -6px;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+.storm-weather-category-active-badge {
+  display: inline-block;
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--fp-amber);
+}
 .trigger-row.google-weather { background: color-mix(in srgb, var(--fp-accent) 10%, transparent); }
 .trigger-role { display: inline-block; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; padding: 2px 6px; border-radius: 6px; margin-left: 6px; background: var(--secondary-background-color); color: var(--fp-accent); }
 @container fp-main (min-width: 560px) {
@@ -15823,10 +15881,16 @@ ${this._renderEnergyAnalysisCharts()}
     let cls = "gw-card";
     let detail = "";
 
-    const cond = selected?.current_condition;
+    const cond = savedStorm.current_condition ?? selected?.current_condition;
     const savedStorm = this._plantState?.storm_prep ?? {};
     const forecast = savedStorm.forecast_detail ?? {};
     const forecastActive = Boolean(savedStorm.forecast_active);
+    const activeForecastCatIds = new Set(
+      (forecast.next_storm?.matched_categories ?? []).map((c) => c.id)
+    );
+    const activeNowCatIds = new Set(
+      (savedStorm.current_condition?.matched_categories ?? []).map((c) => c.id)
+    );
 
     if (selected?.alerts_supported) {
       cls += " gw-ready";
@@ -15838,15 +15902,12 @@ ${this._renderEnergyAnalysisCharts()}
       cls += selected?.alerts_supported ? "" : " gw-ready";
       detail += `<p class="gw-linked"><strong>Native Google Weather</strong> — current conditions + hourly forecast. Pre-charges when a storm is due within your lead time (below).</p>`;
       if (cond) {
-        const stormNow = cond.is_storm
-          ? '<strong style="color:var(--fp-amber)">storm now</strong>'
-          : "clear now";
-        detail += `<p class="gw-linked">Now: <strong>${esc(cond.label || cond.text)}</strong> (<code>${esc(cond.type || "—")}</code>) — ${stormNow}.</p>`;
+        detail += `<p class="gw-linked">${formatStormNowLine(cond)}</p>`;
       } else if (selected.condition_entity_id) {
         detail += `<p class="gw-linked">Enable the <strong>Weather condition</strong> sensor in HA if hidden (eye icon).</p>`;
       }
       if (forecastActive && forecast.next_storm) {
-        detail += `<p class="gw-linked">Forecast: storm in ~<strong>${esc(String(forecast.next_storm.hours_until))}</strong>h (<code>${esc(forecast.next_storm.condition)}</code>) — <strong style="color:var(--fp-amber)">pre-charge active</strong>.</p>`;
+        detail += `<p class="gw-linked">${formatStormForecastActiveLine(forecast.next_storm)}</p>`;
       } else if (draft.use_forecast_lead && selected.weather_entity) {
         detail += `<p class="gw-linked">Forecast: no storm in the next <strong>${esc(String(draft.forecast_lead_hours || 4))}</strong> hours.</p>`;
       }
@@ -15878,6 +15939,15 @@ ${detail}${quickBtn}</div>`;
     const draft = this._stormDraft;
     const catalog = this._getStormWeatherCategoryCatalog();
     const gwEntry = this._getSelectedGoogleWeatherEntry();
+    const savedStorm = this._plantState?.storm_prep ?? {};
+    const forecast = savedStorm.forecast_detail ?? {};
+    const forecastActive = Boolean(savedStorm.forecast_active);
+    const activeForecastCatIds = new Set(
+      (forecast.next_storm?.matched_categories ?? []).map((c) => c.id)
+    );
+    const activeNowCatIds = new Set(
+      (savedStorm.current_condition?.matched_categories ?? []).map((c) => c.id)
+    );
     if (!catalog.length) {
       return `<div class="card"><p class="card-title">Weather warnings</p>
 <p class="storm-hint">Choose which Google Weather conditions trigger StormSafe pre-charge.</p>
@@ -15904,11 +15974,30 @@ ${detail}${quickBtn}</div>`;
           supported && cat.support_via?.length
             ? `<span class="storm-weather-category-via">via ${esc(cat.support_via.join(" + "))}</span>`
             : "";
-        return `<div class="storm-weather-category-row${supported ? "" : " storm-weather-category-row--disabled"}">
+        const forecastTokens = cat.forecast_conditions?.length
+          ? cat.forecast_conditions
+          : cat.forecast_conditions_label
+            ? cat.forecast_conditions_label.split(",").map((s) => s.trim()).filter(Boolean)
+            : [];
+        const forecastHint = forecastTokens.length
+          ? `<span class="storm-weather-category-forecast">Hourly forecast matches: ${forecastTokens
+              .map((token) => `<code>${esc(token)}</code>`)
+              .join(", ")}</span>`
+          : "";
+        const isForecastActive = forecastActive && activeForecastCatIds.has(cat.id);
+        const isNowActive = activeNowCatIds.has(cat.id);
+        const activeBadge = isForecastActive
+          ? `<span class="storm-weather-category-active-badge">Pre-charging — forecast</span>`
+          : isNowActive
+            ? `<span class="storm-weather-category-active-badge">Active now</span>`
+            : "";
+        const activeClass =
+          isForecastActive || isNowActive ? " storm-weather-category-row--active" : "";
+        return `<div class="storm-weather-category-row${supported ? "" : " storm-weather-category-row--disabled"}${activeClass}">
 <img class="storm-weather-category-icon" src="${esc(stormWeatherIconUrl(cat.icon))}" alt="" width="40" height="40" loading="lazy" ${supported ? "" : 'style="opacity:0.7"'}>
 <div class="storm-weather-category-body">
 <span class="storm-weather-category-label">${esc(cat.label)}</span>
-${note}${via}
+${note}${via}${forecastHint}${activeBadge}
 </div>
 <input type="checkbox" data-action="toggle-storm-category" data-category="${esc(cat.id)}" ${on ? "checked" : ""} ${disabled ? "disabled" : ""} aria-label="${esc(cat.label)}">
 </div>`;
@@ -15918,7 +16007,7 @@ ${note}${via}
       ? `<p class="storm-hint" style="margin:12px 0 0">${gatedCount} categor${gatedCount === 1 ? "y is" : "ies are"} unavailable for <strong>${esc(gwEntry.title)}</strong> — Google does not publish those alerts or forecast types there.</p>`
       : "";
     return `<div class="card"><p class="card-title">Weather warnings</p>
-<p class="storm-hint">Toggle the severe weather types that should trigger StormSafe for <strong>${esc(gwEntry.title)}</strong>. Grey rows are not offered by Google Weather in this region.</p>
+<p class="storm-hint">Toggle the severe weather types that should trigger StormSafe for <strong>${esc(gwEntry.title)}</strong>. Each row shows which Google hourly forecast tokens map to that category (e.g. <code>rainy</code> → Heavy rain). Uncheck a category to ignore that forecast. Grey rows are not offered by Google Weather in this region.</p>
 <div class="storm-weather-category-list">${rows}</div>${gatedHint}</div>`;
   }
 

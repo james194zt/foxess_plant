@@ -196,6 +196,17 @@ MODE_FORECAST = "forecast"
 MODE_SMART_CHARGE = "smart_charge"
 MODE_MANUAL = "manual"
 
+# Work-mode entity states that are not real user modes (remote control overlays / EVO RC state).
+TRANSIENT_WORK_MODE_OPTIONS: frozenset[str] = frozenset(
+    {
+        "Force Charge",
+        "Force Discharge",
+        "Remote Control",
+        "unknown",
+        "unavailable",
+    }
+)
+
 EVENT_PERIOD_APPLIED = f"{DOMAIN}_period_applied"
 EVENT_PERIOD_APPLY_FAILED = f"{DOMAIN}_period_apply_failed"
 EVENT_CONTROL_DRIFT = f"{DOMAIN}_control_drift"

@@ -8,7 +8,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
-from .storm_weather import is_storm_ha_condition_for_types
+from .storm_weather import categories_matching_ha_condition, is_storm_ha_condition_for_types
 
 DEFAULT_FORECAST_LEAD_HOURS = 4
 
@@ -18,6 +18,7 @@ async def async_storm_in_forecast_window(
     weather_entity_id: str | None,
     lead_hours: int,
     storm_types: list[str] | None = None,
+    category_ids: list[str] | None = None,
 ) -> tuple[bool, dict[str, Any]]:
     """True when a storm-type hour is forecast within the next lead_hours."""
     if not weather_entity_id or lead_hours < 1:
@@ -58,12 +59,19 @@ async def async_storm_in_forecast_window(
         if hours_until > lead:
             continue
         condition = row.get("condition")
-        if is_storm_ha_condition_for_types(str(condition) if condition else None, storm_types):
+        cond_str = str(condition) if condition else None
+        if is_storm_ha_condition_for_types(cond_str, storm_types):
             if next_storm is None or hours_until < next_storm["hours_until"]:
+                matched = categories_matching_ha_condition(
+                    cond_str,
+                    category_ids=category_ids,
+                    storm_types=storm_types,
+                )
                 next_storm = {
                     "hours_until": round(hours_until, 1),
                     "datetime": when.isoformat(),
                     "condition": condition,
+                    "matched_categories": matched,
                 }
 
     if next_storm:

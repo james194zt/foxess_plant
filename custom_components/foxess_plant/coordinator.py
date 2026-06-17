@@ -58,6 +58,7 @@ from .const import (
     MODE_SMART_CHARGE,
     MODE_STORM,
     MODE_TARIFF,
+    TRANSIENT_WORK_MODE_OPTIONS,
     TRIGGER_ON_STATES,
 )
 from .models import (
@@ -843,6 +844,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 cfg.weather_entity_id,
                 cfg.forecast_lead_hours,
                 storm_types=cfg.storm_google_types,
+                category_ids=cfg.storm_weather_categories,
             )
             self._storm_forecast_active = active
             self._storm_forecast_detail = detail
@@ -1012,6 +1014,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         event_name: str,
     ) -> None:
         await self._save_max_soc_if_needed(target_max_soc)
+        self._save_work_mode_if_needed()
         await self.async_set_override_periods(periods, mode, reason)
         if target_max_soc is not None:
             await self._set_max_soc(target_max_soc)
@@ -1020,12 +1023,14 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _disarm_policy(self, mode: str, event_name: str) -> None:
         if not (self.plant.override.active and self.plant.override.mode == mode):
             return
-        saved = self.plant.override.saved_max_soc
+        saved_max_soc = self.plant.override.saved_max_soc
+        saved_work_mode = self.plant.override.saved_work_mode
         self.plant.override = OverrideState()
         await self._persist()
-        await self.async_apply_desired()
-        if saved is not None:
-            await self._set_max_soc(saved)
+        await self._restore_after_automation_disarm(
+            saved_max_soc=saved_max_soc,
+            saved_work_mode=saved_work_mode,
+        )
         self._fire(event_name, {})
         self._fire(EVENT_BASELINE_RESTORED, {})
 
@@ -1159,6 +1164,57 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             except ValueError:
                 pass
 
+    def _save_work_mode_if_needed(self) -> None:
+        if self.plant.override.saved_work_mode is not None:
+            return
+        current = self._entity_state("work_mode")
+        if current and current not in TRANSIENT_WORK_MODE_OPTIONS:
+            self.plant.override.saved_work_mode = current
+
+    async def _clear_remote_control_for_restore(self) -> None:
+        current = self._entity_state("work_mode")
+        if current not in ("Force Charge", "Force Discharge"):
+            return
+        if not self.plant.entity_map.get("remote_control"):
+            return
+        try:
+            await set_remote_control_mode(self.hass, self.plant.entity_map, "Disable")
+        except HomeAssistantError as err:
+            _LOGGER.debug("Remote Control disable before restore skipped: %s", err)
+
+    async def _set_work_mode(self, option: str) -> None:
+        entity_id = self.plant.entity_map.get("work_mode")
+        if not entity_id:
+            return
+        options = self._entity_options("work_mode")
+        if options and option not in options:
+            _LOGGER.warning(
+                "Cannot restore work mode %r; not in entity options (%s)",
+                option,
+                ", ".join(options),
+            )
+            return
+        await self.hass.services.async_call(
+            "select",
+            "select_option",
+            {"entity_id": entity_id, "option": option},
+            blocking=True,
+        )
+        _LOGGER.info("Restored work mode to %s on %s", option, entity_id)
+
+    async def _restore_after_automation_disarm(
+        self,
+        *,
+        saved_max_soc: float | None,
+        saved_work_mode: str | None,
+    ) -> None:
+        await self._clear_remote_control_for_restore()
+        await self.async_apply_desired()
+        if saved_max_soc is not None:
+            await self._set_max_soc(saved_max_soc)
+        if saved_work_mode:
+            await self._set_work_mode(saved_work_mode)
+
     async def _set_max_soc(self, value: float) -> None:
         current = {
             "min_soc": self._entity_float("min_soc"),
@@ -1225,6 +1281,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.plant.storm_prep.condition_entity_id,
             self.plant.storm_prep.weather_entity_id,
             storm_types=self.plant.storm_prep.storm_google_types,
+            category_ids=self.plant.storm_prep.storm_weather_categories,
         )
         out["condition_active"] = self._is_storm_condition_active()
         out["forecast_active"] = self._storm_forecast_active
@@ -1476,13 +1533,15 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.async_request_refresh()
 
     async def async_apply_baseline(self) -> None:
-        saved = self.plant.override.saved_max_soc
+        saved_max_soc = self.plant.override.saved_max_soc
+        saved_work_mode = self.plant.override.saved_work_mode
         self.plant.override = OverrideState()
         self._forecast_armed = False
         await self._persist()
-        await self.async_apply_desired()
-        if saved is not None:
-            await self._set_max_soc(saved)
+        await self._restore_after_automation_disarm(
+            saved_max_soc=saved_max_soc,
+            saved_work_mode=saved_work_mode,
+        )
         self._fire(EVENT_BASELINE_RESTORED, {})
 
     async def async_set_baseline_periods(self, periods: list[ChargePeriodConfig]) -> None:
@@ -1562,16 +1621,18 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_disarm_override(self) -> None:
         mode = self.plant.override.mode
-        saved = self.plant.override.saved_max_soc
+        saved_max_soc = self.plant.override.saved_max_soc
+        saved_work_mode = self.plant.override.saved_work_mode
         self.plant.override = OverrideState()
         self._forecast_armed = False
         self._smart_charge_armed = False
         self._active_storm_triggers.clear()
         self._active_outage_triggers.clear()
         await self._persist()
-        await self.async_apply_desired()
-        if saved is not None:
-            await self._set_max_soc(saved)
+        await self._restore_after_automation_disarm(
+            saved_max_soc=saved_max_soc,
+            saved_work_mode=saved_work_mode,
+        )
         if mode == MODE_STORM:
             self._fire(EVENT_STORM_DISARMED, {})
         elif mode == MODE_OUTAGE:
@@ -1607,6 +1668,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         from .panel_config import resolve_google_weather_entry
         from .storm_weather import filter_supported_storm_categories, google_types_from_categories
 
+        was_enabled = self.plant.storm_prep.enabled
         periods = [ChargePeriodConfig.from_dict(p) for p in charge_periods]
         triggers = list(trigger_entities)
         use_weather_condition = True
@@ -1661,6 +1723,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.hass.config_entries.async_update_entry(self.config_entry, data=data)
         self.update_plant_config(PlantConfig.from_entry_data(data))
         await self._async_refresh_storm_weather()
+        if was_enabled and not enabled:
+            await self._sync_automation_policy()
         await self.async_request_refresh()
 
     async def async_save_panel_display(self, *, forecast_entity_id: str | None) -> None:

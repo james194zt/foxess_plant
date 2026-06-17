@@ -258,6 +258,8 @@ def storm_weather_category_catalog(
             "condition_types": sorted(row["condition_types"]),
             "alert_event_types": sorted(row["alert_event_types"]),
             "google_types": sorted(row["condition_types"] | row["alert_event_types"]),
+            "forecast_conditions": sorted(row["ha_conditions"]),
+            "forecast_conditions_label": format_ha_forecast_conditions(row["ha_conditions"]),
         }
         if alerts_supported is not None and condition_supported is not None:
             supported, reason, via = _category_support(
@@ -362,6 +364,69 @@ def ha_conditions_for_storm_types(storm_types: list[str] | None) -> frozenset[st
     return frozenset(merged)
 
 
+def _selected_category_ids(category_ids: list[str] | None) -> list[str]:
+    return list(category_ids) if category_ids is not None else default_storm_category_ids()
+
+
+def categories_matching_ha_condition(
+    condition: str | None,
+    *,
+    category_ids: list[str] | None = None,
+    storm_types: list[str] | None = None,
+) -> list[dict[str, str]]:
+    """Fox checklist rows that arm for an HA hourly-forecast condition (e.g. rainy → Heavy rain)."""
+    if not condition:
+        return []
+    token = condition.lower()
+    selected = _selected_category_ids(category_ids)
+    allowed_ha = ha_conditions_for_storm_types(storm_types)
+    if token not in allowed_ha:
+        return []
+
+    matched: list[dict[str, str]] = []
+    for cid in selected:
+        row = STORM_WEATHER_CATEGORY_BY_ID.get(cid)
+        if not row or token not in row["ha_conditions"]:
+            continue
+        if storm_types is not None and not (row["condition_types"] & frozenset(storm_types)):
+            continue
+        matched.append({"id": cid, "label": row["label"]})
+    return matched
+
+
+def categories_matching_google_type(
+    google_type: str | None,
+    *,
+    category_ids: list[str] | None = None,
+    storm_types: list[str] | None = None,
+) -> list[dict[str, str]]:
+    """Fox checklist rows that match a Google condition-sensor type."""
+    if not google_type:
+        return []
+    token = google_type.upper()
+    selected = _selected_category_ids(category_ids)
+    matched: list[dict[str, str]] = []
+    for cid in selected:
+        row = STORM_WEATHER_CATEGORY_BY_ID.get(cid)
+        if not row:
+            continue
+        in_condition = token in row["condition_types"]
+        in_alert = token in row["alert_event_types"]
+        if not in_condition and not in_alert:
+            continue
+        if storm_types is not None and in_condition and not (row["condition_types"] & frozenset(storm_types)):
+            continue
+        matched.append({"id": cid, "label": row["label"]})
+    return matched
+
+
+def format_ha_forecast_conditions(ha_conditions: frozenset[str]) -> str:
+    """Human-readable HA forecast tokens for UI hints."""
+    if not ha_conditions:
+        return ""
+    return ", ".join(sorted(ha_conditions))
+
+
 def is_storm_ha_condition_for_types(condition: str | None, storm_types: list[str] | None) -> bool:
     if not condition:
         return False
@@ -412,6 +477,7 @@ def read_condition_snapshot(
     weather_entity_id: str | None,
     *,
     storm_types: list[str] | None = None,
+    category_ids: list[str] | None = None,
 ) -> dict[str, Any] | None:
     """Current Google type / HA condition and whether StormSafe would arm."""
     allowed = storm_google_types(storm_types)
@@ -423,6 +489,11 @@ def read_condition_snapshot(
             if isinstance(google_type, str):
                 google_type = google_type.upper()
             active = is_storm_google_type(google_type, storm_types=allowed)
+            matched = categories_matching_google_type(
+                google_type,
+                category_ids=category_ids,
+                storm_types=storm_types,
+            )
             return {
                 "source": "google_type",
                 "entity_id": condition_entity_id,
@@ -430,6 +501,7 @@ def read_condition_snapshot(
                 "type": google_type,
                 "is_storm": active,
                 "label": STORM_GOOGLE_TYPE_LABELS.get(google_type or "", google_type or state.state),
+                "matched_categories": matched,
             }
 
     if weather_entity_id:
@@ -437,6 +509,11 @@ def read_condition_snapshot(
         if state and state.state not in ("unknown", "unavailable"):
             ha_cond = state.state.lower()
             active = is_storm_ha_condition_for_types(ha_cond, storm_types)
+            matched = categories_matching_ha_condition(
+                ha_cond,
+                category_ids=category_ids,
+                storm_types=storm_types,
+            )
             return {
                 "source": "ha_condition",
                 "entity_id": weather_entity_id,
@@ -444,6 +521,7 @@ def read_condition_snapshot(
                 "type": ha_cond,
                 "is_storm": active,
                 "label": ha_cond.replace("-", " ").title(),
+                "matched_categories": matched,
             }
 
     return None
