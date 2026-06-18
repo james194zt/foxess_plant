@@ -111,7 +111,7 @@ const SETTINGS_NAV = [
   { id: "pv", label: "PV" },
   { id: "solcast", label: "Solcast" },
   { id: "tariff", label: "Tariff" },
-  { id: "smart", label: "Smart charge" },
+  { id: "smart", label: "SmartCharge" },
   { id: "storm", label: "StormSafe" },
   { id: "control", label: "Control" },
 ];
@@ -10492,6 +10492,7 @@ const STYLES = `
 .gw-card { border-left: 3px solid var(--fp-accent); }
 .gw-card.gw-ready { border-left-color: var(--fp-green, #4caf50); }
 .gw-card.gw-warn { border-left-color: var(--fp-amber); }
+.storm-solcast-card { border-left: 3px solid var(--fp-amber, #f9a825); }
 .gw-status { font-size: 13px; line-height: 1.45; margin: 0 0 10px; color: var(--secondary-text-color); }
 .gw-status strong { color: inherit; }
 .gw-select { width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--divider-color); background: var(--card-background-color); color: inherit; font-family: inherit; font-size: 14px; margin-bottom: 10px; }
@@ -10856,6 +10857,10 @@ class FoxessPlantPanel extends HTMLElement {
   _syncPanelBuildFooter(shell) {
     if (!shell) return;
     let el = shell.querySelector(".panel-build-footer");
+    if (this._view !== "settings") {
+      if (el) el.remove();
+      return;
+    }
     if (!el) {
       el = document.createElement("p");
       el.className = "panel-build-footer";
@@ -16395,7 +16400,7 @@ ${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">
       const w = decision.windows[0];
       metrics.push(`Window ${w.start}-${w.end} @ ${Number(w.import_p_per_kwh).toFixed(2)}p/kWh`);
     }
-    return `<header class="header"><h1>Smart charge</h1><p>Combines Solcast PV forecast with Octopus or schedule tariffs to grid-charge when solar is insufficient, or during negative Agile import windows.</p></header>
+    return `<header class="header"><h1>SmartCharge</h1><p>Combines Solcast PV forecast with Octopus or schedule tariffs to grid-charge when solar is insufficient, or during negative Agile import windows.</p></header>
 <div class="card">
 <p class="card-title">Automation</p>
 <div class="toggle-row"><span><strong>Enable smart charge</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Requires Fox Plant control, Solcast PV forecast, and tariff rates</span></span>
