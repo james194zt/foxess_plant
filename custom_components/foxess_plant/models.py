@@ -746,6 +746,7 @@ class TariffConfig:
 class PvSystemConfig:
     """PV1 / PV2 configuration for the plant."""
 
+    annual_degradation_pct: float = 2.0
     pv1: PvStringConfig = field(default_factory=PvStringConfig)
     pv2: PvStringConfig = field(
         default_factory=lambda: PvStringConfig(enabled=False, panel_count=1)
@@ -757,13 +758,22 @@ class PvSystemConfig:
 
         pv1_defaults = DEFAULT_PV_CONFIG["pv1"]
         pv2_defaults = DEFAULT_PV_CONFIG["pv2"]
+        try:
+            annual_degradation_pct = float(
+                data.get("annual_degradation_pct", DEFAULT_PV_CONFIG.get("annual_degradation_pct", 2.0))
+            )
+        except (TypeError, ValueError):
+            annual_degradation_pct = 2.0
+        annual_degradation_pct = max(0.0, min(10.0, annual_degradation_pct))
         return cls(
+            annual_degradation_pct=annual_degradation_pct,
             pv1=PvStringConfig.from_dict(data.get("pv1", {}), defaults=pv1_defaults),
             pv2=PvStringConfig.from_dict(data.get("pv2", {}), defaults=pv2_defaults),
         )
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "annual_degradation_pct": round(self.annual_degradation_pct, 2),
             "pv1": self.pv1.to_dict(),
             "pv2": self.pv2.to_dict(),
         }

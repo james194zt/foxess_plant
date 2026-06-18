@@ -69,6 +69,9 @@ PV_STRING_SCHEMA = vol.Schema(
 
 PV_CONFIG_SCHEMA = vol.Schema(
     {
+        vol.Optional("annual_degradation_pct", default=2.0): vol.All(
+            vol.Coerce(float), vol.Range(min=0, max=10)
+        ),
         vol.Required("pv1"): PV_STRING_SCHEMA,
         vol.Required("pv2"): PV_STRING_SCHEMA,
     }

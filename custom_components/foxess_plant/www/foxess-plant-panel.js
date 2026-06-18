@@ -127,6 +127,7 @@ const DEFAULT_PV_STRING = {
 };
 
 const DEFAULT_PV_CONFIG = {
+  annual_degradation_pct: 2,
   pv1: { ...DEFAULT_PV_STRING },
   pv2: {
     enabled: false,
@@ -704,10 +705,70 @@ function pvConfigCurrency(plantState, tariffDraft) {
 
 function normalizePvConfig(raw) {
   const src = raw && typeof raw === "object" ? raw : {};
+  let annualDegradation = parseFloat(src.annual_degradation_pct);
+  if (!Number.isFinite(annualDegradation)) annualDegradation = DEFAULT_PV_CONFIG.annual_degradation_pct;
+  annualDegradation = Math.max(0, Math.min(10, annualDegradation));
   return {
+    annual_degradation_pct: annualDegradation,
     pv1: normalizePvString(src.pv1, DEFAULT_PV_CONFIG.pv1),
     pv2: normalizePvString(src.pv2, DEFAULT_PV_CONFIG.pv2),
   };
+}
+
+function pvInstallationDate(plantState, solcastDraft) {
+  const raw = String(
+    solcastDraft?.installation_date ?? plantState?.solcast?.installation_date ?? ""
+  ).trim();
+  return normalizeSolcastInstallationDateInput(raw) || "";
+}
+
+function monthsSincePvInstallation(installDateStr, refDate = new Date()) {
+  const normalized = normalizeSolcastInstallationDateInput(installDateStr);
+  if (!normalized) return null;
+  const parts = normalized.split("-").map((x) => parseInt(x, 10));
+  const install = new Date(parts[0], parts[1] - 1, parts[2]);
+  if (Number.isNaN(install.getTime()) || install > refDate) return 0;
+  let months =
+    (refDate.getFullYear() - install.getFullYear()) * 12 +
+    (refDate.getMonth() - install.getMonth());
+  if (refDate.getDate() < install.getDate()) months -= 1;
+  return Math.max(0, months);
+}
+
+/** Solcast-style age derating: start at 100% and subtract annual loss pro-rated by month. */
+function computePvEfficiencyFromInstall(installDateStr, annualDegradationPct = 2) {
+  const months = monthsSincePvInstallation(installDateStr);
+  if (months == null) return null;
+  const rate = Math.max(0, Math.min(10, Number(annualDegradationPct) || 0));
+  const lossPct = rate * (months / 12);
+  const efficiency = Math.round(100 - lossPct);
+  return Math.max(1, Math.min(100, efficiency));
+}
+
+function syncPvDraftEfficiencyFromInstall(pvDraft, plantState, solcastDraft) {
+  const installDate = pvInstallationDate(plantState, solcastDraft);
+  if (!installDate || !pvDraft) return false;
+  const efficiency = computePvEfficiencyFromInstall(
+    installDate,
+    pvDraft.annual_degradation_pct ?? DEFAULT_PV_CONFIG.annual_degradation_pct
+  );
+  if (efficiency == null) return false;
+  if (pvDraft.pv1) pvDraft.pv1.efficiency_factor = efficiency;
+  if (pvDraft.pv2) pvDraft.pv2.efficiency_factor = efficiency;
+  return true;
+}
+
+function formatPvEfficiencyAgeHint(installDateStr, annualDegradationPct) {
+  const months = monthsSincePvInstallation(installDateStr);
+  if (months == null) return "";
+  const years = Math.floor(months / 12);
+  const remMonths = months % 12;
+  const ageParts = [];
+  if (years) ageParts.push(`${years} year${years === 1 ? "" : "s"}`);
+  if (remMonths) ageParts.push(`${remMonths} month${remMonths === 1 ? "" : "s"}`);
+  const ageLabel = ageParts.length ? ageParts.join(" ") : "0 months";
+  const rate = Number(annualDegradationPct) || 0;
+  return `Auto-calculated from installation date ${installDateStr} (${ageLabel} · ${months} months) at ${rate}% loss per year.`;
 }
 
 function pvStringSummary(cfg) {
@@ -11607,6 +11668,7 @@ Reloading panel registration…
 
   _initPvDraft() {
     this._pvDraft = normalizePvConfig(this._plantState?.pv_config);
+    syncPvDraftEfficiencyFromInstall(this._pvDraft, this._plantState, this._solcastDraft);
   }
 
   _enterPvSettings() {
@@ -12015,6 +12077,7 @@ Reloading panel registration…
       });
       if (state) this._plantState = state;
       if (this._pvDraft && draft.fetch_pv_forecast) {
+        syncPvDraftEfficiencyFromInstall(this._pvDraft, this._plantState, this._solcastDraft);
         const pvState = await this._hass.connection.sendMessagePromise({
           type: "foxess_plant/update_pv_config",
           plant_id: plant.entry_id,
@@ -12089,6 +12152,7 @@ Reloading panel registration…
   async _savePvConfig() {
     const plant = this._getPlant();
     if (!plant || !this._pvDraft) return;
+    syncPvDraftEfficiencyFromInstall(this._pvDraft, this._plantState, this._solcastDraft);
     this._busy = true;
     this._render();
     try {
@@ -12994,6 +13058,10 @@ Reloading panel registration…
       }
       if (field === "installation_date") {
         this._solcastDraft.installation_date = el.value;
+        if (this._pvDraft) {
+          syncPvDraftEfficiencyFromInstall(this._pvDraft, this._plantState, this._solcastDraft);
+        }
+        this._scheduleRender();
         return;
       }
       return;
@@ -13027,6 +13095,19 @@ Reloading panel registration…
         return;
       }
     }
+    if (kind === "pv-meta" && this._pvDraft) {
+      const field = parts[1];
+      if (field === "annual_degradation_pct") {
+        const raw = String(el.value).trim();
+        if (raw === "") return;
+        const v = parseFloat(raw);
+        if (!Number.isFinite(v)) return;
+        this._pvDraft.annual_degradation_pct = Math.max(0, Math.min(10, v));
+        syncPvDraftEfficiencyFromInstall(this._pvDraft, this._plantState, this._solcastDraft);
+        if (e.type === "change") this._scheduleRender();
+      }
+      return;
+    }
     if (kind === "pv" && this._pvDraft) {
       const which = parts[1];
       const field = parts[2];
@@ -13042,6 +13123,7 @@ Reloading panel registration…
       } else if (field === "watts_per_panel") {
         cfg.watts_per_panel = Math.max(100, Math.min(1000, parseInt(el.value, 10) || 450));
       } else if (field === "efficiency_factor") {
+        if (pvInstallationDate(this._plantState, this._solcastDraft)) return;
         const raw = String(el.value).trim();
         if (raw === "") return;
         const v = parseFloat(raw);
@@ -16522,6 +16604,17 @@ ${this._renderPeriodCard(1, draft.charge_periods[1], "storm-period", "Storm peri
     const arrayHintTarget = which === "pv2" ? "PV2" : "PV1";
     const disabled = this._busy || !cfg.enabled;
     const disabledClass = cfg.enabled ? "" : " pv-string-disabled";
+    const installDate = pvInstallationDate(this._plantState, this._solcastDraft);
+    const autoEff = Boolean(installDate);
+    if (autoEff) {
+      syncPvDraftEfficiencyFromInstall(this._pvDraft, this._plantState, this._solcastDraft);
+    }
+    const annualRate = this._pvDraft.annual_degradation_pct ?? DEFAULT_PV_CONFIG.annual_degradation_pct;
+    const autoHint = autoEff ? formatPvEfficiencyAgeHint(installDate, annualRate) : "";
+    const effHint = autoEff
+      ? `<p class="field-hint">${esc(autoHint)} <a class="field-link" href="${esc(PV_EFFICIENCY_FACTOR_URL)}" target="_blank" rel="noopener noreferrer">What is the efficiency factor?</a></p>`
+      : `<p class="field-hint"><a class="field-link" href="${esc(PV_EFFICIENCY_FACTOR_URL)}" target="_blank" rel="noopener noreferrer">What is the efficiency factor?</a></p>`;
+    const effDisabled = disabled || autoEff;
     const nameplateKw = ((cfg.panel_count * cfg.watts_per_panel) / 1000).toFixed(2);
     const effectiveKw = (
       (cfg.panel_count * cfg.watts_per_panel * cfg.efficiency_factor) /
@@ -16553,8 +16646,8 @@ ${this._renderPeriodCard(1, draft.charge_periods[1], "storm-period", "Storm peri
 </div>
 <div class="field">
 <label>Efficiency Factor</label>
-<p class="field-hint"><a class="field-link" href="${esc(PV_EFFICIENCY_FACTOR_URL)}" target="_blank" rel="noopener noreferrer">What is the efficiency factor?</a></p>
-<input type="number" class="pv-eff-input" min="1" max="100" step="1" data-field="pv:${which}:efficiency_factor" value="${esc(String(cfg.efficiency_factor))}" ${disabled ? "disabled" : ""} aria-label="Efficiency factor percent"> <span style="font-size:14px">%</span>
+${effHint}
+<input type="number" class="pv-eff-input" min="1" max="100" step="1" data-field="pv:${which}:efficiency_factor" value="${esc(String(cfg.efficiency_factor))}" ${effDisabled ? "disabled" : ""} aria-label="Efficiency factor percent"> <span style="font-size:14px">%</span>
 </div>
 <div class="field">
 <label>Installation cost</label>
@@ -16569,9 +16662,18 @@ ${this._renderPvTiltAzimuthFields(which)}
 
   _renderPvConfiguration({ title, subtitle }) {
     if (!this._pvDraft) this._initPvDraft();
+    const installDate = pvInstallationDate(this._plantState, this._solcastDraft);
+    const annualRate = this._pvDraft.annual_degradation_pct ?? DEFAULT_PV_CONFIG.annual_degradation_pct;
+    const installHint = installDate
+      ? `<p class="field-hint" style="margin:8px 0 0">Installation date <strong>${esc(installDate)}</strong> (from Solcast settings) — efficiency is calculated automatically and saved daily on each install-date anniversary (00:15 local).</p>`
+      : `<p class="field-hint" style="margin:8px 0 0">Set an installation date under <strong>Settings → Solcast</strong> to auto-calculate efficiency from system age.</p>`;
     return `<header class="header"><h1>${esc(title)}</h1>${subtitle ? `<p>${esc(subtitle)}</p>` : ""}</header>
 <section class="card" style="margin-bottom:12px"><p class="card-title">PV Configuration</p>
 <p class="field-hint" style="margin:0">Panel count, wattage, efficiency, tilt, and azimuth drive the native Solcast rooftop PV forecast on Overview and Energy charts.</p>
+${installHint}
+<div class="field" style="margin-top:12px"><label>Annual degradation (%)</label>
+<p class="field-hint">Solcast-style performance loss per year (default 2% — pro-rated by month since installation).</p>
+<input type="number" min="0" max="10" step="0.1" data-field="pv-meta:annual_degradation_pct" value="${esc(String(annualRate))}" ${this._busy || !installDate ? "disabled" : ""} aria-label="Annual degradation percent"></div>
 </section>
 ${this._renderPvStringBlock("pv1")}
 ${this._renderPvStringBlock("pv2")}

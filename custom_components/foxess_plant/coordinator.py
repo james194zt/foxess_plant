@@ -116,6 +116,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._unsub_tariff_schedule: callable | None = None
         self._unsub_octopus: callable | None = None
         self._unsub_smart_charge: callable | None = None
+        self._unsub_pv_efficiency: callable | None = None
         self._last_tariff_sensor_rates: dict[str, float] = {}
         self._octopus_cache: dict[str, Any] = {}
         super().__init__(
@@ -608,6 +609,59 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._setup_smart_charge_timer()
         await self.async_request_refresh()
 
+    def _setup_pv_efficiency_timer(self) -> None:
+        if self._unsub_pv_efficiency:
+            self._unsub_pv_efficiency()
+            self._unsub_pv_efficiency = None
+        if not self.plant.solcast.installation_date:
+            return
+        from .pv_efficiency import next_pv_efficiency_check
+
+        when = next_pv_efficiency_check()
+        self._unsub_pv_efficiency = async_track_point_in_time(
+            self.hass, self._pv_efficiency_timer_callback, when
+        )
+
+    @callback
+    def _pv_efficiency_timer_callback(self, _now) -> None:
+        self.hass.async_create_task(self._async_pv_efficiency_tick())
+
+    async def _async_pv_efficiency_tick(self) -> None:
+        try:
+            await self._async_apply_pv_efficiency_age_derating(refresh_solcast=True)
+        except Exception as err:
+            _LOGGER.warning("PV efficiency age sync failed: %s", err)
+        self._setup_pv_efficiency_timer()
+
+    async def _async_apply_pv_efficiency_age_derating(
+        self, *, refresh_solcast: bool = False
+    ) -> bool:
+        """Recompute PV efficiency from Solcast install date; persist when it changes."""
+        install_date = self.plant.solcast.installation_date
+        if not install_date:
+            return False
+        from .pv_efficiency import sync_pv_efficiency_from_install
+
+        updated, changed = sync_pv_efficiency_from_install(self.plant.pv_config, install_date)
+        if not changed:
+            return False
+        eff = int(round(updated.pv1.efficiency_factor))
+        annual = updated.annual_degradation_pct
+        data = dict(self.config_entry.data)
+        data[CONF_PV_CONFIG] = updated.to_dict()
+        self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+        self.update_plant_config(PlantConfig.from_entry_data(data))
+        _LOGGER.info(
+            "PV efficiency updated to %s%% from installation date %s (annual derating %.2f%%)",
+            eff,
+            install_date,
+            annual,
+        )
+        if refresh_solcast and self._solcast_pv_active():
+            await self._async_refresh_solcast_pv(force=True)
+        await self.async_request_refresh()
+        return True
+
     async def _rebuild_solcast_forecast_chart(
         self, *, stored: dict[str, Any] | None = None
     ) -> None:
@@ -726,6 +780,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._setup_tariff_schedule_timer()
         self._setup_octopus_timer()
         self._setup_smart_charge_timer()
+        self._setup_pv_efficiency_timer()
+        try:
+            await self._async_apply_pv_efficiency_age_derating()
+        except Exception as err:
+            _LOGGER.warning("Initial PV efficiency age sync failed: %s", err)
         try:
             await self._async_refresh_storm_weather()
         except Exception as err:
@@ -1796,8 +1855,15 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_save_pv_config(self, *, pv_config: dict[str, Any]) -> None:
         """Persist PV1/PV2 physical configuration from the panel."""
+        cfg = PvSystemConfig.from_dict(pv_config)
+        if self.plant.solcast.installation_date:
+            from .pv_efficiency import sync_pv_efficiency_from_install
+
+            cfg, _changed = sync_pv_efficiency_from_install(
+                cfg, self.plant.solcast.installation_date
+            )
         data = dict(self.config_entry.data)
-        data[CONF_PV_CONFIG] = PvSystemConfig.from_dict(pv_config).to_dict()
+        data[CONF_PV_CONFIG] = cfg.to_dict()
         self.hass.config_entries.async_update_entry(self.config_entry, data=data)
         self.update_plant_config(PlantConfig.from_entry_data(data))
         if self._solcast_pv_active():
@@ -2107,6 +2173,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             data[CONF_SOLCAST] = self.plant.solcast.to_dict()
             self.hass.config_entries.async_update_entry(self.config_entry, data=data)
             self.update_plant_config(PlantConfig.from_entry_data(data))
+        self._setup_pv_efficiency_timer()
+        try:
+            await self._async_apply_pv_efficiency_age_derating(refresh_solcast=False)
+        except Exception as err:
+            _LOGGER.warning("PV efficiency age sync after Solcast save failed: %s", err)
         if fetch_now and self._solcast_pv_active():
             await self._async_refresh_solcast_pv(force=True)
         await self.async_request_refresh()
@@ -2209,3 +2280,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if getattr(self, "_unsub_smart_charge", None):
             self._unsub_smart_charge()
             self._unsub_smart_charge = None
+        if getattr(self, "_unsub_pv_efficiency", None):
+            self._unsub_pv_efficiency()
+            self._unsub_pv_efficiency = None

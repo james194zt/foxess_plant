@@ -426,6 +426,7 @@ DEFAULT_SOLCAST = {
 }
 
 DEFAULT_PV_CONFIG = {
+    "annual_degradation_pct": 2.0,
     "pv1": DEFAULT_PV_STRING,
     "pv2": {
         "enabled": False,
