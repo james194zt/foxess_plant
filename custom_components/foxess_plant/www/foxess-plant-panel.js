@@ -7938,8 +7938,12 @@ const DEFAULT_BRAND_DOMAIN = "foxess_plant";
 const DEFAULT_MODBUS_BRAND_DOMAIN = "foxess_modbus";
 const DEFAULT_BRAND_ICON_STATIC = "/foxess_plant_panel/icon.png";
 const DEVICE_EVO_IMAGE_STATIC = "/foxess_plant_panel/evo10.png?v=15";
-const STORM_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_storm_safe_charging.png?v=2";
-const SMART_CHARGE_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_smart_charge.png?v=1";
+const STORM_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_storm_safe_charging.png?v=3";
+const SMART_CHARGE_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_smart_charge.png?v=2";
+const STORM_HERO_WIDTH = 1024;
+const STORM_HERO_HEIGHT = 605;
+const SMART_CHARGE_HERO_WIDTH = 1024;
+const SMART_CHARGE_HERO_HEIGHT = 603;
 const STORM_WEATHER_ICON_VER = 1;
 
 function formatStormMatchedCategories(categories) {
@@ -10438,26 +10442,17 @@ const STYLES = `
 .mode-option .hint { display: block; font-size: 12px; line-height: 1.4; color: var(--secondary-text-color); }
 .hero { border-radius: var(--fp-radius); overflow: hidden; background: var(--card-background-color); margin-bottom: 14px; border: 1px solid var(--divider-color); }
 .hero-caption { padding: 12px 16px; font-size: 13px; color: var(--secondary-text-color); line-height: 1.45; border-top: 1px solid var(--divider-color); }
-.storm-hero {
-  border: none; border-radius: 0; background: #0a1018;
+.fp-banner-hero {
+  display: block; box-sizing: border-box;
   width: calc(100% + 48px); max-width: none;
-  margin: -20px -24px 20px;
+  margin: -20px -24px 20px; padding: 0; border: none;
+  background: #0a1018; overflow: visible; line-height: 0;
 }
-.shell.narrow .storm-hero { width: calc(100% + 32px); margin: -16px -16px 16px; }
-.storm-hero-media,
-.smart-charge-hero-media {
-  width: 100%; line-height: 0; background: #0a1018;
+.shell.narrow .fp-banner-hero { width: calc(100% + 32px); margin: -16px -16px 16px; }
+.fp-banner-hero > img {
+  display: block; width: 100%; height: auto;
+  max-height: none; min-height: 0; margin: 0; padding: 0; border: 0;
 }
-.storm-hero-img,
-.smart-charge-hero-img {
-  display: block; width: 100%; height: auto; vertical-align: top;
-}
-.smart-charge-hero {
-  border: none; border-radius: 0; background: #0a1018;
-  width: calc(100% + 48px); max-width: none;
-  margin: -20px -24px 20px;
-}
-.shell.narrow .smart-charge-hero { width: calc(100% + 32px); margin: -16px -16px 16px; }
 .smart-charge-settings-header { margin-top: 0; margin-bottom: 16px; }
 .storm-settings-header { margin-top: 0; margin-bottom: 16px; }
 .trigger-chip { display: inline-block; padding: 4px 10px; border-radius: 8px; font-size: 12px; background: var(--secondary-background-color); margin: 4px 4px 0 0; }
@@ -13800,18 +13795,14 @@ ${this._renderImpactPanel()}`;
   }
 
   _renderStormHero(armed) {
-    return `<div class="hero storm-hero">
-<div class="storm-hero-media">
-<img class="storm-hero-img" src="${esc(STORM_HERO_IMAGE_STATIC)}" alt="StormSafe: home battery backup during a storm" loading="lazy" decoding="async" />
-</div>
+    return `<div class="fp-banner-hero">
+<img src="${esc(STORM_HERO_IMAGE_STATIC)}" width="${STORM_HERO_WIDTH}" height="${STORM_HERO_HEIGHT}" alt="StormSafe: home battery backup during a storm" loading="eager" decoding="async" />
 </div>`;
   }
 
   _renderSmartChargeHero() {
-    return `<div class="hero smart-charge-hero">
-<div class="smart-charge-hero-media">
-<img class="smart-charge-hero-img" src="${esc(SMART_CHARGE_HERO_IMAGE_STATIC)}" alt="SmartCharge: Fox home battery charging from solar and off-peak grid" loading="lazy" decoding="async" />
-</div>
+    return `<div class="fp-banner-hero">
+<img src="${esc(SMART_CHARGE_HERO_IMAGE_STATIC)}" width="${SMART_CHARGE_HERO_WIDTH}" height="${SMART_CHARGE_HERO_HEIGHT}" alt="SmartCharge: Fox home battery charging from solar and off-peak grid" loading="eager" decoding="async" />
 </div>`;
   }
 
