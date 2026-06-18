@@ -15881,16 +15881,10 @@ ${this._renderEnergyAnalysisCharts()}
     let cls = "gw-card";
     let detail = "";
 
-    const cond = savedStorm.current_condition ?? selected?.current_condition;
     const savedStorm = this._plantState?.storm_prep ?? {};
+    const cond = savedStorm.current_condition ?? selected?.current_condition;
     const forecast = savedStorm.forecast_detail ?? {};
     const forecastActive = Boolean(savedStorm.forecast_active);
-    const activeForecastCatIds = new Set(
-      (forecast.next_storm?.matched_categories ?? []).map((c) => c.id)
-    );
-    const activeNowCatIds = new Set(
-      (savedStorm.current_condition?.matched_categories ?? []).map((c) => c.id)
-    );
 
     if (selected?.alerts_supported) {
       cls += " gw-ready";
