@@ -7975,6 +7975,30 @@ function formatStormNowLine(cond) {
   return `Now: <strong>${esc(cond.label || cond.text)}</strong> (<code>${token}</code>) — ${stormNow}.`;
 }
 
+const DEFAULT_STORM_SOLCAST_MARGIN = 1.35;
+const DEFAULT_STORM_SOLCAST_MIN_SOC = 90;
+
+function stormSolcastActionClass(action) {
+  if (action === "pv_only") return "storm-solcast-precheck--ok";
+  if (action === "full_grid") return "storm-solcast-precheck--warn";
+  return "storm-solcast-precheck--neutral";
+}
+
+function formatStormSolcastMetrics(precheck) {
+  if (!precheck) return "";
+  const parts = [];
+  if (precheck.soc_pct != null) parts.push(`Battery ${precheck.soc_pct}%`);
+  if (precheck.deficit_kwh != null) parts.push(`Gap ${precheck.deficit_kwh} kWh → ${precheck.target_soc_pct ?? 100}%`);
+  if (precheck.hours_until_storm != null) parts.push(`Storm ~${precheck.hours_until_storm}h`);
+  if (precheck.pv_before_storm_kwh != null) {
+    parts.push(`Solcast PV ${precheck.pv_before_storm_kwh} kWh`);
+  }
+  if (precheck.effective_pv_kwh != null && precheck.safety_margin != null) {
+    parts.push(`Effective ${precheck.effective_pv_kwh} kWh (÷ ${precheck.safety_margin} margin)`);
+  }
+  return parts.length ? parts.map((p) => esc(p)).join(" · ") : "";
+}
+
 const STORM_WEATHER_CATEGORY_FALLBACK = [
   { id: "extreme_heat", label: "Extreme heat", icon: "storm_weather_extreme_heat.png" },
   { id: "extreme_cold", label: "Extreme cold", icon: "storm_weather_extreme_cold.png" },
@@ -10490,6 +10514,25 @@ const STYLES = `
 .storm-weather-category-row--disabled .storm-weather-category-icon { filter: grayscale(1); }
 .storm-weather-category-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .storm-weather-category-note { font-size: 11px; line-height: 1.35; color: var(--secondary-text-color); }
+.storm-solcast-precheck {
+  margin-top: 12px; padding: 12px 14px; border-radius: 10px; font-size: 13px; line-height: 1.5;
+  border: 1px solid color-mix(in srgb, var(--divider-color) 70%, transparent);
+  background: color-mix(in srgb, var(--card-background-color) 92%, var(--primary-text-color) 8%);
+}
+.storm-solcast-precheck--ok {
+  border-color: color-mix(in srgb, var(--fp-green, #4caf50) 45%, transparent);
+  background: color-mix(in srgb, var(--fp-green, #4caf50) 10%, var(--card-background-color));
+}
+.storm-solcast-precheck--warn {
+  border-color: color-mix(in srgb, var(--fp-amber) 50%, transparent);
+  background: color-mix(in srgb, var(--fp-amber) 10%, var(--card-background-color));
+}
+.storm-solcast-precheck--neutral {
+  border-color: color-mix(in srgb, var(--divider-color) 70%, transparent);
+}
+.storm-solcast-precheck-title { font-weight: 600; margin: 0 0 6px; font-size: 13px; }
+.storm-solcast-precheck-metrics { font-size: 12px; color: var(--secondary-text-color); margin: 8px 0 0; line-height: 1.45; }
+.storm-solcast-precheck-detail { font-size: 12px; color: var(--secondary-text-color); margin: 8px 0 0; line-height: 1.45; }
 .storm-weather-category-via { font-size: 11px; color: var(--secondary-text-color); opacity: 0.85; }
 .storm-weather-category-forecast {
   font-size: 11px; line-height: 1.35; color: var(--secondary-text-color);
@@ -11462,6 +11505,9 @@ Reloading panel registration…
       trigger_entities: [...(storm.trigger_entities ?? [])],
       charge_periods: periods,
       target_max_soc: storm.target_max_soc ?? null,
+      use_solcast_grid_limit: Boolean(storm.use_solcast_grid_limit),
+      solcast_safety_margin: storm.solcast_safety_margin ?? DEFAULT_STORM_SOLCAST_MARGIN,
+      solcast_min_soc_floor: storm.solcast_min_soc_floor ?? DEFAULT_STORM_SOLCAST_MIN_SOC,
     };
   }
 
@@ -12107,6 +12153,9 @@ Reloading panel registration…
       payload.use_forecast_lead = Boolean(this._stormDraft.use_forecast_lead);
       payload.forecast_lead_hours = Number(this._stormDraft.forecast_lead_hours) || 4;
       payload.storm_weather_categories = [...(this._stormDraft.storm_weather_categories ?? [])];
+      payload.use_solcast_grid_limit = Boolean(this._stormDraft.use_solcast_grid_limit);
+      payload.solcast_safety_margin = Number(this._stormDraft.solcast_safety_margin) || DEFAULT_STORM_SOLCAST_MARGIN;
+      payload.solcast_min_soc_floor = Number(this._stormDraft.solcast_min_soc_floor) || DEFAULT_STORM_SOLCAST_MIN_SOC;
       const state = await this._hass.connection.sendMessagePromise(payload);
       if (state) this._plantState = state;
       this._initStormDraft();
@@ -12869,6 +12918,21 @@ Reloading panel registration…
     if (kind === "toggle-storm-forecast" && this._stormDraft) {
       this._stormDraft.use_forecast_lead = el.checked;
       this._scheduleRender();
+      return;
+    }
+    if (kind === "toggle-storm-solcast" && this._stormDraft) {
+      this._stormDraft.use_solcast_grid_limit = el.checked;
+      this._scheduleRender();
+      return;
+    }
+    if (kind === "storm-solcast-margin" && this._stormDraft) {
+      const n = parseFloat(String(el.value).trim());
+      this._stormDraft.solcast_safety_margin = Math.max(1, Math.min(3, Number.isFinite(n) ? n : DEFAULT_STORM_SOLCAST_MARGIN));
+      return;
+    }
+    if (kind === "storm-solcast-min-soc" && this._stormDraft) {
+      const n = parseFloat(String(el.value).trim());
+      this._stormDraft.solcast_min_soc_floor = Math.max(10, Math.min(100, Number.isFinite(n) ? n : DEFAULT_STORM_SOLCAST_MIN_SOC));
       return;
     }
     if (kind === "smart-charge" && this._smartChargeDraft) {
@@ -15929,6 +15993,55 @@ ${options}
 ${detail}${quickBtn}</div>`;
   }
 
+  _renderStormSolcastSection() {
+    const draft = this._stormDraft;
+    const precheck = this._plantState?.storm_prep?.solcast_precheck ?? {};
+    const solcast = this._plantState?.solcast ?? {};
+    const solcastConfigured = Boolean(solcast.enabled && solcast.api_key_configured);
+    const margin = draft?.solcast_safety_margin ?? DEFAULT_STORM_SOLCAST_MARGIN;
+    const minSoc = draft?.solcast_min_soc_floor ?? DEFAULT_STORM_SOLCAST_MIN_SOC;
+    const enabled = Boolean(draft?.use_solcast_grid_limit);
+    const action = precheck.action ?? "disabled";
+    const precheckClass = stormSolcastActionClass(action);
+    const metrics = formatStormSolcastMetrics(precheck);
+    const summary = precheck.summary
+      ? esc(precheck.summary)
+      : "Enable the option below to evaluate whether solar can cover the battery gap before grid import.";
+    const detail = precheck.detail ? `<p class="storm-solcast-precheck-detail">${esc(precheck.detail)}</p>` : "";
+    const metricsBlock = metrics
+      ? `<p class="storm-solcast-precheck-metrics">${metrics}</p>`
+      : "";
+    const solcastHint = !solcastConfigured
+      ? `<p class="storm-hint" style="margin:12px 0 0">Solcast is not set up yet — configure it under <strong>Settings → Solcast</strong> (API key and PV strings) before turning this on.</p>`
+      : "";
+    const precheckTitle =
+      action === "pv_only"
+        ? "PV likely sufficient — grid import can be skipped"
+        : action === "full_grid" && enabled && precheck.forecast_active
+          ? "Grid pre-charge recommended"
+          : "Pre-charge check";
+    return `<div class="card storm-solcast-card">
+<p class="card-title">Solcast PV pre-check</p>
+<p class="storm-hint">Optional. When a storm is only in the <strong>forecast</strong> (not active yet), Fox Plant can compare your battery gap to Solcast solar expected <em>before</em> the storm hour. If PV covers the gap (with a safety margin), StormSafe arms without grid import — saving import cost while still monitoring the weather.</p>
+<p class="storm-hint" style="margin-top:8px"><strong>Important:</strong> When storm conditions are <em>active now</em>, or battery SOC is below your safety floor, full grid pre-charge always applies regardless of this setting. Turning this option off always uses grid pre-charge when StormSafe arms.</p>
+<div class="toggle-row"><span><strong>Limit grid pre-charge using Solcast</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Off by default — enable only if you accept relying on forecast solar before severe weather</span></span>
+<input type="checkbox" data-field="toggle-storm-solcast" ${enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+<div class="field" style="margin-top:10px"><label>Safety margin (×)</label>
+<p class="field-hint">Conservative factor on Solcast PV (default 1.35 — higher = less trust in forecast). Smart Charge uses 1.15; StormSafe uses a larger margin because backup matters more than cost.</p>
+<input type="number" min="1" max="3" step="0.05" data-field="storm-solcast-margin" value="${esc(String(margin))}" ${!enabled || this._busy ? "disabled" : ""}></div>
+<div class="field"><label>Minimum SOC floor (%)</label>
+<p class="field-hint">If battery is below this level when a forecast storm is due, grid pre-charge is used even when Solcast looks sufficient (default 90%).</p>
+<input type="number" min="10" max="100" step="1" data-field="storm-solcast-min-soc" value="${esc(String(minSoc))}" ${!enabled || this._busy ? "disabled" : ""}></div>
+${solcastHint}
+<div class="storm-solcast-precheck ${precheckClass}">
+<p class="storm-solcast-precheck-title">${esc(precheckTitle)}</p>
+<p style="margin:0;font-size:13px;line-height:1.5">${summary}</p>
+${metricsBlock}${detail}
+<p class="storm-solcast-precheck-detail" style="margin-top:8px">Press <strong>Save StormSafe settings</strong> to apply option changes and refresh this calculation.</p>
+</div>
+</div>`;
+  }
+
   _renderStormWeatherCategories() {
     const draft = this._stormDraft;
     const catalog = this._getStormWeatherCategoryCatalog();
@@ -16329,11 +16442,18 @@ ${metrics.length ? `<p class="field-hint" style="margin:0">${esc(metrics.join(" 
     const armed = triggersArmed || overrideArmed;
     const activeTriggers = this._plantState?.active_storm_triggers ?? [];
     const maxSocVal = draft.target_max_soc == null ? "" : String(draft.target_max_soc);
+    const precheck = this._plantState?.storm_prep?.solcast_precheck ?? {};
+    const armedMsg =
+      armed && precheck.action === "pv_only"
+        ? "Storm prep is <strong>active</strong> — PV top-up only (no grid import per Solcast pre-check)."
+        : armed
+          ? "Storm prep is <strong>active</strong> — storm charge schedule applied."
+          : "No storm triggers active right now.";
     return `${this._renderStormHero(armed)}
-<header class="header storm-settings-header"><h1>StormSafe</h1><p>Pre-charge before severe weather — uses <strong>Google Weather</strong> for conditions and hourly forecast lead time</p></header>
+<header class="header storm-settings-header"><h1>StormSafe</h1><p>Pre-charge before severe weather — <strong>Google Weather</strong> detects storms; optional <strong>Solcast</strong> can reduce grid import when forecast solar covers the gap</p></header>
 <div class="card">
 <p class="card-title">Status</p>
-<p style="margin:0 0 10px;font-size:14px">${armed ? "Storm prep is <strong>active</strong> — storm charge schedule applied." : "No storm triggers active right now."}</p>
+<p style="margin:0 0 10px;font-size:14px">${armedMsg}</p>
 ${activeTriggers.length ? `<div>${activeTriggers.map((t) => `<span class="trigger-chip">${esc(t)}</span>`).join("")}</div>` : ""}
 <div class="btn-row" style="margin-top:12px">
 <button type="button" class="btn btn-primary" data-action="arm-storm" ${this._busy ? "disabled" : ""}>Test arm</button>
@@ -16345,6 +16465,7 @@ ${activeTriggers.length ? `<div>${activeTriggers.map((t) => `<span class="trigge
 <input type="checkbox" data-action="toggle-storm-enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 </div>
 ${this._renderGoogleWeatherSource()}
+${this._renderStormSolcastSection()}
 ${this._renderStormWeatherCategories()}
 <div class="card">
 <p class="card-title">Pre-charge timing</p>

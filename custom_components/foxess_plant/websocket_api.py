@@ -361,6 +361,13 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             vol.Optional("use_forecast_lead"): cv.boolean,
             vol.Optional("forecast_lead_hours"): vol.All(vol.Coerce(int), vol.Range(min=1, max=48)),
             vol.Optional("storm_weather_categories"): vol.Any(None, [str]),
+            vol.Optional("use_solcast_grid_limit"): cv.boolean,
+            vol.Optional("solcast_safety_margin"): vol.All(
+                vol.Coerce(float), vol.Range(min=1.0, max=3.0)
+            ),
+            vol.Optional("solcast_min_soc_floor"): vol.All(
+                vol.Coerce(float), vol.Range(min=10, max=100)
+            ),
         }
     )
     @websocket_api.require_admin
@@ -385,6 +392,9 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             use_forecast_lead=msg.get("use_forecast_lead"),
             forecast_lead_hours=msg.get("forecast_lead_hours"),
             storm_weather_categories=msg.get("storm_weather_categories"),
+            use_solcast_grid_limit=msg.get("use_solcast_grid_limit"),
+            solcast_safety_margin=msg.get("solcast_safety_margin"),
+            solcast_min_soc_floor=msg.get("solcast_min_soc_floor"),
         )
         connection.send_result(msg["id"], coordinator.get_plant_state())
 

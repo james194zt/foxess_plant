@@ -293,6 +293,8 @@ GOOGLE_WEATHER_ALERT_SUFFIXES = (
 )
 
 DEFAULT_STORM_FORECAST_LEAD_HOURS = 4
+DEFAULT_STORM_SOLCAST_SAFETY_MARGIN = 1.35
+DEFAULT_STORM_SOLCAST_MIN_SOC_FLOOR = 90.0
 
 DEFAULT_STORM_PREP = {
     "enabled": False,
@@ -301,6 +303,9 @@ DEFAULT_STORM_PREP = {
     "use_weather_condition": True,
     "use_forecast_lead": True,
     "forecast_lead_hours": DEFAULT_STORM_FORECAST_LEAD_HOURS,
+    "use_solcast_grid_limit": False,
+    "solcast_safety_margin": DEFAULT_STORM_SOLCAST_SAFETY_MARGIN,
+    "solcast_min_soc_floor": DEFAULT_STORM_SOLCAST_MIN_SOC_FLOOR,
     "condition_entity_id": None,
     "weather_entity_id": None,
     "storm_google_types": None,

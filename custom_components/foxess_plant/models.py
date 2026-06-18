@@ -139,6 +139,9 @@ class PrepPolicyConfig:
     use_weather_condition: bool = True
     use_forecast_lead: bool = True
     forecast_lead_hours: int = 4
+    use_solcast_grid_limit: bool = False
+    solcast_safety_margin: float = 1.35
+    solcast_min_soc_floor: float = 90.0
     condition_entity_id: str | None = None
     weather_entity_id: str | None = None
     storm_google_types: list[str] | None = None
@@ -172,6 +175,9 @@ class PrepPolicyConfig:
             use_weather_condition=bool(data.get("use_weather_condition", True)),
             use_forecast_lead=bool(data.get("use_forecast_lead", True)),
             forecast_lead_hours=int(data.get("forecast_lead_hours", 4)),
+            use_solcast_grid_limit=bool(data.get("use_solcast_grid_limit", False)),
+            solcast_safety_margin=float(data.get("solcast_safety_margin", 1.35)),
+            solcast_min_soc_floor=float(data.get("solcast_min_soc_floor", 90.0)),
             condition_entity_id=str(condition_entity) if condition_entity else None,
             weather_entity_id=str(weather_entity) if weather_entity else None,
             storm_google_types=list(raw_types) if raw_types else None,
@@ -196,6 +202,9 @@ class PrepPolicyConfig:
             "use_weather_condition": self.use_weather_condition,
             "use_forecast_lead": self.use_forecast_lead,
             "forecast_lead_hours": self.forecast_lead_hours,
+            "use_solcast_grid_limit": self.use_solcast_grid_limit,
+            "solcast_safety_margin": self.solcast_safety_margin,
+            "solcast_min_soc_floor": self.solcast_min_soc_floor,
             "trigger_entities": self.trigger_entities,
             "charge_periods": [p.to_dict() for p in self.charge_periods],
             "target_max_soc": self.target_max_soc,

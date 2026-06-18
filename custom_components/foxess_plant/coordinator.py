@@ -975,13 +975,18 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         if self.plant.storm_prep.enabled and self._active_storm_triggers:
-            reason = f"storm:{','.join(sorted(self._active_storm_triggers))}"
+            solcast_decision = self._storm_solcast_arm_decision()
+            periods = solcast_decision["periods"]
+            reason = (
+                f"storm:{','.join(sorted(self._active_storm_triggers))}"
+                f"|solcast:{solcast_decision['action']}"
+            )
             if self.plant.override.active and self.plant.override.mode == MODE_STORM:
                 if self.plant.override.reason == reason:
                     return
             await self._arm_policy(
                 MODE_STORM,
-                self.plant.storm_prep.charge_periods,
+                periods,
                 reason,
                 self.plant.storm_prep.target_max_soc,
                 EVENT_STORM_ARMED,
@@ -1286,7 +1291,38 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         out["condition_active"] = self._is_storm_condition_active()
         out["forecast_active"] = self._storm_forecast_active
         out["forecast_detail"] = self._storm_forecast_detail
+        out["solcast_precheck"] = self._storm_solcast_precheck()
         return out
+
+    def _storm_solcast_precheck(self) -> dict[str, Any]:
+        from .storm_solcast import evaluate_storm_solcast_precheck
+
+        cfg = self.plant.storm_prep
+        return evaluate_storm_solcast_precheck(
+            cfg=cfg,
+            solcast_configured=bool(
+                self.plant.solcast.enabled
+                and self.plant.solcast.api_key_configured()
+                and self._solcast_detailed_forecast_rows()
+            ),
+            forecast_rows=self._solcast_detailed_forecast_rows(),
+            condition_active=self._is_storm_condition_active(),
+            forecast_active=self._storm_forecast_active,
+            forecast_detail=self._storm_forecast_detail,
+            soc_pct=self._entity_float("battery_soc"),
+            capacity_kwh=self._entity_float("bms_kwh_nominal"),
+            kwh_remaining=self._entity_float("battery_kwh_remaining"),
+        )
+
+    def _storm_solcast_arm_decision(self) -> dict[str, Any]:
+        decision = self._storm_solcast_precheck()
+        periods = decision.get("periods")
+        if not isinstance(periods, list) or not periods:
+            periods = self.plant.storm_prep.charge_periods
+        return {
+            "action": decision.get("action"),
+            "periods": periods,
+        }
 
     def _overview_weather_state(self) -> dict[str, Any] | None:
         from .storm_weather import read_overview_weather
@@ -1663,12 +1699,14 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         use_forecast_lead: bool | None = None,
         forecast_lead_hours: int | None = None,
         storm_weather_categories: list[str] | None = None,
+        use_solcast_grid_limit: bool | None = None,
+        solcast_safety_margin: float | None = None,
+        solcast_min_soc_floor: float | None = None,
     ) -> None:
         """Persist storm prep from the Fox Plant panel."""
         from .panel_config import resolve_google_weather_entry
         from .storm_weather import filter_supported_storm_categories, google_types_from_categories
 
-        was_enabled = self.plant.storm_prep.enabled
         periods = [ChargePeriodConfig.from_dict(p) for p in charge_periods]
         triggers = list(trigger_entities)
         use_weather_condition = True
@@ -1702,6 +1740,21 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "use_weather_condition": use_weather_condition,
             "use_forecast_lead": use_forecast,
             "forecast_lead_hours": lead_hours,
+            "use_solcast_grid_limit": (
+                bool(use_solcast_grid_limit)
+                if use_solcast_grid_limit is not None
+                else self.plant.storm_prep.use_solcast_grid_limit
+            ),
+            "solcast_safety_margin": (
+                float(solcast_safety_margin)
+                if solcast_safety_margin is not None
+                else self.plant.storm_prep.solcast_safety_margin
+            ),
+            "solcast_min_soc_floor": (
+                float(solcast_min_soc_floor)
+                if solcast_min_soc_floor is not None
+                else self.plant.storm_prep.solcast_min_soc_floor
+            ),
             "trigger_entities": triggers,
             "charge_periods": [p.to_dict() for p in periods],
             "target_max_soc": target_max_soc,
@@ -1723,8 +1776,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.hass.config_entries.async_update_entry(self.config_entry, data=data)
         self.update_plant_config(PlantConfig.from_entry_data(data))
         await self._async_refresh_storm_weather()
-        if was_enabled and not enabled:
-            await self._sync_automation_policy()
+        await self._sync_automation_policy()
         await self.async_request_refresh()
 
     async def async_save_panel_display(self, *, forecast_entity_id: str | None) -> None:
