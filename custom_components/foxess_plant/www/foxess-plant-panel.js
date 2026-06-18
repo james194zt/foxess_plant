@@ -15899,6 +15899,17 @@ ${this._renderEnergyAnalysisCharts()}
     return "";
   }
 
+  _renderStormEnableCard() {
+    const draft = this._stormDraft;
+    if (!draft) {
+      return `<div class="card"><p class="card-title">StormSafe</p><p class="gw-status">Loading…</p></div>`;
+    }
+    return `<div class="card">
+<div class="toggle-row"><span><strong>Enable StormSafe</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Arms when Google Weather reports a storm-type condition (or alert binaries turn on)</span></span>
+<input type="checkbox" data-action="toggle-storm-enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+</div>`;
+  }
+
   _renderGoogleWeatherSource() {
     const gw = this._triggerMeta?.google_weather;
     const draft = this._stormDraft;
@@ -15916,7 +15927,7 @@ ${this._renderEnergyAnalysisCharts()}
 <li>HACS → Custom repositories → <a href="${esc(repo)}" target="_blank" rel="noopener">ha_google_weather</a></li>
 <li>Install <strong>Google Weather</strong>, restart Home Assistant</li>
 <li>Settings → Integrations → Add → Google Weather (API key + your home location)</li>
-<li>Return here, enable <strong>StormSafe</strong> below, select your location, and press <strong>Save StormSafe settings</strong></li>
+<li>Return here, enable <strong>StormSafe</strong>, pick your Google Weather location, and press <strong>Save StormSafe settings</strong></li>
 </ol></div>`;
     }
 
@@ -15975,10 +15986,9 @@ ${this._renderEnergyAnalysisCharts()}
         : "";
 
     return `<div class="card ${cls}"><p class="card-title">Google Weather</p>
-<p class="storm-hint">StormSafe watches Google Weather for severe conditions and hourly forecast lead time. Enable below, choose your location, then save at the bottom of this page.</p>
-<div class="toggle-row"><span><strong>Enable StormSafe</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Arms when Google Weather reports a storm-type condition (or alert binaries turn on)</span></span>
-<input type="checkbox" data-action="toggle-storm-enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
-<label class="field" style="margin-top:12px"><span style="font-size:12px;color:var(--secondary-text-color)">Location</span>
+<p class="storm-hint">Weather data source for StormSafe — live conditions, hourly forecast lead time, and optional severe-weather alert sensors from the Google Weather integration in Home Assistant.</p>
+<label class="field" style="margin-top:12px"><span style="font-size:12px;color:var(--secondary-text-color)">Google Weather location</span>
+<p class="field-hint" style="margin:4px 0 8px">Each Home Assistant config entry is one place Google tracks (usually your home). StormSafe reads current weather and forecast from the entry you choose.</p>
 <select class="gw-select" data-action="pick-google-weather-entry" ${this._busy || !draft.enabled ? "disabled" : ""}>
 <option value="">— Select location —</option>
 ${options}
@@ -16453,6 +16463,7 @@ ${activeTriggers.length ? `<div>${activeTriggers.map((t) => `<span class="trigge
 <button type="button" class="btn btn-secondary" data-action="disarm-storm" ${this._busy ? "disabled" : ""}>Disarm override</button>
 </div>
 </div>
+${this._renderStormEnableCard()}
 ${this._renderGoogleWeatherSource()}
 ${this._renderStormSolcastSection()}
 ${this._renderStormWeatherCategories()}
