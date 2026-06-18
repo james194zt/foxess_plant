@@ -19,7 +19,7 @@ const NAV = [
 
 const DEVICE_NEW_NAV = [
   { id: "analysis", label: "Analysis" },
-  { id: "realtime", label: "Real-time" },
+  { id: "realtime", label: "Realtime" },
   { id: "alarms", label: "Alerts" },
   { id: "pv-config", label: "PV Configuration" },
 ];
@@ -4296,10 +4296,6 @@ const DEVICE_NEW_REALTIME_SECTIONS = [
           ["bms_round_trip_efficiency_remaining", "Remaining Round trip efficiency"],
           ["bms_ohmic_resistance", "Ohmic resistance"],
         ],
-      },
-      {
-        title: "Expected life",
-        rows: [["bms_pack_serial_modbus", "Date of manufacture"]],
       },
       {
         title: "General",
@@ -14629,14 +14625,14 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
   _renderDeviceNewAnalysisCharts() {
     return `<div class="card fox-device-new-card">
 <div class="fox-device-new-card-head">
-<h3 class="fox-device-new-card-title">Real-time curve</h3>
+<h3 class="fox-device-new-card-title">Realtime Curve</h3>
 ${this._renderDeviceNewCurveDateNav()}
 </div>
 <div data-device-new-curve="1">${this._renderDeviceNewCurveBody()}</div>
 </div>
 <div class="card fox-device-new-card">
 <div class="fox-device-new-card-head fox-device-new-card-head--energy">
-<h3 class="fox-device-new-card-title">Energy analysis</h3>
+<h3 class="fox-device-new-card-title">Energy Analysis</h3>
 ${this._renderDeviceNewEnergyCardToolbar()}
 </div>
 <div data-device-new-energy-chart="1">${this._renderDeviceNewEnergyBody()}</div>
