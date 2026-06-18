@@ -10439,19 +10439,18 @@ const STYLES = `
 .hero { border-radius: var(--fp-radius); overflow: hidden; background: var(--card-background-color); margin-bottom: 14px; border: 1px solid var(--divider-color); }
 .hero-caption { padding: 12px 16px; font-size: 13px; color: var(--secondary-text-color); line-height: 1.45; border-top: 1px solid var(--divider-color); }
 .storm-hero {
-  border: none; border-radius: 0; background: #0d1520;
+  border: none; border-radius: 0; background: #0a1018;
   width: calc(100% + 48px); max-width: none;
   margin: -20px -24px 20px;
 }
 .shell.narrow .storm-hero { width: calc(100% + 32px); margin: -16px -16px 16px; }
-.storm-hero-media {
-  position: relative; width: 100%; overflow: hidden;
-  aspect-ratio: 1024 / 605; max-height: min(52vw, 320px); min-height: 140px;
-  background: #0a1018;
+.storm-hero-media,
+.smart-charge-hero-media {
+  width: 100%; line-height: 0; background: #0a1018;
 }
-.storm-hero-img {
-  position: absolute; inset: 0; width: 100%; height: 100%;
-  object-fit: cover; object-position: center top; display: block;
+.storm-hero-img,
+.smart-charge-hero-img {
+  display: block; width: 100%; height: auto; vertical-align: top;
 }
 .smart-charge-hero {
   border: none; border-radius: 0; background: #0a1018;
@@ -10459,15 +10458,6 @@ const STYLES = `
   margin: -20px -24px 20px;
 }
 .shell.narrow .smart-charge-hero { width: calc(100% + 32px); margin: -16px -16px 16px; }
-.smart-charge-hero-media {
-  position: relative; width: 100%; overflow: hidden;
-  aspect-ratio: 1024 / 603; max-height: min(52vw, 320px); min-height: 140px;
-  background: #0a1018;
-}
-.smart-charge-hero-img {
-  position: absolute; inset: 0; width: 100%; height: 100%;
-  object-fit: cover; object-position: center top; display: block;
-}
 .smart-charge-settings-header { margin-top: 0; margin-bottom: 16px; }
 .storm-settings-header { margin-top: 0; margin-bottom: 16px; }
 .trigger-chip { display: inline-block; padding: 4px 10px; border-radius: 8px; font-size: 12px; background: var(--secondary-background-color); margin: 4px 4px 0 0; }
