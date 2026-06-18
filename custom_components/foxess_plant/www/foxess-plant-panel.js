@@ -7938,7 +7938,8 @@ const DEFAULT_BRAND_DOMAIN = "foxess_plant";
 const DEFAULT_MODBUS_BRAND_DOMAIN = "foxess_modbus";
 const DEFAULT_BRAND_ICON_STATIC = "/foxess_plant_panel/icon.png";
 const DEVICE_EVO_IMAGE_STATIC = "/foxess_plant_panel/evo10.png?v=15";
-const STORM_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_storm_safe_charging.png?v=1";
+const STORM_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_storm_safe_charging.png?v=2";
+const SMART_CHARGE_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_smart_charge.png?v=1";
 const STORM_WEATHER_ICON_VER = 1;
 
 function formatStormMatchedCategories(categories) {
@@ -8303,6 +8304,10 @@ const STYLES = `
 .header { margin-bottom: 20px; }
 .header h1 { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
 .header p { margin: 6px 0 0; color: var(--secondary-text-color); font-size: 14px; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
 .overview-header { margin-bottom: 16px; }
 .overview-model { margin: 4px 0 0; font-size: 15px; font-weight: 500; color: var(--secondary-text-color); letter-spacing: 0.01em; }
 .panel-build-footer {
@@ -10441,22 +10446,29 @@ const STYLES = `
 .shell.narrow .storm-hero { width: calc(100% + 32px); margin: -16px -16px 16px; }
 .storm-hero-media {
   position: relative; width: 100%; overflow: hidden;
-  aspect-ratio: 750 / 420; max-height: min(52vw, 280px); min-height: 140px;
-  background: #0d1520;
+  aspect-ratio: 1024 / 605; max-height: min(52vw, 320px); min-height: 140px;
+  background: #0a1018;
 }
 .storm-hero-img {
   position: absolute; inset: 0; width: 100%; height: 100%;
-  object-fit: cover; object-position: center center; display: block;
+  object-fit: cover; object-position: center top; display: block;
 }
-.storm-hero-half {
-  position: absolute; top: 0; bottom: 0; width: 50%;
-  pointer-events: none; transition: background 0.35s ease;
+.smart-charge-hero {
+  border: none; border-radius: 0; background: #0a1018;
+  width: calc(100% + 48px); max-width: none;
+  margin: -20px -24px 20px;
 }
-.storm-hero-half--left { left: 0; }
-.storm-hero-half--right { right: 0; }
-.storm-hero:not(.armed) .storm-hero-half--left { background: rgba(0, 0, 0, 0.18); }
-.storm-hero.armed .storm-hero-half--right { background: rgba(0, 0, 0, 0.42); }
-.storm-hero.armed .storm-hero-half--left { background: rgba(76, 175, 80, 0.08); }
+.shell.narrow .smart-charge-hero { width: calc(100% + 32px); margin: -16px -16px 16px; }
+.smart-charge-hero-media {
+  position: relative; width: 100%; overflow: hidden;
+  aspect-ratio: 1024 / 603; max-height: min(52vw, 320px); min-height: 140px;
+  background: #0a1018;
+}
+.smart-charge-hero-img {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; object-position: center top; display: block;
+}
+.smart-charge-settings-header { margin-top: 0; margin-bottom: 16px; }
 .storm-settings-header { margin-top: 0; margin-bottom: 16px; }
 .trigger-chip { display: inline-block; padding: 4px 10px; border-radius: 8px; font-size: 12px; background: var(--secondary-background-color); margin: 4px 4px 0 0; }
 .trigger-chips-wrap { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; min-height: 28px; }
@@ -13798,11 +13810,17 @@ ${this._renderImpactPanel()}`;
   }
 
   _renderStormHero(armed) {
-    return `<div class="hero storm-hero ${armed ? "armed" : ""}">
+    return `<div class="hero storm-hero">
 <div class="storm-hero-media">
-<img class="storm-hero-img" src="${esc(STORM_HERO_IMAGE_STATIC)}" alt="StormSafe charging: home with battery backup during a storm" loading="lazy" decoding="async" />
-<span class="storm-hero-half storm-hero-half--left" aria-hidden="true"></span>
-<span class="storm-hero-half storm-hero-half--right" aria-hidden="true"></span>
+<img class="storm-hero-img" src="${esc(STORM_HERO_IMAGE_STATIC)}" alt="StormSafe: home battery backup during a storm" loading="lazy" decoding="async" />
+</div>
+</div>`;
+  }
+
+  _renderSmartChargeHero() {
+    return `<div class="hero smart-charge-hero">
+<div class="smart-charge-hero-media">
+<img class="smart-charge-hero-img" src="${esc(SMART_CHARGE_HERO_IMAGE_STATIC)}" alt="SmartCharge: Fox home battery charging from solar and off-peak grid" loading="lazy" decoding="async" />
 </div>
 </div>`;
   }
@@ -16398,7 +16416,8 @@ ${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">
       const w = decision.windows[0];
       metrics.push(`Window ${w.start}-${w.end} @ ${Number(w.import_p_per_kwh).toFixed(2)}p/kWh`);
     }
-    return `<header class="header"><h1>SmartCharge</h1><p>Combines Solcast PV forecast with Octopus or schedule tariffs to grid-charge when solar is insufficient, or during negative Agile import windows.</p></header>
+    return `${this._renderSmartChargeHero()}
+<header class="header smart-charge-settings-header"><h1 class="sr-only">SmartCharge</h1><p>Combines Solcast PV forecast with Octopus or schedule tariffs to grid-charge when solar is insufficient, or during negative Agile import windows.</p></header>
 <div class="card">
 <p class="card-title">Automation</p>
 <div class="toggle-row"><span><strong>Enable SmartCharge</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Requires Fox Plant control, Solcast PV forecast, and tariff rates</span></span>
