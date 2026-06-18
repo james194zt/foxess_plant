@@ -10457,16 +10457,6 @@ const STYLES = `
 .storm-hero:not(.armed) .storm-hero-half--left { background: rgba(0, 0, 0, 0.18); }
 .storm-hero.armed .storm-hero-half--right { background: rgba(0, 0, 0, 0.42); }
 .storm-hero.armed .storm-hero-half--left { background: rgba(76, 175, 80, 0.08); }
-.storm-hero-title {
-  position: absolute; left: 0; right: 0; top: 0; z-index: 2;
-  margin: 0; padding: 18px 20px 0;
-  text-align: center; box-sizing: border-box;
-  font-size: clamp(20px, 5.5vw, 26px); font-weight: 700; line-height: 1.2;
-  letter-spacing: -0.02em; color: #fff;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85), 0 0 24px rgba(0, 0, 0, 0.55);
-  pointer-events: none;
-}
-.shell.narrow .storm-hero-title { padding-top: 14px; font-size: 20px; }
 .storm-settings-header { margin-top: 0; margin-bottom: 16px; }
 .trigger-chip { display: inline-block; padding: 4px 10px; border-radius: 8px; font-size: 12px; background: var(--secondary-background-color); margin: 4px 4px 0 0; }
 .trigger-chips-wrap { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; min-height: 28px; }
@@ -11475,7 +11465,7 @@ Reloading panel registration…
       });
       if (state) this._plantState = state;
       this._initSmartChargeDraft();
-      this._showToast("Smart charge settings saved");
+      this._showToast("SmartCharge settings saved");
     } catch (err) {
       this._showToast(err?.message || "Save failed", "err");
     } finally {
@@ -11538,6 +11528,17 @@ Reloading panel registration…
     this._stormDraft.storm_weather_categories = (
       this._stormDraft.storm_weather_categories ?? []
     ).filter((id) => supported.has(id));
+  }
+
+  _applyStormEnableDefaults() {
+    if (!this._stormDraft) return;
+    this._stormDraft.use_forecast_lead = true;
+    if (!this._stormDraft.forecast_lead_hours) this._stormDraft.forecast_lead_hours = 4;
+    const entries = this._getGoogleWeatherEntries();
+    const selected = this._getSelectedGoogleWeatherEntry();
+    const entry =
+      selected || (entries.length === 1 ? entries[0] : null);
+    if (entry) this._applyGoogleWeatherEntry(entry.entry_id);
   }
 
   _getGoogleWeatherEntries() {
@@ -12651,25 +12652,6 @@ Reloading panel registration…
       this._scheduleRender();
       return;
     }
-    if (action === "storm-google-quick-setup") {
-      if (!this._stormDraft) this._initStormDraft();
-      const entries = this._getGoogleWeatherEntries();
-      if (!entries.length) {
-        this._showToast("Install Google Weather first", "err");
-        return;
-      }
-      const entry = entries.length === 1 ? entries[0] : entries.find((e) => e.entry_id === this._stormDraft.google_weather_entry_id);
-      if (!entry) {
-        this._showToast("Select a Google Weather location first", "err");
-        return;
-      }
-      this._applyGoogleWeatherEntry(entry.entry_id);
-      this._stormDraft.enabled = true;
-      this._stormDraft.use_forecast_lead = true;
-      if (!this._stormDraft.forecast_lead_hours) this._stormDraft.forecast_lead_hours = 4;
-      await this._saveStormPrep();
-      return;
-    }
     if (action === "storm-show-google-only") {
       this._triggerGoogleOnly = true;
       this._triggerShowAll = false;
@@ -12826,6 +12808,9 @@ Reloading panel registration…
     if (el.dataset.action === "toggle-storm-enabled") {
       if (!this._stormDraft) this._initStormDraft();
       this._stormDraft.enabled = el.checked;
+      if (el.checked) this._applyStormEnableDefaults();
+      this._scheduleRender();
+      return;
     }
     if (el.dataset.action === "toggle-storm-category") {
       if (!this._stormDraft) this._initStormDraft();
@@ -13818,7 +13803,6 @@ ${this._renderImpactPanel()}`;
 <img class="storm-hero-img" src="${esc(STORM_HERO_IMAGE_STATIC)}" alt="StormSafe charging: home with battery backup during a storm" loading="lazy" decoding="async" />
 <span class="storm-hero-half storm-hero-half--left" aria-hidden="true"></span>
 <span class="storm-hero-half storm-hero-half--right" aria-hidden="true"></span>
-<h2 class="storm-hero-title">StormSafe Charging</h2>
 </div>
 </div>`;
   }
@@ -15932,7 +15916,7 @@ ${this._renderEnergyAnalysisCharts()}
 <li>HACS → Custom repositories → <a href="${esc(repo)}" target="_blank" rel="noopener">ha_google_weather</a></li>
 <li>Install <strong>Google Weather</strong>, restart Home Assistant</li>
 <li>Settings → Integrations → Add → Google Weather (API key + your home location)</li>
-<li>Return here and press <strong>Turn on StormSafe</strong></li>
+<li>Return here, enable <strong>StormSafe</strong> below, select your location, and press <strong>Save StormSafe settings</strong></li>
 </ol></div>`;
     }
 
@@ -15985,17 +15969,21 @@ ${this._renderEnergyAnalysisCharts()}
       detail += `<p class="gw-linked">Also watches: <code>${esc(selected.weather_entity)}</code></p>`;
     }
 
-    const quickBtn =
-      entries.length && selected
-        ? `<div class="btn-row" style="margin-top:10px"><button type="button" class="btn btn-primary" data-action="storm-google-quick-setup" ${this._busy ? "disabled" : ""}>Turn on StormSafe</button></div>`
+    const enableHint =
+      draft.enabled && !selected
+        ? `<p class="storm-hint" style="margin:12px 0 0;color:var(--fp-amber)">Select a location below, then press <strong>Save StormSafe settings</strong>.</p>`
         : "";
+
     return `<div class="card ${cls}"><p class="card-title">Google Weather</p>
-<label class="field"><span style="font-size:12px;color:var(--secondary-text-color)">Location</span>
-<select class="gw-select" data-action="pick-google-weather-entry" ${this._busy ? "disabled" : ""}>
+<p class="storm-hint">StormSafe watches Google Weather for severe conditions and hourly forecast lead time. Enable below, choose your location, then save at the bottom of this page.</p>
+<div class="toggle-row"><span><strong>Enable StormSafe</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Arms when Google Weather reports a storm-type condition (or alert binaries turn on)</span></span>
+<input type="checkbox" data-action="toggle-storm-enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+<label class="field" style="margin-top:12px"><span style="font-size:12px;color:var(--secondary-text-color)">Location</span>
+<select class="gw-select" data-action="pick-google-weather-entry" ${this._busy || !draft.enabled ? "disabled" : ""}>
 <option value="">— Select location —</option>
 ${options}
 </select></label>
-${detail}${quickBtn}</div>`;
+${enableHint}${detail}</div>`;
   }
 
   _renderStormSolcastSection() {
@@ -16032,7 +16020,7 @@ ${detail}${quickBtn}</div>`;
 <div class="toggle-row"><span><strong>Limit grid pre-charge using Solcast</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Off by default — enable only if you accept relying on forecast solar before severe weather</span></span>
 <input type="checkbox" data-field="toggle-storm-solcast" ${enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 <div class="field" style="margin-top:10px"><label>Safety margin (×)</label>
-<p class="field-hint">Conservative factor on Solcast PV (default 1.35 — higher = less trust in forecast). Smart Charge uses 1.15; StormSafe uses a larger margin because backup matters more than cost.</p>
+<p class="field-hint">Conservative factor on Solcast PV (default 1.35 — higher = less trust in forecast). SmartCharge uses 1.15; StormSafe uses a larger margin because backup matters more than cost.</p>
 <input type="number" min="1" max="3" step="0.05" data-field="storm-solcast-margin" value="${esc(String(margin))}" ${!enabled || this._busy ? "disabled" : ""}></div>
 <div class="field"><label>Minimum SOC floor (%)</label>
 <p class="field-hint">If battery is below this level when a forecast storm is due, grid pre-charge is used even when Solcast looks sufficient (default 90%).</p>
@@ -16327,7 +16315,7 @@ ${renderListButton({ action: "settings-sub", sub: "workmode" }, "Work mode", sub
 ${renderListButton({ action: "settings-sub", sub: "pv" }, "PV Configuration", subs.pv)}
 ${renderListButton({ action: "settings-sub", sub: "solcast" }, "Solcast", subs.solcast)}
 ${renderListButton({ action: "settings-sub", sub: "tariff" }, "Tariff", subs.tariff)}
-${renderListButton({ action: "settings-sub", sub: "smart" }, "Smart charge", subs.smart)}
+${renderListButton({ action: "settings-sub", sub: "smart" }, "SmartCharge", subs.smart)}
 ${renderListButton({ action: "settings-sub", sub: "storm" }, "StormSafe", subs.storm)}
 ${renderListButton({ action: "settings-sub", sub: "control" }, "Plant control", subs.control)}
 </div></div>`;
@@ -16403,7 +16391,7 @@ ${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">
     return `<header class="header"><h1>SmartCharge</h1><p>Combines Solcast PV forecast with Octopus or schedule tariffs to grid-charge when solar is insufficient, or during negative Agile import windows.</p></header>
 <div class="card">
 <p class="card-title">Automation</p>
-<div class="toggle-row"><span><strong>Enable smart charge</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Requires Fox Plant control, Solcast PV forecast, and tariff rates</span></span>
+<div class="toggle-row"><span><strong>Enable SmartCharge</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Requires Fox Plant control, Solcast PV forecast, and tariff rates</span></span>
 <input type="checkbox" data-field="smart-charge:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 <div class="field"><label>Target battery SOC (%)</label>
 <input type="number" min="10" max="100" step="1" data-field="smart-charge:target_soc" value="${esc(String(draft.target_soc ?? 100))}" ${this._busy ? "disabled" : ""}>
@@ -16429,7 +16417,7 @@ ${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">
 <p class="field-hint">Start/end times are chosen automatically each evaluation — these flags apply to the programmed window.</p>
 ${this._renderPeriodCard(0, draft.charge_periods[0], "smart-period", "Charge template")}
 ${this._renderPeriodCard(1, draft.charge_periods[1], "smart-period", "Reserve period")}
-<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-smart-charge" ${this._busy ? "disabled" : ""}>Save smart charge</button></div>
+<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-smart-charge" ${this._busy ? "disabled" : ""}>Save SmartCharge</button></div>
 </div>
 <div class="card">
 <p class="card-title">Status</p>
@@ -16465,19 +16453,15 @@ ${activeTriggers.length ? `<div>${activeTriggers.map((t) => `<span class="trigge
 <button type="button" class="btn btn-secondary" data-action="disarm-storm" ${this._busy ? "disabled" : ""}>Disarm override</button>
 </div>
 </div>
-<div class="card">
-<div class="toggle-row"><span><strong>Enable StormSafe</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Arms when Google Weather reports a storm-type condition (or alert binaries turn on)</span></span>
-<input type="checkbox" data-action="toggle-storm-enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
-</div>
 ${this._renderGoogleWeatherSource()}
 ${this._renderStormSolcastSection()}
 ${this._renderStormWeatherCategories()}
 <div class="card">
 <p class="card-title">Pre-charge timing</p>
 <div class="toggle-row"><span><strong>Forecast pre-charge</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Start storm schedule when Google hourly forecast shows severe weather within the lead time</span></span>
-<input type="checkbox" data-field="toggle-storm-forecast" ${draft.use_forecast_lead ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+<input type="checkbox" data-field="toggle-storm-forecast" ${draft.use_forecast_lead ? "checked" : ""} ${!draft.enabled || this._busy ? "disabled" : ""}></div>
 <div class="field" style="margin-top:10px"><label>Lead time (hours before forecast storm)</label>
-<input type="number" min="1" max="48" step="1" data-field="storm-lead-hours" value="${esc(String(draft.forecast_lead_hours ?? 4))}" ${!draft.use_forecast_lead || this._busy ? "disabled" : ""}></div>
+<input type="number" min="1" max="48" step="1" data-field="storm-lead-hours" value="${esc(String(draft.forecast_lead_hours ?? 4))}" ${!draft.enabled || !draft.use_forecast_lead || this._busy ? "disabled" : ""}></div>
 </div>
 ${this._renderStormAdvancedTriggers()}
 <div class="card">
