@@ -7995,12 +7995,14 @@ const DEFAULT_BRAND_DOMAIN = "foxess_plant";
 const DEFAULT_MODBUS_BRAND_DOMAIN = "foxess_modbus";
 const DEFAULT_BRAND_ICON_STATIC = "/foxess_plant_panel/icon.png";
 const DEVICE_EVO_IMAGE_STATIC = "/foxess_plant_panel/evo10.png?v=15";
-const STORM_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_storm_safe_charging.png?v=3";
-const SMART_CHARGE_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_smart_charge.png?v=2";
-const STORM_HERO_WIDTH = 1024;
-const STORM_HERO_HEIGHT = 605;
-const SMART_CHARGE_HERO_WIDTH = 1024;
-const SMART_CHARGE_HERO_HEIGHT = 603;
+const STORM_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_storm_safe_charging.png?v=4";
+const SMART_CHARGE_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_smart_charge.png?v=3";
+const BANNER_HERO_WIDE_WIDTH = 1024;
+const BANNER_HERO_WIDE_HEIGHT = 512;
+const STORM_HERO_WIDTH = BANNER_HERO_WIDE_WIDTH;
+const STORM_HERO_HEIGHT = BANNER_HERO_WIDE_HEIGHT;
+const SMART_CHARGE_HERO_WIDTH = BANNER_HERO_WIDE_WIDTH;
+const SMART_CHARGE_HERO_HEIGHT = BANNER_HERO_WIDE_HEIGHT;
 const STORM_WEATHER_ICON_VER = 1;
 
 function formatStormMatchedCategories(categories) {
@@ -10509,6 +10511,11 @@ const STYLES = `
 .fp-banner-hero > img {
   display: block; width: 100%; height: auto;
   max-height: none; min-height: 0; margin: 0; padding: 0; border: 0;
+}
+.fp-banner-hero--wide > img {
+  width: 100%; max-width: 100%; height: auto;
+  aspect-ratio: ${BANNER_HERO_WIDE_WIDTH} / ${BANNER_HERO_WIDE_HEIGHT};
+  object-fit: contain; object-position: center top;
 }
 .smart-charge-settings-header { margin-top: 0; margin-bottom: 16px; }
 .storm-settings-header { margin-top: 0; margin-bottom: 16px; }
@@ -13873,13 +13880,13 @@ ${this._renderImpactPanel()}`;
   }
 
   _renderStormHero(armed) {
-    return `<div class="fp-banner-hero">
+    return `<div class="fp-banner-hero fp-banner-hero--wide">
 <img src="${esc(STORM_HERO_IMAGE_STATIC)}" width="${STORM_HERO_WIDTH}" height="${STORM_HERO_HEIGHT}" alt="StormSafe: home battery backup during a storm" loading="eager" decoding="async" />
 </div>`;
   }
 
   _renderSmartChargeHero() {
-    return `<div class="fp-banner-hero">
+    return `<div class="fp-banner-hero fp-banner-hero--wide">
 <img src="${esc(SMART_CHARGE_HERO_IMAGE_STATIC)}" width="${SMART_CHARGE_HERO_WIDTH}" height="${SMART_CHARGE_HERO_HEIGHT}" alt="SmartCharge: Fox home battery charging from solar and off-peak grid" loading="eager" decoding="async" />
 </div>`;
   }
