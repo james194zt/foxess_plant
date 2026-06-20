@@ -7995,7 +7995,7 @@ const DEFAULT_BRAND_DOMAIN = "foxess_plant";
 const DEFAULT_MODBUS_BRAND_DOMAIN = "foxess_modbus";
 const DEFAULT_BRAND_ICON_STATIC = "/foxess_plant_panel/icon.png";
 const DEVICE_EVO_IMAGE_STATIC = "/foxess_plant_panel/evo10.png?v=15";
-const STORM_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_storm_safe_charging.png?v=4";
+const STORM_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_storm_safe_charging.png?v=5";
 const SMART_CHARGE_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_smart_charge.png?v=3";
 const BANNER_HERO_WIDE_WIDTH = 1024;
 const BANNER_HERO_WIDE_HEIGHT = 512;
