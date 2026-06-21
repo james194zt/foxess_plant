@@ -14,6 +14,14 @@ _LOGGER = logging.getLogger(__name__)
 OCTOPUS_GRAPHQL_URL = "https://api.octopus.energy/v1/graphql/"
 OCTOPUS_GRAPHQL_PUBLIC_URL = "https://api.backend.octopus.energy/v1/graphql/"
 
+_OBTAIN_TOKEN_MUTATION = """
+mutation ObtainKrakenToken($key: String!) {
+  obtainKrakenToken(input: { APIKey: $key }) {
+    token
+  }
+}
+"""
+
 
 class OctopusGraphqlError(Exception):
     """Octopus GraphQL request failed."""
@@ -33,6 +41,29 @@ class OctopusGraphqlClient:
         self._api_key = api_key.strip() if api_key else ""
         self._graphql_url = graphql_url.rstrip("/") + "/"
         self._session = async_get_clientsession(hass)
+        self._token: str | None = None
+
+    async def _obtain_token(self) -> str:
+        if not self._api_key:
+            raise OctopusGraphqlError("Octopus API key required")
+        data = await self._request(
+            _OBTAIN_TOKEN_MUTATION,
+            variables={"key": self._api_key},
+            auth=False,
+        )
+        block = data.get("obtainKrakenToken")
+        if not isinstance(block, dict):
+            raise OctopusGraphqlError("Failed to obtain Octopus GraphQL token")
+        token = block.get("token")
+        if not token:
+            raise OctopusGraphqlError("Octopus GraphQL token missing from response")
+        self._token = str(token)
+        return self._token
+
+    async def _ensure_token(self, *, force_refresh: bool = False) -> str:
+        if self._token and not force_refresh:
+            return self._token
+        return await self._obtain_token()
 
     async def _request(
         self,
@@ -41,6 +72,7 @@ class OctopusGraphqlClient:
         variables: dict[str, Any] | None = None,
         auth: bool = False,
         url: str | None = None,
+        _retried: bool = False,
     ) -> dict[str, Any]:
         headers = {
             "User-Agent": "FoxESS-Plant/1.0",
@@ -48,17 +80,15 @@ class OctopusGraphqlClient:
             "Content-Type": "application/json",
         }
         if auth:
-            if not self._api_key:
-                raise OctopusGraphqlError("Octopus API key required")
+            token = await self._ensure_token(force_refresh=_retried)
+            headers["Authorization"] = f"JWT {token}"
         payload = {"query": query, "variables": variables or {}}
         target = url or self._graphql_url
-        auth_tuple = aiohttp.BasicAuth(self._api_key, "") if auth else None
         try:
             async with self._session.post(
                 target,
                 json=payload,
                 headers=headers,
-                auth=auth_tuple,
                 timeout=aiohttp.ClientTimeout(total=45),
             ) as resp:
                 body = await resp.json(content_type=None)
@@ -67,6 +97,21 @@ class OctopusGraphqlClient:
                 errors = body.get("errors")
                 if errors:
                     first = errors[0] if isinstance(errors, list) and errors else {}
+                    extensions = first.get("extensions") if isinstance(first, dict) else {}
+                    error_code = extensions.get("errorCode") if isinstance(extensions, dict) else None
+                    if (
+                        auth
+                        and not _retried
+                        and error_code in ("KT-CT-1139", "KT-CT-1111", "KT-CT-1143", "KT-CT-1112")
+                    ):
+                        self._token = None
+                        return await self._request(
+                            query,
+                            variables=variables,
+                            auth=auth,
+                            url=url,
+                            _retried=True,
+                        )
                     message = first.get("message") if isinstance(first, dict) else str(errors)
                     raise OctopusGraphqlError(str(message or "GraphQL error"))
                 data = body.get("data")

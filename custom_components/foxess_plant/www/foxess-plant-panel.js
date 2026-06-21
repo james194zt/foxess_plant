@@ -1815,7 +1815,23 @@ function formatOctopusRate(pPerKwh) {
   return `${Number(pPerKwh).toFixed(2)}p/kWh`;
 }
 
-function renderOctopusGreenerChartSvg(periods, greenerNights, threshold) {
+function formatOctopusChartTimeMs(ms) {
+  if (!Number.isFinite(ms)) return "—";
+  return new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: true });
+}
+
+function octopusCarbonPeriodsForChart(periods, now = Date.now()) {
+  const rows = (Array.isArray(periods) ? periods : [])
+    .filter((p) => Number.isFinite(p?.start_ms))
+    .sort((a, b) => a.start_ms - b.start_ms);
+  if (!rows.length) return [];
+  const currentIdx = rows.findIndex((p) => p.start_ms <= now && p.end_ms > now);
+  const anchor = currentIdx >= 0 ? currentIdx : rows.findIndex((p) => p.start_ms >= now);
+  const startIdx = Math.max(0, (anchor >= 0 ? anchor : 0) - 1);
+  return rows.slice(startIdx, startIdx + 48);
+}
+
+function renderOctopusGreenerChartSvg(periods, threshold) {
   const W = 680;
   const H = 190;
   const padL = 42;
@@ -1825,28 +1841,15 @@ function renderOctopusGreenerChartSvg(periods, greenerNights, threshold) {
   const chartW = W - padL - padR;
   const chartH = H - padT - padB;
   const now = Date.now();
-  let rows = Array.isArray(periods) ? periods.filter((p) => Number.isFinite(p?.start_ms)) : [];
-  if (rows.length) {
-    const filtered = rows.filter(
-      (p) => p.end_ms >= now - 60 * 60 * 1000 && p.start_ms <= now + 24 * 60 * 60 * 1000
-    );
-    rows = filtered.length ? filtered : rows.slice(0, 48);
-  } else if (Array.isArray(greenerNights) && greenerNights.length) {
-    rows = greenerNights.map((n, i) => ({
-      start_ms: now + i * 24 * 60 * 60 * 1000,
-      gco2_per_kwh: n.greenness_score,
-      is_green: Boolean(n.is_greener_night),
-      label: n.date,
-    }));
-  }
+  const rows = octopusCarbonPeriodsForChart(periods, now);
   if (!rows.length) {
-    return `<p class="octopus-greener-empty">No greener forecast data yet.</p>`;
+    return `<p class="octopus-greener-empty">Half-hourly carbon forecast unavailable. Save a valid Octopus API key and account number with a UK postcode on your account.</p>`;
   }
   const values = rows.map((p) => Number(p.gco2_per_kwh ?? 0));
   const maxVal = Math.max(Number(threshold) * 1.35, ...values, 100);
   const greenY = padT + chartH - (Number(threshold) / maxVal) * chartH;
   const slotW = chartW / rows.length;
-  const barW = Math.max(3, Math.min(9, slotW * 0.72));
+  const barW = Math.max(2, Math.min(8, slotW * 0.75));
   const bars = rows
     .map((p, i) => {
       const val = Number(p.gco2_per_kwh ?? 0);
@@ -1854,20 +1857,20 @@ function renderOctopusGreenerChartSvg(periods, greenerNights, threshold) {
       const x = padL + i * slotW + (slotW - barW) / 2;
       const y = padT + chartH - h;
       const green = Boolean(p.is_green ?? val < threshold);
-      const color = green ? "#4ade80" : "#a78bfa";
+      const color = green ? "var(--octopus-green-bar, #22c55e)" : "var(--octopus-purple-bar, #8b5cf6)";
       return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${color}" rx="1.5" />`;
     })
     .join("");
-  const tickCount = Math.min(8, rows.length);
+  const tickCount = Math.min(7, rows.length);
   const xLabels = [];
   for (let i = 0; i < tickCount; i += 1) {
     const idx = tickCount === 1 ? 0 : Math.round((i / (tickCount - 1)) * (rows.length - 1));
     const row = rows[idx];
     const x = padL + idx * slotW + slotW / 2;
     const label =
-      idx === 0 && row.start_ms <= now && (row.end_ms == null || row.end_ms >= now)
+      row.start_ms <= now && row.end_ms > now
         ? "Now"
-        : row.label || formatOctopusTimeMs(row.start_ms);
+        : formatOctopusChartTimeMs(row.start_ms);
     xLabels.push(
       `<text x="${x.toFixed(1)}" y="${H - 8}" text-anchor="middle" class="octopus-greener-axis">${esc(label)}</text>`
     );
@@ -1888,12 +1891,11 @@ ${xLabels.join("")}
 }
 
 function renderOctopusGreenerTable(periods) {
-  const rows = Array.isArray(periods) ? periods : [];
+  const rows = octopusCarbonPeriodsForChart(periods);
   if (!rows.length) {
-    return `<p class="octopus-greener-empty">Connect Octopus with your account postcode to see half-hourly carbon intensity.</p>`;
+    return `<p class="octopus-greener-empty">Half-hourly carbon forecast unavailable. Save a valid Octopus API key and account number with a UK postcode on your account.</p>`;
   }
   const body = rows
-    .slice(0, 48)
     .map((p) => {
       const score = p.low_carbon_score != null ? `${p.low_carbon_score}/10` : "—";
       const gco2 = p.gco2_per_kwh != null ? Math.round(Number(p.gco2_per_kwh)) : "—";
@@ -1929,7 +1931,7 @@ function renderOctopusGreenerNightsCard(payload, { compact = false, view = "stan
   const threshold = Number(payload.green_threshold_gco2 ?? 99);
   const standardActive = view !== "detailed";
   const body = standardActive
-    ? `${renderOctopusGreenerChartSvg(payload.carbon_periods, payload.greener_nights, threshold)}${renderOctopusGreenerTimeline(payload.timeline)}`
+    ? `${renderOctopusGreenerChartSvg(payload.carbon_periods, threshold)}${renderOctopusGreenerTimeline(payload.timeline)}`
     : renderOctopusGreenerTable(payload.carbon_periods);
   const intro = standardActive
     ? "Forecasts grid carbon intensity — the greener the bar, the cleaner the energy. Greener nights cover 23:00–06:00 for EV charging rewards."
@@ -8918,54 +8920,58 @@ const STYLES = `
 .fox-analysis-forecast-accuracy-row { margin-top: 14px; }
 .fox-analysis-forecast-accuracy-row .forecast-accuracy-card { margin-top: 0; }
 .octopus-greener-card {
-  background: linear-gradient(165deg, rgba(26, 20, 75, 0.96), rgba(36, 24, 92, 0.92));
-  border: 1px solid rgba(167, 139, 250, 0.22);
-  color: #f8fafc;
+  /* Uses standard .card background — layout only */
 }
 .octopus-greener-card .card-title,
-.octopus-greener-title { color: #fff; margin: 0; }
+.octopus-greener-title { margin: 0; }
 .octopus-greener-head {
   display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap;
 }
 .octopus-greener-title-wrap { display: flex; align-items: center; gap: 10px; }
-.octopus-greener-icon { font-size: 22px; filter: drop-shadow(0 0 8px rgba(74, 222, 128, 0.45)); }
+.octopus-greener-icon { font-size: 22px; line-height: 1; }
 .octopus-greener-view-toggle {
-  display: inline-flex; padding: 3px; border-radius: 999px; background: rgba(15, 23, 42, 0.55);
-  border: 1px solid rgba(148, 163, 184, 0.25);
+  display: inline-flex; padding: 3px; border-radius: 999px;
+  background: var(--secondary-background-color, rgba(127, 127, 127, 0.12));
+  border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
 }
 .octopus-greener-view-btn {
-  border: 0; background: transparent; color: #cbd5e1; font-size: 12px; padding: 6px 12px;
+  border: 0; background: transparent; color: var(--secondary-text-color); font-size: 12px; padding: 6px 12px;
   border-radius: 999px; cursor: pointer;
 }
-.octopus-greener-view-btn.active { background: rgba(59, 130, 246, 0.85); color: #fff; }
-.octopus-greener-intro, .octopus-greener-hint, .octopus-greener-empty, .octopus-greener-error {
-  font-size: 12px; line-height: 1.45; color: rgba(226, 232, 240, 0.88); margin: 8px 0 0;
+.octopus-greener-view-btn.active {
+  background: var(--primary-color, #03a9f4); color: var(--text-primary-color, #fff);
 }
-.octopus-greener-error { color: #fca5a5; }
+.octopus-greener-intro, .octopus-greener-hint, .octopus-greener-empty {
+  font-size: 12px; line-height: 1.45; color: var(--secondary-text-color); margin: 8px 0 0;
+}
+.octopus-greener-error { color: var(--error-color, #f44336); font-size: 12px; margin: 8px 0 0; }
 .octopus-greener-chart-wrap { margin-top: 12px; }
 .octopus-greener-chart-svg { width: 100%; height: auto; display: block; }
-.octopus-greener-axis { fill: rgba(226, 232, 240, 0.72); font-size: 10px; }
-.octopus-greener-green-line { stroke: rgba(248, 250, 252, 0.55); stroke-width: 1; }
+.octopus-greener-axis { fill: var(--secondary-text-color); font-size: 10px; }
+.octopus-greener-green-line { stroke: var(--secondary-text-color); stroke-width: 1; opacity: 0.55; }
 .octopus-greener-legend {
-  display: flex; flex-wrap: wrap; gap: 10px 16px; margin-top: 8px; font-size: 11px; color: rgba(226, 232, 240, 0.82);
+  display: flex; flex-wrap: wrap; gap: 10px 16px; margin-top: 8px; font-size: 11px; color: var(--secondary-text-color);
 }
 .octopus-greener-swatch {
   display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px;
 }
-.octopus-greener-swatch--green { background: #4ade80; }
-.octopus-greener-swatch--purple { background: #a78bfa; }
-.octopus-greener-legend-line { opacity: 0.75; }
-.octopus-greener-table-wrap { margin-top: 12px; overflow-x: auto; border-radius: 12px; border: 1px solid rgba(148, 163, 184, 0.18); }
+.octopus-greener-swatch--green { background: #22c55e; }
+.octopus-greener-swatch--purple { background: #8b5cf6; }
+.octopus-greener-legend-line { opacity: 0.85; }
+.octopus-greener-table-wrap {
+  margin-top: 12px; overflow-x: auto; border-radius: var(--fp-radius, 12px);
+  border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
+}
 .octopus-greener-table {
   width: 100%; border-collapse: collapse; font-size: 12px;
 }
 .octopus-greener-table th, .octopus-greener-table td {
-  padding: 9px 12px; text-align: left; border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+  padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--divider-color, rgba(127, 127, 127, 0.15));
 }
-.octopus-greener-table tbody tr:nth-child(even) { background: rgba(15, 23, 42, 0.28); }
-.octopus-greener-table th { font-size: 11px; color: rgba(226, 232, 240, 0.72); font-weight: 600; }
+.octopus-greener-table tbody tr:nth-child(even) { background: var(--secondary-background-color, rgba(127, 127, 127, 0.06)); }
+.octopus-greener-table th { font-size: 11px; color: var(--secondary-text-color); font-weight: 600; }
 .octopus-greener-timeline {
-  list-style: none; margin: 14px 0 0; padding: 0 0 0 8px; border-left: 1px solid rgba(148, 163, 184, 0.28);
+  list-style: none; margin: 14px 0 0; padding: 0 0 0 8px; border-left: 1px solid var(--divider-color, rgba(127, 127, 127, 0.25));
 }
 .octopus-greener-timeline-item {
   position: relative; padding: 0 0 14px 16px; margin: 0;
@@ -8973,20 +8979,17 @@ const STYLES = `
 .octopus-greener-timeline-item:last-child { padding-bottom: 0; }
 .octopus-greener-timeline-dot {
   position: absolute; left: -5px; top: 4px; width: 9px; height: 9px; border-radius: 50%;
-  background: #a78bfa; box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.18);
+  background: #8b5cf6;
 }
-.octopus-greener-timeline-item--good .octopus-greener-timeline-dot { background: #4ade80; box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.18); }
-.octopus-greener-timeline-item p { margin: 0; font-size: 12px; line-height: 1.45; color: rgba(248, 250, 252, 0.92); }
-.octopus-rewards-card {
-  background: linear-gradient(165deg, rgba(15, 23, 42, 0.92), rgba(30, 41, 59, 0.88));
-  border: 1px solid rgba(148, 163, 184, 0.18);
-}
+.octopus-greener-timeline-item--good .octopus-greener-timeline-dot { background: #22c55e; }
+.octopus-greener-timeline-item p { margin: 0; font-size: 12px; line-height: 1.45; color: var(--primary-text-color); }
 .octopus-rewards-split {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 8px;
 }
 .octopus-rewards-pane {
-  padding: 12px 14px; border-radius: 12px; background: rgba(15, 23, 42, 0.45);
-  border: 1px solid rgba(148, 163, 184, 0.14);
+  padding: 12px 14px; border-radius: var(--fp-radius, 12px);
+  background: var(--secondary-background-color, rgba(127, 127, 127, 0.06));
+  border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.15));
 }
 .octopus-rewards-pane label {
   display: block; font-size: 11px; color: var(--secondary-text-color); margin-bottom: 4px;
