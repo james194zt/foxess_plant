@@ -6,8 +6,8 @@ export GIT_AUTHOR_EMAIL="james194zt@users.noreply.github.com"
 export GIT_COMMITTER_NAME="james194zt"
 export GIT_COMMITTER_EMAIL="james194zt@users.noreply.github.com"
 git add -A
-git commit -m "Rename 24h greener forecast card and highlight week-ahead intro (v0.9.301).
+git commit -m "Polish Octopus 24h forecast copy, legend, and timeline styling (v0.9.305).
 
-Retitle the carbon forecast card to Octopus Green Nights 24h Forecast and style the week-ahead Greener Nights window text with the same green headline treatment."
+Add the daily carbon intro and NESO help bubble, move the chart legend above the graph with a dashed national line marker, restyle greener-night tiles and Energy Analysis headers, and rebuild the advice timeline with Octopus leaf and unplugged icons on a side rail."
 git push origin main
 git status
