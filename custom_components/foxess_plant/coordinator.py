@@ -1785,18 +1785,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.warning("Glow API refresh failed: %s", err)
 
     async def async_save_glow(self, *, glow: dict[str, Any], fetch_now: bool = True) -> None:
+        from .models import merge_glow_config
+
         fetch_now = bool(glow.pop("fetch_now", fetch_now))
         current = self.plant.glow.to_dict()
-        merged = {**current, **glow}
-        if "password" in glow:
-            raw_pw = glow.get("password")
-            if raw_pw and str(raw_pw).strip() and str(raw_pw) not in ("********", "••••••••"):
-                merged["password"] = str(raw_pw).strip()
-            else:
-                merged["password"] = current.get("password")
-        if "username" in glow:
-            raw_user = glow.get("username")
-            merged["username"] = str(raw_user).strip() if raw_user and str(raw_user).strip() else current.get("username")
+        merged = merge_glow_config(current, glow)
         cfg = GlowConfig.from_dict(merged)
         if cfg.enabled and cfg.api_enabled and not cfg.mqtt_enabled and not cfg.credentials_configured():
             raise HomeAssistantError("Bright username and password required when MQTT is disabled")
@@ -1812,6 +1805,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_test_glow(self, *, username: str | None = None, password: str | None = None) -> dict[str, Any]:
         from .glow_api import GlowApiClient, GlowApiError, classify_glow_resources
+        from .models import merge_glow_config
 
         glow = self.plant.glow
         user = (username or glow.username or "").strip()
@@ -1819,9 +1813,26 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not user or not pw:
             raise HomeAssistantError("Bright username and password required")
         auth = await GlowApiClient.authenticate(self.hass, username=user, password=pw)
-        client = GlowApiClient(self.hass, token=str(auth.get("token")))
+        token = str(auth.get("token") or "")
+        client = GlowApiClient(self.hass, token=token)
         resources = await client.list_resources()
         import_id, export_id = classify_glow_resources(resources)
+        merged = merge_glow_config(
+            self.plant.glow.to_dict(),
+            {
+                "username": user,
+                "password": pw,
+                "token": token,
+                "token_exp": auth.get("exp"),
+                **({"import_resource_id": import_id} if import_id else {}),
+                **({"export_resource_id": export_id} if export_id else {}),
+            },
+        )
+        cfg = GlowConfig.from_dict(merged)
+        data = dict(self.config_entry.data)
+        data[CONF_GLOW] = cfg.to_dict()
+        self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+        self.update_plant_config(PlantConfig.from_entry_data(data))
         return {
             "valid": bool(auth.get("valid")),
             "account_id": auth.get("accountId"),

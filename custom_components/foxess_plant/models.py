@@ -573,10 +573,37 @@ class GlowConfig:
             out["password"] = self.password
             out["token"] = self.token
         else:
+            out["username"] = self.username
             out["username_set"] = bool(self.username)
             out["password_set"] = bool(self.password)
             out["token_set"] = self.token_configured()
         return out
+
+
+def merge_glow_config(
+    current: dict[str, Any],
+    incoming: dict[str, Any],
+) -> dict[str, Any]:
+    """Merge panel Glow settings without clearing stored Bright credentials."""
+    merged = {**current, **incoming}
+    if "password" in incoming:
+        raw_pw = incoming.get("password")
+        if raw_pw and str(raw_pw).strip() and str(raw_pw) not in ("********", "••••••••"):
+            merged["password"] = str(raw_pw).strip()
+        else:
+            merged["password"] = current.get("password")
+    if "username" in incoming:
+        raw_user = incoming.get("username")
+        if raw_user and str(raw_user).strip():
+            merged["username"] = str(raw_user).strip()
+        else:
+            merged["username"] = current.get("username")
+    if "token" in incoming and not incoming.get("token"):
+        merged["token"] = current.get("token")
+    for key in ("import_resource_id", "export_resource_id"):
+        if key in incoming and not incoming.get(key):
+            merged[key] = current.get(key)
+    return merged
 
 
 @dataclass

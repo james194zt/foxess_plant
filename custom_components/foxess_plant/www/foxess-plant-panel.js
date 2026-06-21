@@ -12562,7 +12562,10 @@ Reloading panel registration…
         this._glowDraft.mqtt_enabled = g.mqtt_enabled !== false;
         this._glowDraft.api_enabled = g.api_enabled !== false;
         this._glowDraft.password_set = Boolean(g.password_set);
-        this._glowDraft.username_set = Boolean(g.username_set);
+        this._glowDraft.username_set = Boolean(g.username_set || g.username);
+        if (g.username) this._glowDraft.username = g.username;
+        if (g.import_resource_id) this._glowDraft.import_resource_id = g.import_resource_id;
+        if (g.export_resource_id) this._glowDraft.export_resource_id = g.export_resource_id;
       }
       if (
         this._settingsView === "tariff" &&
@@ -13658,6 +13661,19 @@ Reloading panel registration…
       const el = root.querySelector(`[data-field="${field}"]`);
       if (el) this._glowDraft[key] = el.checked;
     }
+    const textFields = [
+      ["glow:username", "username"],
+      ["glow:topic_prefix", "topic_prefix"],
+      ["glow:device_id", "device_id"],
+      ["glow:import_resource_id", "import_resource_id"],
+      ["glow:export_resource_id", "export_resource_id"],
+    ];
+    for (const [field, key] of textFields) {
+      const el = root.querySelector(`[data-field="${field}"]`);
+      if (el) this._glowDraft[key] = el.value ?? "";
+    }
+    const pwEl = root.querySelector('[data-field="glow:password"]');
+    if (pwEl?.value) this._glowDraft.password = pwEl.value;
   }
 
   _glowSettingsSubtitle() {
@@ -13684,13 +13700,15 @@ Reloading panel registration…
         api_enabled: Boolean(draft.api_enabled),
         topic_prefix: String(draft.topic_prefix || "glow").trim() || "glow",
         device_id: String(draft.device_id || "+").trim() || "+",
-        import_resource_id: String(draft.import_resource_id || "").trim() || null,
-        export_resource_id: String(draft.export_resource_id || "").trim() || null,
       };
       const user = String(draft.username || "").trim();
       if (user) payload.username = user;
       const pw = String(draft.password || "").trim();
       if (pw) payload.password = pw;
+      const importId = String(draft.import_resource_id || "").trim();
+      if (importId) payload.import_resource_id = importId;
+      const exportId = String(draft.export_resource_id || "").trim();
+      if (exportId) payload.export_resource_id = exportId;
       const state = await this._hass.connection.sendMessagePromise({
         type: "foxess_plant/update_glow",
         plant_id: plant.entry_id,
