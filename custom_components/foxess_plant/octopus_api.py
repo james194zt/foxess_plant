@@ -114,6 +114,12 @@ class OctopusApiClient:
         self._products_cache = rows
         return list(rows)
 
+    async def get_product(self, product_code: str) -> dict[str, Any]:
+        code = str(product_code or "").strip()
+        if not code:
+            raise OctopusApiError("Octopus product code is required")
+        return await self._request(f"/products/{code}/")
+
     async def get_unit_rates(
         self,
         product_code: str,

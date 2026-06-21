@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta
 from typing import Any
@@ -26,6 +27,15 @@ TARIFF_TYPE_ECONOMY7 = "economy7"
 TARIFF_TYPE_FLAT = "flat"
 
 UK_TZ = ZoneInfo("Europe/London")
+
+# E-1R-{product}-{gsp} or E-2R-{product}-{gsp} (gsp = A–P regional group)
+_TARIFF_PRODUCT_RE = re.compile(r"^[EG]-[12]R-(.+)-([A-P])$", re.IGNORECASE)
+
+_TARIFF_REGION_KEYS = (
+    "single_register_electricity_tariffs",
+    "dual_register_electricity_tariffs",
+    "single_register_gas_tariffs",
+)
 
 
 @dataclass
@@ -172,22 +182,58 @@ def _parse_api_dt(value: Any) -> datetime | None:
 
 
 async def find_product_for_tariff(client: OctopusApiClient, tariff_code: str) -> str | None:
-    code = str(tariff_code or "").strip()
+    code = str(tariff_code or "").strip().upper()
     if not code:
         return None
+
+    derived = product_code_from_tariff_code(code)
+    if derived:
+        return derived
+
     products = await client.get_products()
     for product in products:
         product_code = str(product.get("code") or "")
         if not product_code:
             continue
-        for key in ("single_register_electricity_tariffs", "dual_register_electricity_tariffs"):
-            tariffs = product.get(key) or []
-            if not isinstance(tariffs, list):
-                continue
-            for item in tariffs:
-                if isinstance(item, dict) and str(item.get("code") or "") == code:
-                    return product_code
+        for tcode in _tariff_codes_in_product(product):
+            if tcode.upper() == code:
+                return product_code
+        try:
+            detail = await client.get_product(product_code)
+        except OctopusApiError:
+            continue
+        for tcode in _tariff_codes_in_product(detail):
+            if tcode.upper() == code:
+                return product_code
     return None
+
+
+def product_code_from_tariff_code(tariff_code: str) -> str | None:
+    """Derive Octopus product code from a standard import/export tariff code."""
+    code = str(tariff_code or "").strip().upper()
+    match = _TARIFF_PRODUCT_RE.match(code)
+    if not match:
+        return None
+    return match.group(1)
+
+
+def _tariff_codes_in_product(product: dict[str, Any]) -> list[str]:
+    """Extract tariff codes from a product list or detail payload."""
+    codes: list[str] = []
+    for key in _TARIFF_REGION_KEYS:
+        regional = product.get(key)
+        if not isinstance(regional, dict):
+            continue
+        for payment_methods in regional.values():
+            if not isinstance(payment_methods, dict):
+                continue
+            for tariff in payment_methods.values():
+                if not isinstance(tariff, dict):
+                    continue
+                tcode = str(tariff.get("code") or "").strip()
+                if tcode:
+                    codes.append(tcode)
+    return codes
 
 
 def _rate_value_inc_vat(row: dict[str, Any]) -> float | None:
