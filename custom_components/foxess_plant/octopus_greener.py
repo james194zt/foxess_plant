@@ -327,6 +327,51 @@ async def fetch_octopus_greener_snapshot(
     return snapshot
 
 
+def carbon_periods_present(periods: list[dict[str, Any]] | None) -> bool:
+    return any(p.get("start_ms") is not None for p in (periods or []))
+
+
+def carbon_periods_current(
+    periods: list[dict[str, Any]] | None,
+    *,
+    now_ms: int | None = None,
+) -> bool:
+    """True when forecast includes at least one half-hour ending in the future."""
+    if not periods:
+        return False
+    now_ms = now_ms if now_ms is not None else int(dt_util.now(UK_TZ).timestamp() * 1000)
+    return any(
+        p.get("start_ms") is not None
+        and p.get("end_ms") is not None
+        and int(p["end_ms"]) > now_ms
+        for p in periods
+    )
+
+
+def hydrate_greener_snapshot_from_history(
+    snapshot: dict[str, Any],
+    history: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Restore carbon/postcode from stored history when the live snapshot lacks them."""
+    if carbon_periods_present(snapshot.get("carbon_periods")):
+        return snapshot
+    for entry in reversed(history):
+        if not isinstance(entry, dict):
+            continue
+        past = entry.get("snapshot")
+        if not isinstance(past, dict):
+            continue
+        periods = list(past.get("carbon_periods") or [])
+        if not carbon_periods_present(periods):
+            continue
+        merged = dict(snapshot)
+        merged["carbon_periods"] = periods
+        if not merged.get("postcode") and past.get("postcode"):
+            merged["postcode"] = past.get("postcode")
+        return merged
+    return snapshot
+
+
 def is_octopus_rate_limit_error(message: str | None) -> bool:
     if not message:
         return False
@@ -373,8 +418,13 @@ def merge_octopus_greener_snapshots(
         if _keep_previous(meter_key, ("account",)):
             merged[meter_key] = previous.get(meter_key)
 
-    got_data = bool(incoming.get("carbon_periods") or incoming.get("greener_nights"))
-    if not got_data and errors:
+    merged_carbon_ok = carbon_periods_current(merged.get("carbon_periods"))
+    previous_carbon_ok = carbon_periods_current(previous.get("carbon_periods"))
+    if merged_carbon_ok:
+        merged["fetched_at"] = incoming.get("fetched_at") or previous.get("fetched_at")
+    elif previous_carbon_ok:
+        merged["fetched_at"] = previous.get("fetched_at") or incoming.get("fetched_at")
+    elif not (incoming.get("greener_nights") or incoming.get("carbon_periods")) and errors:
         merged["fetched_at"] = previous.get("fetched_at") or incoming.get("fetched_at")
     return merged
 

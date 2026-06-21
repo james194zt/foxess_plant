@@ -414,7 +414,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._octopus_greener_history = OctopusGreenerStore.history_entries(greener_stored)
         current = greener_stored.get("current") if isinstance(greener_stored, dict) else None
         if isinstance(current, dict) and isinstance(current.get("snapshot"), dict):
-            self._octopus_greener_cache = dict(current["snapshot"])
+            from .octopus_greener import hydrate_greener_snapshot_from_history
+
+            self._octopus_greener_cache = hydrate_greener_snapshot_from_history(
+                dict(current["snapshot"]),
+                self._octopus_greener_history,
+            )
         self._octopus_consumption_store = OctopusConsumptionStore(
             self.hass, self.config_entry.entry_id
         )
@@ -493,10 +498,14 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _octopus_greener_state(self) -> dict[str, Any] | None:
         if not self._octopus_greener_enabled():
             return None
-        from .octopus_greener import greener_dashboard_payload
+        from .octopus_greener import greener_dashboard_payload, hydrate_greener_snapshot_from_history
 
+        cache = hydrate_greener_snapshot_from_history(
+            dict(self._octopus_greener_cache or {}),
+            self._octopus_greener_history,
+        )
         return greener_dashboard_payload(
-            self._octopus_greener_cache,
+            cache,
             history_count=self._octopus_greener_history_count,
             current_import_p_per_kwh=self._octopus_cache.get("current_import_p_per_kwh"),
         )
@@ -576,9 +585,16 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return False
         if not self._octopus_greener_cache:
             return True
-        return not self._octopus_cache_fresh(
-            self._octopus_greener_cache, "fetched_at", timedelta(minutes=110)
-        )
+        from .octopus_greener import carbon_periods_current
+
+        cache = self._octopus_greener_cache
+        carbon = list(cache.get("carbon_periods") or [])
+        greener = list(cache.get("greener_nights") or [])
+        if not greener or not carbon_periods_current(carbon):
+            interval = timedelta(minutes=15)
+        else:
+            interval = timedelta(minutes=110)
+        return not self._octopus_cache_fresh(cache, "fetched_at", interval)
 
     def _octopus_consumption_refresh_due(self, *, force: bool = False) -> bool:
         if force:
@@ -2372,7 +2388,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 account_number=account_number,
             )
             self._note_octopus_rate_limit(*(incoming.get("errors") or {}).values())
+            from .octopus_greener import hydrate_greener_snapshot_from_history
+
             merged = merge_octopus_greener_snapshots(previous, incoming)
+            merged = hydrate_greener_snapshot_from_history(merged, self._octopus_greener_history)
             self._octopus_greener_cache = merged
             if merged.get("carbon_periods") or merged.get("greener_nights"):
                 if self._octopus_greener_store is None:

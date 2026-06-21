@@ -1872,7 +1872,10 @@ function octopusCarbonPeriodsForChart(periods, now = Date.now()) {
   if (!rows.length) return [];
   const currentIdx = rows.findIndex((p) => p.start_ms <= now && p.end_ms > now);
   const anchor = currentIdx >= 0 ? currentIdx : rows.findIndex((p) => p.start_ms >= now);
-  const startIdx = Math.max(0, (anchor >= 0 ? anchor : 0) - 1);
+  if (anchor < 0) {
+    return rows.slice(Math.max(0, rows.length - 48));
+  }
+  const startIdx = Math.max(0, anchor - 1);
   return rows.slice(startIdx, startIdx + 48);
 }
 
@@ -2429,7 +2432,7 @@ ${octopusAnalysisCardTitle(OCTOPUS_GREENER_CARD_TITLE, { compact })}
         ? `<p class="octopus-greener-hint">${payload.greener_nights.filter((n) => n.is_greener_night).length} greener night(s) in the next ${payload.greener_nights.length} days · ${payload.history_count || 0} snapshots stored</p>`
         : "";
   }
-  const err = payload.errors?.greener_nights || payload.errors?.carbon;
+  const err = payload.errors?.greener_nights || payload.errors?.carbon || payload.errors?.account;
   const errHtml = err ? `<p class="octopus-greener-error">${esc(String(err))}</p>` : "";
   return `<div class="card octopus-greener-card${compact ? " octopus-greener-card--compact" : ""}" style="margin-top:14px" data-octopus-greener-card="1">
 <div class="octopus-greener-head">
