@@ -2089,12 +2089,20 @@ function renderOctopusGreenerWeekTimeline(rows) {
   if (!upcoming.length) {
     const any = rows.some((r) => r.hasData);
     if (!any) return "";
-    return `<ul class="octopus-greener-timeline"><li class="octopus-greener-timeline-item octopus-greener-timeline-item--warn"><span class="octopus-greener-timeline-icon">${octopusGreenerTimelineIconHtml("warn")}</span><p>No greener nights flagged in this week&apos;s forecast. Shift EV charging to nights with higher greenness scores if you can.</p></li></ul>`;
+    return `<ul class="octopus-greener-timeline">${renderOctopusGreenerTimelineItem({
+      tone: "warn",
+      title: "No greener nights flagged in this week\u2019s forecast",
+      detail: "Shift EV charging to nights with higher greenness scores if you can.",
+    })}</ul>`;
   }
   const items = upcoming
     .map((r) => {
       const score = r.greenness_score != null ? `${r.greenness_score}/100` : "—";
-      return `<li class="octopus-greener-timeline-item octopus-greener-timeline-item--good"><span class="octopus-greener-timeline-icon">${octopusGreenerTimelineIconHtml("good")}</span><p>${esc(r.label)} ${esc(r.shortDate)}: greener night (${esc(score)}). Good window for overnight EV charging (23:00–06:00).</p></li>`;
+      return renderOctopusGreenerTimelineItem({
+        tone: "good",
+        title: `${r.label} ${r.shortDate}: greener night (${score})`,
+        detail: "Good window for overnight EV charging (23:00–06:00).",
+      });
     })
     .join("");
   return `<ul class="octopus-greener-timeline">${items}</ul>`;
@@ -2108,19 +2116,48 @@ function renderOctopusGreenerCarbonLegend(threshold) {
 </div>`;
 }
 
-const OCTOPUS_TIMELINE_LEAF_SVG = `<svg class="octopus-greener-timeline-icon-svg octopus-greener-timeline-icon-svg--leaf" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 26" width="32" height="32" aria-hidden="true"><path fill="#18f0b8" d="M15.938 3.718c-4.606 0-8.502 2.988-9.827 7.108a14.56 14.56 0 0 1 6.545-1.537h5.156c.516 0 .938.417.938.928 0 .51-.422.928-.938.928H12.656c-.972 0-1.916.11-2.824.314-1.518.342-2.93.951-4.184 1.781C2.244 15.486 0 19.321 0 23.68v.928C0 25.38.627 26 1.406 26c.78 0 1.407-.62 1.407-1.393v-.928a9.675 9.675 0 0 1 3.152-7.149c1.16 4.381 5.185 7.613 9.973 7.613h.058C23.736 24.103 30 16.548 30 7.234c0-2.471-.44-4.822-1.236-6.94-.153-.4-.744-.382-.95-.005a6.56 6.56 0 0 1-5.783 3.429h-6.093Z"/></svg>`;
+const OCTOPUS_TIMELINE_LEAF_SVG = `<svg class="octopus-greener-timeline-icon-svg octopus-greener-timeline-icon-svg--leaf" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 26" aria-hidden="true"><path fill="#18f0b8" d="M15.938 3.718c-4.606 0-8.502 2.988-9.827 7.108a14.56 14.56 0 0 1 6.545-1.537h5.156c.516 0 .938.417.938.928 0 .51-.422.928-.938.928H12.656c-.972 0-1.916.11-2.824.314-1.518.342-2.93.951-4.184 1.781C2.244 15.486 0 19.321 0 23.68v.928C0 25.38.627 26 1.406 26c.78 0 1.407-.62 1.407-1.393v-.928a9.675 9.675 0 0 1 3.152-7.149c1.16 4.381 5.185 7.613 9.973 7.613h.058C23.736 24.103 30 16.548 30 7.234c0-2.471-.44-4.822-1.236-6.94-.153-.4-.744-.382-.95-.005a6.56 6.56 0 0 1-5.783 3.429h-6.093Z"/></svg>`;
 
-const OCTOPUS_TIMELINE_UNPLUGGED_SVG = `<svg class="octopus-greener-timeline-icon-svg octopus-greener-timeline-icon-svg--unplugged" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 15 21" width="30" height="30" aria-hidden="true"><path fill="#8b5cf6" d="M13.8887 6.5244c.1206.0086.2399.034.3535.0772a1.2471 1.2471 0 0 1 .8037 1.165c0 .1677-.0339.334-.0996.4883a1.2474 1.2474 0 0 1-1.1963.7568v1.2451c0 3.012-2.148 5.4906-5 6.1006v2.6094a1.2502 1.2502 0 0 1-2.1338.8838 1.2502 1.2502 0 0 1-.3662-.8838v-2.6094a6.4213 6.4213 0 0 1-1.6133-.581l9.252-9.252Zm-12.041 6.3848c-.383-.8028-.5977-1.7009-.5977-2.6524v-1.245C.56 9.0117 0 8.4555 0 7.7665c.0002-.6888.5601-1.2441 1.25-1.2441h6.9854l-6.3877 6.3867Z"/><path fill="#8b5cf6" d="M3.832 0c.677 0 1.2225.5839 1.2227 1.3037v5.2188H2.6094V1.3037C2.6105.5838 3.157 0 3.832 0ZM11.17 0c.6769 0 1.2225.5838 1.2227 1.3037l-.001 1.0928a2.0151 2.0151 0 0 0-.2197.1894L9.9463 4.8115V1.3037C9.9464.584 10.493 0 11.1699 0Z"/><path fill="#8b5cf6" d="M12.8787 3.2929c.3905-.3905 1.0237-.3905 1.4142 0 .3905.3905.3905 1.0237 0 1.4142L2.7071 16.293c-.3905.3905-1.0237.3905-1.4142 0-.3905-.3905-.3905-1.0237 0-1.4142L12.8787 3.2929Z"/></svg>`;
+const OCTOPUS_TIMELINE_UNPLUGGED_SVG = `<svg class="octopus-greener-timeline-icon-svg octopus-greener-timeline-icon-svg--unplugged" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 15 21" aria-hidden="true"><path fill="#8b5cf6" d="M13.8887 6.5244c.1206.0086.2399.034.3535.0772a1.2471 1.2471 0 0 1 .8037 1.165c0 .1677-.0339.334-.0996.4883a1.2474 1.2474 0 0 1-1.1963.7568v1.2451c0 3.012-2.148 5.4906-5 6.1006v2.6094a1.2502 1.2502 0 0 1-2.1338.8838 1.2502 1.2502 0 0 1-.3662-.8838v-2.6094a6.4213 6.4213 0 0 1-1.6133-.581l9.252-9.252Zm-12.041 6.3848c-.383-.8028-.5977-1.7009-.5977-2.6524v-1.245C.56 9.0117 0 8.4555 0 7.7665c.0002-.6888.5601-1.2441 1.25-1.2441h6.9854l-6.3877 6.3867Z"/><path fill="#8b5cf6" d="M3.832 0c.677 0 1.2225.5839 1.2227 1.3037v5.2188H2.6094V1.3037C2.6105.5838 3.157 0 3.832 0ZM11.17 0c.6769 0 1.2225.5838 1.2227 1.3037l-.001 1.0928a2.0151 2.0151 0 0 0-.2197.1894L9.9463 4.8115V1.3037C9.9464.584 10.493 0 11.1699 0Z"/><path fill="#8b5cf6" d="M12.8787 3.2929c.3905-.3905 1.0237-.3905 1.4142 0 .3905.3905.3905 1.0237 0 1.4142L2.7071 16.293c-.3905.3905-1.0237.3905-1.4142 0-.3905-.3905-.3905-1.0237 0-1.4142L12.8787 3.2929Z"/></svg>`;
 
 function octopusGreenerTimelineIconHtml(tone) {
   if (tone === "good") return OCTOPUS_TIMELINE_LEAF_SVG;
   return OCTOPUS_TIMELINE_UNPLUGGED_SVG;
 }
 
+function splitOctopusTimelineText(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return { title: "", detail: "" };
+  const colonIdx = raw.indexOf(":");
+  if (colonIdx === -1) return { title: raw, detail: "" };
+  const afterColon = raw.slice(colonIdx + 1).trim();
+  const splitAt = afterColon.search(/\.\s+/);
+  if (splitAt === -1) {
+    return { title: `${raw.slice(0, colonIdx + 1)} ${afterColon}`.trim(), detail: "" };
+  }
+  const title = `${raw.slice(0, colonIdx + 1)} ${afterColon.slice(0, splitAt).trim()}`.trim();
+  const detail = afterColon.slice(splitAt + 1).trim();
+  return { title, detail };
+}
+
+function octopusGreenerTimelineCopy(row) {
+  if (row?.title) {
+    return { title: String(row.title), detail: row.detail != null ? String(row.detail) : "" };
+  }
+  return splitOctopusTimelineText(row?.text);
+}
+
+function renderOctopusGreenerTimelineCopyHtml(row) {
+  const { title, detail } = octopusGreenerTimelineCopy(row);
+  const detailHtml = detail
+    ? `<span class="octopus-greener-timeline-detail">${esc(detail)}</span>`
+    : "";
+  return `<div class="octopus-greener-timeline-copy"><strong class="octopus-greener-timeline-title">${esc(title)}</strong>${detailHtml}</div>`;
+}
+
 function renderOctopusGreenerTimelineItem(row) {
   const tone = row.tone === "good" ? "good" : row.tone === "warn" ? "warn" : "neutral";
-  const text = row.text != null ? row.text : "";
-  return `<li class="octopus-greener-timeline-item octopus-greener-timeline-item--${tone}"><span class="octopus-greener-timeline-icon">${octopusGreenerTimelineIconHtml(tone)}</span><p>${esc(text)}</p></li>`;
+  return `<li class="octopus-greener-timeline-item octopus-greener-timeline-item--${tone}"><span class="octopus-greener-timeline-icon">${octopusGreenerTimelineIconHtml(tone)}</span>${renderOctopusGreenerTimelineCopyHtml(row)}</li>`;
 }
 
 function renderOctopusGreenerChartSvg(periods, threshold) {
@@ -9485,34 +9522,31 @@ const STYLES = `
 .octopus-greener-timeline {
   position: relative;
   list-style: none;
-  margin: 18px 0 0;
-  padding: 6px 0 6px 52px;
+  margin: 16px 0 0;
+  padding: 4px 0 4px 42px;
 }
 .octopus-greener-timeline::before {
   content: "";
   position: absolute;
-  left: 18px;
-  top: 10px;
-  bottom: 10px;
+  left: 14px;
+  top: 8px;
+  bottom: 8px;
   width: 4px;
   border-radius: 4px;
   background: rgba(139, 92, 246, 0.32);
 }
 .octopus-greener-timeline-item {
   position: relative;
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 0;
-  padding: 0 0 20px 0;
+  padding: 0 0 16px 0;
   margin: 0;
 }
 .octopus-greener-timeline-item:last-child { padding-bottom: 0; }
 .octopus-greener-timeline-icon {
   position: absolute;
-  left: -52px;
-  top: -4px;
-  width: 36px;
-  height: 36px;
+  left: -42px;
+  top: 0;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -9522,7 +9556,35 @@ const STYLES = `
   display: block;
   flex-shrink: 0;
 }
-.octopus-greener-timeline-item p { margin: 0; font-size: 12px; line-height: 1.45; color: var(--primary-text-color); }
+.octopus-greener-timeline-icon-svg--leaf {
+  width: 22px;
+  height: auto;
+}
+.octopus-greener-timeline-icon-svg--unplugged {
+  width: 18px;
+  height: auto;
+}
+.octopus-greener-timeline-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  color: var(--secondary-text-color);
+}
+.octopus-greener-timeline-title {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: inherit;
+}
+.octopus-greener-timeline-detail {
+  display: block;
+  font-size: 12px;
+  line-height: 1.45;
+  color: inherit;
+  opacity: 0.88;
+}
 .octopus-rewards-split {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 8px;
 }

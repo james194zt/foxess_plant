@@ -154,28 +154,30 @@ def build_greener_timeline(
     if green_start and green_end and green_start > now_ms:
         start_dt = datetime.fromtimestamp(green_start / 1000, tz=UK_TZ)
         end_dt = datetime.fromtimestamp(green_end / 1000, tz=UK_TZ)
+        ref_day = now_dt.date()
+        start_label = _fmt_ampm(start_dt, ref=ref_day)
+        end_label = _fmt_ampm(end_dt, ref=ref_day)
         entries.append(
             {
                 "tone": "warn",
-                "text": (
-                    f"Until {_fmt_ampm(start_dt)}: try to reduce or shift usage. "
-                    "Consider waiting for cleaner grid periods if you can."
-                ),
+                "title": f"Until {start_label}: try to reduce or shift usage",
+                "detail": "Consider waiting for cleaner grid periods if you can.",
             }
         )
         entries.append(
             {
                 "tone": "good",
-                "text": (
-                    f"From {_fmt_ampm(start_dt)} to {_fmt_ampm(end_dt)}: "
-                    "good time to run appliances, charge devices, or use high-load equipment."
+                "title": f"From {start_label} to {end_label}: good time to run appliances",
+                "detail": (
+                    "Great time to run your dishwasher, washing machine, or charge devices."
                 ),
             }
         )
         entries.append(
             {
                 "tone": "warn",
-                "text": f"After {_fmt_ampm(end_dt)}: try to reduce or shift usage.",
+                "title": f"After {end_label}: try to reduce or shift usage",
+                "detail": "",
             }
         )
         return entries
@@ -187,22 +189,22 @@ def build_greener_timeline(
             entries.append(
                 {
                     "tone": "good",
-                    "text": (
+                    "title": (
                         f"Tonight is forecast as a greener night"
-                        f"{f' (score {score}/100)' if score is not None else ''}. "
-                        "Good window for overnight EV charging or flexible loads (23:00–06:00)."
+                        f"{f' (score {score}/100)' if score is not None else ''}"
                     ),
+                    "detail": "Good window for overnight EV charging or flexible loads (23:00–06:00).",
                 }
             )
         else:
             entries.append(
                 {
                     "tone": "warn",
-                    "text": (
+                    "title": (
                         f"Tonight is not flagged as a greener night"
-                        f"{f' (score {score}/100)' if score is not None else ''}. "
-                        "Shift discretionary usage if a greener night is coming up."
+                        f"{f' (score {score}/100)' if score is not None else ''}"
                     ),
+                    "detail": "Shift discretionary usage if a greener night is coming up.",
                 }
             )
     upcoming = [n for n in greener_nights if n.get("is_greener_night")]
@@ -211,17 +213,19 @@ def build_greener_timeline(
         entries.append(
             {
                 "tone": "good",
-                "text": (
+                "title": (
                     f"Next greener night: {next_night.get('date')} "
-                    f"({next_night.get('greenness_score', '—')}/100)."
+                    f"({next_night.get('greenness_score', '—')}/100)"
                 ),
+                "detail": "",
             }
         )
     if not entries:
         entries.append(
             {
                 "tone": "neutral",
-                "text": "Greener nights forecast updates daily. Check back for the next overnight window.",
+                "title": "Greener nights forecast updates daily",
+                "detail": "Check back for the next overnight window.",
             }
         )
     return entries
@@ -236,10 +240,17 @@ def _tonight_greener_night(greener_nights: list[dict[str, Any]], today: date) ->
     return greener_nights[0] if greener_nights else None
 
 
-def _fmt_ampm(dt: datetime) -> str:
+def _fmt_ampm(dt: datetime, *, ref: date | None = None) -> str:
+    ref = ref or dt_util.now(UK_TZ).date()
+    if dt.date() > ref:
+        day_hint = " tomorrow"
+    elif dt.date() < ref:
+        day_hint = " yesterday"
+    else:
+        day_hint = ""
     hour = dt.hour % 12 or 12
     suffix = "am" if dt.hour < 12 else "pm"
-    return f"{hour}{suffix}"
+    return f"{hour}{suffix}{day_hint}"
 
 
 def greener_card_title(periods: list[dict[str, Any]], *, now: datetime | None = None) -> str:
