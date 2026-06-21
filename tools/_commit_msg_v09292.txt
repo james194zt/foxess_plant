@@ -1,0 +1,3 @@
+Fix Octopus Greener Nights chart auth and match standard card styling (v0.9.292).
+
+Use Kraken JWT for GraphQL carbon data and show half-hourly intensity bars instead of daily fallback scores.

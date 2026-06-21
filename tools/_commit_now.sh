@@ -1,17 +1,12 @@
-#!/usr/bin/env bash
-set -eu
-cd /mnt/c/Users/James/Documents/repo/foxess_plant
-git add \
-  custom_components/foxess_plant/manifest.json \
-  custom_components/foxess_plant/www/foxess-plant-panel.js \
-  custom_components/foxess_plant/solcast_forecast_chart.py \
-  custom_components/foxess_plant/storm_weather.py \
-  custom_components/foxess_plant/solcast_forecast_accuracy.py \
-  custom_components/foxess_plant/websocket_api.py
-export GIT_AUTHOR_NAME="James"
+#!/bin/bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+export GIT_AUTHOR_NAME="james194zt"
 export GIT_AUTHOR_EMAIL="james194zt@users.noreply.github.com"
-export GIT_COMMITTER_NAME="James"
+export GIT_COMMITTER_NAME="james194zt"
 export GIT_COMMITTER_EMAIL="james194zt@users.noreply.github.com"
-git commit -F tools/_commit_now_msg.txt
-git push -u origin HEAD
-git log -1 --oneline
+git add -A
+git commit -m "Improve Octopus Greener Nights charts and add weekly Energy Analysis views (v0.9.298).
+
+Plot carbon bars by low-carbon score, fix the Y-axis arrow, add weekly greener-nights charts for Energy Analysis week mode, and add an Octopus-style upcoming week card beneath the forecast card."
+git status

@@ -1,0 +1,3 @@
+Add Octopus Greener Nights cards with GraphQL polling and history (v0.9.291).
+
+Fetch greener nights, carbon intensity, and Octopoints when Octopus is enabled; show standard and detailed views on Overview and Energy Analysis.

@@ -1,0 +1,3 @@
+Match Statistics grid to dashboard grid_consumption and feed_in sensors.
+
+Stop re-scaling modbus kW recorder values and merge import/export like the working plotly-graph card instead of using raw grid_ct with watt/kW heuristics.

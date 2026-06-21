@@ -1,0 +1,3 @@
+Polish Octopus Greener Nights card with tooltips, axis label, and header (v0.9.294).
+
+Add bar hover tooltips, fix the Y-axis label, use the Octopus icon, and rename the card with a green clean-energy headline.

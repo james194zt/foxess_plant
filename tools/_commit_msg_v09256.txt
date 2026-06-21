@@ -1,0 +1,3 @@
+Fix historical alarm date pickers and add Fox Lottie cog empty state (v0.9.256).
+
+Use date-only custom range filters with partial DOM updates so the calendar stays open, and rebuild the Active Warning empty-state gears from Fox Lottie paths with CSS spin animation.

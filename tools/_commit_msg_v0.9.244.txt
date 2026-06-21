@@ -1,0 +1,3 @@
+Fix Statistics grid spikes from raw Modbus register values in recorder.
+
+Apply 0.001 scale for values ≥25 kW, prefer normalized fetch_statistics over native recorder, use 5-minute stats for grid import/export instead of state history, and normalize power statistics server-side.

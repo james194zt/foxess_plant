@@ -1,0 +1,3 @@
+Fix Statistics grid chart by matching dashboard.yaml entity and data sources.
+
+Use grid_consumption and feed_in power sensors (not energy_today), recorder 5-minute means only, and separate import/export traces like plotly-graph.

@@ -1,0 +1,3 @@
+Fix Statistics grid scaling when recorder stores watts as kW.
+
+Restore recorder watt/kW correction for grid_ct, prefer state history when statistics are implausible, and cap outlier spikes so the chart Y-axis matches real grid usage.

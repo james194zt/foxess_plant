@@ -1,0 +1,3 @@
+Fix mobile panel layout for overview daily cards and device sidebar spacing.
+
+Use container-query and narrow-mode stacking so daily production/consumption cards go full width in the HA app without breaking desktop side-by-side layout, and add row-gap between the device information card and summary cards on Analysis and Real-time.

@@ -1839,6 +1839,260 @@ function octopusCarbonPeriodsForChart(periods, now = Date.now()) {
   return rows.slice(startIdx, startIdx + 48);
 }
 
+function octopusLowCarbonScoreFromGco2(gco2) {
+  if (gco2 == null || !Number.isFinite(Number(gco2))) return null;
+  return Math.max(1, Math.min(10, Math.round(10 - (Number(gco2) - 60) / 25)));
+}
+
+function octopusBarScore(period) {
+  if (period?.low_carbon_score != null && Number.isFinite(Number(period.low_carbon_score))) {
+    return Number(period.low_carbon_score);
+  }
+  return octopusLowCarbonScoreFromGco2(period?.gco2_per_kwh) ?? 1;
+}
+
+function octopusGreenerNightByDate(greenerNights) {
+  const map = new Map();
+  for (const row of Array.isArray(greenerNights) ? greenerNights : []) {
+    if (row?.date) map.set(String(row.date), row);
+  }
+  return map;
+}
+
+function octopusGreenerWeekRows(greenerNights, periodOffset = 0, now = new Date()) {
+  const { start } = energyPeriodBounds("week", periodOffset, now);
+  const days = buildFullWeekDays(start);
+  const byDate = octopusGreenerNightByDate(greenerNights);
+  return days.map((d) => {
+    const dateKey = formatEnergyDateLabel(d);
+    const row = byDate.get(dateKey);
+    let score = null;
+    if (row?.greenness_score != null && Number.isFinite(Number(row.greenness_score))) {
+      score = Number(row.greenness_score);
+    }
+    return {
+      date: dateKey,
+      dayMs: startOfLocalDay(d).getTime(),
+      label: d.toLocaleDateString(undefined, { weekday: "short" }),
+      shortDate: d.toLocaleDateString(undefined, { day: "numeric", month: "short" }),
+      greenness_score: score,
+      greenness_index: row?.greenness_index ?? null,
+      is_greener_night: Boolean(row?.is_greener_night),
+      hasData: Boolean(row),
+    };
+  });
+}
+
+function octopusGreenerWeekHeadline(rows) {
+  const withData = rows.filter((r) => r.hasData);
+  if (!withData.length) return "Greener nights forecast";
+  const greener = withData.filter((r) => r.is_greener_night);
+  if (!greener.length) return "No greener nights forecast this week";
+  if (greener.length === 1) return "1 greener night this week";
+  return `${greener.length} greener nights this week`;
+}
+
+function startOfWeekSunday(d) {
+  const x = startOfLocalDay(d);
+  x.setDate(x.getDate() - x.getDay());
+  return x;
+}
+
+function formatOctopusTileDate(d) {
+  const day = String(d.getDate()).padStart(2, "0");
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  return `${day}/${mo}`;
+}
+
+function octopusSeedlingSvg(active) {
+  const leaf = active ? "#84cc16" : "#5c4d78";
+  const stem = active ? "#65a30d" : "#4a3f63";
+  return `<svg class="octopus-upcoming-week-seedling" viewBox="0 0 32 32" width="30" height="30" aria-hidden="true">
+<ellipse cx="16" cy="26.5" rx="9.5" ry="3.5" fill="${stem}" opacity="0.9"/>
+<path d="M16 23 C12 19 11 13 13 9 C14.5 14 15.5 18 16 21 Z" fill="${leaf}"/>
+<path d="M16 23 C20 19 21 13 19 9 C17.5 14 16.5 18 16 21 Z" fill="${leaf}"/>
+<path d="M16 21 L16 10" stroke="${stem}" stroke-width="1.75" stroke-linecap="round"/>
+</svg>`;
+}
+
+function octopusUpcomingWeekRows(greenerNights, now = new Date()) {
+  const start = startOfWeekSunday(now);
+  const byDate = octopusGreenerNightByDate(greenerNights);
+  const todayKey = formatEnergyDateLabel(now);
+  const rows = [];
+  for (let i = 0; i < 7; i += 1) {
+    const d = new Date(start);
+    d.setDate(d.getDate() + i);
+    const dateKey = formatEnergyDateLabel(d);
+    const row = byDate.get(dateKey);
+    let score = null;
+    if (row?.greenness_score != null && Number.isFinite(Number(row.greenness_score))) {
+      score = Number(row.greenness_score);
+    }
+    rows.push({
+      date: dateKey,
+      label: d.toLocaleDateString(undefined, { weekday: "short" }),
+      tileDate: formatOctopusTileDate(d),
+      greenness_score: score,
+      is_greener_night: Boolean(row?.is_greener_night),
+      hasData: Boolean(row),
+      isPast: dateKey < todayKey,
+      isToday: dateKey === todayKey,
+    });
+  }
+  let featuredDate = null;
+  for (const row of rows) {
+    if (row.date >= todayKey && row.is_greener_night) {
+      featuredDate = row.date;
+      break;
+    }
+  }
+  return rows.map((row) => ({ ...row, featured: row.date === featuredDate }));
+}
+
+function renderOctopusUpcomingWeekCard(payload) {
+  if (!payload) {
+    return `<div class="card octopus-upcoming-week-card" data-octopus-upcoming-week-card="1">
+<p class="octopus-greener-empty chart-loading">Loading upcoming week…</p>
+</div>`;
+  }
+  const rows = octopusUpcomingWeekRows(payload.greener_nights);
+  const err = payload.errors?.greener_nights;
+  const errHtml = err ? `<p class="octopus-upcoming-week-error">${esc(String(err))}</p>` : "";
+  const tiles = rows
+    .map((row) => {
+      const active = row.is_greener_night;
+      const classes = [
+        "octopus-upcoming-week-day",
+        row.featured ? "octopus-upcoming-week-day--featured" : "",
+        active ? "octopus-upcoming-week-day--green" : "",
+        row.isToday ? "octopus-upcoming-week-day--today" : "",
+        row.isPast && !row.hasData ? "octopus-upcoming-week-day--past" : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const badge = row.featured ? `<span class="octopus-upcoming-week-badge">Green</span>` : "";
+      return `<div class="${classes}" title="${esc(row.label)} ${esc(row.tileDate)}${active ? " · Greener night" : ""}${row.greenness_score != null ? ` · Score ${row.greenness_score}/100` : ""}">
+${badge}
+<span class="octopus-upcoming-week-dayname">${esc(row.label)}</span>
+<span class="octopus-upcoming-week-date">${esc(row.tileDate)}</span>
+${octopusSeedlingSvg(active)}
+</div>`;
+    })
+    .join("");
+  return `<div class="card octopus-upcoming-week-card" data-octopus-upcoming-week-card="1">
+<h2 class="octopus-upcoming-week-title">Your upcoming week</h2>
+<p class="octopus-upcoming-week-blurb">Greener Nights start at 11PM and end at 6AM the following morning.</p>
+<p class="octopus-upcoming-week-note">Spot an upcoming Greener Night that&apos;s now disappeared? Don&apos;t worry, this will still count even if it&apos;s no longer showing.</p>
+${errHtml}
+<div class="octopus-upcoming-week-grid" role="list" aria-label="Greener nights upcoming week">${tiles}</div>
+</div>`;
+}
+
+function renderOctopusGreenerWeekChartSvg(greenerNights, periodOffset = 0) {
+  const W = 680;
+  const H = 190;
+  const padL = 54;
+  const padR = 12;
+  const padT = 16;
+  const padB = 30;
+  const chartW = W - padL - padR;
+  const chartH = H - padT - padB;
+  const scoreMax = 100;
+  const rows = octopusGreenerWeekRows(greenerNights, periodOffset);
+  if (!rows.some((r) => r.hasData)) {
+    return `<p class="octopus-greener-empty">Greener nights forecast unavailable for this week. Octopus publishes the next seven overnight windows only.</p>`;
+  }
+  const slotW = chartW / rows.length;
+  const barW = Math.max(10, Math.min(36, slotW * 0.72));
+  const barsMeta = rows.map((r) => ({
+    date: r.date,
+    label: r.label,
+    shortDate: r.shortDate,
+    greenness_score: r.greenness_score,
+    greenness_index: r.greenness_index,
+    is_greener_night: r.is_greener_night,
+    hasData: r.hasData,
+  }));
+  const bars = rows
+    .map((r, i) => {
+      const x = padL + i * slotW + (slotW - barW) / 2;
+      if (!r.hasData || r.greenness_score == null) {
+        return `<rect class="octopus-greener-bar octopus-greener-bar--nodata" data-bar-index="${i}" x="${x.toFixed(1)}" y="${(padT + chartH - 2).toFixed(1)}" width="${barW.toFixed(1)}" height="2" fill="var(--secondary-text-color)" opacity="0.35" rx="1" />`;
+      }
+      const h = Math.max(4, (r.greenness_score / scoreMax) * chartH);
+      const y = padT + chartH - h;
+      const color = r.is_greener_night
+        ? "var(--octopus-green-bar, #22c55e)"
+        : "var(--octopus-purple-bar, #8b5cf6)";
+      const rx = Math.min(barW / 2, h / 2, 6);
+      return `<rect class="octopus-greener-bar" data-bar-index="${i}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${color}" rx="${rx.toFixed(1)}" />`;
+    })
+    .join("");
+  const xLabels = rows
+    .map((r, i) => {
+      const x = padL + i * slotW + slotW / 2;
+      return `<text x="${x.toFixed(1)}" y="${H - 8}" text-anchor="middle" class="octopus-greener-axis">${esc(r.label)}</text>`;
+    })
+    .join("");
+  const yMid = padT + chartH / 2;
+  const yArrowTip = padT + 2;
+  const yArrowBase = padT + 12;
+  const barsJson = encodeURIComponent(JSON.stringify(barsMeta));
+  return `<div class="octopus-greener-chart-wrap">
+<div class="octopus-greener-chart-plot" data-octopus-greener-plot="1" data-chart-mode="week" data-chart-w="${W}" data-pad-l="${padL}" data-pad-t="${padT}" data-pad-b="${padB}" data-chart-inner-w="${chartW}" data-slot-w="${slotW}" data-bars="${barsJson}">
+<svg class="octopus-greener-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Greener nights weekly forecast chart">
+<polygon points="24,${yArrowTip} 20,${yArrowBase} 28,${yArrowBase}" class="octopus-greener-y-arrow-head" />
+<line x1="24" y1="${yArrowBase}" x2="24" y2="${(padT + chartH).toFixed(1)}" class="octopus-greener-y-arrow" />
+<text x="14" y="${yMid.toFixed(1)}" transform="rotate(-90 14 ${yMid.toFixed(1)})" text-anchor="middle" class="octopus-greener-y-label">Greenness score</text>
+${bars}
+${xLabels}
+</svg>
+<div class="octopus-greener-hit" aria-hidden="true"></div>
+<div class="octopus-greener-tooltip" hidden role="tooltip"></div>
+</div>
+<div class="octopus-greener-legend">
+<span><i class="octopus-greener-swatch octopus-greener-swatch--green"></i>Greener night</span>
+<span><i class="octopus-greener-swatch octopus-greener-swatch--purple"></i>Not a greener night</span>
+</div>
+</div>`;
+}
+
+function renderOctopusGreenerWeekTable(greenerNights, periodOffset = 0) {
+  const rows = octopusGreenerWeekRows(greenerNights, periodOffset);
+  if (!rows.some((r) => r.hasData)) {
+    return `<p class="octopus-greener-empty">Greener nights forecast unavailable for this week. Octopus publishes the next seven overnight windows only.</p>`;
+  }
+  const body = rows
+    .map((r) => {
+      const score = r.greenness_score != null ? `${r.greenness_score}/100` : "—";
+      const night = !r.hasData ? "—" : r.is_greener_night ? "Yes" : "No";
+      const index = r.greenness_index ? String(r.greenness_index) : "—";
+      return `<tr><td>${esc(r.shortDate)}</td><td>${esc(r.label)}</td><td>${esc(score)}</td><td>${esc(index)}</td><td>${esc(night)}</td></tr>`;
+    })
+    .join("");
+  return `<div class="octopus-greener-table-wrap"><table class="octopus-greener-table">
+<thead><tr><th>Date</th><th>Day</th><th>Greenness score</th><th>Index</th><th>Greener night</th></tr></thead>
+<tbody>${body}</tbody>
+</table></div>`;
+}
+
+function renderOctopusGreenerWeekTimeline(rows) {
+  const upcoming = rows.filter((r) => r.hasData && r.is_greener_night);
+  if (!upcoming.length) {
+    const any = rows.some((r) => r.hasData);
+    if (!any) return "";
+    return `<ul class="octopus-greener-timeline"><li class="octopus-greener-timeline-item octopus-greener-timeline-item--warn"><span class="octopus-greener-timeline-dot"></span><p>No greener nights flagged in this week&apos;s forecast. Shift EV charging to nights with higher greenness scores if you can.</p></li></ul>`;
+  }
+  const items = upcoming
+    .map((r) => {
+      const score = r.greenness_score != null ? `${r.greenness_score}/100` : "—";
+      return `<li class="octopus-greener-timeline-item octopus-greener-timeline-item--good"><span class="octopus-greener-timeline-dot"></span><p>${esc(r.label)} ${esc(r.shortDate)}: greener night (${esc(score)}). Good window for overnight EV charging (23:00–06:00).</p></li>`;
+    })
+    .join("");
+  return `<ul class="octopus-greener-timeline">${items}</ul>`;
+}
+
 function renderOctopusGreenerChartSvg(periods, threshold) {
   const W = 680;
   const H = 190;
@@ -1848,31 +2102,32 @@ function renderOctopusGreenerChartSvg(periods, threshold) {
   const padB = 30;
   const chartW = W - padL - padR;
   const chartH = H - padT - padB;
+  const scoreMax = 10;
   const now = Date.now();
   const rows = octopusCarbonPeriodsForChart(periods, now);
   if (!rows.length) {
     return `<p class="octopus-greener-empty">Half-hourly carbon forecast unavailable. Save a valid Octopus API key and account number with a UK postcode on your account.</p>`;
   }
-  const values = rows.map((p) => Number(p.gco2_per_kwh ?? 0));
-  const maxVal = Math.max(Number(threshold) * 1.35, ...values, 100);
-  const greenY = padT + chartH - (Number(threshold) / maxVal) * chartH;
+  const greenScoreLine = octopusLowCarbonScoreFromGco2(threshold) ?? 8;
+  const greenY = padT + chartH - (greenScoreLine / scoreMax) * chartH;
   const slotW = chartW / rows.length;
   const barW = Math.max(2, Math.min(8, slotW * 0.75));
   const barsMeta = rows.map((p) => ({
     start_ms: p.start_ms,
-    score: p.low_carbon_score,
+    score: octopusBarScore(p),
     gco2: p.gco2_per_kwh != null ? Math.round(Number(p.gco2_per_kwh)) : null,
     green: Boolean(p.is_green ?? Number(p.gco2_per_kwh ?? 0) < threshold),
   }));
   const bars = rows
     .map((p, i) => {
-      const val = Number(p.gco2_per_kwh ?? 0);
-      const h = Math.max(2, (val / maxVal) * chartH);
+      const score = octopusBarScore(p);
+      const h = Math.max(2, (score / scoreMax) * chartH);
       const x = padL + i * slotW + (slotW - barW) / 2;
       const y = padT + chartH - h;
-      const green = Boolean(p.is_green ?? val < threshold);
+      const green = Boolean(p.is_green ?? Number(p.gco2_per_kwh ?? 0) < threshold);
       const color = green ? "var(--octopus-green-bar, #22c55e)" : "var(--octopus-purple-bar, #8b5cf6)";
-      return `<rect class="octopus-greener-bar" data-bar-index="${i}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${color}" rx="1.5" />`;
+      const rx = Math.min(barW / 2, h / 2, 4);
+      return `<rect class="octopus-greener-bar" data-bar-index="${i}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${color}" rx="${rx.toFixed(1)}" />`;
     })
     .join("");
   const tickCount = Math.min(7, rows.length);
@@ -1890,17 +2145,14 @@ function renderOctopusGreenerChartSvg(periods, threshold) {
     );
   }
   const yMid = padT + chartH / 2;
+  const yArrowTip = padT + 2;
+  const yArrowBase = padT + 12;
   const barsJson = encodeURIComponent(JSON.stringify(barsMeta));
-  const markerId = `og-ya-${Math.random().toString(36).slice(2, 9)}`;
   return `<div class="octopus-greener-chart-wrap">
 <div class="octopus-greener-chart-plot" data-octopus-greener-plot="1" data-chart-w="${W}" data-pad-l="${padL}" data-pad-t="${padT}" data-pad-b="${padB}" data-chart-inner-w="${chartW}" data-slot-w="${slotW}" data-bars="${barsJson}">
 <svg class="octopus-greener-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Carbon intensity forecast chart">
-<defs>
-<marker id="${markerId}" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
-<polygon points="0,6 3,0 6,6" class="octopus-greener-y-arrow-head" />
-</marker>
-</defs>
-<line x1="24" y1="${(padT + chartH).toFixed(1)}" x2="24" y2="${(padT + 2).toFixed(1)}" class="octopus-greener-y-arrow" marker-end="url(#${markerId})" />
+<polygon points="24,${yArrowTip} 20,${yArrowBase} 28,${yArrowBase}" class="octopus-greener-y-arrow-head" />
+<line x1="24" y1="${yArrowBase}" x2="24" y2="${(padT + chartH).toFixed(1)}" class="octopus-greener-y-arrow" />
 <text x="14" y="${yMid.toFixed(1)}" transform="rotate(-90 14 ${yMid.toFixed(1)})" text-anchor="middle" class="octopus-greener-y-label">Low carbon score</text>
 <line x1="${padL}" y1="${greenY.toFixed(1)}" x2="${W - padR}" y2="${greenY.toFixed(1)}" class="octopus-greener-green-line" stroke-dasharray="4 4" />
 ${bars}
@@ -1958,12 +2210,22 @@ function bindOctopusGreenerChart(plot) {
       hideHover();
       return;
     }
-    const scoreText = bar.score != null ? `${bar.score}/10` : "—";
-    const gco2Text = bar.gco2 != null ? `${bar.gco2} gCO₂ per kWh` : "—";
+    const chartMode = plot.dataset.chartMode || "day";
     tooltip.hidden = false;
-    tooltip.innerHTML = `<div class="octopus-greener-tooltip-time">${esc(formatOctopusTooltipHour(bar.start_ms))}</div>
+    if (chartMode === "week") {
+      const scoreText = bar.greenness_score != null ? `${bar.greenness_score}/100` : "—";
+      const nightText = !bar.hasData ? "No forecast" : bar.is_greener_night ? "Greener night" : "Not a greener night";
+      const indexText = bar.greenness_index ? String(bar.greenness_index) : "—";
+      tooltip.innerHTML = `<div class="octopus-greener-tooltip-time">${esc(bar.shortDate || bar.label || bar.date || "—")}</div>
+<div class="octopus-greener-tooltip-score">Greenness score: <strong>${esc(scoreText)}</strong></div>
+<div class="octopus-greener-tooltip-gco2">${esc(nightText)}${bar.hasData && bar.greenness_index ? ` · ${esc(indexText)}` : ""}</div>`;
+    } else {
+      const scoreText = bar.score != null ? `${bar.score}/10` : "—";
+      const gco2Text = bar.gco2 != null ? `${bar.gco2} gCO₂ per kWh` : "—";
+      tooltip.innerHTML = `<div class="octopus-greener-tooltip-time">${esc(formatOctopusTooltipHour(bar.start_ms))}</div>
 <div class="octopus-greener-tooltip-score">Low carbon score: <strong>${esc(scoreText)}</strong></div>
 <div class="octopus-greener-tooltip-gco2">${esc(gco2Text)}</div>`;
+    }
     barEls.forEach((el, i) => {
       el.classList.toggle("octopus-greener-bar--hover", i === idx);
     });
@@ -2026,7 +2288,10 @@ function renderOctopusGreenerTimeline(timeline) {
   return `<ul class="octopus-greener-timeline">${items}</ul>`;
 }
 
-function renderOctopusGreenerNightsCard(payload, { compact = false, view = "standard" } = {}) {
+function renderOctopusGreenerNightsCard(
+  payload,
+  { compact = false, view = "standard", energyPeriod = "day", energyPeriodOffset = 0 } = {}
+) {
   if (!payload) {
     return `<div class="card octopus-greener-card${compact ? " octopus-greener-card--compact" : ""}" style="margin-top:14px">
 <div class="octopus-greener-head">
@@ -2038,19 +2303,37 @@ function renderOctopusGreenerNightsCard(payload, { compact = false, view = "stan
 <p class="octopus-greener-empty chart-loading">Loading greener forecast…</p>
 </div>`;
   }
-  const headline = payload.title || "Clean energy forecast";
+  const isWeek = energyPeriod === "week";
   const threshold = Number(payload.green_threshold_gco2 ?? 99);
   const standardActive = view !== "detailed";
-  const body = standardActive
-    ? `${renderOctopusGreenerChartSvg(payload.carbon_periods, threshold)}${renderOctopusGreenerTimeline(payload.timeline)}`
-    : renderOctopusGreenerTable(payload.carbon_periods);
-  const intro = standardActive
-    ? "Forecasts grid carbon intensity — the greener the bar, the cleaner the energy. Greener nights cover 23:00–06:00 for EV charging rewards."
-    : "Half-hourly low carbon score and regional carbon intensity from Octopus.";
-  const nightsHint =
-    Array.isArray(payload.greener_nights) && payload.greener_nights.length
-      ? `<p class="octopus-greener-hint">${payload.greener_nights.filter((n) => n.is_greener_night).length} greener night(s) in the next ${payload.greener_nights.length} days · ${payload.history_count || 0} snapshots stored</p>`
-      : "";
+  let headline;
+  let body;
+  let intro;
+  let nightsHint;
+  if (isWeek) {
+    const weekRows = octopusGreenerWeekRows(payload.greener_nights, energyPeriodOffset);
+    headline = octopusGreenerWeekHeadline(weekRows);
+    body = standardActive
+      ? `${renderOctopusGreenerWeekChartSvg(payload.greener_nights, energyPeriodOffset)}${renderOctopusGreenerWeekTimeline(weekRows)}`
+      : renderOctopusGreenerWeekTable(payload.greener_nights, energyPeriodOffset);
+    intro = standardActive
+      ? "Weekly greener nights forecast (23:00–06:00). Taller bars mean cleaner overnight energy."
+      : "Daily greenness scores for the selected week from Octopus.";
+    const weekLabel = energyPeriodNavLabel("week", energyPeriodOffset);
+    nightsHint = `<p class="octopus-greener-hint">${esc(weekLabel)} · Octopus publishes up to seven nights ahead</p>`;
+  } else {
+    headline = payload.title || "Clean energy forecast";
+    body = standardActive
+      ? `${renderOctopusGreenerChartSvg(payload.carbon_periods, threshold)}${renderOctopusGreenerTimeline(payload.timeline)}`
+      : renderOctopusGreenerTable(payload.carbon_periods);
+    intro = standardActive
+      ? "Forecasts grid carbon intensity — the greener the bar, the cleaner the energy. Greener nights cover 23:00–06:00 for EV charging rewards."
+      : "Half-hourly low carbon score and regional carbon intensity from Octopus.";
+    nightsHint =
+      Array.isArray(payload.greener_nights) && payload.greener_nights.length
+        ? `<p class="octopus-greener-hint">${payload.greener_nights.filter((n) => n.is_greener_night).length} greener night(s) in the next ${payload.greener_nights.length} days · ${payload.history_count || 0} snapshots stored</p>`
+        : "";
+  }
   const err = payload.errors?.greener_nights || payload.errors?.carbon;
   const errHtml = err ? `<p class="octopus-greener-error">${esc(String(err))}</p>` : "";
   return `<div class="card octopus-greener-card${compact ? " octopus-greener-card--compact" : ""}" style="margin-top:14px" data-octopus-greener-card="1">
@@ -9144,6 +9427,103 @@ const STYLES = `
 .octopus-rewards-sub { display: block; margin-top: 4px; font-size: 11px; color: var(--secondary-text-color); }
 .fox-analysis-octopus-greener-row { margin-top: 14px; }
 .fox-analysis-octopus-greener-row .octopus-greener-card { margin-top: 0; }
+.fox-analysis-octopus-upcoming-row { margin-top: 14px; }
+.fox-analysis-octopus-upcoming-row .octopus-upcoming-week-card { margin-top: 0; }
+.octopus-upcoming-week-card {
+  background: linear-gradient(165deg, #1a0b3b 0%, #11082a 55%, #0d0620 100%);
+  border: 1px solid rgba(139, 92, 246, 0.32);
+  color: #f8f7ff;
+  padding: 18px 18px 16px;
+}
+.octopus-upcoming-week-title {
+  margin: 0 0 10px;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #fff;
+}
+.octopus-upcoming-week-blurb,
+.octopus-upcoming-week-note {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: rgba(248, 247, 255, 0.88);
+}
+.octopus-upcoming-week-note { margin-bottom: 14px; color: rgba(248, 247, 255, 0.72); }
+.octopus-upcoming-week-error {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: #fca5a5;
+}
+.octopus-upcoming-week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+}
+.octopus-upcoming-week-day {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  min-height: 118px;
+  padding: 10px 6px 8px;
+  border-radius: 14px;
+  border: 1px solid rgba(167, 139, 250, 0.38);
+  background: rgba(17, 8, 42, 0.55);
+  text-align: center;
+}
+.octopus-upcoming-week-day--featured {
+  background: rgba(109, 40, 217, 0.42);
+  border-color: #c4b5fd;
+  box-shadow: inset 0 0 0 1px rgba(196, 181, 253, 0.25);
+}
+.octopus-upcoming-week-day--today:not(.octopus-upcoming-week-day--featured) {
+  border-color: rgba(196, 181, 253, 0.65);
+}
+.octopus-upcoming-week-day--past { opacity: 0.72; }
+.octopus-upcoming-week-badge {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: #7c3aed;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.octopus-upcoming-week-dayname {
+  margin-top: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+}
+.octopus-upcoming-week-day--featured .octopus-upcoming-week-dayname { margin-top: 18px; }
+.octopus-upcoming-week-date {
+  font-size: 12px;
+  color: rgba(248, 247, 255, 0.78);
+}
+.octopus-upcoming-week-seedling {
+  margin-top: auto;
+  display: block;
+}
+@media (max-width: 720px) {
+  .octopus-upcoming-week-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@media (max-width: 480px) {
+  .octopus-upcoming-week-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .octopus-upcoming-week-title { font-size: 18px; }
+}
 @media (max-width: 640px) {
   .octopus-rewards-split { grid-template-columns: 1fr; }
 }
@@ -11229,6 +11609,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._forecastAccuracyAnalysisInflightKey = undefined;
     this._octopusGreenerView = "standard";
     this._octopusGreenerAnalysisSlotCache = undefined;
+    this._octopusUpcomingWeekAnalysisSlotCache = undefined;
     this._energyAnalysisSummaryCache = undefined;
     this._energyAnalysisChartSlotCache = undefined;
     this._statisticsForecastSlotTrack = undefined;
@@ -16011,11 +16392,23 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
     if (!octopusTariffEnabled(this._plantState)) return "disabled";
     const payload = octopusGreenerPayload(this._plantState);
     return [
+      this._energyPeriod,
+      this._energyPeriodOffset,
       this._octopusGreenerView,
       payload?.fetched_at ?? "",
       payload?.carbon_periods?.length ?? 0,
       payload?.greener_nights?.length ?? 0,
       payload?.title ?? "",
+    ].join(":");
+  }
+
+  _octopusUpcomingWeekSlotKey() {
+    if (!octopusTariffEnabled(this._plantState)) return "disabled";
+    const payload = octopusGreenerPayload(this._plantState);
+    const rows = octopusUpcomingWeekRows(payload?.greener_nights ?? []);
+    return [
+      payload?.fetched_at ?? "",
+      rows.map((r) => `${r.date}:${r.is_greener_night ? 1 : 0}:${r.greenness_score ?? ""}`).join("|"),
     ].join(":");
   }
 
@@ -16281,10 +16674,15 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
     const greenerKey = this._octopusGreenerSlotKey();
     if (greenerKey !== this._octopusGreenerAnalysisSlotCache) {
       let greenerRow = root.querySelector("[data-energy-analysis-greener]");
-      if (octopusTariffEnabled(this._plantState)) {
+      const showGreener =
+        octopusTariffEnabled(this._plantState) &&
+        (this._energyPeriod === "day" || this._energyPeriod === "week");
+      if (showGreener) {
         const html = renderOctopusGreenerNightsCard(octopusGreenerPayload(this._plantState), {
           compact: false,
           view: this._octopusGreenerView,
+          energyPeriod: this._energyPeriod,
+          energyPeriodOffset: this._energyPeriodOffset,
         });
         if (html) {
           if (greenerRow) {
@@ -16307,6 +16705,38 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
       }
       this._octopusGreenerAnalysisSlotCache = greenerKey;
       bindOctopusGreenerCharts(root);
+    }
+
+    const upcomingKey = this._octopusUpcomingWeekSlotKey();
+    if (upcomingKey !== this._octopusUpcomingWeekAnalysisSlotCache) {
+      let upcomingRow = root.querySelector("[data-energy-analysis-upcoming-week]");
+      const showUpcoming =
+        octopusTariffEnabled(this._plantState) &&
+        (this._energyPeriod === "day" || this._energyPeriod === "week");
+      if (showUpcoming) {
+        const html = renderOctopusUpcomingWeekCard(octopusGreenerPayload(this._plantState));
+        if (html) {
+          if (upcomingRow) {
+            upcomingRow.innerHTML = html;
+          } else {
+            const forecastRow = root.querySelector("[data-energy-analysis-forecast]");
+            const greenerRow = root.querySelector("[data-energy-analysis-greener]");
+            const panels = root.querySelector(".fox-analysis-panels-row");
+            const wrap = document.createElement("div");
+            wrap.className = "fox-analysis-octopus-upcoming-row";
+            wrap.dataset.energyAnalysisUpcomingWeek = "1";
+            wrap.innerHTML = html;
+            if (forecastRow) forecastRow.before(wrap);
+            else if (greenerRow) greenerRow.after(wrap);
+            else if (panels) panels.after(wrap);
+          }
+        } else if (upcomingRow) {
+          upcomingRow.remove();
+        }
+      } else if (upcomingRow) {
+        upcomingRow.remove();
+      }
+      this._octopusUpcomingWeekAnalysisSlotCache = upcomingKey;
     }
 
     const forecastKey = this._forecastAccuracyAnalysisSlotKey();
@@ -16419,10 +16849,23 @@ ${body}
     this._forecastAccuracyAnalysisSlotCache = this._forecastAccuracyAnalysisSlotKey();
     const greenerPayload = octopusGreenerPayload(this._plantState);
     const octopusGreenerCard =
-      octopusTariffEnabled(this._plantState)
+      octopusTariffEnabled(this._plantState) &&
+      (this._energyPeriod === "day" || this._energyPeriod === "week")
         ? `<div class="fox-analysis-octopus-greener-row" data-energy-analysis-greener="1">${renderOctopusGreenerNightsCard(
             greenerPayload,
-            { compact: false, view: this._octopusGreenerView }
+            {
+              compact: false,
+              view: this._octopusGreenerView,
+              energyPeriod: this._energyPeriod,
+              energyPeriodOffset: this._energyPeriodOffset,
+            }
+          )}</div>`
+        : "";
+    const octopusUpcomingWeekCard =
+      octopusTariffEnabled(this._plantState) &&
+      (this._energyPeriod === "day" || this._energyPeriod === "week")
+        ? `<div class="fox-analysis-octopus-upcoming-row" data-energy-analysis-upcoming-week="1">${renderOctopusUpcomingWeekCard(
+            greenerPayload
           )}</div>`
         : "";
     const forecastCard =
@@ -16445,6 +16888,7 @@ ${this._renderEnergyDateNav()}
 <div class="fox-analysis-panel-card" data-energy-analysis-summary="1">${summaryCard}</div>
 </div>
 ${octopusGreenerCard}
+${octopusUpcomingWeekCard}
 ${forecastCard}
 <div class="fox-analysis-chart-row" data-energy-analysis-chart="1">
 ${this._renderEnergyAnalysisCharts()}

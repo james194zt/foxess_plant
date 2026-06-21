@@ -1,0 +1,3 @@
+Restore Statistics chart series visibility to match plotly-graph.
+
+Prefer native recorder statistics API, densify all power series to 5-minute buckets, fall back to resampled history when stats are sparse, and align battery charge/discharge transforms with dashboard.yaml.

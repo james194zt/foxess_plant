@@ -1,0 +1,3 @@
+Fix Statistics grid spikes from raw modbus register values in recorder stats.
+
+Apply foxess_modbus power register scale 0.001 when recorder means leak pre-scaled values, prefer state history for grid import/export, and smooth implausible merged grid net spikes.

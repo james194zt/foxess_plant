@@ -1,0 +1,3 @@
+Add overview System Status card and rename Alarms tab to Alerts (v0.9.259).
+
+Show a compact Fox-style status card with 24h fault counts on overview, link only Fault state pills to Alerts, and rename the device sub-nav tab.
