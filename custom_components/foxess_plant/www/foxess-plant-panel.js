@@ -1828,6 +1828,43 @@ function formatOctopusTooltipHour(ms) {
   return `${h}${suffix}`;
 }
 
+function formatOctopusTooltipSlotRange(startMs, endMs) {
+  if (!Number.isFinite(startMs)) return "—";
+  const timeOpts = { hour: "numeric", minute: "2-digit", hour12: true };
+  const start = new Date(startMs).toLocaleTimeString([], timeOpts);
+  if (!Number.isFinite(endMs)) return start;
+  const end = new Date(endMs).toLocaleTimeString([], timeOpts);
+  return `${start} – ${end}`;
+}
+
+function octopusChartTooltipHtml(chartMode, bar) {
+  const time = bar.label || formatOctopusTooltipSlotRange(bar.start_ms, bar.end_ms);
+  const timeRow = `<div class="octopus-greener-tooltip-time">${esc(time)}</div>`;
+  if (chartMode === "import-rate") {
+    const rate = bar.p_per_kwh ?? bar.value;
+    return `${timeRow}<div class="octopus-greener-tooltip-score">Import price: <strong>${esc(formatOctopusRate(rate))}</strong></div>`;
+  }
+  if (chartMode === "export-rate") {
+    const rate = bar.p_per_kwh ?? bar.value;
+    return `${timeRow}<div class="octopus-greener-tooltip-score">Export price: <strong>${esc(formatOctopusRate(rate))}</strong></div>`;
+  }
+  if (chartMode === "consumption") {
+    const kwh = bar.kwh ?? bar.value;
+    const kwhText = kwh != null && Number.isFinite(Number(kwh)) ? `${Number(kwh).toFixed(1)} kWh` : "—";
+    return `${timeRow}<div class="octopus-greener-tooltip-score">Smart-meter import: <strong>${esc(kwhText)}</strong></div>`;
+  }
+  if (chartMode === "dual") {
+    const scoreText = bar.low_carbon_score != null ? `${bar.low_carbon_score}/10` : "—";
+    const carbonLabel = bar.is_green ? "Low carbon" : "Higher carbon";
+    const priceText = bar.p_per_kwh != null ? formatOctopusRate(bar.p_per_kwh) : "—";
+    const gco2Text = bar.gco2 != null ? `${bar.gco2} gCO₂/kWh` : "";
+    return `${timeRow}
+<div class="octopus-greener-tooltip-score">${esc(carbonLabel)} score: <strong>${esc(scoreText)}</strong></div>
+<div class="octopus-greener-tooltip-gco2">Import price: <strong>${esc(priceText)}</strong>${gco2Text ? ` · ${esc(gco2Text)}` : ""}</div>`;
+  }
+  return `${timeRow}<div class="octopus-greener-tooltip-gco2">${esc(String(bar.value ?? "—"))}</div>`;
+}
+
 function octopusCarbonPeriodsForChart(periods, now = Date.now()) {
   const rows = (Array.isArray(periods) ? periods : [])
     .filter((p) => Number.isFinite(p?.start_ms))
@@ -2046,8 +2083,9 @@ function renderOctopusGreenerWeekChartSvg(greenerNights, periodOffset = 0) {
   const yArrowTip = padT + 2;
   const yArrowBase = padT + 12;
   const barsJson = encodeURIComponent(JSON.stringify(barsMeta));
+  const hitLeftPct = ((padL / W) * 100).toFixed(3);
   return `<div class="octopus-greener-chart-wrap">
-<div class="octopus-greener-chart-plot" data-octopus-greener-plot="1" data-chart-mode="week" data-chart-w="${W}" data-pad-l="${padL}" data-pad-t="${padT}" data-pad-b="${padB}" data-chart-inner-w="${chartW}" data-slot-w="${slotW}" data-bars="${barsJson}">
+<div class="octopus-greener-chart-plot" data-octopus-greener-plot="1" data-chart-mode="week" data-chart-w="${W}" data-pad-l="${padL}" data-pad-t="${padT}" data-pad-b="${padB}" data-chart-inner-w="${chartW}" data-slot-w="${slotW}" data-bars="${barsJson}" style="--octopus-hit-left:${hitLeftPct}%">
 <svg class="octopus-greener-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Greener nights weekly forecast chart">
 <polygon points="24,${yArrowTip} 20,${yArrowBase} 28,${yArrowBase}" class="octopus-greener-y-arrow-head" />
 <line x1="24" y1="${yArrowBase}" x2="24" y2="${(padT + chartH).toFixed(1)}" class="octopus-greener-y-arrow" />
@@ -2181,6 +2219,7 @@ function renderOctopusGreenerChartSvg(periods, threshold) {
   const barW = Math.max(2, Math.min(8, slotW * 0.75));
   const barsMeta = rows.map((p) => ({
     start_ms: p.start_ms,
+    end_ms: p.end_ms,
     score: octopusBarScore(p),
     gco2: p.gco2_per_kwh != null ? Math.round(Number(p.gco2_per_kwh)) : null,
     green: Boolean(p.is_green ?? Number(p.gco2_per_kwh ?? 0) < threshold),
@@ -2215,9 +2254,10 @@ function renderOctopusGreenerChartSvg(periods, threshold) {
   const yArrowTip = padT + 2;
   const yArrowBase = padT + 12;
   const barsJson = encodeURIComponent(JSON.stringify(barsMeta));
+  const hitLeftPct = ((padL / W) * 100).toFixed(3);
   return `<div class="octopus-greener-chart-wrap">
 ${renderOctopusGreenerCarbonLegend(threshold)}
-<div class="octopus-greener-chart-plot" data-octopus-greener-plot="1" data-chart-w="${W}" data-pad-l="${padL}" data-pad-t="${padT}" data-pad-b="${padB}" data-chart-inner-w="${chartW}" data-slot-w="${slotW}" data-bars="${barsJson}">
+<div class="octopus-greener-chart-plot" data-octopus-greener-plot="1" data-chart-mode="carbon-day" data-chart-w="${W}" data-pad-l="${padL}" data-pad-t="${padT}" data-pad-b="${padB}" data-chart-inner-w="${chartW}" data-slot-w="${slotW}" data-bars="${barsJson}" style="--octopus-hit-left:${hitLeftPct}%">
 <svg class="octopus-greener-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Carbon intensity forecast chart">
 <polygon points="24,${yArrowTip} 20,${yArrowBase} 28,${yArrowBase}" class="octopus-greener-y-arrow-head" />
 <line x1="24" y1="${yArrowBase}" x2="24" y2="${(padT + chartH).toFixed(1)}" class="octopus-greener-y-arrow" />
@@ -2229,7 +2269,18 @@ ${xLabels.join("")}
 <div class="octopus-greener-hit" aria-hidden="true"></div>
 <div class="octopus-greener-tooltip" hidden role="tooltip"></div>
 </div>
+<p class="octopus-analysis-chart-hint">Hover bars for time, carbon score, and intensity</p>
 </div>`;
+}
+
+function octopusCarbonDayTooltipHtml(bar) {
+  const time = formatOctopusTooltipSlotRange(bar.start_ms, bar.end_ms);
+  const scoreText = bar.score != null ? `${bar.score}/10` : "—";
+  const gco2Text = bar.gco2 != null ? `${bar.gco2} gCO₂/kWh` : "—";
+  const bandText = bar.green ? "Green" : "Not-so-green";
+  return `<div class="octopus-greener-tooltip-time">${esc(time)}</div>
+<div class="octopus-greener-tooltip-score">${esc(bandText)} · Low carbon score: <strong>${esc(scoreText)}</strong></div>
+<div class="octopus-greener-tooltip-gco2">${esc(gco2Text)}</div>`;
 }
 
 function bindOctopusGreenerChart(plot) {
@@ -2282,12 +2333,15 @@ function bindOctopusGreenerChart(plot) {
       tooltip.innerHTML = `<div class="octopus-greener-tooltip-time">${esc(bar.shortDate || bar.label || bar.date || "—")}</div>
 <div class="octopus-greener-tooltip-score">Greenness score: <strong>${esc(scoreText)}</strong></div>
 <div class="octopus-greener-tooltip-gco2">${esc(nightText)}${bar.hasData && bar.greenness_index ? ` · ${esc(indexText)}` : ""}</div>`;
+    } else if (
+      chartMode === "import-rate" ||
+      chartMode === "export-rate" ||
+      chartMode === "consumption" ||
+      chartMode === "dual"
+    ) {
+      tooltip.innerHTML = octopusChartTooltipHtml(chartMode, bar);
     } else {
-      const scoreText = bar.score != null ? `${bar.score}/10` : "—";
-      const gco2Text = bar.gco2 != null ? `${bar.gco2} gCO₂ per kWh` : "—";
-      tooltip.innerHTML = `<div class="octopus-greener-tooltip-time">${esc(formatOctopusTooltipHour(bar.start_ms))}</div>
-<div class="octopus-greener-tooltip-score">Low carbon score: <strong>${esc(scoreText)}</strong></div>
-<div class="octopus-greener-tooltip-gco2">${esc(gco2Text)}</div>`;
+      tooltip.innerHTML = octopusCarbonDayTooltipHtml(bar);
     }
     barEls.forEach((el, i) => {
       el.classList.toggle("octopus-greener-bar--hover", i === idx);
@@ -2459,7 +2513,9 @@ function renderOctopusGenericBarChartSvg(rows, {
   colorFn = () => "#22c55e",
   emptyHint = "No data available.",
   ariaLabel = "Chart",
-  formatValue = (v) => String(v ?? "—"),
+  chartMode = "generic",
+  overlaySvg = "",
+  barsMetaFn = null,
 } = {}) {
   const data = (Array.isArray(rows) ? rows : []).filter((r) => r?.start_ms != null);
   if (!data.length) return `<p class="octopus-greener-empty">${esc(emptyHint)}</p>`;
@@ -2477,9 +2533,19 @@ function renderOctopusGenericBarChartSvg(rows, {
     const v = r[valueKey];
     return v != null && Number.isFinite(Number(v)) ? Number(v) : 0;
   });
-  const peak = maxValue != null && Number.isFinite(Number(maxValue))
-    ? Number(maxValue)
-    : Math.max(...values, 0.01);
+  const peak =
+    maxValue != null && Number.isFinite(Number(maxValue)) ? Number(maxValue) : Math.max(...values, 0.01);
+  const barsMeta = data.map((row, i) => {
+    const base = {
+      start_ms: row.start_ms,
+      end_ms: row.end_ms,
+      label: row.label,
+      value: values[i],
+      [valueKey]: row[valueKey],
+    };
+    const extra = barsMetaFn ? barsMetaFn(row, values[i]) : row;
+    return { ...base, ...extra };
+  });
   const bars = data
     .map((row, i) => {
       const v = values[i];
@@ -2487,7 +2553,7 @@ function renderOctopusGenericBarChartSvg(rows, {
       const x = padL + i * slotW + (slotW - barW) / 2;
       const y = padT + chartH - h;
       const color = colorFn(row, v);
-      return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${color}" rx="2" />`;
+      return `<rect class="octopus-greener-bar" data-bar-index="${i}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${color}" rx="2" />`;
     })
     .join("");
   const tickCount = Math.min(7, data.length);
@@ -2497,15 +2563,24 @@ function renderOctopusGenericBarChartSvg(rows, {
     const row = data[idx];
     const x = padL + idx * slotW + slotW / 2;
     const label = row.label || formatOctopusChartTimeMs(row.start_ms);
-    labels.push(`<text x="${x.toFixed(1)}" y="${H - 8}" text-anchor="middle" class="octopus-greener-axis">${esc(label)}</text>`);
+    labels.push(
+      `<text x="${x.toFixed(1)}" y="${H - 8}" text-anchor="middle" class="octopus-greener-axis">${esc(label)}</text>`
+    );
   }
-  return `<svg class="octopus-greener-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(ariaLabel)}">${bars}${labels.join("")}</svg>`;
+  const barsJson = encodeURIComponent(JSON.stringify(barsMeta));
+  const hitLeftPct = ((padL / W) * 100).toFixed(3);
+  return `<div class="octopus-greener-chart-plot" data-octopus-greener-plot="1" data-chart-mode="${esc(chartMode)}" data-chart-w="${W}" data-pad-l="${padL}" data-pad-t="${padT}" data-pad-b="${padB}" data-chart-inner-w="${chartW}" data-slot-w="${slotW}" data-bars="${barsJson}" style="--octopus-hit-left:${hitLeftPct}%">
+<svg class="octopus-greener-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(ariaLabel)}">${bars}${overlaySvg}${labels.join("")}</svg>
+<div class="octopus-greener-hit" aria-hidden="true"></div>
+<div class="octopus-greener-tooltip" hidden role="tooltip"></div>
+</div>`;
 }
 
 function renderOctopusRateChartSvg(slots, { kind = "import" } = {}) {
   const rows = (Array.isArray(slots) ? slots : []).filter((s) => s?.start_ms != null);
   const color = kind === "export" ? "#f59e0b" : "#03a9f4";
-  return renderOctopusGenericBarChartSvg(rows, {
+  const chartMode = kind === "export" ? "export-rate" : "import-rate";
+  const chart = renderOctopusGenericBarChartSvg(rows, {
     valueKey: "p_per_kwh",
     colorFn: () => color,
     emptyHint:
@@ -2513,8 +2588,12 @@ function renderOctopusRateChartSvg(slots, { kind = "import" } = {}) {
         ? "Export unit rates unavailable. Connect Octopus with an export meter."
         : "Import unit rates unavailable. Connect Octopus native tariff or refresh rates.",
     ariaLabel: `${kind} unit rate chart`,
-    formatValue: (v) => formatOctopusRate(v),
+    chartMode,
+    barsMetaFn: (row) => ({ p_per_kwh: row.p_per_kwh }),
   });
+  if (!chart.includes("octopus-greener-chart-plot")) return chart;
+  const legendLabel = kind === "export" ? "Export unit rate" : "Import unit rate";
+  return `${chart}<p class="octopus-analysis-chart-hint"><i class="octopus-analysis-swatch" style="background:${color}"></i> ${esc(legendLabel)} — hover bars for time and price</p>`;
 }
 
 function renderOctopusDualChartSvg(dualPeriods) {
@@ -2524,13 +2603,6 @@ function renderOctopusDualChartSvg(dualPeriods) {
   }
   const rates = rows.map((r) => (r.p_per_kwh != null ? Number(r.p_per_kwh) : null)).filter((v) => v != null);
   const maxRate = rates.length ? Math.max(...rates) : 1;
-  const carbonBars = renderOctopusGenericBarChartSvg(rows, {
-    valueKey: "low_carbon_score",
-    maxValue: 10,
-    colorFn: (row) => (row.is_green ? "#22c55e" : "#8b5cf6"),
-    emptyHint: "No carbon periods.",
-    ariaLabel: "Low carbon score bars",
-  });
   const W = 640;
   const H = 168;
   const padL = 28;
@@ -2552,13 +2624,29 @@ function renderOctopusDualChartSvg(dualPeriods) {
   const priceLine = points
     ? `<polyline points="${points}" fill="none" stroke="#03a9f4" stroke-width="2" stroke-linejoin="round" opacity="0.9" />`
     : "";
+  const chart = renderOctopusGenericBarChartSvg(rows, {
+    valueKey: "low_carbon_score",
+    maxValue: 10,
+    colorFn: (row) => (row.is_green ? "#22c55e" : "#8b5cf6"),
+    emptyHint: "No carbon periods.",
+    ariaLabel: "Price and carbon overlay chart",
+    chartMode: "dual",
+    overlaySvg: priceLine,
+    barsMetaFn: (row) => ({
+      low_carbon_score: row.low_carbon_score,
+      p_per_kwh: row.p_per_kwh,
+      is_green: row.is_green,
+      gco2: row.gco2_per_kwh != null ? Math.round(Number(row.gco2_per_kwh)) : null,
+    }),
+  });
   return `<div class="octopus-analysis-dual-wrap">
 <div class="octopus-analysis-dual-legend">
 <span><i class="octopus-analysis-swatch octopus-analysis-swatch--green"></i> Low carbon</span>
 <span><i class="octopus-analysis-swatch octopus-analysis-swatch--purple"></i> Higher carbon</span>
 <span><i class="octopus-analysis-swatch-line"></i> Import price</span>
 </div>
-<div class="octopus-analysis-dual-plot">${carbonBars.replace("</svg>", `${priceLine}</svg>`)}</div>
+${chart}
+<p class="octopus-analysis-chart-hint">Hover bars for carbon score, import price, and time</p>
 </div>`;
 }
 
@@ -2572,13 +2660,16 @@ function renderOctopusConsumptionChartSvg(consumption) {
     label: d.date.slice(5),
     kwh: d.kwh,
   }));
-  return renderOctopusGenericBarChartSvg(rows, {
+  const chart = renderOctopusGenericBarChartSvg(rows, {
     valueKey: "kwh",
     colorFn: () => "#699BFF",
     emptyHint: "No consumption data.",
     ariaLabel: "Daily import consumption",
-    formatValue: (v) => `${Number(v).toFixed(1)} kWh`,
+    chartMode: "consumption",
+    barsMetaFn: (row) => ({ kwh: row.kwh }),
   });
+  if (!chart.includes("octopus-greener-chart-plot")) return chart;
+  return `${chart}<p class="octopus-analysis-chart-hint"><i class="octopus-analysis-swatch" style="background:#699BFF"></i> Daily import — hover bars for kWh</p>`;
 }
 
 function renderOctopusComplianceCard(compliance) {
@@ -2651,7 +2742,7 @@ ${changedRows ? `<ul class="octopus-analysis-list">${changedRows}</ul>` : ""}
 </div>`;
 }
 
-function renderOctopusEnergyAnalysisPage(payload, { loading = false } = {}) {
+function renderOctopusEnergyAnalysisPage(payload, { loading = false, greenerView = "standard" } = {}) {
   if (loading) {
     return `<div data-octopus-analysis-main="1"><header class="header"><h1>Octopus Energy Analysis</h1><p class="chart-loading">Loading Octopus data…</p></header></div>`;
   }
@@ -2669,7 +2760,7 @@ function renderOctopusEnergyAnalysisPage(payload, { loading = false } = {}) {
       timeline: payload.timeline,
       title: payload.greener_title,
     },
-    { compact: false, view: "standard", energyPeriod: "day", energyPeriodOffset: 0 }
+    { compact: false, view: greenerView, energyPeriod: "day", energyPeriodOffset: 0 }
   );
   const weekCard = renderOctopusUpcomingWeekCard(payload);
   const tariffLabel = payload.import_tariff_code
@@ -2832,6 +2923,20 @@ function normalizeTariffStandingSource(v) {
   if (s === "entity") return "entity";
   if (s === "manual") return "plugin";
   return "plugin";
+}
+
+/** True when native Octopus API owns the daily schedule (not Agile/Tracker). */
+function octopusNativeManagesSchedule(tariff, octopusDraft) {
+  const draft = octopusDraft && typeof octopusDraft === "object" ? octopusDraft : {};
+  const dyn = tariff?.dynamic ?? {};
+  const live = tariff?.octopus ?? {};
+  const enabled = draft.enabled !== undefined ? draft.enabled : dyn.enabled;
+  const source = draft.source !== undefined ? draft.source : dyn.source;
+  if (!enabled || source === "entity") return false;
+  if (!live.connected) return false;
+  const tariffType = live.tariff_type ? String(live.tariff_type) : "";
+  if (tariffType === "agile" || tariffType === "tracker") return false;
+  return true;
 }
 
 function normalizeOctopusDraft(raw, octopusLive) {
@@ -9717,8 +9822,8 @@ const STYLES = `
 .octopus-greener-chart-plot { position: relative; }
 .octopus-greener-chart-svg { width: 100%; height: auto; display: block; }
 .octopus-greener-hit {
-  position: absolute; top: 0; right: 0; bottom: 0;
-  left: calc(54 / 680 * 100%); cursor: crosshair;
+  position: absolute; top: 0; right: 0; bottom: 0; z-index: 1;
+  left: var(--octopus-hit-left, calc(54 / 680 * 100%)); cursor: crosshair;
 }
 .octopus-greener-tooltip {
   position: absolute; z-index: 5; pointer-events: none; min-width: 148px; max-width: 220px;
@@ -9927,6 +10032,16 @@ const STYLES = `
   margin-right: 6px;
   vertical-align: middle;
   border-top: 2px solid #03a9f4;
+}
+.octopus-analysis-chart-hint {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--secondary-text-color);
+  line-height: 1.35;
+}
+.octopus-analysis-chart-hint .octopus-analysis-swatch {
+  margin-right: 6px;
+  vertical-align: -1px;
 }
 @media (max-width: 720px) {
   .octopus-analysis-grid { grid-template-columns: 1fr; }
@@ -11637,6 +11752,11 @@ const STYLES = `
 .tariff-hour-labels { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 3px; font-size: 9px; color: var(--secondary-text-color); text-align: center; margin-bottom: 12px; }
 .tariff-band-rates { display: grid; gap: 10px; }
 .tariff-band-rate-row { display: grid; grid-template-columns: auto 1fr 1fr; gap: 10px; align-items: end; }
+.tariff-schedule-card.tariff-schedule-locked .tariff-band-picker,
+.tariff-schedule-card.tariff-schedule-locked .tariff-hour-grid { opacity: 0.72; pointer-events: none; }
+.tariff-schedule-card.tariff-schedule-locked .tariff-hour-block { cursor: default; transform: none; }
+.tariff-schedule-card.tariff-schedule-locked .tariff-band-chip[data-action="tariff-pick-band"] { cursor: default; }
+.tariff-schedule-card.tariff-schedule-locked .tariff-band-rate-row input { opacity: 0.55; cursor: not-allowed; }
 @media (max-width: 720px) {
   .tariff-band-rate-row { grid-template-columns: 1fr; }
   .tariff-hour-grid, .tariff-hour-labels { grid-template-columns: repeat(12, minmax(0, 1fr)); }
@@ -12383,6 +12503,17 @@ Reloading panel registration…
         this._solcastDraft.fetch_pv_forecast = sc.fetch_pv_forecast !== false;
         this._solcastDraft.api_key_set = Boolean(sc.api_key_set);
       }
+      if (
+        this._settingsView === "tariff" &&
+        this._octopusDraft &&
+        !this._settingsFieldFocused &&
+        !this._rangeDrag
+      ) {
+        const dyn = this._plantState?.tariff?.dynamic ?? {};
+        const prevKey = this._octopusDraft.api_key || "";
+        this._octopusDraft.api_key_set = Boolean(dyn.api_key_set);
+        if (prevKey) this._octopusDraft.api_key = prevKey;
+      }
       this._panelStale = this._panelIsStale();
       const forecastPart = this._forecastStatisticsSlotPart?.();
       if (forecastPart !== this._statisticsForecastSlotTrack) {
@@ -12539,9 +12670,15 @@ Reloading panel registration…
     const el = e.target;
     if (!el?.dataset?.field || this._busy) return;
     const parts = el.dataset.field.split(":");
-    if (parts[0] !== "solcast" || parts[1] !== "api_key" || !this._solcastDraft) return;
     const text = e.clipboardData?.getData("text/plain") ?? "";
-    if (text) this._solcastDraft.api_key = text;
+    if (!text) return;
+    if (parts[0] === "solcast" && parts[1] === "api_key" && this._solcastDraft) {
+      this._solcastDraft.api_key = text;
+      return;
+    }
+    if (parts[0] === "octopus" && parts[1] === "api_key" && this._octopusDraft) {
+      this._octopusDraft.api_key = text;
+    }
   }
 
   _onPointerDown(e) {
@@ -13043,8 +13180,12 @@ Reloading panel registration…
   }
 
   _initOctopusDraft() {
+    const prevKey = this._octopusDraft?.api_key || "";
     const raw = this._tariffDraft?.dynamic ?? this._plantState?.tariff?.dynamic ?? {};
     this._octopusDraft = normalizeOctopusDraft(raw, this._plantState?.tariff?.octopus ?? {});
+    if (prevKey && !this._octopusDraft.api_key) {
+      this._octopusDraft.api_key = prevKey;
+    }
   }
 
   _enterTariffSettings() {
@@ -13136,6 +13277,7 @@ Reloading panel registration…
   async _saveTariffSettings() {
     const plant = this._getPlant();
     if (!plant || !this._tariffDraft) return;
+    this._syncOctopusIntoTariffDraft();
     this._syncTariffDraftFromPickers();
     this._syncTariffScheduleFromDom();
     const draft = buildTariffSavePayload(this._tariffDraft);
@@ -13175,6 +13317,41 @@ Reloading panel registration…
     }
   }
 
+  _syncOctopusDraftFromDom() {
+    if (!this._octopusDraft) return;
+    const root = this._root;
+    const enabledEl = root.querySelector('[data-field="octopus:enabled"]');
+    if (enabledEl) this._octopusDraft.enabled = enabledEl.checked;
+    const sourceEl = root.querySelector('[data-field="octopus:source"]');
+    if (sourceEl) this._octopusDraft.source = sourceEl.value === "entity" ? "entity" : "native";
+    const keyEl = root.querySelector('[data-field="octopus:api_key"]');
+    if (keyEl?.value) this._octopusDraft.api_key = keyEl.value;
+    const accountEl = root.querySelector('[data-field="octopus:account_number"]');
+    if (accountEl) this._octopusDraft.account_number = accountEl.value || "";
+    const importMpanEl = root.querySelector('[data-field="octopus:import_mpan"]');
+    if (importMpanEl) this._octopusDraft.import_mpan = importMpanEl.value || "";
+    const exportMpanEl = root.querySelector('[data-field="octopus:export_mpan"]');
+    if (exportMpanEl) this._octopusDraft.export_mpan = exportMpanEl.value || "";
+  }
+
+  _syncOctopusIntoTariffDraft() {
+    if (!this._tariffDraft || !this._octopusDraft) return;
+    this._syncOctopusDraftFromDom();
+    const d = this._octopusDraft;
+    this._tariffDraft.dynamic = {
+      ...this._tariffDraft.dynamic,
+      enabled: d.enabled,
+      provider: d.provider,
+      source: d.source,
+      api_key_set: d.api_key_set,
+      account_number: d.account_number,
+      import_mpan: d.import_mpan,
+      export_mpan: d.export_mpan,
+      import_entity: d.import_entity,
+      export_entity: d.export_entity,
+    };
+  }
+
   _buildOctopusSavePayload() {
     if (!this._octopusDraft) return null;
     const d = this._octopusDraft;
@@ -13182,18 +13359,19 @@ Reloading panel registration…
       enabled: Boolean(d.enabled),
       provider: d.enabled ? "octopus" : d.provider || "",
       source: d.source === "entity" ? "entity" : "native",
-      api_key: d.api_key || undefined,
       account_number: d.account_number || null,
       import_mpan: d.import_mpan || null,
       export_mpan: d.export_mpan || null,
       import_entity: d.import_entity || null,
       export_entity: d.export_entity || null,
+      ...(d.api_key ? { api_key: d.api_key } : {}),
     };
   }
 
   async _saveOctopusSettings(applySchedule = false) {
     const plant = this._getPlant();
     if (!plant || !this._octopusDraft) return;
+    this._syncOctopusDraftFromDom();
     this._syncOctopusDraftFromPickers();
     const payload = this._buildOctopusSavePayload();
     if (!payload) return;
@@ -13221,7 +13399,7 @@ Reloading panel registration…
       });
       if (state) this._plantState = state;
       this._initTariffDraft();
-      this._showToast(applySchedule ? "Octopus schedule applied" : "Octopus settings saved");
+      this._showToast("Octopus settings saved — schedule synced from API");
     } catch (err) {
       this._showToast(tariffSaveErrorMessage(err), "err");
       console.error("FoxESS Plant: octopus save failed", err);
@@ -13234,6 +13412,7 @@ Reloading panel registration…
   async _testOctopusConnection() {
     const plant = this._getPlant();
     if (!plant || !this._octopusDraft) return;
+    this._syncOctopusDraftFromDom();
     const key = this._octopusDraft.api_key || undefined;
     if (!key && !this._octopusDraft.api_key_set) {
       this._showToast("Enter an Octopus API key to test", "err");
@@ -13279,7 +13458,13 @@ Reloading panel registration…
       });
       if (result?.plant_state) this._plantState = result.plant_state;
       this._initOctopusDraft();
-      this._showToast("Octopus rates refreshed");
+      this._initTariffDraft();
+      const octopus = this._plantState?.tariff?.octopus ?? {};
+      const tariffType = octopus.tariff_type ? String(octopus.tariff_type) : "";
+      const agile = tariffType === "agile" || tariffType === "tracker";
+      this._showToast(
+        agile ? "Octopus rates refreshed" : "Octopus rates refreshed — daily schedule updated"
+      );
     } catch (err) {
       this._showToast(tariffSaveErrorMessage(err), "err");
     } finally {
@@ -13596,7 +13781,8 @@ Reloading panel registration…
       const nextView = btn.dataset.view === "detailed" ? "detailed" : "standard";
       if (nextView === this._octopusGreenerView) return;
       this._octopusGreenerView = nextView;
-      this._render();
+      this._octopusGreenerAnalysisSlotCache = undefined;
+      this._scheduleRender(true);
       return;
     }
     if (action === "device-alarm-detail-dialog") return;
@@ -16671,7 +16857,10 @@ ${detailsHtml}
       return renderOctopusEnergyAnalysisPage(null);
     }
     const payload = octopusAnalysisPayload(this._plantState);
-    return renderOctopusEnergyAnalysisPage(payload, { loading: this._octopusAnalysisLoading && !payload });
+    return renderOctopusEnergyAnalysisPage(payload, {
+      loading: this._octopusAnalysisLoading && !payload,
+      greenerView: this._octopusGreenerView,
+    });
   }
 
   _bindReportsCharts() {
@@ -18307,17 +18496,19 @@ ${standingManualBlock}
     const showImport = normalizeTariffImportSource(draft.import_source) === "schedule";
     const showExport = normalizeTariffExportSource(draft.export_source) === "schedule";
     if (!showImport && !showExport) return "";
+    const octopusLocked = octopusNativeManagesSchedule(this._plantState?.tariff, this._octopusDraft);
+    const scheduleDisabled = this._busy || octopusLocked;
     const currency = normalizeTariffCurrency(draft.currency);
     const schedule = normalizeTariffSchedule(draft.schedule);
     const activeBand = this._tariffActiveBand ?? 0;
     const bandChips = TARIFF_BAND_LABELS.map(
       (label, idx) =>
-        `<button type="button" class="tariff-band-chip${idx === activeBand ? " is-active" : ""}" data-action="tariff-pick-band" data-band="${idx}" ${this._busy ? "disabled" : ""}><span class="tariff-band-swatch" style="background:${TARIFF_BAND_COLORS[idx]}"></span>${esc(label)}</button>`
+        `<button type="button" class="tariff-band-chip${idx === activeBand ? " is-active" : ""}" data-action="tariff-pick-band" data-band="${idx}" ${scheduleDisabled ? "disabled" : ""}><span class="tariff-band-swatch" style="background:${TARIFF_BAND_COLORS[idx]}"></span>${esc(label)}</button>`
     ).join("");
     const hourBlocks = schedule.hours
       .map((bandIdx, hour) => {
         const color = TARIFF_BAND_COLORS[bandIdx] ?? TARIFF_BAND_COLORS[0];
-        return `<button type="button" class="tariff-hour-block" style="background:${color}" title="${String(hour).padStart(2, "0")}:00–${String((hour + 1) % 24).padStart(2, "0")}:00 · ${esc(TARIFF_BAND_LABELS[bandIdx] || "Band A")}" data-action="tariff-hour" data-hour="${hour}" ${this._busy ? "disabled" : ""} aria-label="Hour ${hour}"></button>`;
+        return `<button type="button" class="tariff-hour-block" style="background:${color}" title="${String(hour).padStart(2, "0")}:00–${String((hour + 1) % 24).padStart(2, "0")}:00 · ${esc(TARIFF_BAND_LABELS[bandIdx] || "Band A")}" data-action="tariff-hour" data-hour="${hour}" ${scheduleDisabled ? "disabled" : ""} aria-label="Hour ${hour}"></button>`;
       })
       .join("");
     const hourLabels = schedule.hours
@@ -18332,8 +18523,8 @@ ${standingManualBlock}
           showExport && band.export_p_per_kwh > 0 ? minorToMajor(band.export_p_per_kwh, currency) : "";
         return `<div class="tariff-band-rate-row">
 <span class="tariff-band-chip" style="cursor:default;border:none;padding:4px 0"><span class="tariff-band-swatch" style="background:${TARIFF_BAND_COLORS[idx]}"></span>${esc(TARIFF_BAND_LABELS[idx])}</span>
-${showImport ? `<div class="field" style="margin:0"><label>Import ${esc(currency)}/kWh</label><input type="number" min="0" max="9999" step="${esc(inputStep)}" inputmode="decimal" data-field="tariff:schedule:band:${idx}:import" value="${esc(String(importDisplay || ""))}" placeholder="${currency === "GBP" ? "e.g. 0.245" : "e.g. 0.25"}" ${this._busy ? "disabled" : ""}></div>` : `<div></div>`}
-${showExport ? `<div class="field" style="margin:0"><label>Export ${esc(currency)}/kWh</label><input type="number" min="0" max="9999" step="${esc(inputStep)}" inputmode="decimal" data-field="tariff:schedule:band:${idx}:export" value="${esc(String(exportDisplay || ""))}" placeholder="${currency === "GBP" ? "e.g. 0.150" : "e.g. 0.15"}" ${this._busy ? "disabled" : ""}></div>` : `<div></div>`}
+${showImport ? `<div class="field" style="margin:0"><label>Import ${esc(currency)}/kWh</label><input type="number" min="0" max="9999" step="${esc(inputStep)}" inputmode="decimal" data-field="tariff:schedule:band:${idx}:import" value="${esc(String(importDisplay || ""))}" placeholder="${currency === "GBP" ? "e.g. 0.245" : "e.g. 0.25"}" ${scheduleDisabled ? "disabled" : ""}></div>` : `<div></div>`}
+${showExport ? `<div class="field" style="margin:0"><label>Export ${esc(currency)}/kWh</label><input type="number" min="0" max="9999" step="${esc(inputStep)}" inputmode="decimal" data-field="tariff:schedule:band:${idx}:export" value="${esc(String(exportDisplay || ""))}" placeholder="${currency === "GBP" ? "e.g. 0.150" : "e.g. 0.15"}" ${scheduleDisabled ? "disabled" : ""}></div>` : `<div></div>`}
 </div>`;
       })
       .join("");
@@ -18341,9 +18532,12 @@ ${showExport ? `<div class="field" style="margin:0"><label>Export ${esc(currency
     const pluginHint = pluginIds.import || pluginIds.export
       ? `<p class="field-hint" style="margin:0 0 12px">Plugin sensors: ${[pluginIds.import, pluginIds.export].filter(Boolean).map((id) => esc(id)).join(" · ") || "—"} — rates update at each hour boundary so the recorder captures when costs change.</p>`
       : `<p class="field-hint" style="margin:0 0 12px">Plugin sensors are created when you save. They update at each hour boundary so the recorder captures when costs change (same path planned for Agile API tariffs).</p>`;
-    return `<div class="card tariff-schedule-card">
+    const scheduleIntro = octopusLocked
+      ? "Rates and hour bands are synced from Octopus automatically whenever rates are fetched (including the 30-minute poll). Edit Octopus settings above to change tariff source."
+      : "24 hourly blocks from 00:00 to 24:00, same every day. Pick a band colour, then tap hours to assign it. Use one band for a flat tariff, or two to four for peak/off-peak.";
+    return `<div class="card tariff-schedule-card${octopusLocked ? " tariff-schedule-locked" : ""}">
 <p class="card-title">Daily time-of-use schedule</p>
-<p class="field-hint" style="margin:0 0 12px">24 hourly blocks from 00:00 to 24:00, same every day. Pick a band colour, then tap hours to assign it. Use one band for a flat tariff, or two to four for peak/off-peak.</p>
+<p class="field-hint" style="margin:0 0 12px">${esc(scheduleIntro)}</p>
 ${pluginHint}
 <div class="tariff-band-picker">${bandChips}</div>
 <div class="tariff-hour-grid">${hourBlocks}</div>
@@ -18484,17 +18678,13 @@ ${this._renderOctopusSettings()}`;
 </div>
 ${importMeters.length > 1 ? `<div class="field"><label>Import MPAN</label><select data-field="octopus:import_mpan" ${this._busy ? "disabled" : ""}><option value="">Select meter…</option>${importOptions}</select></div>` : ""}
 ${exportMeters.length > 1 ? `<div class="field"><label>Export MPAN (SEG)</label><select data-field="octopus:export_mpan" ${this._busy ? "disabled" : ""}><option value="">None / auto</option>${exportOptions}</select></div>` : ""}`;
-    const applyBtn =
-      connected && live.schedule_ready && !agile
-        ? `<button type="button" class="btn btn-secondary" data-action="apply-octopus-schedule" ${this._busy ? "disabled" : ""}>Apply schedule to editor</button>`
-        : "";
-    const saveApplyBtn =
-      native && draft.enabled && !agile
-        ? `<button type="button" class="btn btn-secondary" data-action="save-octopus-apply" ${this._busy ? "disabled" : ""}>Save &amp; apply schedule</button>`
+    const scheduleAutoHint =
+      native && draft.enabled && connected && !agile
+        ? "Fixed tariffs update the daily schedule automatically when rates are fetched."
         : "";
     return `<div class="card">
 <p class="card-title">Octopus Energy</p>
-<p class="field-hint" style="margin:0 0 12px">Native Octopus polling for Go, Economy 7, flat SVT, and Agile. Fixed tariffs can auto-fill the 24-hour schedule; Agile updates plugin import/export sensors every 30 minutes (including negative rates).</p>
+<p class="field-hint" style="margin:0 0 12px">Native Octopus polling for Go, Economy 7, flat SVT, and Agile. ${scheduleAutoHint || "Fixed tariffs sync the 24-hour schedule on fetch; Agile updates plugin import/export sensors every 30 minutes (including negative rates)."}</p>
 <div class="toggle-row"><span><strong>Enable Octopus tariff link</strong></span>
 <input type="checkbox" data-field="octopus:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 <div class="field"><label>Rate source</label>
@@ -18507,9 +18697,7 @@ ${entityBlock}
 <div class="btn-row">
 <button type="button" class="btn btn-secondary" data-action="test-octopus" ${this._busy || !native ? "disabled" : ""}>Test connection</button>
 <button type="button" class="btn btn-secondary" data-action="fetch-octopus" ${this._busy || !draft.enabled || !native ? "disabled" : ""}>Fetch rates now</button>
-${applyBtn}
 <button type="button" class="btn btn-primary" data-action="save-octopus-settings" ${this._busy ? "disabled" : ""}>Save Octopus</button>
-${saveApplyBtn}
 </div>
 ${statusLines.length ? `<p class="field-hint" style="margin:12px 0 0">${statusLines.map((l) => esc(l)).join("<br>")}</p>` : ""}
 </div>`;

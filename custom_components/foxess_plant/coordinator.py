@@ -1973,10 +1973,18 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Persist electricity tariff rates from the panel."""
         from homeassistant.util import dt as dt_util
 
+        from .models import merge_tariff_dynamic_config
         from .tariff_rates import TARIFF_SOURCE_ENTITY, resolve_tariff_rates
         from .tariff_store import TariffRateStore
 
-        cfg = TariffConfig.from_dict(tariff)
+        tariff_payload = dict(tariff)
+        incoming_dynamic = tariff_payload.get("dynamic")
+        if isinstance(incoming_dynamic, dict):
+            current_dynamic = self.plant.tariff.dynamic.to_dict(include_api_key=True)
+            tariff_payload["dynamic"] = merge_tariff_dynamic_config(
+                current_dynamic, incoming_dynamic
+            )
+        cfg = TariffConfig.from_dict(tariff_payload)
         for label, source, entity_id in (
             ("Import", cfg.import_source, cfg.import_entity),
             ("Export", cfg.export_source, cfg.export_entity),
@@ -2031,19 +2039,14 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         apply_schedule: bool = False,
     ) -> None:
         """Persist Octopus dynamic tariff settings from the panel."""
+        from .models import TariffDynamicConfig, merge_tariff_dynamic_config
         from .octopus_tariff import OCTOPUS_PROVIDER, OCTOPUS_SOURCE_ENTITY, OCTOPUS_SOURCE_NATIVE
         from .tariff_rates import TARIFF_SOURCE_ENTITY
 
         fetch_now = bool(dynamic.pop("fetch_now", fetch_now))
         apply_schedule = bool(dynamic.pop("apply_schedule", apply_schedule))
         current = self.plant.tariff.dynamic.to_dict(include_api_key=True)
-        merged = {**current, **dynamic}
-        if "api_key" in dynamic:
-            raw_key = dynamic.get("api_key")
-            if raw_key and str(raw_key).strip() and str(raw_key) not in ("********", "••••••••"):
-                merged["api_key"] = str(raw_key).strip()
-            else:
-                merged["api_key"] = current.get("api_key")
+        merged = merge_tariff_dynamic_config(current, dynamic)
         if merged.get("enabled") and not merged.get("provider"):
             merged["provider"] = OCTOPUS_PROVIDER
         cfg = TariffConfig.from_dict(self.plant.tariff.to_dict(include_secrets=True))
@@ -2127,10 +2130,30 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.async_request_refresh()
         return self._octopus_status()
 
+    async def _async_auto_apply_octopus_schedule(self) -> None:
+        """Push a fetched fixed-tariff Octopus schedule into tariff config."""
+        from .octopus_tariff import is_variable_tariff_type
+
+        if not self.plant.tariff.dynamic.native_octopus():
+            return
+        if self._octopus_cache.get("last_error"):
+            return
+        schedule_raw = self._octopus_cache.get("schedule")
+        if not schedule_raw:
+            return
+        tariff_type = str(self._octopus_cache.get("tariff_type") or "")
+        if is_variable_tariff_type(tariff_type):
+            return
+        try:
+            await self.async_apply_octopus_schedule()
+        except HomeAssistantError as err:
+            _LOGGER.debug("Octopus schedule auto-apply skipped: %s", err)
+
     async def async_apply_octopus_schedule(self) -> dict[str, Any]:
         """Apply the last fetched fixed-tariff schedule to tariff config."""
         from .const import TARIFF_KIND_STATIC
         from .octopus_tariff import is_variable_tariff_type
+        from .tariff_rates import TARIFF_SOURCE_SCHEDULE
         from .tariff_schedule import TariffScheduleConfig
 
         schedule_raw = self._octopus_cache.get("schedule")
@@ -2145,6 +2168,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         cfg = TariffConfig.from_dict(self.plant.tariff.to_dict(include_secrets=True))
         cfg.schedule = schedule
         cfg.kind = TARIFF_KIND_STATIC
+        if cfg.dynamic.native_octopus():
+            cfg.import_source = TARIFF_SOURCE_SCHEDULE
+            cfg.export_source = TARIFF_SOURCE_SCHEDULE
         standing = self._octopus_cache.get("import_standing_p_per_day")
         if standing is not None:
             cfg.standing_charge_p_per_day = max(0.0, float(standing))
@@ -2228,6 +2254,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 snapshot.tariff_type,
                 snapshot.import_meter.tariff_code if snapshot.import_meter else "—",
             )
+            await self._async_auto_apply_octopus_schedule()
         except OctopusApiError as err:
             self._octopus_cache["last_error"] = str(err)
             _LOGGER.warning("Octopus tariff fetch failed: %s", err)

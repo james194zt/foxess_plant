@@ -561,6 +561,21 @@ class TariffDynamicConfig:
         return out
 
 
+def merge_tariff_dynamic_config(
+    current: dict[str, Any],
+    incoming: dict[str, Any],
+) -> dict[str, Any]:
+    """Merge a panel dynamic-tariff update without clearing a stored API key."""
+    merged = {**current, **incoming}
+    if "api_key" in incoming:
+        raw_key = incoming.get("api_key")
+        if raw_key and str(raw_key).strip() and str(raw_key) not in ("********", "••••••••"):
+            merged["api_key"] = str(raw_key).strip()
+        else:
+            merged["api_key"] = current.get("api_key")
+    return merged
+
+
 @dataclass
 class TariffConfig:
     """Electricity tariff for cost analysis (schedule, plugin sensors, or external entities)."""
