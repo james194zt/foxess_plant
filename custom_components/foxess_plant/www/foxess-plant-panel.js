@@ -1980,7 +1980,7 @@ ${octopusGreenerPlantSvg(active)}
     .join("");
   return `<div class="card octopus-upcoming-week-card" data-octopus-upcoming-week-card="1">
 <p class="card-title">${esc(OCTOPUS_UPCOMING_WEEK_CARD_TITLE)}</p>
-<p class="octopus-upcoming-week-blurb">Greener Nights start at 11PM and end at 6AM the following morning.</p>
+<p class="octopus-greener-headline">Greener Nights start at 11PM and end at 6AM the following morning.</p>
 <p class="octopus-upcoming-week-note">Spot an upcoming Greener Night that&apos;s now disappeared? Don&apos;t worry, this will still count even if it&apos;s no longer showing.</p>
 ${errHtml}
 <div class="octopus-upcoming-week-grid" role="list" aria-label="Greener nights upcoming week">${tiles}</div>
@@ -8594,7 +8594,7 @@ const DEFAULT_BRAND_ICON_STATIC = "/foxess_plant_panel/icon.png";
 const DEVICE_EVO_IMAGE_STATIC = "/foxess_plant_panel/evo10.png?v=15";
 const STORM_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_storm_safe_charging.png?v=5";
 const SMART_CHARGE_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_smart_charge.png?v=3";
-const OCTOPUS_GREENER_CARD_TITLE = "Octopus Green Nights Forecast";
+const OCTOPUS_GREENER_CARD_TITLE = "Octopus Green Nights 24h Forecast";
 const OCTOPUS_UPCOMING_WEEK_CARD_TITLE = "Greener Nights Week Ahead";
 const BANNER_HERO_WIDE_WIDTH = 1024;
 const BANNER_HERO_WIDE_HEIGHT = 512;
@@ -9424,7 +9424,7 @@ const STYLES = `
 .fox-analysis-octopus-greener-row .octopus-greener-card { margin-top: 0; }
 .fox-analysis-octopus-upcoming-row { margin-top: 14px; }
 .fox-analysis-octopus-upcoming-row .octopus-upcoming-week-card { margin-top: 0; }
-.octopus-upcoming-week-blurb,
+.octopus-upcoming-week-card .octopus-greener-headline { margin: 0 0 8px; }
 .octopus-upcoming-week-note {
   margin: 0 0 8px;
   font-size: 12px;

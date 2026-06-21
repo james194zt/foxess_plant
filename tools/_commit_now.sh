@@ -6,8 +6,8 @@ export GIT_AUTHOR_EMAIL="james194zt@users.noreply.github.com"
 export GIT_COMMITTER_NAME="james194zt"
 export GIT_COMMITTER_EMAIL="james194zt@users.noreply.github.com"
 git add -A
-git commit -m "Use Octopus plant icons and align greener card headers with Statistics (v0.9.300).
+git commit -m "Rename 24h greener forecast card and highlight week-ahead intro (v0.9.301).
 
-Replace upcoming-week seedling art with official Octopus SVGs, switch the week-ahead card to standard card styling, and match both greener card titles to the Statistics header treatment."
+Retitle the carbon forecast card to Octopus Green Nights 24h Forecast and style the week-ahead Greener Nights window text with the same green headline treatment."
 git push origin main
 git status
