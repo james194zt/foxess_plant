@@ -1820,6 +1820,14 @@ function formatOctopusChartTimeMs(ms) {
   return new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", hour12: true });
 }
 
+function formatOctopusTooltipHour(ms) {
+  if (!Number.isFinite(ms)) return "—";
+  const d = new Date(ms);
+  const h = d.getHours() % 12 || 12;
+  const suffix = d.getHours() < 12 ? "AM" : "PM";
+  return `${h}${suffix}`;
+}
+
 function octopusCarbonPeriodsForChart(periods, now = Date.now()) {
   const rows = (Array.isArray(periods) ? periods : [])
     .filter((p) => Number.isFinite(p?.start_ms))
@@ -1834,7 +1842,7 @@ function octopusCarbonPeriodsForChart(periods, now = Date.now()) {
 function renderOctopusGreenerChartSvg(periods, threshold) {
   const W = 680;
   const H = 190;
-  const padL = 42;
+  const padL = 54;
   const padR = 12;
   const padT = 16;
   const padB = 30;
@@ -1850,6 +1858,12 @@ function renderOctopusGreenerChartSvg(periods, threshold) {
   const greenY = padT + chartH - (Number(threshold) / maxVal) * chartH;
   const slotW = chartW / rows.length;
   const barW = Math.max(2, Math.min(8, slotW * 0.75));
+  const barsMeta = rows.map((p) => ({
+    start_ms: p.start_ms,
+    score: p.low_carbon_score,
+    gco2: p.gco2_per_kwh != null ? Math.round(Number(p.gco2_per_kwh)) : null,
+    green: Boolean(p.is_green ?? Number(p.gco2_per_kwh ?? 0) < threshold),
+  }));
   const bars = rows
     .map((p, i) => {
       const val = Number(p.gco2_per_kwh ?? 0);
@@ -1858,7 +1872,7 @@ function renderOctopusGreenerChartSvg(periods, threshold) {
       const y = padT + chartH - h;
       const green = Boolean(p.is_green ?? val < threshold);
       const color = green ? "var(--octopus-green-bar, #22c55e)" : "var(--octopus-purple-bar, #8b5cf6)";
-      return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${color}" rx="1.5" />`;
+      return `<rect class="octopus-greener-bar" data-bar-index="${i}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${color}" rx="1.5" />`;
     })
     .join("");
   const tickCount = Math.min(7, rows.length);
@@ -1875,19 +1889,111 @@ function renderOctopusGreenerChartSvg(periods, threshold) {
       `<text x="${x.toFixed(1)}" y="${H - 8}" text-anchor="middle" class="octopus-greener-axis">${esc(label)}</text>`
     );
   }
+  const yMid = padT + chartH / 2;
+  const barsJson = encodeURIComponent(JSON.stringify(barsMeta));
+  const markerId = `og-ya-${Math.random().toString(36).slice(2, 9)}`;
   return `<div class="octopus-greener-chart-wrap">
+<div class="octopus-greener-chart-plot" data-octopus-greener-plot="1" data-chart-w="${W}" data-pad-l="${padL}" data-pad-t="${padT}" data-pad-b="${padB}" data-chart-inner-w="${chartW}" data-slot-w="${slotW}" data-bars="${barsJson}">
 <svg class="octopus-greener-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Carbon intensity forecast chart">
+<defs>
+<marker id="${markerId}" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+<polygon points="0,6 3,0 6,6" class="octopus-greener-y-arrow-head" />
+</marker>
+</defs>
+<line x1="24" y1="${(padT + chartH).toFixed(1)}" x2="24" y2="${(padT + 2).toFixed(1)}" class="octopus-greener-y-arrow" marker-end="url(#${markerId})" />
+<text x="14" y="${yMid.toFixed(1)}" transform="rotate(-90 14 ${yMid.toFixed(1)})" text-anchor="middle" class="octopus-greener-y-label">Low carbon score</text>
 <line x1="${padL}" y1="${greenY.toFixed(1)}" x2="${W - padR}" y2="${greenY.toFixed(1)}" class="octopus-greener-green-line" stroke-dasharray="4 4" />
-<text x="${padL - 6}" y="${(padT + 8).toFixed(1)}" text-anchor="end" class="octopus-greener-axis">Low carbon</text>
 ${bars}
 ${xLabels.join("")}
 </svg>
+<div class="octopus-greener-hit" aria-hidden="true"></div>
+<div class="octopus-greener-tooltip" hidden role="tooltip"></div>
+</div>
 <div class="octopus-greener-legend">
 <span><i class="octopus-greener-swatch octopus-greener-swatch--green"></i>&lt;${Math.round(threshold)}gCO₂/kWh Green</span>
 <span><i class="octopus-greener-swatch octopus-greener-swatch--purple"></i>&gt;${Math.round(threshold + 1)}gCO₂/kWh Not-so-green</span>
 <span class="octopus-greener-legend-line">National green line</span>
 </div>
 </div>`;
+}
+
+function bindOctopusGreenerChart(plot) {
+  if (!plot || plot.dataset.octopusGreenerBound === "1") return;
+  const svg = plot.querySelector(".octopus-greener-chart-svg");
+  const hit = plot.querySelector(".octopus-greener-hit");
+  const tooltip = plot.querySelector(".octopus-greener-tooltip");
+  if (!svg || !hit || !tooltip) return;
+  let bars = [];
+  try {
+    bars = JSON.parse(decodeURIComponent(plot.dataset.bars || "%5B%5D"));
+  } catch {
+    bars = [];
+  }
+  if (!bars.length) return;
+  plot.dataset.octopusGreenerBound = "1";
+  const chartW = Number(plot.dataset.chartW) || 680;
+  const padL = Number(plot.dataset.padL) || 54;
+  const padT = Number(plot.dataset.padT) || 16;
+  const chartInnerW = Number(plot.dataset.chartInnerW) || chartW - padL - 12;
+  const slotW = Number(plot.dataset.slotW) || chartInnerW / bars.length;
+  const barEls = plot.querySelectorAll(".octopus-greener-bar");
+
+  const hideHover = () => {
+    tooltip.hidden = true;
+    barEls.forEach((el) => el.classList.remove("octopus-greener-bar--hover"));
+  };
+
+  const showHover = (clientX) => {
+    const rect = svg.getBoundingClientRect();
+    if (!rect.width) return;
+    const scale = rect.width / chartW;
+    const x = (clientX - rect.left) / scale;
+    if (x < padL || x > padL + chartInnerW) {
+      hideHover();
+      return;
+    }
+    const idx = Math.min(bars.length - 1, Math.max(0, Math.floor((x - padL) / slotW)));
+    const bar = bars[idx];
+    if (!bar) {
+      hideHover();
+      return;
+    }
+    const scoreText = bar.score != null ? `${bar.score}/10` : "—";
+    const gco2Text = bar.gco2 != null ? `${bar.gco2} gCO₂ per kWh` : "—";
+    tooltip.hidden = false;
+    tooltip.innerHTML = `<div class="octopus-greener-tooltip-time">${esc(formatOctopusTooltipHour(bar.start_ms))}</div>
+<div class="octopus-greener-tooltip-score">Low carbon score: <strong>${esc(scoreText)}</strong></div>
+<div class="octopus-greener-tooltip-gco2">${esc(gco2Text)}</div>`;
+    barEls.forEach((el, i) => {
+      el.classList.toggle("octopus-greener-bar--hover", i === idx);
+    });
+    const cx = (padL + idx * slotW + slotW / 2) * scale;
+    const plotRect = plot.getBoundingClientRect();
+    let left = cx;
+    const tipW = 168;
+    if (left + tipW / 2 > plotRect.width - 8) left = plotRect.width - tipW / 2 - 8;
+    if (left - tipW / 2 < 8) left = tipW / 2 + 8;
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${Math.max(8, padT * scale - 6)}px`;
+  };
+
+  hit.addEventListener("mousemove", (ev) => showHover(ev.clientX));
+  hit.addEventListener("mouseleave", hideHover);
+  plot.addEventListener(
+    "touchmove",
+    (ev) => {
+      if (ev.touches[0]) {
+        ev.preventDefault();
+        showHover(ev.touches[0].clientX);
+      }
+    },
+    { passive: false }
+  );
+  plot.addEventListener("touchend", hideHover);
+}
+
+function bindOctopusGreenerCharts(root) {
+  (root || document).querySelectorAll("[data-octopus-greener-plot]").forEach((plot) => bindOctopusGreenerChart(plot));
 }
 
 function renderOctopusGreenerTable(periods) {
@@ -1923,11 +2029,16 @@ function renderOctopusGreenerTimeline(timeline) {
 function renderOctopusGreenerNightsCard(payload, { compact = false, view = "standard" } = {}) {
   if (!payload) {
     return `<div class="card octopus-greener-card${compact ? " octopus-greener-card--compact" : ""}" style="margin-top:14px">
-<p class="card-title">Octopus Greener Nights</p>
+<div class="octopus-greener-head">
+<div class="octopus-greener-title-wrap">
+<img class="octopus-greener-icon-img" src="${esc(OCTOPUS_GREENER_ICON_STATIC)}" width="32" height="32" alt="" aria-hidden="true" loading="lazy" decoding="async" />
+<p class="card-title octopus-greener-title">${esc(OCTOPUS_GREENER_CARD_TITLE)}</p>
+</div>
+</div>
 <p class="octopus-greener-empty chart-loading">Loading greener forecast…</p>
 </div>`;
   }
-  const title = payload.title || "Octopus Greener Nights";
+  const headline = payload.title || "Clean energy forecast";
   const threshold = Number(payload.green_threshold_gco2 ?? 99);
   const standardActive = view !== "detailed";
   const body = standardActive
@@ -1945,14 +2056,15 @@ function renderOctopusGreenerNightsCard(payload, { compact = false, view = "stan
   return `<div class="card octopus-greener-card${compact ? " octopus-greener-card--compact" : ""}" style="margin-top:14px" data-octopus-greener-card="1">
 <div class="octopus-greener-head">
 <div class="octopus-greener-title-wrap">
-<span class="octopus-greener-icon" aria-hidden="true">⚡</span>
-<p class="card-title octopus-greener-title">${esc(title)}</p>
+<img class="octopus-greener-icon-img" src="${esc(OCTOPUS_GREENER_ICON_STATIC)}" width="32" height="32" alt="" aria-hidden="true" loading="lazy" decoding="async" />
+<p class="card-title octopus-greener-title">${esc(OCTOPUS_GREENER_CARD_TITLE)}</p>
 </div>
 <div class="octopus-greener-view-toggle" role="group" aria-label="Greener forecast view">
 <button type="button" class="octopus-greener-view-btn${standardActive ? " active" : ""}" data-action="octopus-greener-view" data-view="standard" aria-pressed="${standardActive}">Graph</button>
 <button type="button" class="octopus-greener-view-btn${!standardActive ? " active" : ""}" data-action="octopus-greener-view" data-view="detailed" aria-pressed="${!standardActive}">List</button>
 </div>
 </div>
+<p class="octopus-greener-headline">${esc(headline)}</p>
 <p class="octopus-greener-intro">${esc(intro)}</p>
 ${nightsHint}${errHtml}
 ${body}
@@ -8209,6 +8321,8 @@ const DEFAULT_BRAND_ICON_STATIC = "/foxess_plant_panel/icon.png";
 const DEVICE_EVO_IMAGE_STATIC = "/foxess_plant_panel/evo10.png?v=15";
 const STORM_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_storm_safe_charging.png?v=5";
 const SMART_CHARGE_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_smart_charge.png?v=3";
+const OCTOPUS_GREENER_ICON_STATIC = "/foxess_plant_panel/octopus_greener_nights_icon.png?v=1";
+const OCTOPUS_GREENER_CARD_TITLE = "Octopus Green Nights Forecast";
 const BANNER_HERO_WIDE_WIDTH = 1024;
 const BANNER_HERO_WIDE_HEIGHT = 512;
 const STORM_HERO_WIDTH = BANNER_HERO_WIDE_WIDTH;
@@ -8928,7 +9042,11 @@ const STYLES = `
   display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap;
 }
 .octopus-greener-title-wrap { display: flex; align-items: center; gap: 10px; }
-.octopus-greener-icon { font-size: 22px; line-height: 1; }
+.octopus-greener-icon-img { width: 32px; height: 32px; display: block; flex-shrink: 0; object-fit: contain; }
+.octopus-greener-headline {
+  font-weight: 700; font-size: 15px; line-height: 1.3; margin: 10px 0 0;
+  color: var(--octopus-green-bar, #22c55e);
+}
 .octopus-greener-view-toggle {
   display: inline-flex; padding: 3px; border-radius: 999px;
   background: var(--secondary-background-color, rgba(127, 127, 127, 0.12));
@@ -8946,7 +9064,35 @@ const STYLES = `
 }
 .octopus-greener-error { color: var(--error-color, #f44336); font-size: 12px; margin: 8px 0 0; }
 .octopus-greener-chart-wrap { margin-top: 12px; }
+.octopus-greener-chart-plot { position: relative; }
 .octopus-greener-chart-svg { width: 100%; height: auto; display: block; }
+.octopus-greener-hit {
+  position: absolute; top: 0; right: 0; bottom: 0;
+  left: calc(54 / 680 * 100%); cursor: crosshair;
+}
+.octopus-greener-tooltip {
+  position: absolute; z-index: 5; pointer-events: none; min-width: 148px; max-width: 220px;
+  padding: 10px 14px; border-radius: 10px; transform: translate(-50%, -100%);
+  background: var(--card-background-color, #1c1c1c);
+  border: 1px solid rgba(236, 72, 153, 0.45);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+  font-size: 13px; color: var(--primary-text-color);
+}
+.octopus-greener-tooltip::after {
+  content: ""; position: absolute; left: 50%; bottom: -6px; transform: translateX(-50%);
+  border: 6px solid transparent; border-top-color: rgba(236, 72, 153, 0.45);
+}
+.octopus-greener-tooltip-time { font-weight: 700; font-size: 15px; line-height: 1.2; margin-bottom: 6px; }
+.octopus-greener-tooltip-score { font-size: 13px; line-height: 1.35; margin-bottom: 4px; }
+.octopus-greener-tooltip-score strong { font-weight: 700; }
+.octopus-greener-tooltip-gco2 { font-size: 12px; color: var(--secondary-text-color); line-height: 1.35; }
+.octopus-greener-bar--hover { opacity: 0.82; stroke: var(--primary-text-color); stroke-width: 1; }
+.octopus-greener-y-label {
+  fill: var(--secondary-text-color); font-size: 9px; font-weight: 600;
+  letter-spacing: 0.04em; text-transform: uppercase;
+}
+.octopus-greener-y-arrow { stroke: var(--secondary-text-color); stroke-width: 1.5; opacity: 0.65; }
+.octopus-greener-y-arrow-head { fill: var(--secondary-text-color); opacity: 0.65; }
 .octopus-greener-axis { fill: var(--secondary-text-color); font-size: 10px; }
 .octopus-greener-green-line { stroke: var(--secondary-text-color); stroke-width: 1; opacity: 0.55; }
 .octopus-greener-legend {
@@ -15373,6 +15519,10 @@ ${body}
     });
   }
 
+  _bindOctopusGreenerCharts() {
+    bindOctopusGreenerCharts(this._root);
+  }
+
   _bindStatisticsChart() {
     const series = this._statisticsSeriesForDisplay() || [];
     const includeSoc = this._view === "energy_analysis" && this._energyPeriod === "day";
@@ -15381,6 +15531,7 @@ ${body}
     if (!meta.length) return;
     bindStatisticsChart(this._root, meta);
     this._bindForecastAccuracyCharts();
+    this._bindOctopusGreenerCharts();
   }
 
   async _loadBatterySocChart() {
@@ -16155,6 +16306,7 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
         greenerRow.remove();
       }
       this._octopusGreenerAnalysisSlotCache = greenerKey;
+      bindOctopusGreenerCharts(root);
     }
 
     const forecastKey = this._forecastAccuracyAnalysisSlotKey();
@@ -17598,9 +17750,15 @@ ${active
       this._statisticsChart?.range
     ) {
       this._bindStatisticsChart();
+    } else if (
+      this._view === "energy_analysis" &&
+      this._root.querySelector("[data-octopus-greener-plot]")
+    ) {
+      this._bindOctopusGreenerCharts();
     }
     if (this._view === "overview") {
       bindOverviewDailyCharts(this._root);
+      this._bindOctopusGreenerCharts();
       if (!mainEl?.querySelector?.(".overview-hourly-weather-slot [data-hourly-weather][data-bound]")) {
         bindHourlyWeatherOverview(this._root);
       }
