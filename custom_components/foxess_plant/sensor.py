@@ -186,6 +186,12 @@ OCTOPUS_CONSUMPTION_SENSORS: tuple[tuple[str, str, str, str, SensorDeviceClass |
     ("greener_alignment", PERCENTAGE, "Octopus greener-night alignment", "mdi:leaf", None, SensorStateClass.MEASUREMENT),
 )
 
+GLOW_SENSORS: tuple[tuple[str, str, str, str, SensorDeviceClass | None, SensorStateClass | None], ...] = (
+    ("import_power", UnitOfPower.KILO_WATT, "Glow grid import power", "mdi:transmission-tower-import", SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT),
+    ("import_today", UnitOfEnergy.KILO_WATT_HOUR, "Glow grid import today", "mdi:home-import-outline", SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
+    ("import_cumulative", UnitOfEnergy.KILO_WATT_HOUR, "Glow grid import total", "mdi:counter", SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -203,6 +209,12 @@ async def async_setup_entry(
     for kind, unit, name, icon, device_class, state_class in OCTOPUS_CONSUMPTION_SENSORS:
         entities.append(
             FoxessPlantOctopusConsumptionSensor(
+                coordinator, entry, kind, unit, name, icon, device_class, state_class
+            )
+        )
+    for kind, unit, name, icon, device_class, state_class in GLOW_SENSORS:
+        entities.append(
+            FoxessPlantGlowSensor(
                 coordinator, entry, kind, unit, name, icon, device_class, state_class
             )
         )
@@ -464,6 +476,62 @@ class FoxessPlantOctopusConsumptionSensor(CoordinatorEntity[FoxessPlantCoordinat
         if fetched:
             attrs["last_fetch_at"] = fetched
         return attrs
+
+    def set_value(self, value: float | None) -> None:
+        self._value = value
+
+    async def async_publish(self) -> None:
+        self.async_write_ha_state()
+
+
+class FoxessPlantGlowSensor(CoordinatorEntity[FoxessPlantCoordinator], SensorEntity):
+    """Live Glow smart-meter readings for grid import (electricity only)."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        coordinator: FoxessPlantCoordinator,
+        entry: ConfigEntry,
+        kind: str,
+        unit: str,
+        name: str,
+        icon: str,
+        device_class: SensorDeviceClass | None,
+        state_class: SensorStateClass | None,
+    ) -> None:
+        super().__init__(coordinator)
+        self._kind = kind
+        self._entry = entry
+        self._attr_device_info = plant_device_info(entry)
+        self._attr_unique_id = f"{entry.entry_id}_glow_{kind}"
+        self._attr_name = f"{entry.title} {name}"
+        self._attr_native_unit_of_measurement = unit
+        self._attr_icon = icon
+        self._attr_device_class = device_class
+        self._attr_state_class = state_class
+        self._value: float | None = None
+        coordinator.register_glow_sensor(kind, self)
+
+    @property
+    def available(self) -> bool:
+        if not self.coordinator.plant.glow.enabled:
+            return False
+        return self._value is not None
+
+    @property
+    def native_value(self) -> float | None:
+        return self._value
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        live = self.coordinator._glow_live
+        return {
+            "source": live.get("source") or "glow",
+            "device_mac": live.get("device_mac") or self.coordinator.plant.glow.device_mac,
+            "timestamp": live.get("timestamp") or self.coordinator.plant.glow.last_mqtt_at,
+            "mpan": live.get("mpan"),
+        }
 
     def set_value(self, value: float | None) -> None:
         self._value = value

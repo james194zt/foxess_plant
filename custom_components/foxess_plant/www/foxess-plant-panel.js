@@ -110,6 +110,7 @@ const SETTINGS_NAV = [
   { id: "workmode", label: "Work mode" },
   { id: "pv", label: "PV" },
   { id: "solcast", label: "Solcast" },
+  { id: "glow", label: "Glow meter" },
   { id: "tariff", label: "Tariff" },
   { id: "smart", label: "SmartCharge" },
   { id: "storm", label: "StormSafe" },
@@ -240,6 +241,8 @@ function tariffRateInputStep(code) {
 const PV_EFFICIENCY_FACTOR_URL = "https://kb.solcast.com.au/what-is-the-efficiency-factor";
 const SOLCAST_API_DOCS_URL = "https://docs.solcast.com.au/";
 const SOLCAST_HOBBYIST_URL = "https://solcast.com/free-rooftop-solar-forecasting";
+const GLOW_DOCS_URL = "https://docs.glowmarkt.com/GlowmarktAPIDataRetrievalDocumentationIndividualUserForBright.pdf";
+const GLOW_MQTT_INTEGRATION_URL = "https://github.com/megakid/ha_hildebrand_glow_ihd_mqtt";
 const SOLCAST_ACCOUNT_LOCATIONS_URL = "https://toolkit.solcast.com.au/account/locations";
 const OCTOPUS_API_DOCS_URL = "https://octopus.energy/dashboard/new/accounts/personal-access-token/";
 const SOLCAST_COORD_DECIMALS = 4;
@@ -4791,8 +4794,15 @@ function renderFoxAnalysisSummaryCard(a, sparkData, analysisTariff, { loading = 
 }
 
 function renderFoxSupplyUsagePanel(a) {
+  const gridHint =
+    a.grid_data_source === "glow" && a.grid_import_kw_live != null
+      ? `<p class="field-hint" style="margin:-4px 0 8px;text-align:center">Live meter ${Number(a.grid_import_kw_live).toFixed(2)} kW · grid from Glow smart meter</p>`
+      : a.grid_data_source === "glow"
+        ? `<p class="field-hint" style="margin:-4px 0 8px;text-align:center">Grid import from Glow smart meter</p>`
+        : "";
   return `<div class="fox-analysis-stat-r">
 <div class="fox-analysis-stat-na">Supply</div>
+${gridHint}
 <div class="fox-analysis-stat-row">
 ${renderFoxAnalysisStatCol("Imported", a.load_from_grid_kwh_today, "imported", { muted: true })}
 ${renderFoxAnalysisStatCol("PV Produced", a.pv_production_kwh_today, "pv_produced")}
@@ -12542,6 +12552,19 @@ Reloading panel registration…
         this._solcastDraft.api_key_set = Boolean(sc.api_key_set);
       }
       if (
+        this._settingsView === "glow" &&
+        this._glowDraft &&
+        !this._settingsFieldFocused &&
+        !this._rangeDrag
+      ) {
+        const g = this._plantState?.glow ?? {};
+        this._glowDraft.enabled = Boolean(g.enabled);
+        this._glowDraft.mqtt_enabled = g.mqtt_enabled !== false;
+        this._glowDraft.api_enabled = g.api_enabled !== false;
+        this._glowDraft.password_set = Boolean(g.password_set);
+        this._glowDraft.username_set = Boolean(g.username_set);
+      }
+      if (
         this._settingsView === "tariff" &&
         this._octopusDraft &&
         !this._settingsFieldFocused &&
@@ -13602,6 +13625,123 @@ Reloading panel registration…
     this._initPvDraft();
   }
 
+  _initGlowDraft() {
+    const g = this._plantState?.glow ?? {};
+    this._glowDraft = {
+      enabled: Boolean(g.enabled),
+      mqtt_enabled: g.mqtt_enabled !== false,
+      api_enabled: g.api_enabled !== false,
+      username: g.username || "",
+      username_set: Boolean(g.username_set),
+      password: "",
+      password_set: Boolean(g.password_set),
+      topic_prefix: g.topic_prefix || "glow",
+      device_id: g.device_id || "+",
+      import_resource_id: g.import_resource_id || "",
+      export_resource_id: g.export_resource_id || "",
+    };
+  }
+
+  _enterGlowSettings() {
+    this._glowDraft = null;
+    this._initGlowDraft();
+  }
+
+  _syncGlowDraftFromDom() {
+    if (!this._glowDraft) return;
+    const root = this._root;
+    for (const [field, key] of [
+      ["glow:enabled", "enabled"],
+      ["glow:mqtt_enabled", "mqtt_enabled"],
+      ["glow:api_enabled", "api_enabled"],
+    ]) {
+      const el = root.querySelector(`[data-field="${field}"]`);
+      if (el) this._glowDraft[key] = el.checked;
+    }
+  }
+
+  _glowSettingsSubtitle() {
+    const g = this._plantState?.glow;
+    if (!g?.enabled) return "Off — optional Hildebrand Glow IHD smart meter";
+    const live = g.live || {};
+    if (live.import_kw != null) return `Live ${Number(live.import_kw).toFixed(2)} kW import · smart meter`;
+    if (g.mqtt_connected) return "MQTT connected — awaiting first reading";
+    if (g.last_error) return String(g.last_error).slice(0, 60);
+    return "Enabled — configure MQTT or Bright API";
+  }
+
+  async _saveGlowSettings() {
+    const plant = this._getPlant();
+    if (!plant || !this._glowDraft) return;
+    this._syncGlowDraftFromDom();
+    this._busy = true;
+    this._render();
+    try {
+      const draft = this._glowDraft;
+      const payload = {
+        enabled: Boolean(draft.enabled),
+        mqtt_enabled: Boolean(draft.mqtt_enabled),
+        api_enabled: Boolean(draft.api_enabled),
+        topic_prefix: String(draft.topic_prefix || "glow").trim() || "glow",
+        device_id: String(draft.device_id || "+").trim() || "+",
+        import_resource_id: String(draft.import_resource_id || "").trim() || null,
+        export_resource_id: String(draft.export_resource_id || "").trim() || null,
+      };
+      const user = String(draft.username || "").trim();
+      if (user) payload.username = user;
+      const pw = String(draft.password || "").trim();
+      if (pw) payload.password = pw;
+      const state = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/update_glow",
+        plant_id: plant.entry_id,
+        glow: payload,
+      });
+      if (state) this._plantState = state;
+      this._initGlowDraft();
+      this._showToast("Glow settings saved");
+    } catch (err) {
+      this._showToast(err?.message || "Save failed", "err");
+    } finally {
+      this._busy = false;
+      this._render();
+    }
+  }
+
+  async _testGlowConnection() {
+    const plant = this._getPlant();
+    if (!plant || !this._glowDraft) return;
+    this._syncGlowDraftFromDom();
+    this._busy = true;
+    this._render();
+    try {
+      const draft = this._glowDraft;
+      const msg = {
+        type: "foxess_plant/test_glow",
+        plant_id: plant.entry_id,
+      };
+      const user = String(draft.username || "").trim();
+      const pw = String(draft.password || "").trim();
+      if (user) msg.username = user;
+      if (pw) msg.password = pw;
+      const res = await this._hass.connection.sendMessagePromise(msg);
+      if (res?.plant_state) this._plantState = res.plant_state;
+      this._initGlowDraft();
+      const g = res?.glow ?? {};
+      const lines = [
+        g.valid ? "Bright login OK" : "Login failed",
+        g.resource_count != null ? `${g.resource_count} resource(s)` : null,
+        g.import_resource_id ? `Import: ${g.import_resource_id}` : null,
+        g.export_resource_id ? `Export: ${g.export_resource_id}` : null,
+      ].filter(Boolean);
+      this._showToast(lines.join(" · ") || "Glow test complete");
+    } catch (err) {
+      this._showToast(err?.message || "Glow test failed", "err");
+    } finally {
+      this._busy = false;
+      this._render();
+    }
+  }
+
   _syncSolcastDraftFromDom() {
     if (!this._solcastDraft) return;
     const root = this._root;
@@ -14130,6 +14270,7 @@ Reloading panel registration…
       if (btn.dataset.sub === "storm") this._enterStormSettings();
       if (btn.dataset.sub === "pv") this._enterPvSettings();
       if (btn.dataset.sub === "solcast") this._enterSolcastSettings();
+      if (btn.dataset.sub === "glow") this._enterGlowSettings();
       if (btn.dataset.sub === "tariff") this._enterTariffSettings();
       if (btn.dataset.sub === "smart") this._enterSmartChargeSettings();
       this._render();
@@ -14159,6 +14300,7 @@ Reloading panel registration…
       if (btn.dataset.sub === "storm") this._enterStormSettings();
       if (btn.dataset.sub === "pv") this._enterPvSettings();
       if (btn.dataset.sub === "solcast") this._enterSolcastSettings();
+      if (btn.dataset.sub === "glow") this._enterGlowSettings();
       if (btn.dataset.sub === "tariff") this._enterTariffSettings();
       if (btn.dataset.sub === "smart") this._enterSmartChargeSettings();
       this._render();
@@ -14213,6 +14355,14 @@ Reloading panel registration…
     }
     if (action === "save-solcast-settings") {
       await this._saveSolcastSettings();
+      return;
+    }
+    if (action === "save-glow-settings") {
+      await this._saveGlowSettings();
+      return;
+    }
+    if (action === "test-glow") {
+      await this._testGlowConnection();
       return;
     }
     if (action === "test-solcast") {
@@ -18141,6 +18291,7 @@ ${note}${via}${forecastHint}${activeBadge}
       workmode: String(s.work_mode ?? "—"),
       pv: pvConfigSummary(this._plantState?.pv_config),
       solcast: this._solcastSettingsSubtitle(),
+      glow: this._glowSettingsSubtitle(),
       tariff: tariffSettingsSummary(this._plantState?.tariff),
       smart: this._smartChargeSettingsSubtitle(),
       storm: this._settingsStormSubtitle(),
@@ -18176,6 +18327,7 @@ ${renderListButton({ action: "settings-sub", sub: "schedules" }, "Charge schedul
 ${renderListButton({ action: "settings-sub", sub: "workmode" }, "Work mode", subs.workmode)}
 ${renderListButton({ action: "settings-sub", sub: "pv" }, "PV Configuration", subs.pv)}
 ${renderListButton({ action: "settings-sub", sub: "solcast" }, "Solcast", subs.solcast)}
+${renderListButton({ action: "settings-sub", sub: "glow" }, "Glow smart meter", subs.glow)}
 ${renderListButton({ action: "settings-sub", sub: "tariff" }, "Tariff", subs.tariff)}
 ${renderListButton({ action: "settings-sub", sub: "smart" }, "SmartCharge", subs.smart)}
 ${renderListButton({ action: "settings-sub", sub: "storm" }, "StormSafe", subs.storm)}
@@ -18860,6 +19012,69 @@ ${this._renderPvTiltAzimuthFields("pv2", { allowWhenDisabled: true })}
 </div>`;
   }
 
+  _renderSettingsGlow() {
+    if (!this._glowDraft) this._initGlowDraft();
+    const draft = this._glowDraft;
+    const live = this._plantState?.glow ?? {};
+    const liveData = live.live || {};
+    const pwPlaceholder = draft.password_set ? "••••••••" : "Bright app password";
+    const lastMqtt = live.last_mqtt_at ? esc(formatSolcastTimestamp(live.last_mqtt_at)) : "—";
+    const lastApi = live.last_api_at ? esc(formatSolcastTimestamp(live.last_api_at)) : "—";
+    const lastErr = live.last_error ? esc(String(live.last_error)) : "None";
+    const importKw =
+      liveData.import_kw != null ? `${Number(liveData.import_kw).toFixed(3)} kW` : "—";
+    const importToday =
+      liveData.import_kwh_today != null ? `${Number(liveData.import_kwh_today).toFixed(2)} kWh` : "—";
+    return `<header class="header"><h1>Glow smart meter</h1><p>Optional Hildebrand Glow IHD for <strong>live grid import</strong> from your SMETS2 meter. PV production always comes from the Fox plant — Glow replaces only grid-side readings.</p></header>
+<div class="card">
+<p class="card-title">Enable</p>
+<p class="field-hint">Requires a Glow IHD/CAD on your network with MQTT enabled by Hildebrand, or Bright API credentials. See the <a class="field-link" href="${esc(GLOW_DOCS_URL)}" target="_blank" rel="noopener noreferrer">Glowmarkt Bright API docs</a> and <a class="field-link" href="${esc(GLOW_MQTT_INTEGRATION_URL)}" target="_blank" rel="noopener noreferrer">MQTT topic reference</a>.</p>
+<div class="toggle-row"><span><strong>Enable Glow smart meter</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Uses utility-meter data for grid import (more accurate than inverter CTs)</span></span>
+<input type="checkbox" data-field="glow:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+</div>
+<div class="card">
+<p class="card-title">Live MQTT (recommended)</p>
+<p class="field-hint">Subscribe to local <code>glow/{MAC}/SENSOR/electricitymeter</code> broadcasts — updates every few seconds with live kW and cumulative kWh.</p>
+<div class="toggle-row"><span><strong>MQTT listener</strong></span>
+<input type="checkbox" data-field="glow:mqtt_enabled" ${draft.mqtt_enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+<div class="field"><label>Topic prefix</label>
+<input type="text" data-field="glow:topic_prefix" value="${esc(String(draft.topic_prefix || "glow"))}" placeholder="glow" ${this._busy ? "disabled" : ""}></div>
+<div class="field"><label>Device ID</label>
+<p class="field-hint">Glow MAC without colons, or <code>+</code> for all devices on the broker.</p>
+<input type="text" data-field="glow:device_id" value="${esc(String(draft.device_id || "+"))}" placeholder="+" ${this._busy ? "disabled" : ""}></div>
+</div>
+<div class="card">
+<p class="card-title">Bright API (optional)</p>
+<p class="field-hint">Cloud fallback for resource discovery and historical readings. Same credentials as the Bright mobile app.</p>
+<div class="toggle-row"><span><strong>API access</strong></span>
+<input type="checkbox" data-field="glow:api_enabled" ${draft.api_enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+<div class="field"><label>Bright username</label>
+<input type="text" autocomplete="username" data-field="glow:username" value="${esc(String(draft.username || ""))}" ${this._busy ? "disabled" : ""}></div>
+<div class="field"><label>Bright password</label>
+<input type="password" autocomplete="current-password" data-field="glow:password" value="${esc(String(draft.password || ""))}" placeholder="${esc(pwPlaceholder)}" ${this._busy ? "disabled" : ""}></div>
+<div class="field"><label>Import resource ID</label>
+<input type="text" data-field="glow:import_resource_id" value="${esc(String(draft.import_resource_id || ""))}" placeholder="Auto-discovered on test" ${this._busy ? "disabled" : ""}></div>
+</div>
+<div class="card">
+<p class="card-title">Status</p>
+<div class="entity-list">
+<div class="entity-row"><span class="entity-name">MQTT</span><span class="entity-value">${live.mqtt_connected ? "Connected" : "Not connected"}</span></div>
+<div class="entity-row"><span class="entity-name">Live import power</span><span class="entity-value">${esc(importKw)}</span></div>
+<div class="entity-row"><span class="entity-name">Import today (meter)</span><span class="entity-value">${esc(importToday)}</span></div>
+<div class="entity-row"><span class="entity-name">Last MQTT</span><span class="entity-value">${lastMqtt}</span></div>
+<div class="entity-row"><span class="entity-name">Last API</span><span class="entity-value">${lastApi}</span></div>
+<div class="entity-row"><span class="entity-name">Device MAC</span><span class="entity-value">${esc(String(live.device_mac || "—"))}</span></div>
+<div class="entity-row"><span class="entity-name">MPAN</span><span class="entity-value">${esc(String(liveData.mpan || "—"))}</span></div>
+<div class="entity-row"><span class="entity-name">Last error</span><span class="entity-value">${lastErr}</span></div>
+</div>
+<p class="field-hint" style="margin-top:8px">When enabled, analytics <strong>From grid</strong> uses the smart meter. Solar production and battery flows stay on FoxESS plant sensors.</p>
+</div>
+<div class="btn-row">
+<button type="button" class="btn btn-primary" data-action="save-glow-settings" ${this._busy ? "disabled" : ""}>Save</button>
+<button type="button" class="btn btn-secondary" data-action="test-glow" ${this._busy ? "disabled" : ""}>Test Bright API</button>
+</div>`;
+  }
+
   _renderSettingsControl() {
     const active = this._plantState?.control_active;
     return `<header class="header"><h1>Plant control</h1></header>
@@ -18889,6 +19104,8 @@ ${active
         return this._renderSettingsSmartCharge();
       case "solcast":
         return this._renderSettingsSolcast();
+      case "glow":
+        return this._renderSettingsGlow();
       case "storm":
         return this._renderSettingsStorm();
       case "control":

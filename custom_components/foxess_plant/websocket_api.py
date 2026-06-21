@@ -39,6 +39,8 @@ WS_TYPE_UPDATE_SMART_CHARGE = "foxess_plant/update_smart_charge"
 WS_TYPE_TARIFF_ENTITY_CANDIDATES = "foxess_plant/tariff_entity_candidates"
 WS_TYPE_UPDATE_SOLCAST = "foxess_plant/update_solcast"
 WS_TYPE_TEST_SOLCAST = "foxess_plant/test_solcast"
+WS_TYPE_UPDATE_GLOW = "foxess_plant/update_glow"
+WS_TYPE_TEST_GLOW = "foxess_plant/test_glow"
 WS_TYPE_FETCH_HISTORY = "foxess_plant/fetch_history"
 WS_TYPE_FETCH_STATISTICS = "foxess_plant/fetch_statistics"
 WS_TYPE_SOLCAST_FORECAST_INTRADAY = "foxess_plant/solcast_forecast_intraday"
@@ -89,6 +91,21 @@ SOLCAST_SCHEMA = vol.Schema(
         vol.Optional("installation_date"): vol.Any(str, None),
         vol.Optional("period", default="PT30M"): str,
         vol.Optional("fetch_pv_forecast", default=True): cv.boolean,
+        vol.Optional("fetch_now", default=True): cv.boolean,
+    }
+)
+
+GLOW_SCHEMA = vol.Schema(
+    {
+        vol.Required("enabled"): cv.boolean,
+        vol.Optional("mqtt_enabled", default=True): cv.boolean,
+        vol.Optional("api_enabled", default=True): cv.boolean,
+        vol.Optional("username"): vol.Any(str, None),
+        vol.Optional("password"): vol.Any(str, None),
+        vol.Optional("topic_prefix", default="glow"): str,
+        vol.Optional("device_id", default="+"): str,
+        vol.Optional("import_resource_id"): vol.Any(str, None),
+        vol.Optional("export_resource_id"): vol.Any(str, None),
         vol.Optional("fetch_now", default=True): cv.boolean,
     }
 )
@@ -783,6 +800,65 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
 
     @websocket_api.websocket_command(
         {
+            vol.Required("type"): WS_TYPE_UPDATE_GLOW,
+            vol.Optional("plant_id"): str,
+            vol.Required("glow"): GLOW_SCHEMA,
+        }
+    )
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def ws_update_glow(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        payload = dict(msg["glow"])
+        fetch_now = bool(payload.pop("fetch_now", True))
+        try:
+            await coordinator.async_save_glow(glow=payload, fetch_now=fetch_now)
+        except HomeAssistantError as err:
+            connection.send_error(msg["id"], "glow_save_failed", str(err))
+            return
+        connection.send_result(msg["id"], coordinator.get_plant_state())
+
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): WS_TYPE_TEST_GLOW,
+            vol.Optional("plant_id"): str,
+            vol.Optional("username"): str,
+            vol.Optional("password"): str,
+        }
+    )
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def ws_test_glow(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        try:
+            result = await coordinator.async_test_glow(
+                username=msg.get("username"),
+                password=msg.get("password"),
+            )
+        except HomeAssistantError as err:
+            connection.send_error(msg["id"], "glow_test_failed", str(err))
+            return
+        except Exception as err:
+            connection.send_error(msg["id"], "glow_test_failed", str(err))
+            return
+        connection.send_result(msg["id"], {"glow": result, "plant_state": coordinator.get_plant_state()})
+
+    @websocket_api.websocket_command(
+        {
             vol.Required("type"): WS_TYPE_FETCH_HISTORY,
             vol.Required("start_time"): str,
             vol.Optional("end_time"): str,
@@ -1047,6 +1123,8 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_update_smart_charge)
     websocket_api.async_register_command(hass, ws_update_solcast)
     websocket_api.async_register_command(hass, ws_test_solcast)
+    websocket_api.async_register_command(hass, ws_update_glow)
+    websocket_api.async_register_command(hass, ws_test_glow)
     websocket_api.async_register_command(hass, ws_fetch_history)
     websocket_api.async_register_command(hass, ws_fetch_statistics)
     websocket_api.async_register_command(hass, ws_solcast_forecast_intraday)

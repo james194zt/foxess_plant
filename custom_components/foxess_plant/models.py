@@ -495,6 +495,91 @@ class SolcastConfig:
 
 
 @dataclass
+class GlowConfig:
+    """Hildebrand Glow IHD / Bright API smart-meter settings."""
+
+    enabled: bool = False
+    mqtt_enabled: bool = True
+    api_enabled: bool = True
+    username: str | None = None
+    password: str | None = None
+    token: str | None = None
+    token_exp: int | None = None
+    topic_prefix: str = "glow"
+    device_id: str = "+"
+    import_resource_id: str | None = None
+    export_resource_id: str | None = None
+    device_mac: str | None = None
+    last_error: str | None = None
+    last_mqtt_at: str | None = None
+    last_api_at: str | None = None
+    mqtt_connected: bool = False
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> GlowConfig:
+        from .const import DEFAULT_GLOW
+
+        raw = {**DEFAULT_GLOW, **(data if isinstance(data, dict) else {})}
+        token_exp = raw.get("token_exp")
+        try:
+            token_exp_int = int(token_exp) if token_exp is not None else None
+        except (TypeError, ValueError):
+            token_exp_int = None
+        device_id = str(raw.get("device_id") or "+").strip() or "+"
+        topic_prefix = str(raw.get("topic_prefix") or "glow").strip() or "glow"
+        return cls(
+            enabled=bool(raw.get("enabled", False)),
+            mqtt_enabled=bool(raw.get("mqtt_enabled", True)),
+            api_enabled=bool(raw.get("api_enabled", True)),
+            username=str(raw["username"]).strip() if raw.get("username") else None,
+            password=str(raw["password"]) if raw.get("password") else None,
+            token=str(raw["token"]) if raw.get("token") else None,
+            token_exp=token_exp_int,
+            topic_prefix=topic_prefix,
+            device_id=device_id,
+            import_resource_id=str(raw["import_resource_id"]) if raw.get("import_resource_id") else None,
+            export_resource_id=str(raw["export_resource_id"]) if raw.get("export_resource_id") else None,
+            device_mac=str(raw["device_mac"]) if raw.get("device_mac") else None,
+            last_error=str(raw["last_error"]) if raw.get("last_error") else None,
+            last_mqtt_at=str(raw["last_mqtt_at"]) if raw.get("last_mqtt_at") else None,
+            last_api_at=str(raw["last_api_at"]) if raw.get("last_api_at") else None,
+            mqtt_connected=bool(raw.get("mqtt_connected", False)),
+        )
+
+    def credentials_configured(self) -> bool:
+        return bool(self.username and str(self.username).strip() and self.password)
+
+    def token_configured(self) -> bool:
+        return bool(self.token and str(self.token).strip())
+
+    def to_dict(self, *, include_secrets: bool = True) -> dict[str, Any]:
+        out: dict[str, Any] = {
+            "enabled": self.enabled,
+            "mqtt_enabled": self.mqtt_enabled,
+            "api_enabled": self.api_enabled,
+            "topic_prefix": self.topic_prefix,
+            "device_id": self.device_id,
+            "import_resource_id": self.import_resource_id,
+            "export_resource_id": self.export_resource_id,
+            "device_mac": self.device_mac,
+            "last_error": self.last_error,
+            "last_mqtt_at": self.last_mqtt_at,
+            "last_api_at": self.last_api_at,
+            "mqtt_connected": self.mqtt_connected,
+            "token_exp": self.token_exp,
+        }
+        if include_secrets:
+            out["username"] = self.username
+            out["password"] = self.password
+            out["token"] = self.token
+        else:
+            out["username_set"] = bool(self.username)
+            out["password_set"] = bool(self.password)
+            out["token_set"] = self.token_configured()
+        return out
+
+
+@dataclass
 class TariffDynamicConfig:
     """Octopus API or external entity-backed dynamic tariffs (e.g. Agile)."""
 
@@ -810,6 +895,7 @@ class PlantConfig:
     panel_display: PanelDisplayConfig = field(default_factory=PanelDisplayConfig)
     pv_config: PvSystemConfig = field(default_factory=PvSystemConfig)
     solcast: SolcastConfig = field(default_factory=SolcastConfig)
+    glow: GlowConfig = field(default_factory=GlowConfig)
     tariff: TariffConfig = field(default_factory=TariffConfig)
     tariff_modes: dict[str, list[ChargePeriodConfig]] = field(default_factory=dict)
 
@@ -825,6 +911,7 @@ class PlantConfig:
             DEFAULT_SOLCAST,
             DEFAULT_STORM_PREP,
             DEFAULT_TARIFF,
+            DEFAULT_GLOW,
         )
 
         baseline = [ChargePeriodConfig.from_dict(p) for p in data.get("baseline_periods", DEFAULT_BASELINE_PERIODS)]
@@ -853,6 +940,7 @@ class PlantConfig:
             panel_display=PanelDisplayConfig.from_dict(data.get("panel_display", DEFAULT_PANEL_DISPLAY)),
             pv_config=PvSystemConfig.from_dict(data.get("pv_config", DEFAULT_PV_CONFIG)),
             solcast=SolcastConfig.from_dict(data.get("solcast", DEFAULT_SOLCAST)),
+            glow=GlowConfig.from_dict(data.get("glow", DEFAULT_GLOW)),
             tariff=TariffConfig.from_dict(data.get("tariff", DEFAULT_TARIFF)),
             tariff_modes=tariff_modes,
         )
@@ -873,6 +961,7 @@ class PlantConfig:
             "panel_display": self.panel_display.to_dict(),
             "pv_config": self.pv_config.to_dict(),
             "solcast": self.solcast.to_dict(),
+            "glow": self.glow.to_dict(),
             "tariff": self.tariff.to_dict(include_secrets=True),
             "tariff_modes": {
                 name: [p.to_dict() for p in periods] for name, periods in self.tariff_modes.items()

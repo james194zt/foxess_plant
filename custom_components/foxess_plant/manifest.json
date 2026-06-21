@@ -4,10 +4,10 @@
   "codeowners": ["@james194zt"],
   "config_flow": true,
   "dependencies": ["foxess_modbus"],
-  "after_dependencies": ["frontend", "panel_custom", "recorder"],
+  "after_dependencies": ["frontend", "panel_custom", "recorder", "mqtt"],
   "documentation": "https://github.com/james194zt/foxess_plant",
   "integration_type": "device",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/james194zt/foxess_plant/issues",
-  "version": "0.9.319"
+  "version": "0.9.320"
 }
