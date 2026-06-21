@@ -9385,7 +9385,7 @@ const STYLES = `
   flex: 1 1 auto;
 }
 .octopus-greener-headline {
-  font-weight: 700; font-size: 15px; line-height: 1.3; margin: 0 0 0;
+  font-weight: 700; font-size: 15px; line-height: 1.3; margin: 0 0 10px;
   color: var(--octopus-green-bar, #22c55e);
 }
 .octopus-greener-view-toggle {
@@ -9602,6 +9602,9 @@ const STYLES = `
 .fox-analysis-octopus-greener-row .octopus-greener-card { margin-top: 0; }
 .fox-analysis-octopus-upcoming-row { margin-top: 14px; }
 .fox-analysis-octopus-upcoming-row .octopus-upcoming-week-card { margin-top: 0; }
+.octopus-upcoming-week-card > .fox-analysis-summary-title {
+  margin: 0 0 12px;
+}
 .octopus-upcoming-week-card .octopus-greener-headline { margin: 0 0 8px; }
 .octopus-upcoming-week-note {
   margin: 0 0 8px;
