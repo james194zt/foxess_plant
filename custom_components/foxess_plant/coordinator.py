@@ -119,6 +119,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._unsub_pv_efficiency: callable | None = None
         self._last_tariff_sensor_rates: dict[str, float] = {}
         self._octopus_cache: dict[str, Any] = {}
+        self._octopus_greener_store = None
+        self._octopus_greener_cache: dict[str, Any] = {}
+        self._octopus_greener_history_count = 0
+        self._unsub_octopus_greener: callable | None = None
         super().__init__(
             hass,
             _LOGGER,
@@ -391,10 +395,17 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_load_tariff_storage(self) -> None:
         from .tariff_store import TariffRateStore
+        from .octopus_greener_store import OctopusGreenerStore
 
         self._tariff_store = TariffRateStore(self.hass, self.config_entry.entry_id)
         stored = await self._tariff_store.async_load()
         self._tariff_history_count = TariffRateStore.history_count(stored)
+        self._octopus_greener_store = OctopusGreenerStore(self.hass, self.config_entry.entry_id)
+        greener_stored = await self._octopus_greener_store.async_load()
+        self._octopus_greener_history_count = OctopusGreenerStore.history_count(greener_stored)
+        current = greener_stored.get("current") if isinstance(greener_stored, dict) else None
+        if isinstance(current, dict) and isinstance(current.get("snapshot"), dict):
+            self._octopus_greener_cache = dict(current["snapshot"])
 
     def _tariff_state(self) -> dict[str, Any]:
         from .tariff_rates import resolve_tariff_rates
@@ -415,7 +426,24 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for kind in ("import", "export", "standing")
         }
         state["octopus"] = self._octopus_status()
+        state["octopus_greener"] = self._octopus_greener_state()
         return state
+
+    def _octopus_greener_enabled(self) -> bool:
+        from .octopus_greener import octopus_tariff_enabled
+
+        return octopus_tariff_enabled(self.plant.tariff)
+
+    def _octopus_greener_state(self) -> dict[str, Any] | None:
+        if not self._octopus_greener_enabled():
+            return None
+        from .octopus_greener import greener_dashboard_payload
+
+        return greener_dashboard_payload(
+            self._octopus_greener_cache,
+            history_count=self._octopus_greener_history_count,
+            current_import_p_per_kwh=self._octopus_cache.get("current_import_p_per_kwh"),
+        )
 
     def _octopus_native_active(self) -> bool:
         return self.plant.tariff.dynamic.native_octopus() and self.plant.tariff.dynamic.api_key_configured()
@@ -779,6 +807,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._setup_solcast_timer()
         self._setup_tariff_schedule_timer()
         self._setup_octopus_timer()
+        self._setup_octopus_greener_timer()
         self._setup_smart_charge_timer()
         self._setup_pv_efficiency_timer()
         try:
@@ -792,6 +821,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             if self._octopus_native_active():
                 await self._async_refresh_octopus()
+            elif self._octopus_greener_enabled():
+                await self._async_refresh_octopus_greener()
             await self._sync_automation_policy()
         except Exception as err:
             _LOGGER.warning("Initial automation policy sync failed: %s", err)
@@ -1920,6 +1951,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.exception("Tariff plugin sensor update failed after save")
         self._setup_tariff_schedule_timer()
         self._setup_octopus_timer()
+        self._setup_octopus_greener_timer()
         await self.async_request_refresh()
 
     async def async_save_octopus(
@@ -1983,8 +2015,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.hass.config_entries.async_update_entry(self.config_entry, data=data)
                 self.update_plant_config(PlantConfig.from_entry_data(data))
                 await self.async_update_tariff_sensors(record_history=True)
+        elif fetch_now and self._octopus_greener_enabled():
+            await self._async_refresh_octopus_greener()
         self._setup_tariff_schedule_timer()
         self._setup_octopus_timer()
+        self._setup_octopus_greener_timer()
         await self.async_request_refresh()
 
     async def async_test_octopus(
@@ -2017,6 +2052,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._octopus_agile_active():
             await self.async_update_tariff_sensors(record_history=True)
         self._setup_octopus_timer()
+        self._setup_octopus_greener_timer()
         await self.async_request_refresh()
         return self._octopus_status()
 
@@ -2124,6 +2160,54 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except OctopusApiError as err:
             self._octopus_cache["last_error"] = str(err)
             _LOGGER.warning("Octopus tariff fetch failed: %s", err)
+        if self._octopus_greener_enabled():
+            await self._async_refresh_octopus_greener()
+
+    async def _async_refresh_octopus_greener(self) -> None:
+        if not self._octopus_greener_enabled():
+            return
+        from homeassistant.util import dt as dt_util
+
+        from .octopus_greener import fetch_octopus_greener_snapshot
+        from .octopus_greener_store import OctopusGreenerStore
+
+        dyn = self.plant.tariff.dynamic
+        api_key = str(dyn.api_key) if dyn.api_key_configured() else None
+        account_number = str(dyn.account_number) if dyn.account_number else None
+        try:
+            snapshot = await fetch_octopus_greener_snapshot(
+                self.hass,
+                api_key=api_key,
+                account_number=account_number,
+            )
+            self._octopus_greener_cache = snapshot
+            if self._octopus_greener_store is None:
+                self._octopus_greener_store = OctopusGreenerStore(
+                    self.hass, self.config_entry.entry_id
+                )
+            self._octopus_greener_history_count = await self._octopus_greener_store.async_record_snapshot(
+                snapshot=snapshot,
+                recorded_at=dt_util.utcnow().isoformat(),
+            )
+            await self.async_request_refresh()
+        except Exception as err:
+            _LOGGER.warning("Octopus greener refresh failed: %s", err)
+
+    def _setup_octopus_greener_timer(self) -> None:
+        if self._unsub_octopus_greener:
+            self._unsub_octopus_greener()
+            self._unsub_octopus_greener = None
+        if not self._octopus_greener_enabled():
+            return
+        self._unsub_octopus_greener = async_track_time_interval(
+            self.hass,
+            self._octopus_greener_timer_callback,
+            timedelta(hours=1),
+        )
+
+    @callback
+    def _octopus_greener_timer_callback(self, _now) -> None:
+        self.hass.async_create_task(self._async_refresh_octopus_greener())
 
     async def async_save_solcast(self, *, solcast: dict[str, Any], fetch_now: bool = True) -> None:
         """Persist Solcast API settings from the panel."""
