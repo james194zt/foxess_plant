@@ -33,6 +33,7 @@ WS_TYPE_UPDATE_TARIFF = "foxess_plant/update_tariff"
 WS_TYPE_UPDATE_OCTOPUS = "foxess_plant/update_octopus"
 WS_TYPE_TEST_OCTOPUS = "foxess_plant/test_octopus"
 WS_TYPE_FETCH_OCTOPUS = "foxess_plant/fetch_octopus"
+WS_TYPE_FETCH_OCTOPUS_ANALYSIS = "foxess_plant/fetch_octopus_analysis"
 WS_TYPE_APPLY_OCTOPUS_SCHEDULE = "foxess_plant/apply_octopus_schedule"
 WS_TYPE_UPDATE_SMART_CHARGE = "foxess_plant/update_smart_charge"
 WS_TYPE_TARIFF_ENTITY_CANDIDATES = "foxess_plant/tariff_entity_candidates"
@@ -629,6 +630,33 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
 
     @websocket_api.websocket_command(
         {
+            vol.Required("type"): WS_TYPE_FETCH_OCTOPUS_ANALYSIS,
+            vol.Optional("plant_id"): str,
+        }
+    )
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def ws_fetch_octopus_analysis(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        try:
+            analysis = await coordinator.async_fetch_octopus_analysis()
+        except HomeAssistantError as err:
+            connection.send_error(msg["id"], "octopus_analysis_fetch_failed", str(err))
+            return
+        connection.send_result(
+            msg["id"],
+            {"octopus_analysis": analysis, "plant_state": coordinator.get_plant_state()},
+        )
+
+    @websocket_api.websocket_command(
+        {
             vol.Required("type"): WS_TYPE_APPLY_OCTOPUS_SCHEDULE,
             vol.Optional("plant_id"): str,
         }
@@ -1012,6 +1040,7 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_update_octopus)
     websocket_api.async_register_command(hass, ws_test_octopus)
     websocket_api.async_register_command(hass, ws_fetch_octopus)
+    websocket_api.async_register_command(hass, ws_fetch_octopus_analysis)
     websocket_api.async_register_command(hass, ws_apply_octopus_schedule)
     websocket_api.async_register_command(hass, ws_update_smart_charge)
     websocket_api.async_register_command(hass, ws_update_solcast)

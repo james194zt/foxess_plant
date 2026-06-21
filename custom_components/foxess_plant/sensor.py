@@ -180,6 +180,12 @@ TARIFF_RATE_SENSORS: tuple[tuple[str, bool, str], ...] = (
     ("standing", True, "Tariff standing charge"),
 )
 
+OCTOPUS_CONSUMPTION_SENSORS: tuple[tuple[str, str, str, str, SensorDeviceClass | None, SensorStateClass | None], ...] = (
+    ("half_hour", UnitOfEnergy.KILO_WATT_HOUR, "Octopus import (half-hour)", "mdi:flash", SensorDeviceClass.ENERGY, SensorStateClass.MEASUREMENT),
+    ("today", UnitOfEnergy.KILO_WATT_HOUR, "Octopus import today", "mdi:home-import-outline", SensorDeviceClass.ENERGY, SensorStateClass.TOTAL),
+    ("greener_alignment", PERCENTAGE, "Octopus greener-night alignment", "mdi:leaf", None, SensorStateClass.MEASUREMENT),
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -194,6 +200,12 @@ async def async_setup_entry(
         entities.append(FoxessPlantSolcastForecastSensor(coordinator, entry, spec))
     for kind, per_day, name in TARIFF_RATE_SENSORS:
         entities.append(FoxessPlantTariffRateSensor(coordinator, entry, kind, per_day, name))
+    for kind, unit, name, icon, device_class, state_class in OCTOPUS_CONSUMPTION_SENSORS:
+        entities.append(
+            FoxessPlantOctopusConsumptionSensor(
+                coordinator, entry, kind, unit, name, icon, device_class, state_class
+            )
+        )
     async_add_entities(entities)
 
 
@@ -401,5 +413,61 @@ class FoxessPlantTariffRateSensor(CoordinatorEntity[FoxessPlantCoordinator], Sen
 
     async def async_publish(self) -> None:
         """Write updated rate to Home Assistant state (recorder-friendly)."""
+        self.async_write_ha_state()
+
+
+class FoxessPlantOctopusConsumptionSensor(CoordinatorEntity[FoxessPlantCoordinator], SensorEntity):
+    """Octopus smart-meter consumption — polled every 30 minutes for recorder history."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        coordinator: FoxessPlantCoordinator,
+        entry: ConfigEntry,
+        kind: str,
+        unit: str,
+        name: str,
+        icon: str,
+        device_class: SensorDeviceClass | None,
+        state_class: SensorStateClass | None,
+    ) -> None:
+        super().__init__(coordinator)
+        self._kind = kind
+        self._entry = entry
+        self._attr_device_info = plant_device_info(entry)
+        self._attr_unique_id = f"{entry.entry_id}_octopus_{kind}"
+        self._attr_name = f"{entry.title} {name}"
+        self._attr_native_unit_of_measurement = unit
+        self._attr_icon = icon
+        self._attr_device_class = device_class
+        self._attr_state_class = state_class
+        self._value: float | None = None
+        coordinator.register_octopus_consumption_sensor(kind, self)
+
+    @property
+    def available(self) -> bool:
+        from .octopus_greener import octopus_tariff_enabled
+
+        if not octopus_tariff_enabled(self.coordinator.plant.tariff):
+            return False
+        return self._value is not None
+
+    @property
+    def native_value(self) -> float | None:
+        return self._value
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        attrs: dict[str, Any] = {"source": "octopus_api"}
+        fetched = self.coordinator._octopus_consumption_data.get("last_fetch_at")
+        if fetched:
+            attrs["last_fetch_at"] = fetched
+        return attrs
+
+    def set_value(self, value: float | None) -> None:
+        self._value = value
+
+    async def async_publish(self) -> None:
         self.async_write_ha_state()
 

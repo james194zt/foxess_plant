@@ -67,3 +67,12 @@ class OctopusGreenerStore:
             return 0
         history = data.get("history")
         return len(history) if isinstance(history, list) else 0
+
+    @staticmethod
+    def history_entries(data: dict[str, Any] | None) -> list[dict[str, Any]]:
+        if not data:
+            return []
+        history = data.get("history")
+        if not isinstance(history, list):
+            return []
+        return [entry for entry in history if isinstance(entry, dict)]

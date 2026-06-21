@@ -145,3 +145,20 @@ class OctopusApiClient:
             params["period_to"] = period_to
         path = f"/products/{product_code}/electricity-tariffs/{tariff_code}/standing-charges/"
         return await self._paginate(path, params=params or None)
+
+    async def get_electricity_consumption(
+        self,
+        mpan: str,
+        serial: str,
+        *,
+        period_from: str | None = None,
+        period_to: str | None = None,
+        page_size: int = 2500,
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {"page_size": page_size}
+        if period_from:
+            params["period_from"] = period_from
+        if period_to:
+            params["period_to"] = period_to
+        path = f"/electricity-meter-points/{mpan.strip()}/meters/{serial.strip()}/consumption/"
+        return await self._paginate(path, params=params)

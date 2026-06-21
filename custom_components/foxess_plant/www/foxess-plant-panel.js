@@ -2434,6 +2434,265 @@ ${moneyVal ? `<span class="octopus-rewards-sub">${esc(moneyVal)}</span>` : ""}
 </div>`;
 }
 
+function octopusAnalysisPayload(plantState) {
+  const raw = plantState?.tariff?.octopus_analysis;
+  return raw && typeof raw === "object" ? raw : null;
+}
+
+function octopusConsumptionDailyTotals(consumption, days = 14) {
+  const map = new Map();
+  for (const row of Array.isArray(consumption) ? consumption : []) {
+    if (!Number.isFinite(row?.start_ms)) continue;
+    const d = new Date(row.start_ms);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    map.set(key, (map.get(key) || 0) + Number(row.kwh || 0));
+  }
+  return [...map.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .slice(-days)
+    .map(([date, kwh]) => ({ date, kwh: Math.round(kwh * 100) / 100 }));
+}
+
+function renderOctopusGenericBarChartSvg(rows, {
+  valueKey,
+  maxValue = null,
+  colorFn = () => "#22c55e",
+  emptyHint = "No data available.",
+  ariaLabel = "Chart",
+  formatValue = (v) => String(v ?? "—"),
+} = {}) {
+  const data = (Array.isArray(rows) ? rows : []).filter((r) => r?.start_ms != null);
+  if (!data.length) return `<p class="octopus-greener-empty">${esc(emptyHint)}</p>`;
+  const W = 640;
+  const H = 168;
+  const padL = 28;
+  const padR = 12;
+  const padT = 12;
+  const padB = 28;
+  const chartW = W - padL - padR;
+  const chartH = H - padT - padB;
+  const slotW = chartW / data.length;
+  const barW = Math.max(2, slotW * 0.72);
+  const values = data.map((r) => {
+    const v = r[valueKey];
+    return v != null && Number.isFinite(Number(v)) ? Number(v) : 0;
+  });
+  const peak = maxValue != null && Number.isFinite(Number(maxValue))
+    ? Number(maxValue)
+    : Math.max(...values, 0.01);
+  const bars = data
+    .map((row, i) => {
+      const v = values[i];
+      const h = Math.max(2, (v / peak) * chartH);
+      const x = padL + i * slotW + (slotW - barW) / 2;
+      const y = padT + chartH - h;
+      const color = colorFn(row, v);
+      return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${color}" rx="2" />`;
+    })
+    .join("");
+  const tickCount = Math.min(7, data.length);
+  const labels = [];
+  for (let i = 0; i < tickCount; i += 1) {
+    const idx = tickCount === 1 ? 0 : Math.round((i / (tickCount - 1)) * (data.length - 1));
+    const row = data[idx];
+    const x = padL + idx * slotW + slotW / 2;
+    const label = row.label || formatOctopusChartTimeMs(row.start_ms);
+    labels.push(`<text x="${x.toFixed(1)}" y="${H - 8}" text-anchor="middle" class="octopus-greener-axis">${esc(label)}</text>`);
+  }
+  return `<svg class="octopus-greener-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(ariaLabel)}">${bars}${labels.join("")}</svg>`;
+}
+
+function renderOctopusRateChartSvg(slots, { kind = "import" } = {}) {
+  const rows = (Array.isArray(slots) ? slots : []).filter((s) => s?.start_ms != null);
+  const color = kind === "export" ? "#f59e0b" : "#03a9f4";
+  return renderOctopusGenericBarChartSvg(rows, {
+    valueKey: "p_per_kwh",
+    colorFn: () => color,
+    emptyHint:
+      kind === "export"
+        ? "Export unit rates unavailable. Connect Octopus with an export meter."
+        : "Import unit rates unavailable. Connect Octopus native tariff or refresh rates.",
+    ariaLabel: `${kind} unit rate chart`,
+    formatValue: (v) => formatOctopusRate(v),
+  });
+}
+
+function renderOctopusDualChartSvg(dualPeriods) {
+  const rows = (Array.isArray(dualPeriods) ? dualPeriods : []).filter((p) => p?.start_ms != null);
+  if (!rows.length) {
+    return `<p class="octopus-greener-empty">Price and carbon overlay unavailable. Save Octopus API credentials and postcode.</p>`;
+  }
+  const rates = rows.map((r) => (r.p_per_kwh != null ? Number(r.p_per_kwh) : null)).filter((v) => v != null);
+  const maxRate = rates.length ? Math.max(...rates) : 1;
+  const carbonBars = renderOctopusGenericBarChartSvg(rows, {
+    valueKey: "low_carbon_score",
+    maxValue: 10,
+    colorFn: (row) => (row.is_green ? "#22c55e" : "#8b5cf6"),
+    emptyHint: "No carbon periods.",
+    ariaLabel: "Low carbon score bars",
+  });
+  const W = 640;
+  const H = 168;
+  const padL = 28;
+  const padR = 12;
+  const padT = 12;
+  const padB = 28;
+  const chartW = W - padL - padR;
+  const chartH = H - padT - padB;
+  const slotW = chartW / rows.length;
+  const points = rows
+    .map((row, i) => {
+      if (row.p_per_kwh == null || !Number.isFinite(Number(row.p_per_kwh))) return null;
+      const x = padL + i * slotW + slotW / 2;
+      const y = padT + chartH - (Number(row.p_per_kwh) / Math.max(0.01, maxRate)) * chartH;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .filter(Boolean)
+    .join(" ");
+  const priceLine = points
+    ? `<polyline points="${points}" fill="none" stroke="#03a9f4" stroke-width="2" stroke-linejoin="round" opacity="0.9" />`
+    : "";
+  return `<div class="octopus-analysis-dual-wrap">
+<div class="octopus-analysis-dual-legend">
+<span><i class="octopus-analysis-swatch octopus-analysis-swatch--green"></i> Low carbon</span>
+<span><i class="octopus-analysis-swatch octopus-analysis-swatch--purple"></i> Higher carbon</span>
+<span><i class="octopus-analysis-swatch-line"></i> Import price</span>
+</div>
+<div class="octopus-analysis-dual-plot">${carbonBars.replace("</svg>", `${priceLine}</svg>`)}</div>
+</div>`;
+}
+
+function renderOctopusConsumptionChartSvg(consumption) {
+  const daily = octopusConsumptionDailyTotals(consumption, 14);
+  if (!daily.length) {
+    return `<p class="octopus-greener-empty">Smart-meter import unavailable. Consumption is polled every 30 minutes when Octopus is connected — check back after the next poll.</p>`;
+  }
+  const rows = daily.map((d) => ({
+    start_ms: Date.parse(`${d.date}T12:00:00`),
+    label: d.date.slice(5),
+    kwh: d.kwh,
+  }));
+  return renderOctopusGenericBarChartSvg(rows, {
+    valueKey: "kwh",
+    colorFn: () => "#699BFF",
+    emptyHint: "No consumption data.",
+    ariaLabel: "Daily import consumption",
+    formatValue: (v) => `${Number(v).toFixed(1)} kWh`,
+  });
+}
+
+function renderOctopusComplianceCard(compliance) {
+  if (!compliance) {
+    return `<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Greener Nights alignment</h3><p class="octopus-greener-empty">Overnight alignment is calculated from polled smart-meter import (every 30 minutes).</p></div>`;
+  }
+  const pct = compliance.alignment_pct;
+  const pctText = pct != null ? `${pct}%` : "—";
+  const tierHint =
+    compliance.projected_octopoints
+      ? `On track for ~${compliance.projected_octopoints.toLocaleString()} Octopoints this month (IOG rewards use EV charging data from Octopus).`
+      : compliance.next_tier
+        ? `Reach ${compliance.next_tier.label} overnight alignment for ~${compliance.next_tier.points.toLocaleString()} Octopoints.`
+        : "Charge or import more during greener nights (11pm–6am) to improve alignment.";
+  return `<div class="card octopus-analysis-card" data-octopus-compliance-card="1">
+<h3 class="fox-analysis-summary-title fox-analysis-chart-title">Greener Nights alignment</h3>
+<p class="octopus-greener-intro">Overnight import on greener nights this month (${esc(compliance.month || "")}).</p>
+<div class="octopus-analysis-metrics">
+<div class="octopus-analysis-metric"><label>Alignment</label><strong>${esc(pctText)}</strong></div>
+<div class="octopus-analysis-metric"><label>Overnight import</label><strong>${esc(String(compliance.overnight_kwh ?? "—"))} kWh</strong></div>
+<div class="octopus-analysis-metric"><label>On greener nights</label><strong>${esc(String(compliance.greener_overnight_kwh ?? "—"))} kWh</strong></div>
+</div>
+<p class="octopus-greener-hint">${esc(tierHint)}</p>
+<p class="octopus-greener-hint">${esc(compliance.note || "")}</p>
+</div>`;
+}
+
+function renderOctopusCarbonInsightsCard(extremes) {
+  if (!extremes?.best_start_ms && !extremes?.worst_start_ms) return "";
+  const best = extremes.best_start_ms ? formatOctopusChartTimeMs(extremes.best_start_ms) : "—";
+  const worst = extremes.worst_start_ms ? formatOctopusChartTimeMs(extremes.worst_start_ms) : "—";
+  const bestG = extremes.best_gco2 != null ? `${Math.round(extremes.best_gco2)}g` : "—";
+  const worstG = extremes.worst_gco2 != null ? `${Math.round(extremes.worst_gco2)}g` : "—";
+  return `<div class="card octopus-analysis-card">
+<h3 class="fox-analysis-summary-title fox-analysis-chart-title">Carbon insights (next 24h)</h3>
+<div class="octopus-analysis-metrics">
+<div class="octopus-analysis-metric"><label>Cleanest period</label><strong>${esc(best)}</strong><span class="octopus-greener-hint">${esc(bestG)} CO₂/kWh</span></div>
+<div class="octopus-analysis-metric"><label>Highest carbon</label><strong>${esc(worst)}</strong><span class="octopus-greener-hint">${esc(worstG)} CO₂/kWh</span></div>
+</div>
+</div>`;
+}
+
+function renderOctopusForecastHistoryCard(history, greenerNights) {
+  const flips = Array.isArray(history?.forecast_flips) ? history.forecast_flips : [];
+  const nights = Array.isArray(greenerNights) ? greenerNights : [];
+  const changed = nights.filter((n) => n.forecast_changed);
+  if (!flips.length && !changed.length && !(history?.snapshot_count > 1)) {
+    return `<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Forecast history</h3><p class="octopus-greener-hint">Daily greener-night snapshots will build here (${esc(String(history?.snapshot_count || 0))} stored).</p></div>`;
+  }
+  const flipRows = flips
+    .slice(0, 6)
+    .map(
+      (f) =>
+        `<li><strong>${esc(f.date)}</strong> — changed from ${esc(f.from)} to ${esc(f.to)} (${esc(String(f.recorded_at || "").slice(0, 16))})</li>`
+    )
+    .join("");
+  const changedRows = changed
+    .slice(0, 4)
+    .map((n) => {
+      const was = n.was_greener_night ? "was greener" : "was not greener";
+      const now = n.is_greener_night ? "now greener" : "no longer greener";
+      return `<li><strong>${esc(n.date)}</strong> — ${was}, ${now}${n.greenness_index ? ` (${esc(String(n.greenness_index))})` : ""}</li>`;
+    })
+    .join("");
+  return `<div class="card octopus-analysis-card">
+<h3 class="fox-analysis-summary-title fox-analysis-chart-title">Forecast history</h3>
+<p class="octopus-greener-intro">${esc(String(history?.snapshot_count || 0))} daily snapshots stored. Dates ever flagged greener stay recorded even if Octopus later changes the forecast.</p>
+${flipRows ? `<ul class="octopus-analysis-list">${flipRows}</ul>` : ""}
+${changedRows ? `<ul class="octopus-analysis-list">${changedRows}</ul>` : ""}
+</div>`;
+}
+
+function renderOctopusEnergyAnalysisPage(payload, { loading = false } = {}) {
+  if (loading) {
+    return `<div data-octopus-analysis-main="1"><header class="header"><h1>Octopus Energy Analysis</h1><p class="chart-loading">Loading Octopus data…</p></header></div>`;
+  }
+  if (!payload) {
+    return `<div data-octopus-analysis-main="1"><header class="header"><h1>Octopus Energy Analysis</h1></header><p class="placeholder">Enable Octopus as your dynamic tariff provider in Settings → Tariff to use this report.</p></div>`;
+  }
+  const err = payload.errors?.auth || payload.errors?.consumption || payload.errors?.carbon;
+  const errHtml = err ? `<p class="octopus-greener-error">${esc(String(err))}</p>` : "";
+  const rewardsHtml = renderOctopusRewardsCard(payload, { compact: false });
+  const greenerCard = renderOctopusGreenerNightsCard(
+    {
+      ...payload,
+      greener_nights: payload.greener_nights,
+      carbon_periods: payload.carbon_periods,
+      timeline: payload.timeline,
+      title: payload.greener_title,
+    },
+    { compact: false, view: "standard", energyPeriod: "day", energyPeriodOffset: 0 }
+  );
+  const weekCard = renderOctopusUpcomingWeekCard(payload);
+  const tariffLabel = payload.import_tariff_code
+    ? `${payload.tariff_type || "tariff"} · ${payload.import_tariff_code}`
+    : "Octopus tariff not linked — use native Octopus connection for live rates";
+  return `<div data-octopus-analysis-main="1">
+<header class="header"><h1>Octopus Energy Analysis</h1><p>${esc(tariffLabel)}${payload.fetched_at ? ` · updated ${esc(String(payload.fetched_at).slice(0, 16).replace("T", " "))}` : ""}</p></header>
+${errHtml}
+${rewardsHtml}
+<div class="octopus-analysis-grid">
+<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Import price (48h)</h3>${renderOctopusRateChartSvg(payload.import_rate_slots, { kind: "import" })}</div>
+<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Export price (48h)</h3>${renderOctopusRateChartSvg(payload.export_rate_slots, { kind: "export" })}</div>
+</div>
+<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Price and carbon overlay</h3><p class="octopus-greener-intro">Bars show low carbon score; blue line is import price — look for cheap, green periods to run loads or charge the battery.</p>${renderOctopusDualChartSvg(payload.dual_periods)}</div>
+${renderOctopusCarbonInsightsCard(payload.carbon_extremes)}
+${renderOctopusComplianceCard(payload.compliance)}
+<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Smart-meter import (14 days)</h3>${renderOctopusConsumptionChartSvg(payload.consumption)}</div>
+${renderOctopusForecastHistoryCard(payload.history, payload.greener_nights)}
+${greenerCard}
+${weekCard}
+</div>`;
+}
+
 function parseSolcastPeriodMs(raw) {
   if (raw == null || raw === "") return NaN;
   if (typeof raw === "number") return raw > 1e12 ? raw : raw * 1000;
@@ -4701,6 +4960,11 @@ const REPORTS_PERIOD_TABS = [
   { id: "week", label: "Week" },
   { id: "month", label: "Month" },
   { id: "year", label: "Year" },
+];
+
+const REPORTS_NAV = [
+  { id: "energy_report", label: "Energy Report" },
+  { id: "octopus", label: "Octopus Energy Analysis" },
 ];
 
 /** Device → Analysis energy chart (no day — real-time curve has its own day nav). */
@@ -9601,6 +9865,73 @@ const STYLES = `
 .fox-analysis-octopus-greener-row { margin-top: 14px; }
 .fox-analysis-octopus-greener-row .octopus-greener-card { margin-top: 0; }
 .fox-analysis-octopus-upcoming-row { margin-top: 14px; }
+.octopus-analysis-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 14px;
+}
+.octopus-analysis-card {
+  margin-top: 14px;
+}
+.octopus-analysis-card .fox-analysis-chart-title {
+  margin-bottom: 10px;
+}
+.octopus-analysis-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 10px 0 4px;
+}
+.octopus-analysis-metric label {
+  display: block;
+  font-size: 11px;
+  color: var(--secondary-text-color);
+  margin-bottom: 4px;
+}
+.octopus-analysis-metric strong {
+  display: block;
+  font-size: 18px;
+  line-height: 1.2;
+}
+.octopus-analysis-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--secondary-text-color);
+}
+.octopus-analysis-dual-wrap { margin-top: 4px; }
+.octopus-analysis-dual-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  font-size: 11px;
+  color: var(--secondary-text-color);
+  margin-bottom: 8px;
+}
+.octopus-analysis-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 6px;
+  vertical-align: -1px;
+}
+.octopus-analysis-swatch--green { background: #22c55e; }
+.octopus-analysis-swatch--purple { background: #8b5cf6; }
+.octopus-analysis-swatch-line {
+  display: inline-block;
+  width: 20px;
+  height: 0;
+  margin-right: 6px;
+  vertical-align: middle;
+  border-top: 2px solid #03a9f4;
+}
+@media (max-width: 720px) {
+  .octopus-analysis-grid { grid-template-columns: 1fr; }
+  .octopus-analysis-metrics { grid-template-columns: 1fr; }
+}
 .fox-analysis-octopus-upcoming-row .octopus-upcoming-week-card { margin-top: 0; }
 .octopus-upcoming-week-card > .fox-analysis-summary-title {
   margin: 0 0 12px;
@@ -11733,6 +12064,9 @@ class FoxessPlantPanel extends HTMLElement {
     this._energyPeriodOffset = 0;
     this._reportsPeriod = "week";
     this._reportsPeriodOffset = 0;
+    this._reportsView = "energy_report";
+    this._octopusAnalysisLoading = false;
+    this._octopusAnalysisPlantId = undefined;
     this._energyReport = null;
     this._energyReportLoading = false;
     this._energyReportPlantId = undefined;
@@ -12420,6 +12754,11 @@ Reloading panel registration…
       btn.classList.toggle("active", on);
       btn.setAttribute("aria-selected", String(on));
     });
+    headerEl.querySelectorAll('[data-action="reports-tab"]').forEach((btn) => {
+      const on = btn.dataset.sub === this._reportsView;
+      btn.classList.toggle("active", on);
+      btn.setAttribute("aria-selected", String(on));
+    });
   }
 
   _renderPlantSelect() {
@@ -12437,10 +12776,25 @@ Reloading panel registration…
   }
 
   _rebuildPageHeader(headerEl) {
-    const showSubTabs = this._view === "settings" || this._view === "device_new";
-    const subNav = this._view === "settings" ? SETTINGS_NAV : DEVICE_NEW_NAV;
-    const subActive = this._view === "settings" ? this._settingsView : this._deviceNewSub;
-    const subAction = this._view === "settings" ? "settings-tab" : "device-new-tab";
+    const showSubTabs = this._view === "settings" || this._view === "device_new" || this._view === "reports";
+    const subNav =
+      this._view === "settings"
+        ? SETTINGS_NAV
+        : this._view === "device_new"
+          ? DEVICE_NEW_NAV
+          : REPORTS_NAV;
+    const subActive =
+      this._view === "settings"
+        ? this._settingsView
+        : this._view === "device_new"
+          ? this._deviceNewSub
+          : this._reportsView;
+    const subAction =
+      this._view === "settings"
+        ? "settings-tab"
+        : this._view === "device_new"
+          ? "device-new-tab"
+          : "reports-tab";
     headerEl.innerHTML =
       this._renderPanelBrand() +
       this._renderPlantSelect() +
@@ -13304,8 +13658,10 @@ Reloading panel registration…
       }
       if (this._view === "reports" && nextView !== "reports") {
         this._reportsPeriodOffset = 0;
+        this._reportsView = "energy_report";
         this._energyReport = null;
         this._energyReportPlantId = undefined;
+        this._octopusAnalysisPlantId = undefined;
         this._energyBalanceHelpOpen = false;
       }
       this._view = normalizePanelView(nextView);
@@ -13328,7 +13684,8 @@ Reloading panel registration…
       if (this._view === "energy_analysis") this._loadEnergyCharts();
       if (this._view === "reports") {
         this._normalizeReportsPeriodState();
-        this._loadEnergyReport();
+        if (this._reportsView === "octopus") void this._loadOctopusAnalysis();
+        else this._loadEnergyReport();
       }
       if (this._view === "overview") this._loadOverviewStatisticsChart();
       if (this._view === "device_new") {
@@ -13552,6 +13909,15 @@ Reloading panel registration…
       if (btn.dataset.sub === "tariff") this._enterTariffSettings();
       if (btn.dataset.sub === "smart") this._enterSmartChargeSettings();
       this._render();
+      return;
+    }
+    if (action === "reports-tab") {
+      const sub = btn.dataset.sub;
+      if (!sub || sub === this._reportsView) return;
+      this._reportsView = sub;
+      if (sub === "octopus") void this._loadOctopusAnalysis({ force: true });
+      else this._loadEnergyReport();
+      this._scheduleRender(true);
       return;
     }
     if (action === "settings-tab") {
@@ -16262,7 +16628,50 @@ ${detailsHtml}
   }
 
   _renderReports(plant) {
+    if (this._reportsView === "octopus") {
+      return this._renderOctopusEnergyAnalysis(plant);
+    }
     return this._renderEnergyReport(plant);
+  }
+
+  _octopusAnalysisCacheKey(plant) {
+    const payload = octopusAnalysisPayload(this._plantState);
+    return `${plant.entry_id}:octopus_analysis:${payload?.fetched_at || "none"}`;
+  }
+
+  async _loadOctopusAnalysis({ force = false } = {}) {
+    const plant = this._getPlant();
+    if (!plant || !this._hass || this._view !== "reports" || this._reportsView !== "octopus") return;
+    if (!octopusTariffEnabled(this._plantState)) return;
+    if (!force && octopusAnalysisPayload(this._plantState)) {
+      this._scheduleRender();
+      return;
+    }
+    this._octopusAnalysisLoading = true;
+    this._scheduleRender();
+    try {
+      if (!this._plantState) await this._refreshPlantState();
+      const result = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/fetch_octopus_analysis",
+        plant_id: plant.entry_id,
+      });
+      if (result?.plant_state) this._plantState = result.plant_state;
+    } catch (err) {
+      this._showToast(err?.message || "Could not refresh Octopus Energy Analysis", "err");
+    } finally {
+      this._octopusAnalysisLoading = false;
+      if (this._view === "reports" && this._reportsView === "octopus") {
+        this._scheduleRender();
+      }
+    }
+  }
+
+  _renderOctopusEnergyAnalysis(plant) {
+    if (!octopusTariffEnabled(this._plantState)) {
+      return renderOctopusEnergyAnalysisPage(null);
+    }
+    const payload = octopusAnalysisPayload(this._plantState);
+    return renderOctopusEnergyAnalysisPage(payload, { loading: this._octopusAnalysisLoading && !payload });
   }
 
   _bindReportsCharts() {
@@ -18310,7 +18719,7 @@ ${active
 
     this._view = normalizePanelView(this._view);
 
-    const showSubTabs = this._view === "settings" || this._view === "device_new";
+    const showSubTabs = this._view === "settings" || this._view === "device_new" || this._view === "reports";
     const subNavView = showSubTabs ? this._view : "";
     let shell = this._root.querySelector(".shell");
     if (!shell) {
@@ -18513,7 +18922,12 @@ ${active
     }
     if (this._view === "reports") {
       const plant = this._getPlant();
-      if (
+      if (this._reportsView === "octopus") {
+        if (plant && !this._octopusAnalysisLoading) {
+          void this._loadOctopusAnalysis();
+        }
+        bindOctopusGreenerCharts(this._root);
+      } else if (
         plant &&
         !this._energyReportLoading &&
         (this._energyReportPlantId !== this._energyReportCacheKey(plant) || !this._energyReport)

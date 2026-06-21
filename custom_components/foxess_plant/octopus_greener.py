@@ -299,6 +299,13 @@ async def fetch_octopus_greener_snapshot(
         account = await rest.get_account(account_number)
         postcode = account_postcode(account)
         snapshot["postcode"] = postcode
+        from .octopus_tariff import _meter_to_dict, list_account_meters
+
+        import_meters, export_meters = list_account_meters(account)
+        if import_meters:
+            snapshot["import_meter"] = _meter_to_dict(import_meters[0])
+        if export_meters:
+            snapshot["export_meter"] = _meter_to_dict(export_meters[0])
     except OctopusApiError as err:
         snapshot["errors"]["account"] = str(err)
 
