@@ -1904,15 +1904,12 @@ function formatOctopusTileDate(d) {
   return `${day}/${mo}`;
 }
 
-function octopusSeedlingSvg(active) {
-  const leaf = active ? "#84cc16" : "#5c4d78";
-  const stem = active ? "#65a30d" : "#4a3f63";
-  return `<svg class="octopus-upcoming-week-seedling" viewBox="0 0 32 32" width="30" height="30" aria-hidden="true">
-<ellipse cx="16" cy="26.5" rx="9.5" ry="3.5" fill="${stem}" opacity="0.9"/>
-<path d="M16 23 C12 19 11 13 13 9 C14.5 14 15.5 18 16 21 Z" fill="${leaf}"/>
-<path d="M16 23 C20 19 21 13 19 9 C17.5 14 16.5 18 16 21 Z" fill="${leaf}"/>
-<path d="M16 21 L16 10" stroke="${stem}" stroke-width="1.75" stroke-linecap="round"/>
-</svg>`;
+const OCTOPUS_GREENER_PLANT_GREEN = `<svg class="octopus-upcoming-week-plant octopus-upcoming-week-plant--green" width="51" height="50" viewBox="0 0 51 50" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M23.8601 19.1662C24.0658 20.6595 24.6315 21.5662 24.8887 21.8329L24.3887 22.1831C24.6458 21.1164 21.2887 21.2995 18.9744 19.1662C17.123 17.4595 16.1458 15.2551 15.8887 14.3662C16.3172 14.3662 17.5344 14.4729 18.9744 14.8995C20.7744 15.4329 23.603 17.2995 23.8601 19.1662Z" fill="#18F0B8"/><path d="M23.3324 27.4821C23.0527 30.8627 24.1481 41.8025 24.7308 46.8499C24.8111 47.5542 24.3813 48.2585 23.3324 47.9063C22.2834 47.5542 22.2837 49.3149 21.9341 38.0464C21.5845 26.7778 23.3324 21.4957 24.3813 21.4957C24.7308 20.0871 26.5485 17.0587 31.0233 16.2136C36.6169 15.1572 39.4137 18.3264 41.5113 19.0307C43.6089 19.735 43.2593 20.0871 40.8121 20.7914C38.3649 21.4957 36.6169 23.6085 32.4217 23.9607C28.4754 24.2919 26.0765 23.6884 24.6415 22.15C24.3926 22.9995 23.5617 24.7106 23.3324 27.4821Z" fill="#18F0B8"/><path d="M37.0364 45.9283C38.2881 46.2035 38.717 46.8458 38.7749 47.1325C39.644 48.0341 37.3843 47.8206 35.8196 47.6485C34.2549 47.4765 34.4287 48.8527 33.0379 48.8527C31.6471 48.8527 32.5163 49.3688 30.7778 49.8849C29.0392 50.401 29.0392 49.0247 27.9961 48.8527C26.953 48.6807 26.6053 49.7128 25.5621 49.5408C24.519 49.3688 24.519 49.0247 23.302 49.3688C22.085 49.7128 21.2155 49.3688 20.3465 48.8527C19.4774 48.3366 17.9123 48.3366 15.1308 48.8527C12.3494 49.3688 13.2184 48.1646 12.1753 48.1646C11.1321 48.1646 9.39335 47.9926 9.04564 47.4765C8.69793 46.9604 9.56721 46.7884 10.6103 46.6164C11.6535 46.4443 11.1319 45.7562 12.5227 45.7562C13.9136 45.7562 13.5659 45.5842 14.0874 45.0681C14.609 44.5521 15.1306 44.208 16.1737 44.208C17.2168 44.208 17.7384 43.6919 17.9123 43.1759C18.0861 42.6598 18.7815 41.9717 19.6508 41.9717C20.5201 41.9717 20.5201 41.2836 21.2155 40.4235C21.9109 39.5633 22.6064 40.2514 23.4756 40.4235C24.3449 40.5955 24.1711 40.0794 25.388 40.2514C26.605 40.4235 26.2573 41.1116 27.4743 41.4556C28.6913 41.7997 27.9959 43.0038 29.5606 43.1759C31.1253 43.3479 31.473 43.6919 32.1684 44.208C32.8638 44.7241 33.7331 43.6919 34.6024 44.5521C35.4717 45.4122 35.4717 45.5842 37.0364 45.9283Z" fill="#600E6B"/></svg>`;
+
+const OCTOPUS_GREENER_PLANT_LOW = `<svg class="octopus-upcoming-week-plant octopus-upcoming-week-plant--low" width="31" height="28" viewBox="0 0 31 28" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M13.7629 21.5246C13.7629 17.5464 16.7466 12.0764 17.7411 7.60097C18.5367 4.02069 16.0835 2.13102 14.7575 1.63369C13.1939 0.639169 10.2821 2.62824 11.2767 1.63369C12.2712 0.639148 15.2547 0.141875 18.2385 2.62824C21.2222 5.1146 18.7357 13.071 16.7467 17.5464C14.7576 22.0219 17.2438 26.0001 15.2547 26.0001C13.2656 26.0001 13.7629 25.5028 13.7629 21.5246Z" fill="#18F0B8"/><path d="M28.8547 23.9283C30.1065 24.2035 30.5353 24.8458 30.5933 25.1325C31.4623 26.0341 29.2027 25.8206 27.638 25.6485C26.0733 25.4765 26.2471 26.8527 24.8563 26.8527C23.4654 26.8527 24.3347 27.3688 22.5961 27.8849C20.8576 28.401 20.8576 27.0247 19.8145 26.8527C18.7713 26.6807 18.4236 27.7128 17.3805 27.5408C16.3374 27.3688 16.3374 27.0247 15.1204 27.3688C13.9034 27.7128 13.0339 27.3688 12.1648 26.8527C11.2958 26.3366 9.73062 26.3366 6.94917 26.8527C4.16771 27.3688 5.03676 26.1646 3.99363 26.1646C2.9505 26.1646 1.21171 25.9926 0.864003 25.4765C0.516292 24.9604 1.38557 24.7884 2.4287 24.6164C3.47183 24.4443 2.95027 23.7562 4.34111 23.7562C5.73195 23.7562 5.38424 23.5842 5.90581 23.0681C6.42737 22.5521 6.94894 22.208 7.99207 22.208C9.0352 22.208 9.55677 21.6919 9.73062 21.1759C9.90448 20.6598 10.5999 19.9717 11.4692 19.9717C12.3385 19.9717 12.3385 19.2836 13.0339 18.4235C13.7293 17.5633 14.4247 18.2514 15.294 18.4235C16.1633 18.5955 15.9894 18.0794 17.2064 18.2514C18.4234 18.4235 18.0757 19.1116 19.2927 19.4556C20.5097 19.7997 19.8142 21.0038 21.3789 21.1759C22.9436 21.3479 23.2913 21.6919 23.9868 22.208C24.6822 22.7241 25.5515 21.6919 26.4207 22.5521C27.29 23.4122 27.29 23.5842 28.8547 23.9283Z" fill="#600E6B"/><path d="M10.2813 2.13094C10.6791 2.13094 11.1101 1.79942 11.2758 1.63367C11.4195 1.63367 11.6316 1.60739 11.8415 1.57002C11.9665 1.41071 12.1148 1.31885 12.2949 1.31885C12.8607 1.31885 12.358 1.47804 11.8415 1.57002C11.276 2.29044 11.1858 4.39018 10.7786 5.61185C10.3807 6.8053 8.62371 7.7667 7.79492 8.09821V5.61185C7.79492 3.12549 9.78401 2.13094 10.2813 2.13094Z" fill="#18F0B8"/></svg>`;
+
+function octopusGreenerPlantSvg(isGreenerNight) {
+  return isGreenerNight ? OCTOPUS_GREENER_PLANT_GREEN : OCTOPUS_GREENER_PLANT_LOW;
 }
 
 function octopusUpcomingWeekRows(greenerNights, now = new Date()) {
@@ -1953,6 +1950,7 @@ function octopusUpcomingWeekRows(greenerNights, now = new Date()) {
 function renderOctopusUpcomingWeekCard(payload) {
   if (!payload) {
     return `<div class="card octopus-upcoming-week-card" data-octopus-upcoming-week-card="1">
+<p class="card-title">${esc(OCTOPUS_UPCOMING_WEEK_CARD_TITLE)}</p>
 <p class="octopus-greener-empty chart-loading">Loading upcoming week…</p>
 </div>`;
   }
@@ -1976,12 +1974,12 @@ function renderOctopusUpcomingWeekCard(payload) {
 ${badge}
 <span class="octopus-upcoming-week-dayname">${esc(row.label)}</span>
 <span class="octopus-upcoming-week-date">${esc(row.tileDate)}</span>
-${octopusSeedlingSvg(active)}
+${octopusGreenerPlantSvg(active)}
 </div>`;
     })
     .join("");
   return `<div class="card octopus-upcoming-week-card" data-octopus-upcoming-week-card="1">
-<h2 class="octopus-upcoming-week-title">Your upcoming week</h2>
+<p class="card-title">${esc(OCTOPUS_UPCOMING_WEEK_CARD_TITLE)}</p>
 <p class="octopus-upcoming-week-blurb">Greener Nights start at 11PM and end at 6AM the following morning.</p>
 <p class="octopus-upcoming-week-note">Spot an upcoming Greener Night that&apos;s now disappeared? Don&apos;t worry, this will still count even if it&apos;s no longer showing.</p>
 ${errHtml}
@@ -2294,12 +2292,7 @@ function renderOctopusGreenerNightsCard(
 ) {
   if (!payload) {
     return `<div class="card octopus-greener-card${compact ? " octopus-greener-card--compact" : ""}" style="margin-top:14px">
-<div class="octopus-greener-head">
-<div class="octopus-greener-title-wrap">
-<img class="octopus-greener-icon-img" src="${esc(OCTOPUS_GREENER_ICON_STATIC)}" width="32" height="32" alt="" aria-hidden="true" loading="lazy" decoding="async" />
-<p class="card-title octopus-greener-title">${esc(OCTOPUS_GREENER_CARD_TITLE)}</p>
-</div>
-</div>
+<p class="card-title">${esc(OCTOPUS_GREENER_CARD_TITLE)}</p>
 <p class="octopus-greener-empty chart-loading">Loading greener forecast…</p>
 </div>`;
   }
@@ -2338,10 +2331,7 @@ function renderOctopusGreenerNightsCard(
   const errHtml = err ? `<p class="octopus-greener-error">${esc(String(err))}</p>` : "";
   return `<div class="card octopus-greener-card${compact ? " octopus-greener-card--compact" : ""}" style="margin-top:14px" data-octopus-greener-card="1">
 <div class="octopus-greener-head">
-<div class="octopus-greener-title-wrap">
-<img class="octopus-greener-icon-img" src="${esc(OCTOPUS_GREENER_ICON_STATIC)}" width="32" height="32" alt="" aria-hidden="true" loading="lazy" decoding="async" />
-<p class="card-title octopus-greener-title">${esc(OCTOPUS_GREENER_CARD_TITLE)}</p>
-</div>
+<p class="card-title">${esc(OCTOPUS_GREENER_CARD_TITLE)}</p>
 <div class="octopus-greener-view-toggle" role="group" aria-label="Greener forecast view">
 <button type="button" class="octopus-greener-view-btn${standardActive ? " active" : ""}" data-action="octopus-greener-view" data-view="standard" aria-pressed="${standardActive}">Graph</button>
 <button type="button" class="octopus-greener-view-btn${!standardActive ? " active" : ""}" data-action="octopus-greener-view" data-view="detailed" aria-pressed="${!standardActive}">List</button>
@@ -8604,8 +8594,8 @@ const DEFAULT_BRAND_ICON_STATIC = "/foxess_plant_panel/icon.png";
 const DEVICE_EVO_IMAGE_STATIC = "/foxess_plant_panel/evo10.png?v=15";
 const STORM_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_storm_safe_charging.png?v=5";
 const SMART_CHARGE_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_smart_charge.png?v=3";
-const OCTOPUS_GREENER_ICON_STATIC = "/foxess_plant_panel/octopus_greener_nights_icon.png?v=1";
 const OCTOPUS_GREENER_CARD_TITLE = "Octopus Green Nights Forecast";
+const OCTOPUS_UPCOMING_WEEK_CARD_TITLE = "Greener Nights Week Ahead";
 const BANNER_HERO_WIDE_WIDTH = 1024;
 const BANNER_HERO_WIDE_HEIGHT = 512;
 const STORM_HERO_WIDTH = BANNER_HERO_WIDE_WIDTH;
@@ -9320,14 +9310,19 @@ const STYLES = `
   /* Uses standard .card background — layout only */
 }
 .octopus-greener-card .card-title,
-.octopus-greener-title { margin: 0; }
-.octopus-greener-head {
-  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+.octopus-upcoming-week-card .card-title {
+  margin-bottom: 12px;
 }
-.octopus-greener-title-wrap { display: flex; align-items: center; gap: 10px; }
-.octopus-greener-icon-img { width: 32px; height: 32px; display: block; flex-shrink: 0; object-fit: contain; }
+.octopus-greener-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.octopus-greener-head .card-title {
+  margin: 0;
+  flex: 1 1 auto;
+}
 .octopus-greener-headline {
-  font-weight: 700; font-size: 15px; line-height: 1.3; margin: 10px 0 0;
+  font-weight: 700; font-size: 15px; line-height: 1.3; margin: 0 0 0;
   color: var(--octopus-green-bar, #22c55e);
 }
 .octopus-greener-view-toggle {
@@ -9429,31 +9424,18 @@ const STYLES = `
 .fox-analysis-octopus-greener-row .octopus-greener-card { margin-top: 0; }
 .fox-analysis-octopus-upcoming-row { margin-top: 14px; }
 .fox-analysis-octopus-upcoming-row .octopus-upcoming-week-card { margin-top: 0; }
-.octopus-upcoming-week-card {
-  background: linear-gradient(165deg, #1a0b3b 0%, #11082a 55%, #0d0620 100%);
-  border: 1px solid rgba(139, 92, 246, 0.32);
-  color: #f8f7ff;
-  padding: 18px 18px 16px;
-}
-.octopus-upcoming-week-title {
-  margin: 0 0 10px;
-  font-size: 22px;
-  font-weight: 700;
-  line-height: 1.2;
-  color: #fff;
-}
 .octopus-upcoming-week-blurb,
 .octopus-upcoming-week-note {
   margin: 0 0 8px;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.45;
-  color: rgba(248, 247, 255, 0.88);
+  color: var(--secondary-text-color);
 }
-.octopus-upcoming-week-note { margin-bottom: 14px; color: rgba(248, 247, 255, 0.72); }
+.octopus-upcoming-week-note { margin-bottom: 14px; }
 .octopus-upcoming-week-error {
   margin: 0 0 10px;
   font-size: 12px;
-  color: #fca5a5;
+  color: var(--error-color, #f44336);
 }
 .octopus-upcoming-week-grid {
   display: grid;
@@ -9470,17 +9452,17 @@ const STYLES = `
   min-height: 118px;
   padding: 10px 6px 8px;
   border-radius: 14px;
-  border: 1px solid rgba(167, 139, 250, 0.38);
-  background: rgba(17, 8, 42, 0.55);
+  border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.25));
+  background: var(--secondary-background-color, rgba(127, 127, 127, 0.06));
   text-align: center;
 }
 .octopus-upcoming-week-day--featured {
-  background: rgba(109, 40, 217, 0.42);
-  border-color: #c4b5fd;
-  box-shadow: inset 0 0 0 1px rgba(196, 181, 253, 0.25);
+  background: rgba(124, 58, 237, 0.12);
+  border-color: rgba(124, 58, 237, 0.45);
+  box-shadow: inset 0 0 0 1px rgba(124, 58, 237, 0.15);
 }
 .octopus-upcoming-week-day--today:not(.octopus-upcoming-week-day--featured) {
-  border-color: rgba(196, 181, 253, 0.65);
+  border-color: var(--primary-color, rgba(3, 169, 244, 0.45));
 }
 .octopus-upcoming-week-day--past { opacity: 0.72; }
 .octopus-upcoming-week-badge {
@@ -9502,16 +9484,25 @@ const STYLES = `
   margin-top: 14px;
   font-size: 13px;
   font-weight: 600;
-  color: #fff;
+  color: var(--primary-text-color);
 }
 .octopus-upcoming-week-day--featured .octopus-upcoming-week-dayname { margin-top: 18px; }
 .octopus-upcoming-week-date {
   font-size: 12px;
-  color: rgba(248, 247, 255, 0.78);
+  color: var(--secondary-text-color);
 }
-.octopus-upcoming-week-seedling {
+.octopus-upcoming-week-plant {
   margin-top: auto;
   display: block;
+  flex-shrink: 0;
+}
+.octopus-upcoming-week-plant--green {
+  width: 42px;
+  height: auto;
+}
+.octopus-upcoming-week-plant--low {
+  width: 28px;
+  height: auto;
 }
 @media (max-width: 720px) {
   .octopus-upcoming-week-grid {
@@ -9522,7 +9513,6 @@ const STYLES = `
   .octopus-upcoming-week-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
-  .octopus-upcoming-week-title { font-size: 18px; }
 }
 @media (max-width: 640px) {
   .octopus-rewards-split { grid-template-columns: 1fr; }

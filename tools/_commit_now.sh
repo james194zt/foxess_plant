@@ -6,7 +6,8 @@ export GIT_AUTHOR_EMAIL="james194zt@users.noreply.github.com"
 export GIT_COMMITTER_NAME="james194zt"
 export GIT_COMMITTER_EMAIL="james194zt@users.noreply.github.com"
 git add -A
-git commit -m "Improve Octopus Greener Nights charts and add weekly Energy Analysis views (v0.9.298).
+git commit -m "Use Octopus plant icons and align greener card headers with Statistics (v0.9.300).
 
-Plot carbon bars by low-carbon score, fix the Y-axis arrow, add weekly greener-nights charts for Energy Analysis week mode, and add an Octopus-style upcoming week card beneath the forecast card."
+Replace upcoming-week seedling art with official Octopus SVGs, switch the week-ahead card to standard card styling, and match both greener card titles to the Statistics header treatment."
+git push origin main
 git status
