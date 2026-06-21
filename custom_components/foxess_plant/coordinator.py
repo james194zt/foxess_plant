@@ -129,6 +129,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._octopus_consumption_sensors: dict[str, Any] = {}
         self._unsub_octopus_consumption: callable | None = None
         self._unsub_octopus_greener: callable | None = None
+        self._octopus_rate_limited_until = None
         super().__init__(
             hass,
             _LOGGER,
@@ -521,6 +522,75 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         tariff_type = self._octopus_cache.get("tariff_type")
         return bool(tariff_type and is_variable_tariff_type(str(tariff_type)))
 
+    def _octopus_parse_iso_age(self, iso: str | None) -> timedelta | None:
+        if not iso:
+            return None
+        from homeassistant.util import dt as dt_util
+
+        parsed = dt_util.parse_datetime(str(iso))
+        if parsed is None:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=dt_util.UTC)
+        return dt_util.utcnow() - parsed
+
+    def _octopus_rate_limited(self) -> bool:
+        until = self._octopus_rate_limited_until
+        if until is None:
+            return False
+        from homeassistant.util import dt as dt_util
+
+        return dt_util.utcnow() < until
+
+    def _note_octopus_rate_limit(self, *messages: str | None) -> None:
+        from .octopus_greener import is_octopus_rate_limit_error
+        from homeassistant.util import dt as dt_util
+
+        if not any(is_octopus_rate_limit_error(message) for message in messages if message):
+            return
+        self._octopus_rate_limited_until = dt_util.utcnow() + timedelta(minutes=30)
+        _LOGGER.warning(
+            "Octopus API rate limited — pausing refreshes until %s",
+            self._octopus_rate_limited_until.isoformat(),
+        )
+
+    def _octopus_cache_fresh(self, cache: dict[str, Any], key: str, min_interval: timedelta) -> bool:
+        age = self._octopus_parse_iso_age(cache.get(key))
+        return age is not None and age < min_interval
+
+    def _octopus_tariff_refresh_due(self, *, force: bool = False) -> bool:
+        if force:
+            return True
+        if self._octopus_rate_limited():
+            return False
+        if not self._octopus_cache:
+            return True
+        return not self._octopus_cache_fresh(
+            self._octopus_cache, "last_fetch_at", timedelta(minutes=55)
+        )
+
+    def _octopus_greener_refresh_due(self, *, force: bool = False) -> bool:
+        if force:
+            return True
+        if self._octopus_rate_limited():
+            return False
+        if not self._octopus_greener_cache:
+            return True
+        return not self._octopus_cache_fresh(
+            self._octopus_greener_cache, "fetched_at", timedelta(minutes=110)
+        )
+
+    def _octopus_consumption_refresh_due(self, *, force: bool = False) -> bool:
+        if force:
+            return True
+        if self._octopus_rate_limited():
+            return False
+        if not self._octopus_consumption_data.get("import"):
+            return True
+        return not self._octopus_cache_fresh(
+            self._octopus_consumption_data, "last_fetch_at", timedelta(minutes=25)
+        )
+
     def _octopus_status(self) -> dict[str, Any]:
         dyn = self.plant.tariff.dynamic.to_dict(include_api_key=False)
         cache = self._octopus_cache
@@ -885,11 +955,15 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except Exception as err:
             _LOGGER.warning("Initial storm weather sync failed: %s", err)
         try:
-            if self._octopus_native_active():
+            if self._octopus_native_active() and self._octopus_tariff_refresh_due():
                 await self._async_refresh_octopus()
-            elif self._octopus_greener_enabled():
+            elif self._octopus_greener_enabled() and self._octopus_greener_refresh_due():
                 await self._async_refresh_octopus_greener()
-            if self._octopus_greener_enabled() and self.plant.tariff.dynamic.api_key_configured():
+            if (
+                self._octopus_greener_enabled()
+                and self.plant.tariff.dynamic.api_key_configured()
+                and self._octopus_consumption_refresh_due()
+            ):
                 await self._async_refresh_octopus_consumption()
             await self._sync_automation_policy()
         except Exception as err:
@@ -2076,7 +2150,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.hass.config_entries.async_update_entry(self.config_entry, data=data)
         self.update_plant_config(PlantConfig.from_entry_data(data))
         if fetch_now and cfg.dynamic.native_octopus():
-            await self._async_refresh_octopus()
+            await self._async_refresh_octopus(force=True)
             if apply_schedule and self._octopus_cache.get("schedule"):
                 await self.async_apply_octopus_schedule()
             elif self._octopus_agile_active():
@@ -2088,7 +2162,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.update_plant_config(PlantConfig.from_entry_data(data))
                 await self.async_update_tariff_sensors(record_history=True)
         elif fetch_now and self._octopus_greener_enabled():
-            await self._async_refresh_octopus_greener()
+            await self._async_refresh_octopus_greener(force=True)
         self._setup_tariff_schedule_timer()
         self._setup_octopus_timer()
         self._setup_octopus_greener_timer()
@@ -2205,7 +2279,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.warning("Smart charge evaluation failed after save: %s", err)
         await self.async_request_refresh()
 
-    async def _async_refresh_octopus(self) -> None:
+    async def _async_refresh_octopus(self, *, force: bool = False) -> None:
         from .octopus_api import OctopusApiClient, OctopusApiError
         from .octopus_tariff import fetch_octopus_tariff_snapshot, list_account_meters
 
@@ -2214,6 +2288,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         if not dyn.api_key_configured() or not dyn.account_number:
             self._octopus_cache["last_error"] = "Octopus API key and account number required"
+            return
+        if not force and not self._octopus_tariff_refresh_due():
+            _LOGGER.debug("Octopus tariff refresh skipped (cache fresh)")
+            return
+        if not force and self._octopus_rate_limited():
+            _LOGGER.debug("Octopus tariff refresh skipped (rate limited)")
             return
         client = OctopusApiClient(self.hass, api_key=str(dyn.api_key))
         try:
@@ -2256,43 +2336,67 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             await self._async_auto_apply_octopus_schedule()
         except OctopusApiError as err:
+            self._note_octopus_rate_limit(str(err))
             self._octopus_cache["last_error"] = str(err)
             _LOGGER.warning("Octopus tariff fetch failed: %s", err)
-        if self._octopus_greener_enabled():
-            await self._async_refresh_octopus_greener()
 
-    async def _async_refresh_octopus_greener(self) -> None:
+    async def _async_refresh_octopus_greener(self, *, force: bool = False) -> None:
         if not self._octopus_greener_enabled():
+            return
+        if not force and not self._octopus_greener_refresh_due():
+            _LOGGER.debug("Octopus greener refresh skipped (cache fresh)")
+            if not self._octopus_analysis_cache:
+                await self._async_refresh_octopus_analysis()
+            return
+        if not force and self._octopus_rate_limited():
+            _LOGGER.debug("Octopus greener refresh skipped (rate limited)")
+            if not self._octopus_analysis_cache:
+                await self._async_refresh_octopus_analysis()
             return
         from homeassistant.util import dt as dt_util
 
-        from .octopus_greener import fetch_octopus_greener_snapshot
+        from .octopus_greener import (
+            fetch_octopus_greener_snapshot,
+            merge_octopus_greener_snapshots,
+        )
         from .octopus_greener_store import OctopusGreenerStore
 
         dyn = self.plant.tariff.dynamic
         api_key = str(dyn.api_key) if dyn.api_key_configured() else None
         account_number = str(dyn.account_number) if dyn.account_number else None
+        previous = dict(self._octopus_greener_cache or {})
         try:
-            snapshot = await fetch_octopus_greener_snapshot(
+            incoming = await fetch_octopus_greener_snapshot(
                 self.hass,
                 api_key=api_key,
                 account_number=account_number,
             )
-            self._octopus_greener_cache = snapshot
-            if self._octopus_greener_store is None:
-                self._octopus_greener_store = OctopusGreenerStore(
-                    self.hass, self.config_entry.entry_id
+            self._note_octopus_rate_limit(*(incoming.get("errors") or {}).values())
+            merged = merge_octopus_greener_snapshots(previous, incoming)
+            self._octopus_greener_cache = merged
+            if merged.get("carbon_periods") or merged.get("greener_nights"):
+                if self._octopus_greener_store is None:
+                    self._octopus_greener_store = OctopusGreenerStore(
+                        self.hass, self.config_entry.entry_id
+                    )
+                self._octopus_greener_history_count = await self._octopus_greener_store.async_record_snapshot(
+                    snapshot=merged,
+                    recorded_at=dt_util.utcnow().isoformat(),
                 )
-            self._octopus_greener_history_count = await self._octopus_greener_store.async_record_snapshot(
-                snapshot=snapshot,
-                recorded_at=dt_util.utcnow().isoformat(),
-            )
-            stored = await self._octopus_greener_store.async_load()
-            self._octopus_greener_history = OctopusGreenerStore.history_entries(stored)
+                stored = await self._octopus_greener_store.async_load()
+                self._octopus_greener_history = OctopusGreenerStore.history_entries(stored)
             await self._async_refresh_octopus_analysis()
             await self.async_request_refresh()
         except Exception as err:
             _LOGGER.warning("Octopus greener refresh failed: %s", err)
+            self._note_octopus_rate_limit(str(err))
+            if previous:
+                errors = dict(previous.get("errors") or {})
+                errors["_refresh"] = str(err)
+                previous["errors"] = errors
+                self._octopus_greener_cache = previous
+            await self._async_refresh_octopus_analysis()
+            await self.async_request_refresh()
 
     async def _async_refresh_octopus_analysis(self) -> None:
         if not self._octopus_greener_enabled():
@@ -2313,11 +2417,17 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except Exception as err:
             _LOGGER.warning("Octopus analysis refresh failed: %s", err)
 
-    async def _async_refresh_octopus_consumption(self) -> None:
+    async def _async_refresh_octopus_consumption(self, *, force: bool = False) -> None:
         if not self._octopus_greener_enabled():
             return
         dyn = self.plant.tariff.dynamic
         if not dyn.api_key_configured():
+            return
+        if not force and not self._octopus_consumption_refresh_due():
+            _LOGGER.debug("Octopus consumption refresh skipped (cache fresh)")
+            return
+        if not force and self._octopus_rate_limited():
+            _LOGGER.debug("Octopus consumption refresh skipped (rate limited)")
             return
         from .octopus_analysis import refresh_octopus_consumption
         from .octopus_consumption_store import OctopusConsumptionStore
@@ -2345,16 +2455,24 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.async_request_refresh()
         except Exception as err:
             _LOGGER.warning("Octopus consumption poll failed: %s", err)
+            self._note_octopus_rate_limit(str(err))
 
-    async def async_fetch_octopus_analysis(self) -> dict[str, Any]:
-        if self._octopus_native_active():
-            await self._async_refresh_octopus()
-        elif self._octopus_greener_enabled():
-            await self._async_refresh_octopus_greener()
+    async def async_fetch_octopus_analysis(self, *, force: bool = False) -> dict[str, Any]:
+        refreshed = False
+        if self._octopus_native_active() and (force or self._octopus_tariff_refresh_due()):
+            await self._async_refresh_octopus(force=force)
+            refreshed = True
+        if self._octopus_greener_enabled() and (force or self._octopus_greener_refresh_due()):
+            await self._async_refresh_octopus_greener(force=force)
+            refreshed = True
         if self._octopus_greener_enabled() and self.plant.tariff.dynamic.api_key_configured():
-            await self._async_refresh_octopus_consumption()
-        elif self._octopus_greener_enabled():
+            if force or self._octopus_consumption_refresh_due():
+                await self._async_refresh_octopus_consumption(force=force)
+                refreshed = True
+        if refreshed or not self._octopus_analysis_cache or force:
             await self._async_refresh_octopus_analysis()
+        if refreshed:
+            await self.async_request_refresh()
         return self._octopus_analysis_state() or {}
 
     def _setup_octopus_consumption_timer(self) -> None:
@@ -2383,7 +2501,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._unsub_octopus_greener = async_track_time_interval(
             self.hass,
             self._octopus_greener_timer_callback,
-            timedelta(hours=1),
+            timedelta(hours=2),
         )
 
     @callback

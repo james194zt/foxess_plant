@@ -327,6 +327,58 @@ async def fetch_octopus_greener_snapshot(
     return snapshot
 
 
+def is_octopus_rate_limit_error(message: str | None) -> bool:
+    if not message:
+        return False
+    lowered = str(message).lower()
+    return (
+        "too many request" in lowered
+        or "429" in lowered
+        or "rate limit" in lowered
+    )
+
+
+def merge_octopus_greener_snapshots(
+    previous: dict[str, Any] | None,
+    incoming: dict[str, Any],
+) -> dict[str, Any]:
+    """Keep prior carbon/greener data when a partial fetch or rate limit fails."""
+    if not isinstance(previous, dict) or not previous:
+        return dict(incoming)
+
+    merged = {**previous, **incoming}
+    errors = dict(incoming.get("errors") or {})
+    merged["errors"] = errors
+
+    def _keep_previous(key: str, error_keys: tuple[str, ...]) -> bool:
+        if any(is_octopus_rate_limit_error(errors.get(ek)) for ek in error_keys):
+            return bool(previous.get(key))
+        for ek in error_keys:
+            if errors.get(ek) and previous.get(key):
+                return True
+        incoming_val = incoming.get(key)
+        if not incoming_val and previous.get(key):
+            return True
+        return False
+
+    if _keep_previous("greener_nights", ("greener_nights",)):
+        merged["greener_nights"] = previous["greener_nights"]
+    if _keep_previous("carbon_periods", ("carbon", "account")):
+        merged["carbon_periods"] = previous["carbon_periods"]
+    if _keep_previous("postcode", ("account",)):
+        merged["postcode"] = previous.get("postcode")
+    if _keep_previous("rewards", ("rewards",)):
+        merged["rewards"] = previous.get("rewards")
+    for meter_key in ("import_meter", "export_meter"):
+        if _keep_previous(meter_key, ("account",)):
+            merged[meter_key] = previous.get(meter_key)
+
+    got_data = bool(incoming.get("carbon_periods") or incoming.get("greener_nights"))
+    if not got_data and errors:
+        merged["fetched_at"] = previous.get("fetched_at") or incoming.get("fetched_at")
+    return merged
+
+
 def greener_dashboard_payload(
     snapshot: dict[str, Any] | None,
     *,

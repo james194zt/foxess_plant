@@ -2283,96 +2283,83 @@ function octopusCarbonDayTooltipHtml(bar) {
 <div class="octopus-greener-tooltip-gco2">${esc(gco2Text)}</div>`;
 }
 
-function bindOctopusGreenerChart(plot) {
-  if (!plot || plot.dataset.octopusGreenerBound === "1") return;
-  const svg = plot.querySelector(".octopus-greener-chart-svg");
-  const hit = plot.querySelector(".octopus-greener-hit");
-  const tooltip = plot.querySelector(".octopus-greener-tooltip");
-  if (!svg || !hit || !tooltip) return;
-  let bars = [];
+function octopusGreenerChartBars(plot) {
   try {
-    bars = JSON.parse(decodeURIComponent(plot.dataset.bars || "%5B%5D"));
+    return JSON.parse(decodeURIComponent(plot?.dataset?.bars || "%5B%5D"));
   } catch {
-    bars = [];
+    return [];
   }
-  if (!bars.length) return;
-  plot.dataset.octopusGreenerBound = "1";
+}
+
+function hideOctopusGreenerChartHover(plot) {
+  if (!plot) return;
+  const tooltip = plot.querySelector(".octopus-greener-tooltip");
+  if (tooltip) tooltip.hidden = true;
+  plot.querySelectorAll(".octopus-greener-bar").forEach((el) => {
+    el.classList.remove("octopus-greener-bar--hover");
+  });
+}
+
+function updateOctopusGreenerChartHover(plot, clientX) {
+  const svg = plot.querySelector(".octopus-greener-chart-svg");
+  const tooltip = plot.querySelector(".octopus-greener-tooltip");
+  if (!svg || !tooltip) return false;
+  const bars = octopusGreenerChartBars(plot);
+  if (!bars.length) return false;
   const chartW = Number(plot.dataset.chartW) || 680;
   const padL = Number(plot.dataset.padL) || 54;
   const padT = Number(plot.dataset.padT) || 16;
   const chartInnerW = Number(plot.dataset.chartInnerW) || chartW - padL - 12;
   const slotW = Number(plot.dataset.slotW) || chartInnerW / bars.length;
-  const barEls = plot.querySelectorAll(".octopus-greener-bar");
-
-  const hideHover = () => {
-    tooltip.hidden = true;
-    barEls.forEach((el) => el.classList.remove("octopus-greener-bar--hover"));
-  };
-
-  const showHover = (clientX) => {
-    const rect = svg.getBoundingClientRect();
-    if (!rect.width) return;
-    const scale = rect.width / chartW;
-    const x = (clientX - rect.left) / scale;
-    if (x < padL || x > padL + chartInnerW) {
-      hideHover();
-      return;
-    }
-    const idx = Math.min(bars.length - 1, Math.max(0, Math.floor((x - padL) / slotW)));
-    const bar = bars[idx];
-    if (!bar) {
-      hideHover();
-      return;
-    }
-    const chartMode = plot.dataset.chartMode || "day";
-    tooltip.hidden = false;
-    if (chartMode === "week") {
-      const scoreText = bar.greenness_score != null ? `${bar.greenness_score}/100` : "—";
-      const nightText = !bar.hasData ? "No forecast" : bar.is_greener_night ? "Greener night" : "Not a greener night";
-      const indexText = bar.greenness_index ? String(bar.greenness_index) : "—";
-      tooltip.innerHTML = `<div class="octopus-greener-tooltip-time">${esc(bar.shortDate || bar.label || bar.date || "—")}</div>
+  const rect = svg.getBoundingClientRect();
+  if (!rect.width) return false;
+  const scale = rect.width / chartW;
+  const x = (clientX - rect.left) / scale;
+  if (x < padL || x > padL + chartInnerW) {
+    hideOctopusGreenerChartHover(plot);
+    return false;
+  }
+  const idx = Math.min(bars.length - 1, Math.max(0, Math.floor((x - padL) / slotW)));
+  const bar = bars[idx];
+  if (!bar) {
+    hideOctopusGreenerChartHover(plot);
+    return false;
+  }
+  const chartMode = plot.dataset.chartMode || "day";
+  tooltip.hidden = false;
+  if (chartMode === "week") {
+    const scoreText = bar.greenness_score != null ? `${bar.greenness_score}/100` : "—";
+    const nightText = !bar.hasData ? "No forecast" : bar.is_greener_night ? "Greener night" : "Not a greener night";
+    const indexText = bar.greenness_index ? String(bar.greenness_index) : "—";
+    tooltip.innerHTML = `<div class="octopus-greener-tooltip-time">${esc(bar.shortDate || bar.label || bar.date || "—")}</div>
 <div class="octopus-greener-tooltip-score">Greenness score: <strong>${esc(scoreText)}</strong></div>
 <div class="octopus-greener-tooltip-gco2">${esc(nightText)}${bar.hasData && bar.greenness_index ? ` · ${esc(indexText)}` : ""}</div>`;
-    } else if (
-      chartMode === "import-rate" ||
-      chartMode === "export-rate" ||
-      chartMode === "consumption" ||
-      chartMode === "dual"
-    ) {
-      tooltip.innerHTML = octopusChartTooltipHtml(chartMode, bar);
-    } else {
-      tooltip.innerHTML = octopusCarbonDayTooltipHtml(bar);
-    }
-    barEls.forEach((el, i) => {
-      el.classList.toggle("octopus-greener-bar--hover", i === idx);
-    });
-    const cx = (padL + idx * slotW + slotW / 2) * scale;
-    const plotRect = plot.getBoundingClientRect();
-    let left = cx;
-    const tipW = 168;
-    if (left + tipW / 2 > plotRect.width - 8) left = plotRect.width - tipW / 2 - 8;
-    if (left - tipW / 2 < 8) left = tipW / 2 + 8;
-    tooltip.style.left = `${left}px`;
-    tooltip.style.top = `${Math.max(8, padT * scale - 6)}px`;
-  };
-
-  hit.addEventListener("mousemove", (ev) => showHover(ev.clientX));
-  hit.addEventListener("mouseleave", hideHover);
-  plot.addEventListener(
-    "touchmove",
-    (ev) => {
-      if (ev.touches[0]) {
-        ev.preventDefault();
-        showHover(ev.touches[0].clientX);
-      }
-    },
-    { passive: false }
-  );
-  plot.addEventListener("touchend", hideHover);
+  } else if (
+    chartMode === "import-rate" ||
+    chartMode === "export-rate" ||
+    chartMode === "consumption" ||
+    chartMode === "dual"
+  ) {
+    tooltip.innerHTML = octopusChartTooltipHtml(chartMode, bar);
+  } else {
+    tooltip.innerHTML = octopusCarbonDayTooltipHtml(bar);
+  }
+  plot.querySelectorAll(".octopus-greener-bar").forEach((el, i) => {
+    el.classList.toggle("octopus-greener-bar--hover", i === idx);
+  });
+  const cx = (padL + idx * slotW + slotW / 2) * scale;
+  const plotRect = plot.getBoundingClientRect();
+  let left = cx;
+  const tipW = 168;
+  if (left + tipW / 2 > plotRect.width - 8) left = plotRect.width - tipW / 2 - 8;
+  if (left - tipW / 2 < 8) left = tipW / 2 + 8;
+  tooltip.style.left = `${left}px`;
+  tooltip.style.top = `${Math.max(8, padT * scale - 6)}px`;
+  return true;
 }
 
 function bindOctopusGreenerCharts(root) {
-  (root || document).querySelectorAll("[data-octopus-greener-plot]").forEach((plot) => bindOctopusGreenerChart(plot));
+  void root;
 }
 
 function renderOctopusGreenerTable(periods) {
@@ -12274,6 +12261,9 @@ class FoxessPlantPanel extends HTMLElement {
     this._onFocusIn = this._onFocusIn.bind(this);
     this._onFocusOut = this._onFocusOut.bind(this);
     this._onPaste = this._onPaste.bind(this);
+    this._onOctopusGreenerHoverMove = this._handleOctopusGreenerHoverMove.bind(this);
+    this._onOctopusGreenerHoverEnd = this._handleOctopusGreenerHoverEnd.bind(this);
+    this._octopusGreenerHoverPlot = null;
   }
 
   connectedCallback() {
@@ -12286,6 +12276,11 @@ class FoxessPlantPanel extends HTMLElement {
     this._root.addEventListener("focusin", this._onFocusIn, true);
     this._root.addEventListener("focusout", this._onFocusOut, true);
     this._root.addEventListener("paste", this._onPaste, true);
+    this._root.addEventListener("mousemove", this._onOctopusGreenerHoverMove);
+    this._root.addEventListener("mouseleave", this._onOctopusGreenerHoverEnd);
+    this._root.addEventListener("touchmove", this._onOctopusGreenerHoverMove, { passive: false });
+    this._root.addEventListener("touchend", this._onOctopusGreenerHoverEnd);
+    this._root.addEventListener("touchcancel", this._onOctopusGreenerHoverEnd);
     void this._initBrandIcons();
     void this._refreshPlantState();
     this._timer = window.setInterval(() => void this._refreshPlantState(), 30000);
@@ -12302,6 +12297,11 @@ class FoxessPlantPanel extends HTMLElement {
     this._root.removeEventListener("focusin", this._onFocusIn, true);
     this._root.removeEventListener("focusout", this._onFocusOut, true);
     this._root.removeEventListener("paste", this._onPaste, true);
+    this._root.removeEventListener("mousemove", this._onOctopusGreenerHoverMove);
+    this._root.removeEventListener("mouseleave", this._onOctopusGreenerHoverEnd);
+    this._root.removeEventListener("touchmove", this._onOctopusGreenerHoverMove);
+    this._root.removeEventListener("touchend", this._onOctopusGreenerHoverEnd);
+    this._root.removeEventListener("touchcancel", this._onOctopusGreenerHoverEnd);
     if (this._triggerFilterTimer) window.clearTimeout(this._triggerFilterTimer);
     this._endSocDrag();
     if (this._timer) window.clearInterval(this._timer);
@@ -12343,6 +12343,41 @@ class FoxessPlantPanel extends HTMLElement {
   _getPlant() {
     const plants = this._panel?.config?.plants ?? [];
     return plants.find((p) => p.entry_id === this._selectedPlantId) ?? plants[0];
+  }
+
+  _clearOctopusGreenerHover() {
+    if (this._octopusGreenerHoverPlot) {
+      hideOctopusGreenerChartHover(this._octopusGreenerHoverPlot);
+      this._octopusGreenerHoverPlot = null;
+    }
+  }
+
+  _octopusGreenerPlotFromEvent(ev) {
+    const target =
+      ev.type === "touchmove" && ev.touches?.[0]
+        ? document.elementFromPoint(ev.touches[0].clientX, ev.touches[0].clientY)
+        : ev.target;
+    const plot = target?.closest?.("[data-octopus-greener-plot]");
+    return plot && this._root.contains(plot) ? plot : null;
+  }
+
+  _handleOctopusGreenerHoverMove(ev) {
+    if (ev.type === "touchmove") ev.preventDefault();
+    const plot = this._octopusGreenerPlotFromEvent(ev);
+    if (!plot) {
+      this._clearOctopusGreenerHover();
+      return;
+    }
+    if (this._octopusGreenerHoverPlot !== plot) {
+      this._clearOctopusGreenerHover();
+      this._octopusGreenerHoverPlot = plot;
+    }
+    const clientX = ev.type === "touchmove" ? ev.touches[0].clientX : ev.clientX;
+    updateOctopusGreenerChartHover(plot, clientX);
+  }
+
+  _handleOctopusGreenerHoverEnd() {
+    this._clearOctopusGreenerHover();
   }
 
   _panelBuild() {
@@ -14101,7 +14136,7 @@ Reloading panel registration…
       const sub = btn.dataset.sub;
       if (!sub || sub === this._reportsView) return;
       this._reportsView = sub;
-      if (sub === "octopus") void this._loadOctopusAnalysis({ force: true });
+      if (sub === "octopus") void this._loadOctopusAnalysis();
       else this._loadEnergyReport();
       this._scheduleRender(true);
       return;
@@ -16830,7 +16865,6 @@ ${detailsHtml}
     if (!plant || !this._hass || this._view !== "reports" || this._reportsView !== "octopus") return;
     if (!octopusTariffEnabled(this._plantState)) return;
     if (!force && octopusAnalysisPayload(this._plantState)) {
-      this._scheduleRender();
       return;
     }
     this._octopusAnalysisLoading = true;
@@ -16840,6 +16874,7 @@ ${detailsHtml}
       const result = await this._hass.connection.sendMessagePromise({
         type: "foxess_plant/fetch_octopus_analysis",
         plant_id: plant.entry_id,
+        force,
       });
       if (result?.plant_state) this._plantState = result.plant_state;
     } catch (err) {
@@ -18890,6 +18925,7 @@ ${active
   }
 
   _renderPanel() {
+    this._clearOctopusGreenerHover();
     if (!this._hass) {
       this._headerHasSubTabs = undefined;
     this._headerSubNavView = undefined;
@@ -19111,10 +19147,9 @@ ${active
     if (this._view === "reports") {
       const plant = this._getPlant();
       if (this._reportsView === "octopus") {
-        if (plant && !this._octopusAnalysisLoading) {
+        if (plant && !this._octopusAnalysisLoading && !octopusAnalysisPayload(this._plantState)) {
           void this._loadOctopusAnalysis();
         }
-        bindOctopusGreenerCharts(this._root);
       } else if (
         plant &&
         !this._energyReportLoading &&

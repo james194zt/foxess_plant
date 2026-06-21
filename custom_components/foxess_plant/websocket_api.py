@@ -646,7 +646,9 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             connection.send_error(msg["id"], err_code, err_msg)
             return
         try:
-            analysis = await coordinator.async_fetch_octopus_analysis()
+            analysis = await coordinator.async_fetch_octopus_analysis(
+                force=bool(msg.get("force"))
+            )
         except HomeAssistantError as err:
             connection.send_error(msg["id"], "octopus_analysis_fetch_failed", str(err))
             return
