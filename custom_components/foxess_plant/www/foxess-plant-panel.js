@@ -12540,6 +12540,7 @@ Reloading panel registration…
       if (this._settingsView !== "storm") this._stormDraft = null;
       if (this._settingsView !== "tariff") this._tariffDraft = null;
       if (this._settingsView !== "smart") this._smartChargeDraft = null;
+      if (this._settingsView !== "glow") this._glowDraft = null;
       if (
         this._settingsView === "solcast" &&
         this._solcastDraft &&
@@ -12550,22 +12551,6 @@ Reloading panel registration…
         this._solcastDraft.enabled = solcastEnabledFromLive(sc);
         this._solcastDraft.fetch_pv_forecast = sc.fetch_pv_forecast !== false;
         this._solcastDraft.api_key_set = Boolean(sc.api_key_set);
-      }
-      if (
-        this._settingsView === "glow" &&
-        this._glowDraft &&
-        !this._settingsFieldFocused &&
-        !this._rangeDrag
-      ) {
-        const g = this._plantState?.glow ?? {};
-        this._glowDraft.enabled = Boolean(g.enabled);
-        this._glowDraft.mqtt_enabled = g.mqtt_enabled !== false;
-        this._glowDraft.api_enabled = g.api_enabled !== false;
-        this._glowDraft.password_set = Boolean(g.password_set);
-        this._glowDraft.username_set = Boolean(g.username_set || g.username);
-        if (g.username) this._glowDraft.username = g.username;
-        if (g.import_resource_id) this._glowDraft.import_resource_id = g.import_resource_id;
-        if (g.export_resource_id) this._glowDraft.export_resource_id = g.export_resource_id;
       }
       if (
         this._settingsView === "tariff" &&
@@ -12922,6 +12907,7 @@ Reloading panel registration…
         this._patchDeviceNewLiveIfNeeded() ||
         this._patchDeviceNewAlarmsLiveIfNeeded() ||
         this._patchSettingsMainLiveIfNeeded() ||
+        this._patchGlowSettingsLiveIfNeeded() ||
         this._patchEnergyAnalysisMainIfNeeded())
     ) {
       this._renderPending = false;
@@ -13647,7 +13633,47 @@ Reloading panel registration…
 
   _enterGlowSettings() {
     this._glowDraft = null;
+    this._glowFormDirty = false;
     this._initGlowDraft();
+  }
+
+  _applyGlowDraftFromSaved(g) {
+    if (!this._glowDraft) this._initGlowDraft();
+    const d = this._glowDraft;
+    d.enabled = Boolean(g.enabled);
+    d.mqtt_enabled = g.mqtt_enabled !== false;
+    d.api_enabled = g.api_enabled !== false;
+    if (g.username) d.username = g.username;
+    d.username_set = Boolean(g.username_set || g.username);
+    d.password_set = Boolean(g.password_set);
+    d.password = "";
+    if (g.topic_prefix) d.topic_prefix = g.topic_prefix;
+    if (g.device_id) d.device_id = g.device_id;
+    if (g.import_resource_id) d.import_resource_id = g.import_resource_id;
+    if (g.export_resource_id) d.export_resource_id = g.export_resource_id;
+    this._glowFormDirty = false;
+  }
+
+  _buildGlowSavePayload() {
+    if (!this._glowDraft) return null;
+    this._syncGlowDraftFromDom();
+    const d = this._glowDraft;
+    const payload = {
+      enabled: Boolean(d.enabled),
+      mqtt_enabled: Boolean(d.mqtt_enabled),
+      api_enabled: Boolean(d.api_enabled),
+      topic_prefix: String(d.topic_prefix || "glow").trim() || "glow",
+      device_id: String(d.device_id || "+").trim() || "+",
+    };
+    const user = String(d.username || "").trim();
+    if (user) payload.username = user;
+    const pw = String(d.password || "").trim();
+    if (pw) payload.password = pw;
+    const importId = String(d.import_resource_id || "").trim();
+    if (importId) payload.import_resource_id = importId;
+    const exportId = String(d.export_resource_id || "").trim();
+    if (exportId) payload.export_resource_id = exportId;
+    return payload;
   }
 
   _syncGlowDraftFromDom() {
@@ -13689,33 +13715,18 @@ Reloading panel registration…
   async _saveGlowSettings() {
     const plant = this._getPlant();
     if (!plant || !this._glowDraft) return;
-    this._syncGlowDraftFromDom();
+    const payload = this._buildGlowSavePayload();
+    if (!payload) return;
     this._busy = true;
     this._render();
     try {
-      const draft = this._glowDraft;
-      const payload = {
-        enabled: Boolean(draft.enabled),
-        mqtt_enabled: Boolean(draft.mqtt_enabled),
-        api_enabled: Boolean(draft.api_enabled),
-        topic_prefix: String(draft.topic_prefix || "glow").trim() || "glow",
-        device_id: String(draft.device_id || "+").trim() || "+",
-      };
-      const user = String(draft.username || "").trim();
-      if (user) payload.username = user;
-      const pw = String(draft.password || "").trim();
-      if (pw) payload.password = pw;
-      const importId = String(draft.import_resource_id || "").trim();
-      if (importId) payload.import_resource_id = importId;
-      const exportId = String(draft.export_resource_id || "").trim();
-      if (exportId) payload.export_resource_id = exportId;
       const state = await this._hass.connection.sendMessagePromise({
         type: "foxess_plant/update_glow",
         plant_id: plant.entry_id,
         glow: payload,
       });
       if (state) this._plantState = state;
-      this._initGlowDraft();
+      this._applyGlowDraftFromSaved(this._plantState?.glow ?? {});
       this._showToast("Glow settings saved");
     } catch (err) {
       this._showToast(err?.message || "Save failed", "err");
@@ -13743,7 +13754,7 @@ Reloading panel registration…
       if (pw) msg.password = pw;
       const res = await this._hass.connection.sendMessagePromise(msg);
       if (res?.plant_state) this._plantState = res.plant_state;
-      this._initGlowDraft();
+      this._applyGlowDraftFromSaved(this._plantState?.glow ?? res?.glow ?? {});
       const g = res?.glow ?? {};
       const lines = [
         g.valid ? "Bright login OK" : "Login failed",
@@ -14281,6 +14292,7 @@ Reloading panel registration…
         this._tariffPickerMountGen += 1;
       }
       if (btn.dataset.sub !== "smart") this._smartChargeDraft = null;
+      if (btn.dataset.sub !== "glow") this._glowDraft = null;
       this._settingsView = btn.dataset.sub;
       if (btn.dataset.sub === "schedules") this._initChargeDraft();
       if (btn.dataset.sub === "quick") this._initSocDraft();
@@ -14311,6 +14323,7 @@ Reloading panel registration…
         this._tariffPickerMountGen += 1;
       }
       if (btn.dataset.sub !== "smart") this._smartChargeDraft = null;
+      if (btn.dataset.sub !== "glow") this._glowDraft = null;
       this._settingsView = btn.dataset.sub;
       if (btn.dataset.sub === "schedules") this._initChargeDraft();
       if (btn.dataset.sub === "quick") this._initSocDraft();
@@ -14574,6 +14587,14 @@ Reloading panel registration…
           return;
         }
       }
+      if (parts[0] === "glow" && this._glowDraft) {
+        const field = parts[1];
+        if (field === "enabled" || field === "mqtt_enabled" || field === "api_enabled") {
+          this._glowDraft[field] = el.checked;
+          this._glowFormDirty = true;
+          return;
+        }
+      }
       if (parts[0] === "tariff" && this._tariffDraft) {
         const kind = parts[1];
         const sub = parts[2];
@@ -14828,6 +14849,41 @@ Reloading panel registration…
           syncPvDraftEfficiencyFromInstall(this._pvDraft, this._plantState, this._solcastDraft);
         }
         this._scheduleRender();
+        return;
+      }
+      return;
+    }
+    if (kind === "glow" && this._glowDraft) {
+      const field = parts[1];
+      if (!field) return;
+      if (field === "username") {
+        this._glowDraft.username = el.value ?? "";
+        this._glowFormDirty = true;
+        return;
+      }
+      if (field === "password") {
+        this._glowDraft.password = el.value ?? "";
+        this._glowFormDirty = true;
+        return;
+      }
+      if (field === "topic_prefix") {
+        this._glowDraft.topic_prefix = el.value ?? "";
+        this._glowFormDirty = true;
+        return;
+      }
+      if (field === "device_id") {
+        this._glowDraft.device_id = el.value ?? "";
+        this._glowFormDirty = true;
+        return;
+      }
+      if (field === "import_resource_id") {
+        this._glowDraft.import_resource_id = el.value ?? "";
+        this._glowFormDirty = true;
+        return;
+      }
+      if (field === "export_resource_id") {
+        this._glowDraft.export_resource_id = el.value ?? "";
+        this._glowFormDirty = true;
         return;
       }
       return;
@@ -18335,6 +18391,37 @@ ${note}${via}${forecastHint}${activeBadge}
     return true;
   }
 
+  _renderGlowStatusInnerHtml() {
+    const live = this._plantState?.glow ?? {};
+    const liveData = live.live || {};
+    const lastMqtt = live.last_mqtt_at ? esc(formatSolcastTimestamp(live.last_mqtt_at)) : "—";
+    const lastApi = live.last_api_at ? esc(formatSolcastTimestamp(live.last_api_at)) : "—";
+    const lastErr = live.last_error ? esc(String(live.last_error)) : "None";
+    const importKw =
+      liveData.import_kw != null ? `${Number(liveData.import_kw).toFixed(3)} kW` : "—";
+    const importToday =
+      liveData.import_kwh_today != null ? `${Number(liveData.import_kwh_today).toFixed(2)} kWh` : "—";
+    return `<div class="entity-list">
+<div class="entity-row"><span class="entity-name">MQTT</span><span class="entity-value">${live.mqtt_connected ? "Connected" : "Not connected"}</span></div>
+<div class="entity-row"><span class="entity-name">Live import power</span><span class="entity-value">${esc(importKw)}</span></div>
+<div class="entity-row"><span class="entity-name">Import today (meter)</span><span class="entity-value">${esc(importToday)}</span></div>
+<div class="entity-row"><span class="entity-name">Last MQTT</span><span class="entity-value">${lastMqtt}</span></div>
+<div class="entity-row"><span class="entity-name">Last API</span><span class="entity-value">${lastApi}</span></div>
+<div class="entity-row"><span class="entity-name">Device MAC</span><span class="entity-value">${esc(String(live.device_mac || "—"))}</span></div>
+<div class="entity-row"><span class="entity-name">MPAN</span><span class="entity-value">${esc(String(liveData.mpan || "—"))}</span></div>
+<div class="entity-row"><span class="entity-name">Last error</span><span class="entity-value">${lastErr}</span></div>
+</div>
+<p class="field-hint" style="margin-top:8px">When enabled, analytics <strong>From grid</strong> uses the smart meter. Solar production and battery flows stay on FoxESS plant sensors.</p>`;
+  }
+
+  _patchGlowSettingsLiveIfNeeded() {
+    if (this._view !== "settings" || this._settingsView !== "glow" || !this._hass) return false;
+    const liveEl = this._root.querySelector("[data-glow-live]");
+    if (!liveEl) return false;
+    liveEl.innerHTML = this._renderGlowStatusInnerHtml();
+    return true;
+  }
+
   _renderSettingsMain(plant) {
     const subs = this._settingsMainSubtitles();
     return `<div data-settings-main="1"><header class="header"><h1>Settings</h1><p>Quick controls for your plant</p></header>
@@ -19033,16 +19120,7 @@ ${this._renderPvTiltAzimuthFields("pv2", { allowWhenDisabled: true })}
   _renderSettingsGlow() {
     if (!this._glowDraft) this._initGlowDraft();
     const draft = this._glowDraft;
-    const live = this._plantState?.glow ?? {};
-    const liveData = live.live || {};
     const pwPlaceholder = draft.password_set ? "••••••••" : "Bright app password";
-    const lastMqtt = live.last_mqtt_at ? esc(formatSolcastTimestamp(live.last_mqtt_at)) : "—";
-    const lastApi = live.last_api_at ? esc(formatSolcastTimestamp(live.last_api_at)) : "—";
-    const lastErr = live.last_error ? esc(String(live.last_error)) : "None";
-    const importKw =
-      liveData.import_kw != null ? `${Number(liveData.import_kw).toFixed(3)} kW` : "—";
-    const importToday =
-      liveData.import_kwh_today != null ? `${Number(liveData.import_kwh_today).toFixed(2)} kWh` : "—";
     return `<header class="header"><h1>Glow smart meter</h1><p>Optional Hildebrand Glow IHD for <strong>live grid import</strong> from your SMETS2 meter. PV production always comes from the Fox plant — Glow replaces only grid-side readings.</p></header>
 <div class="card">
 <p class="card-title">Enable</p>
@@ -19075,17 +19153,7 @@ ${this._renderPvTiltAzimuthFields("pv2", { allowWhenDisabled: true })}
 </div>
 <div class="card">
 <p class="card-title">Status</p>
-<div class="entity-list">
-<div class="entity-row"><span class="entity-name">MQTT</span><span class="entity-value">${live.mqtt_connected ? "Connected" : "Not connected"}</span></div>
-<div class="entity-row"><span class="entity-name">Live import power</span><span class="entity-value">${esc(importKw)}</span></div>
-<div class="entity-row"><span class="entity-name">Import today (meter)</span><span class="entity-value">${esc(importToday)}</span></div>
-<div class="entity-row"><span class="entity-name">Last MQTT</span><span class="entity-value">${lastMqtt}</span></div>
-<div class="entity-row"><span class="entity-name">Last API</span><span class="entity-value">${lastApi}</span></div>
-<div class="entity-row"><span class="entity-name">Device MAC</span><span class="entity-value">${esc(String(live.device_mac || "—"))}</span></div>
-<div class="entity-row"><span class="entity-name">MPAN</span><span class="entity-value">${esc(String(liveData.mpan || "—"))}</span></div>
-<div class="entity-row"><span class="entity-name">Last error</span><span class="entity-value">${lastErr}</span></div>
-</div>
-<p class="field-hint" style="margin-top:8px">When enabled, analytics <strong>From grid</strong> uses the smart meter. Solar production and battery flows stay on FoxESS plant sensors.</p>
+<div data-glow-live>${this._renderGlowStatusInnerHtml()}</div>
 </div>
 <div class="btn-row">
 <button type="button" class="btn btn-primary" data-action="save-glow-settings" ${this._busy ? "disabled" : ""}>Save</button>
