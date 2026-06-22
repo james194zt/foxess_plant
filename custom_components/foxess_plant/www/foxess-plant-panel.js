@@ -9347,6 +9347,7 @@ const STYLES = `
 :host {
   display: block;
   height: 100%;
+  overflow: hidden;
   font-family: var(--ha-font-family, Roboto, sans-serif);
   background: var(--primary-background-color);
   color: var(--primary-text-color);
@@ -9359,13 +9360,9 @@ const STYLES = `
 .shell {
   position: relative;
   display: flex; flex-direction: column; height: 100%;
-  min-height: calc(100vh - 56px);
+  min-height: 0;
+  overflow: hidden;
   background: var(--primary-background-color);
-  overflow-x: hidden;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior-y: contain;
-  touch-action: pan-y;
 }
 .page-header {
   flex-shrink: 0;
@@ -9373,7 +9370,7 @@ const STYLES = `
   border-bottom: 1px solid var(--divider-color);
   background: var(--app-header-background-color, var(--primary-background-color));
 }
-.shell.has-subnav .main { padding-top: 28px; }
+.shell.has-subnav .main-inner { padding-top: 28px; }
 .panel-brand-row {
   display: flex; align-items: center; gap: 12px;
   padding: 12px 16px 4px;
@@ -9433,19 +9430,27 @@ const STYLES = `
 .tab-bar.sub { padding: 0 16px; border-top: 1px solid var(--divider-color); background: var(--secondary-background-color, transparent); }
 .tab-bar.sub .tab { padding: 10px 16px 8px; font-size: 13px; }
 .main {
-  flex: 1 0 auto;
-  overflow: visible;
-  padding: 20px 24px 40px;
-  max-width: 1100px; width: 100%;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+.main-inner {
+  max-width: 1100px;
+  width: 100%;
   margin: 0 auto;
+  padding: 20px 24px 40px;
   box-sizing: border-box;
   container-type: inline-size;
   container-name: fp-main;
 }
-.shell.view-device-new .main {
+.shell.view-device-new .main-inner {
   max-width: calc(1100px + ${DEVICE_NEW_MAIN_WIDTH_EXTRA_PX}px);
 }
-.shell.narrow .main { padding: 16px; }
+.shell.narrow .main-inner { padding: 16px; }
 .shell.narrow .tab { padding: 12px 14px 10px; font-size: 13px; }
 .header { margin-bottom: 20px; }
 .header h1 { margin: 0; font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
@@ -12164,15 +12169,19 @@ const STYLES = `
   .device-battery-pct { font-size: 32px; }
 }
 @media (hover: none) and (pointer: coarse) {
+  :host,
   :host(.narrow) {
     height: auto;
+    overflow: visible;
   }
+  .shell,
   .shell.narrow {
     display: block;
     height: auto;
     min-height: 0;
     overflow: visible;
   }
+  .main,
   .shell.narrow .main,
   :host(.narrow) .main {
     flex: none;
@@ -12183,6 +12192,7 @@ const STYLES = `
 @media (max-width: 720px) and (hover: none) and (pointer: coarse) {
   :host {
     height: auto;
+    overflow: visible;
   }
   .shell {
     display: block;
@@ -12200,6 +12210,24 @@ const STYLES = `
   .fox-flow-badge-value { font-size: 13px; }
 }
 `;
+
+function ensureMainInner(mainEl) {
+  if (!mainEl) return null;
+  let inner = mainEl.querySelector(":scope > .main-inner");
+  if (!inner) {
+    inner = document.createElement("div");
+    inner.className = "main-inner";
+    while (mainEl.firstChild) {
+      inner.appendChild(mainEl.firstChild);
+    }
+    mainEl.appendChild(inner);
+  }
+  return inner;
+}
+
+function renderPanelPlaceholderHtml(message) {
+  return `<div class="shell"><main class="main"><div class="main-inner"><p class="placeholder">${message}</p></div></main></div>`;
+}
 
 class FoxessPlantPanel extends HTMLElement {
   constructor() {
@@ -19316,7 +19344,7 @@ ${active
     } catch (err) {
       console.error("FoxESS Plant panel render failed", err);
       const ver = panelVersionFromModuleUrl() || PANEL_VERSION;
-      this._root.innerHTML = `<div class="main"><p class="placeholder">Fox Plant panel error: ${esc(err?.message || String(err))}</p><p class="placeholder" style="margin-top:8px;font-size:12px;opacity:0.75">Panel JS ${esc(ver)} — update FoxESS Plant in HACS, restart Home Assistant, then call <code>foxess_plant.reload_panel</code> or hard-refresh the browser.</p></div>`;
+      this._root.innerHTML = `<div class="shell"><main class="main"><div class="main-inner"><p class="placeholder">Fox Plant panel error: ${esc(err?.message || String(err))}</p><p class="placeholder" style="margin-top:8px;font-size:12px;opacity:0.75">Panel JS ${esc(ver)} — update FoxESS Plant in HACS, restart Home Assistant, then call <code>foxess_plant.reload_panel</code> or hard-refresh the browser.</p></div></main></div>`;
     }
   }
 
@@ -19325,7 +19353,7 @@ ${active
     if (!this._hass) {
       this._headerHasSubTabs = undefined;
     this._headerSubNavView = undefined;
-      this._root.innerHTML = `<div class="main"><p class="placeholder">Loading Fox Plant…</p></div>`;
+      this._root.innerHTML = renderPanelPlaceholderHtml("Loading Fox Plant…");
       return;
     }
     const plant = this._getPlant();
@@ -19333,7 +19361,9 @@ ${active
       this._headerHasSubTabs = undefined;
     this._headerSubNavView = undefined;
       void this._recoverEmptyPanelConfig();
-      this._root.innerHTML = `<div class="main"><p class="placeholder">Add FoxESS Plant and select your inverter device.</p></div>`;
+      this._root.innerHTML = renderPanelPlaceholderHtml(
+        "Add FoxESS Plant and select your inverter device."
+      );
       return;
     }
 
@@ -19365,14 +19395,15 @@ ${active
     }
 
     const mainEl = shell.querySelector(".main");
+    const contentEl = ensureMainInner(mainEl);
     if (this._view === "overview") {
-      this._renderOverviewMain(mainEl, plant);
+      this._renderOverviewMain(contentEl, plant);
     } else {
       this._flowSceneKey = undefined;
       this._flowScenePlantId = undefined;
       this._flowSceneKeyPending = undefined;
       this._flowSceneKeyPendingN = 0;
-      mainEl.innerHTML = this._renderView(plant);
+      contentEl.innerHTML = this._renderView(plant);
     }
     this._syncEnergyBalanceHelpModal(shell);
     this._syncFoxAlarmDetailModal(shell);
