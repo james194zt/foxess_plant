@@ -9384,7 +9384,9 @@ const STYLES = `
 .tab-bar.sub { padding: 0 16px; border-top: 1px solid var(--divider-color); background: var(--secondary-background-color, transparent); }
 .tab-bar.sub .tab { padding: 10px 16px 8px; font-size: 13px; }
 .main {
-  flex: 1; overflow-y: auto;
+  flex: 1; min-height: 0; overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
   padding: 20px 24px 40px;
   max-width: 1100px; width: 100%;
   margin: 0 auto;
@@ -12375,12 +12377,12 @@ class FoxessPlantPanel extends HTMLElement {
   }
 
   _handleOctopusGreenerHoverMove(ev) {
-    if (ev.type === "touchmove") ev.preventDefault();
     const plot = this._octopusGreenerPlotFromEvent(ev);
     if (!plot) {
       this._clearOctopusGreenerHover();
       return;
     }
+    if (ev.type === "touchmove") ev.preventDefault();
     if (this._octopusGreenerHoverPlot !== plot) {
       this._clearOctopusGreenerHover();
       this._octopusGreenerHoverPlot = plot;
@@ -12697,7 +12699,16 @@ Reloading panel registration…
       });
       return;
     }
-    if (this._view !== "settings") return;
+    if (this._view !== "settings") {
+      if (this._settingsFieldFocused) {
+        this._settingsFieldFocused = false;
+        if (this._renderPending) {
+          this._renderPending = false;
+          this._scheduleRender();
+        }
+      }
+      return;
+    }
     window.requestAnimationFrame(() => {
       const active = this.shadowRoot?.activeElement || document.activeElement;
       if (
@@ -14059,6 +14070,7 @@ Reloading panel registration…
       }
       this._view = normalizePanelView(nextView);
       this._settingsView = "main";
+      this._settingsFieldFocused = false;
       this._solcastDraft = null;
       this._deviceSub = "main";
       if (nextView !== "device_new") {
