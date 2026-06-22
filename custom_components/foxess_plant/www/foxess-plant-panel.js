@@ -9356,19 +9356,11 @@ const STYLES = `
   --fp-amber: #f9a825;
   --fp-red: #e53935;
 }
-:host(.narrow) {
-  height: auto;
-}
 .shell {
   position: relative;
   display: flex; flex-direction: column; height: 100%;
   min-height: calc(100vh - 56px);
   background: var(--primary-background-color);
-}
-.shell.narrow {
-  display: block;
-  height: auto;
-  min-height: 0;
 }
 .page-header {
   flex-shrink: 0;
@@ -9446,12 +9438,6 @@ const STYLES = `
   box-sizing: border-box;
   container-type: inline-size;
   container-name: fp-main;
-}
-.shell.narrow .main,
-:host(.narrow) .main {
-  flex: none;
-  overflow: visible;
-  min-height: 0;
 }
 .shell.view-device-new .main {
   max-width: calc(1100px + ${DEVICE_NEW_MAIN_WIDTH_EXTRA_PX}px);
@@ -12147,19 +12133,6 @@ const STYLES = `
   max-width: none;
 }
 @media (max-width: 720px) {
-  :host {
-    height: auto;
-  }
-  .shell {
-    display: block;
-    height: auto;
-    min-height: 0;
-  }
-  .shell .main {
-    flex: none;
-    overflow: visible;
-    min-height: 0;
-  }
   .overview-hero-row {
     display: flex;
     flex-direction: column;
@@ -12186,6 +12159,37 @@ const STYLES = `
   .device-pv-gauge { max-width: 160px; }
   .device-pv-value { font-size: 18px; }
   .device-battery-pct { font-size: 32px; }
+}
+@media (hover: none) and (pointer: coarse) {
+  :host(.narrow) {
+    height: auto;
+  }
+  .shell.narrow {
+    display: block;
+    height: auto;
+    min-height: 0;
+  }
+  .shell.narrow .main,
+  :host(.narrow) .main {
+    flex: none;
+    overflow: visible;
+    min-height: 0;
+  }
+}
+@media (max-width: 720px) and (hover: none) and (pointer: coarse) {
+  :host {
+    height: auto;
+  }
+  .shell {
+    display: block;
+    height: auto;
+    min-height: 0;
+  }
+  .shell .main {
+    flex: none;
+    overflow: visible;
+    min-height: 0;
+  }
 }
 @media (max-width: 600px) {
   .fox-flow-badge-value { font-size: 13px; }
@@ -12350,6 +12354,9 @@ class FoxessPlantPanel extends HTMLElement {
     this._onFocusIn = this._onFocusIn.bind(this);
     this._onFocusOut = this._onFocusOut.bind(this);
     this._onPaste = this._onPaste.bind(this);
+    this._onOctopusGreenerHoverMove = this._handleOctopusGreenerHoverMove.bind(this);
+    this._onOctopusGreenerHoverEnd = this._handleOctopusGreenerHoverEnd.bind(this);
+    this._octopusGreenerHoverPlot = null;
   }
 
   connectedCallback() {
@@ -12362,6 +12369,8 @@ class FoxessPlantPanel extends HTMLElement {
     this._root.addEventListener("focusin", this._onFocusIn, true);
     this._root.addEventListener("focusout", this._onFocusOut, true);
     this._root.addEventListener("paste", this._onPaste, true);
+    this._root.addEventListener("mousemove", this._onOctopusGreenerHoverMove);
+    this._root.addEventListener("mouseleave", this._onOctopusGreenerHoverEnd);
     void this._initBrandIcons();
     void this._refreshPlantState();
     this._timer = window.setInterval(() => void this._refreshPlantState(), 30000);
@@ -12378,6 +12387,8 @@ class FoxessPlantPanel extends HTMLElement {
     this._root.removeEventListener("focusin", this._onFocusIn, true);
     this._root.removeEventListener("focusout", this._onFocusOut, true);
     this._root.removeEventListener("paste", this._onPaste, true);
+    this._root.removeEventListener("mousemove", this._onOctopusGreenerHoverMove);
+    this._root.removeEventListener("mouseleave", this._onOctopusGreenerHoverEnd);
     if (this._triggerFilterTimer) window.clearTimeout(this._triggerFilterTimer);
     this._endSocDrag();
     if (this._timer) window.clearInterval(this._timer);
@@ -12423,9 +12434,37 @@ class FoxessPlantPanel extends HTMLElement {
   }
 
   _clearOctopusGreenerHover() {
+    if (this._octopusGreenerHoverPlot) {
+      hideOctopusGreenerChartHover(this._octopusGreenerHoverPlot);
+      this._octopusGreenerHoverPlot = null;
+    }
     this._root?.querySelectorAll("[data-octopus-greener-plot]").forEach((plot) => {
       hideOctopusGreenerChartHover(plot);
     });
+  }
+
+  _octopusGreenerPlotFromEvent(ev) {
+    const plot = ev.target?.closest?.("[data-octopus-greener-plot]");
+    return plot && this._root.contains(plot) ? plot : null;
+  }
+
+  _handleOctopusGreenerHoverMove(ev) {
+    const plot = this._octopusGreenerPlotFromEvent(ev);
+    if (!plot) {
+      this._clearOctopusGreenerHover();
+      return;
+    }
+    if (this._octopusGreenerHoverPlot !== plot) {
+      if (this._octopusGreenerHoverPlot) {
+        hideOctopusGreenerChartHover(this._octopusGreenerHoverPlot);
+      }
+      this._octopusGreenerHoverPlot = plot;
+    }
+    updateOctopusGreenerChartHover(plot, ev.clientX);
+  }
+
+  _handleOctopusGreenerHoverEnd() {
+    this._clearOctopusGreenerHover();
   }
 
   _panelBuild() {
@@ -17173,6 +17212,7 @@ ${detailsHtml}
   _bindReportsCharts() {
     const energyRoot = this._root.querySelector("[data-energy-report-chart]");
     if (energyRoot) bindMirroredEnergyChart(energyRoot);
+    bindOctopusGreenerCharts(this._root);
   }
 
   _renderEnergyDateNav() {
