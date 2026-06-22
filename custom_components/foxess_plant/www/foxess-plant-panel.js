@@ -9361,6 +9361,11 @@ const STYLES = `
   display: flex; flex-direction: column; height: 100%;
   min-height: calc(100vh - 56px);
   background: var(--primary-background-color);
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
 }
 .page-header {
   flex-shrink: 0;
@@ -9428,10 +9433,8 @@ const STYLES = `
 .tab-bar.sub { padding: 0 16px; border-top: 1px solid var(--divider-color); background: var(--secondary-background-color, transparent); }
 .tab-bar.sub .tab { padding: 10px 16px 8px; font-size: 13px; }
 .main {
-  flex: 1; min-height: 0; overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior-y: contain;
-  touch-action: pan-y;
+  flex: 1 0 auto;
+  overflow: visible;
   padding: 20px 24px 40px;
   max-width: 1100px; width: 100%;
   margin: 0 auto;
@@ -12168,6 +12171,7 @@ const STYLES = `
     display: block;
     height: auto;
     min-height: 0;
+    overflow: visible;
   }
   .shell.narrow .main,
   :host(.narrow) .main {
@@ -12184,6 +12188,7 @@ const STYLES = `
     display: block;
     height: auto;
     min-height: 0;
+    overflow: visible;
   }
   .shell .main {
     flex: none;
