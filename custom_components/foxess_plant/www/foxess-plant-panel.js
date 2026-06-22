@@ -1406,17 +1406,7 @@ function bindForecastAccuracyChart(scope, seriesMeta) {
 
   hit.addEventListener("mousemove", (ev) => showHover(ev.clientX));
   hit.addEventListener("mouseleave", hideHover);
-  plot.addEventListener(
-    "touchmove",
-    (ev) => {
-      if (ev.touches[0]) {
-        ev.preventDefault();
-        showHover(ev.touches[0].clientX);
-      }
-    },
-    { passive: false }
-  );
-  plot.addEventListener("touchend", hideHover);
+  bindTouchChartScrub(hit, showHover, hideHover);
 }
 
 function forecastAccuracyYDomain(values, { minZero = true, padRatio = 0.04 } = {}) {
@@ -2365,7 +2355,60 @@ function updateOctopusGreenerChartHover(plot, clientX) {
 }
 
 function bindOctopusGreenerCharts(root) {
-  void root;
+  root?.querySelectorAll("[data-octopus-greener-plot]:not([data-greener-bound])").forEach((plot) => {
+    plot.dataset.greenerBound = "1";
+    const hit = plot.querySelector(".octopus-greener-hit");
+    if (!hit) return;
+    const show = (clientX) => {
+      updateOctopusGreenerChartHover(plot, clientX);
+    };
+    const hide = () => hideOctopusGreenerChartHover(plot);
+    hit.addEventListener("mousemove", (ev) => show(ev.clientX));
+    hit.addEventListener("mouseleave", hide);
+    bindTouchChartScrub(hit, show, hide);
+  });
+}
+
+/** Touch scrub on charts without blocking vertical page scroll on mobile. */
+function bindTouchChartScrub(el, onScrub, onEnd) {
+  if (!el) return;
+  let startX = 0;
+  let startY = 0;
+  let scrubbing = false;
+  el.addEventListener(
+    "touchstart",
+    (ev) => {
+      const t = ev.touches[0];
+      if (!t) return;
+      startX = t.clientX;
+      startY = t.clientY;
+      scrubbing = false;
+    },
+    { passive: true }
+  );
+  el.addEventListener(
+    "touchmove",
+    (ev) => {
+      const t = ev.touches[0];
+      if (!t) return;
+      const dx = t.clientX - startX;
+      const dy = t.clientY - startY;
+      if (!scrubbing) {
+        if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 10) return;
+        if (Math.abs(dx) > 10 || Math.abs(dy) > 10) scrubbing = true;
+      }
+      if (!scrubbing) return;
+      ev.preventDefault();
+      onScrub(t.clientX);
+    },
+    { passive: false }
+  );
+  const end = () => {
+    scrubbing = false;
+    onEnd?.();
+  };
+  el.addEventListener("touchend", end);
+  el.addEventListener("touchcancel", end);
 }
 
 function renderOctopusGreenerTable(periods) {
@@ -7588,17 +7631,7 @@ function bindBatterySocChart(root, chart) {
 
   hit?.addEventListener("mousemove", (ev) => showHover(ev.clientX));
   hit?.addEventListener("mouseleave", hideHover);
-  plot.addEventListener(
-    "touchmove",
-    (ev) => {
-      if (ev.touches[0]) {
-        ev.preventDefault();
-        showHover(ev.touches[0].clientX);
-      }
-    },
-    { passive: false }
-  );
-  plot.addEventListener("touchend", hideHover);
+  bindTouchChartScrub(hit, showHover, hideHover);
 }
 
 async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset = 0 } = {}) {
@@ -8524,13 +8557,7 @@ function bindStatisticsChart(root, seriesMeta) {
 
   hit?.addEventListener("mousemove", (ev) => showHover(ev.clientX));
   hit?.addEventListener("mouseleave", hideHover);
-  plot.addEventListener("touchmove", (ev) => {
-    if (ev.touches[0]) {
-      ev.preventDefault();
-      showHover(ev.touches[0].clientX);
-    }
-  }, { passive: false });
-  plot.addEventListener("touchend", hideHover);
+  bindTouchChartScrub(hit, showHover, hideHover);
 
   syncStatisticsSideLegendOffset(wrap);
   if (typeof ResizeObserver !== "undefined") {
@@ -8687,13 +8714,7 @@ function bindMirroredEnergyChart(root) {
 
   svg.addEventListener("mousemove", (ev) => showColumn(ev.clientX));
   svg.addEventListener("mouseleave", hideHover);
-  plot.addEventListener("touchmove", (ev) => {
-    if (ev.touches[0]) {
-      ev.preventDefault();
-      showColumn(ev.touches[0].clientX);
-    }
-  }, { passive: false });
-  plot.addEventListener("touchend", hideHover);
+  bindTouchChartScrub(svg, showColumn, hideHover);
 }
 
 function renderMirroredEnergyBarChart(buckets, labels, { height = 300, labelMode = "auto" } = {}) {
@@ -9312,11 +9333,19 @@ const STYLES = `
   --fp-amber: #f9a825;
   --fp-red: #e53935;
 }
+:host(.narrow) {
+  height: auto;
+}
 .shell {
   position: relative;
   display: flex; flex-direction: column; height: 100%;
   min-height: calc(100vh - 56px);
   background: var(--primary-background-color);
+}
+.shell.narrow {
+  display: block;
+  height: auto;
+  min-height: 0;
 }
 .page-header {
   flex-shrink: 0;
@@ -9387,12 +9416,19 @@ const STYLES = `
   flex: 1; min-height: 0; overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
+  touch-action: pan-y;
   padding: 20px 24px 40px;
   max-width: 1100px; width: 100%;
   margin: 0 auto;
   box-sizing: border-box;
   container-type: inline-size;
   container-name: fp-main;
+}
+.shell.narrow .main,
+:host(.narrow) .main {
+  flex: none;
+  overflow: visible;
+  min-height: 0;
 }
 .shell.view-device-new .main {
   max-width: calc(1100px + ${DEVICE_NEW_MAIN_WIDTH_EXTRA_PX}px);
@@ -12086,6 +12122,19 @@ const STYLES = `
   max-width: none;
 }
 @media (max-width: 720px) {
+  :host {
+    height: auto;
+  }
+  .shell {
+    display: block;
+    height: auto;
+    min-height: 0;
+  }
+  .shell .main {
+    flex: none;
+    overflow: visible;
+    min-height: 0;
+  }
   .overview-hero-row {
     display: flex;
     flex-direction: column;
@@ -12276,9 +12325,6 @@ class FoxessPlantPanel extends HTMLElement {
     this._onFocusIn = this._onFocusIn.bind(this);
     this._onFocusOut = this._onFocusOut.bind(this);
     this._onPaste = this._onPaste.bind(this);
-    this._onOctopusGreenerHoverMove = this._handleOctopusGreenerHoverMove.bind(this);
-    this._onOctopusGreenerHoverEnd = this._handleOctopusGreenerHoverEnd.bind(this);
-    this._octopusGreenerHoverPlot = null;
   }
 
   connectedCallback() {
@@ -12291,11 +12337,6 @@ class FoxessPlantPanel extends HTMLElement {
     this._root.addEventListener("focusin", this._onFocusIn, true);
     this._root.addEventListener("focusout", this._onFocusOut, true);
     this._root.addEventListener("paste", this._onPaste, true);
-    this._root.addEventListener("mousemove", this._onOctopusGreenerHoverMove);
-    this._root.addEventListener("mouseleave", this._onOctopusGreenerHoverEnd);
-    this._root.addEventListener("touchmove", this._onOctopusGreenerHoverMove, { passive: false });
-    this._root.addEventListener("touchend", this._onOctopusGreenerHoverEnd);
-    this._root.addEventListener("touchcancel", this._onOctopusGreenerHoverEnd);
     void this._initBrandIcons();
     void this._refreshPlantState();
     this._timer = window.setInterval(() => void this._refreshPlantState(), 30000);
@@ -12312,11 +12353,6 @@ class FoxessPlantPanel extends HTMLElement {
     this._root.removeEventListener("focusin", this._onFocusIn, true);
     this._root.removeEventListener("focusout", this._onFocusOut, true);
     this._root.removeEventListener("paste", this._onPaste, true);
-    this._root.removeEventListener("mousemove", this._onOctopusGreenerHoverMove);
-    this._root.removeEventListener("mouseleave", this._onOctopusGreenerHoverEnd);
-    this._root.removeEventListener("touchmove", this._onOctopusGreenerHoverMove);
-    this._root.removeEventListener("touchend", this._onOctopusGreenerHoverEnd);
-    this._root.removeEventListener("touchcancel", this._onOctopusGreenerHoverEnd);
     if (this._triggerFilterTimer) window.clearTimeout(this._triggerFilterTimer);
     this._endSocDrag();
     if (this._timer) window.clearInterval(this._timer);
@@ -12333,6 +12369,7 @@ class FoxessPlantPanel extends HTMLElement {
   }
   set narrow(v) {
     this._narrow = Boolean(v);
+    this.classList.toggle("narrow", this._narrow);
     this._syncShellLayoutClasses(this._root.querySelector(".shell"));
   }
   get narrow() {
@@ -12361,38 +12398,9 @@ class FoxessPlantPanel extends HTMLElement {
   }
 
   _clearOctopusGreenerHover() {
-    if (this._octopusGreenerHoverPlot) {
-      hideOctopusGreenerChartHover(this._octopusGreenerHoverPlot);
-      this._octopusGreenerHoverPlot = null;
-    }
-  }
-
-  _octopusGreenerPlotFromEvent(ev) {
-    const target =
-      ev.type === "touchmove" && ev.touches?.[0]
-        ? document.elementFromPoint(ev.touches[0].clientX, ev.touches[0].clientY)
-        : ev.target;
-    const plot = target?.closest?.("[data-octopus-greener-plot]");
-    return plot && this._root.contains(plot) ? plot : null;
-  }
-
-  _handleOctopusGreenerHoverMove(ev) {
-    const plot = this._octopusGreenerPlotFromEvent(ev);
-    if (!plot) {
-      this._clearOctopusGreenerHover();
-      return;
-    }
-    if (ev.type === "touchmove") ev.preventDefault();
-    if (this._octopusGreenerHoverPlot !== plot) {
-      this._clearOctopusGreenerHover();
-      this._octopusGreenerHoverPlot = plot;
-    }
-    const clientX = ev.type === "touchmove" ? ev.touches[0].clientX : ev.clientX;
-    updateOctopusGreenerChartHover(plot, clientX);
-  }
-
-  _handleOctopusGreenerHoverEnd() {
-    this._clearOctopusGreenerHover();
+    this._root?.querySelectorAll("[data-octopus-greener-plot]").forEach((plot) => {
+      hideOctopusGreenerChartHover(plot);
+    });
   }
 
   _panelBuild() {
