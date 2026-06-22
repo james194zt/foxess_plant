@@ -9346,8 +9346,9 @@ function applySocDrag(d, thumb, pct) {
 const STYLES = `
 :host {
   display: block;
-  height: 100%;
-  overflow: hidden;
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
   font-family: var(--ha-font-family, Roboto, sans-serif);
   background: var(--primary-background-color);
   color: var(--primary-text-color);
@@ -9359,9 +9360,10 @@ const STYLES = `
 }
 .shell {
   position: relative;
-  display: flex; flex-direction: column; height: 100%;
-  min-height: 0;
-  overflow: hidden;
+  display: block;
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
   background: var(--primary-background-color);
 }
 .page-header {
@@ -9430,13 +9432,9 @@ const STYLES = `
 .tab-bar.sub { padding: 0 16px; border-top: 1px solid var(--divider-color); background: var(--secondary-background-color, transparent); }
 .tab-bar.sub .tab { padding: 10px 16px 8px; font-size: 13px; }
 .main {
-  flex: 1;
-  min-height: 0;
+  display: block;
   width: 100%;
-  overflow-x: hidden;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior-y: contain;
+  overflow: visible;
 }
 .main-inner {
   max-width: 1100px;
@@ -12167,44 +12165,6 @@ const STYLES = `
   .device-pv-gauge { max-width: 160px; }
   .device-pv-value { font-size: 18px; }
   .device-battery-pct { font-size: 32px; }
-}
-@media (hover: none) and (pointer: coarse) {
-  :host,
-  :host(.narrow) {
-    height: auto;
-    overflow: visible;
-  }
-  .shell,
-  .shell.narrow {
-    display: block;
-    height: auto;
-    min-height: 0;
-    overflow: visible;
-  }
-  .main,
-  .shell.narrow .main,
-  :host(.narrow) .main {
-    flex: none;
-    overflow: visible;
-    min-height: 0;
-  }
-}
-@media (max-width: 720px) and (hover: none) and (pointer: coarse) {
-  :host {
-    height: auto;
-    overflow: visible;
-  }
-  .shell {
-    display: block;
-    height: auto;
-    min-height: 0;
-    overflow: visible;
-  }
-  .shell .main {
-    flex: none;
-    overflow: visible;
-    min-height: 0;
-  }
 }
 @media (max-width: 600px) {
   .fox-flow-badge-value { font-size: 13px; }
