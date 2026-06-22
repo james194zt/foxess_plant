@@ -336,17 +336,19 @@ class FoxessPlantSolcastForecastSensor(CoordinatorEntity[FoxessPlantCoordinator]
     def _solcast(self) -> dict[str, Any]:
         return (self.coordinator.data or {}).get("solcast") or {}
 
-    def _solcast_metric_value(self) -> float | datetime | None:
+    def _raw_metric(self) -> Any:
         sc = self._solcast()
         raw = sc.get(self._spec.metric_key)
-        if raw is None:
-            rows = sc.get("detailed_forecast") or []
-            if rows:
-                from .solcast_forecast_metrics import compute_forecast_metrics
+        if raw is not None:
+            return raw
+        rows = sc.get("detailed_forecast")
+        if not isinstance(rows, list) or not rows:
+            return None
+        from .solcast_forecast_metrics import compute_forecast_metrics
 
-                raw = compute_forecast_metrics(self.coordinator.hass, rows).get(
-                    self._spec.metric_key
-                )
+        return compute_forecast_metrics(self.coordinator.hass, rows).get(self._spec.metric_key)
+
+    def _coerce_native_value(self, raw: Any) -> float | datetime | None:
         if raw is None:
             return None
         if self._spec.is_timestamp:
@@ -354,20 +356,25 @@ class FoxessPlantSolcastForecastSensor(CoordinatorEntity[FoxessPlantCoordinator]
                 return dt_util.as_utc(raw) if raw.tzinfo else raw.replace(tzinfo=dt_util.UTC)
             parsed = dt_util.parse_datetime(str(raw))
             return dt_util.as_utc(parsed) if parsed else None
-        return float(raw)
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            return None
 
     @property
     def available(self) -> bool:
+        if not self.coordinator.last_update_success:
+            return False
         sc = self._solcast()
         if not sc.get("enabled") or not sc.get("api_key_set"):
             return False
-        if not sc.get("pv_forecast_available") and not sc.get("detailed_forecast"):
+        if not sc.get("pv_forecast_available"):
             return False
-        return self._solcast_metric_value() is not None
+        return self._coerce_native_value(self._raw_metric()) is not None
 
     @property
     def native_value(self) -> float | datetime | None:
-        return self._solcast_metric_value()
+        return self._coerce_native_value(self._raw_metric())
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:

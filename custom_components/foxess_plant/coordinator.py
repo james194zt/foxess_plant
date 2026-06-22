@@ -112,6 +112,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._solcast_memory_snapshots: list[tuple[float, list[dict[str, Any]]]] = []
         self._solcast_refresh_lock = asyncio.Lock()
         self._solcast_store_lock = asyncio.Lock()
+        self._solcast_empty_fetch_attempted = False
         self._tariff_store = None
         self._tariff_history_count = 0
         self._tariff_rate_sensors: dict[str, Any] = {}
@@ -888,9 +889,15 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if isinstance(current, dict) and current.get("pv_forecast_parsed"):
             return
         async with self._solcast_store_lock:
-            self._solcast_history_count = await self._solcast_store.async_record_poll(
-                self._solcast_cache
-            )
+            from copy import deepcopy
+
+            from .solcast_forecast_metrics import strip_volatile_forecast_metrics
+
+            poll_cache = deepcopy(self._solcast_cache)
+            parsed = poll_cache.get("pv_forecast_parsed")
+            if isinstance(parsed, dict):
+                poll_cache["pv_forecast_parsed"] = strip_volatile_forecast_metrics(parsed)
+            self._solcast_history_count = await self._solcast_store.async_record_poll(poll_cache)
             repaired = await self._solcast_store.async_load()
             self._remember_solcast_stored(repaired if isinstance(repaired, dict) else {})
         _LOGGER.info("Repaired Solcast forecast storage from history snapshot")
@@ -956,7 +963,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not allow_poll:
             return
         if len(self._solcast_detailed_forecast_rows()) < 2 and self._solcast_pv_active():
-            if not self.plant.solcast.last_fetch_at:
+            if not self._solcast_empty_fetch_attempted:
+                self._solcast_empty_fetch_attempted = True
                 try:
                     await self._async_refresh_solcast_pv(force=True)
                 except Exception:
@@ -1076,11 +1084,19 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._append_solcast_memory_snapshot()
                 if await self._ensure_solcast_store():
                     try:
+                        from copy import deepcopy
+
+                        from .solcast_forecast_metrics import strip_volatile_forecast_metrics
+
+                        poll_cache = deepcopy(self._solcast_cache)
+                        parsed = poll_cache.get("pv_forecast_parsed")
+                        if isinstance(parsed, dict):
+                            poll_cache["pv_forecast_parsed"] = strip_volatile_forecast_metrics(
+                                parsed
+                            )
                         async with self._solcast_store_lock:
                             self._solcast_history_count = (
-                                await self._solcast_store.async_record_poll(
-                                    self._solcast_cache
-                                )
+                                await self._solcast_store.async_record_poll(poll_cache)
                             )
                             synth = self._stored_from_memory_snapshots()
                             if synth:

@@ -14,6 +14,25 @@ from .solcast_pv import _parse_dt
 # Default window for "Forecast next X hours" (matches common Solcast card setups).
 FORECAST_NEXT_X_HOURS = 3
 
+# Flattened keys consumed by FoxessPlantSolcastForecastSensor (and solcast_status_dict).
+FORECAST_METRIC_KEYS: frozenset[str] = frozenset(
+    {
+        "forecast_today_kwh",
+        "forecast_tomorrow_kwh",
+        "forecast_remaining_today_kwh",
+        "forecast_this_hour_wh",
+        "forecast_next_hour_wh",
+        "forecast_next_x_hours_kwh",
+        "peak_forecast_today_w",
+        "peak_forecast_tomorrow_w",
+        "peak_time_today",
+        "peak_time_tomorrow",
+        "power_now_w",
+        "power_in_30_minutes_w",
+        "power_in_1_hour_w",
+    }
+)
+
 
 @dataclass(frozen=True)
 class _Interval:
@@ -206,6 +225,20 @@ def compute_forecast_metrics(
     }
 
 
+def strip_volatile_forecast_metrics(parsed: dict[str, Any]) -> dict[str, Any]:
+    """Drop time-sensitive flattened metrics before persisting (recomputed on load)."""
+    out = dict(parsed)
+    for key in FORECAST_METRIC_KEYS | {
+        "forecast_metrics",
+        "detailed_forecast_ha",
+        "power_now_kw",
+        "energy_remaining_kwh",
+        "forecast_next_x_hours",
+    }:
+        out.pop(key, None)
+    return out
+
+
 def apply_forecast_metrics(
     parsed: dict[str, Any] | None,
     hass: HomeAssistant | None = None,
@@ -216,10 +249,14 @@ def apply_forecast_metrics(
     rows = parsed.get("detailed_forecast")
     if not isinstance(rows, list) or not rows:
         return dict(parsed)
+    out = dict(parsed)
     metrics = compute_forecast_metrics(hass, rows)
     if not metrics:
-        return dict(parsed)
-    out = dict(parsed)
+        for key in FORECAST_METRIC_KEYS:
+            out.pop(key, None)
+        out.pop("forecast_metrics", None)
+        out.pop("detailed_forecast_ha", None)
+        return out
     out["forecast_metrics"] = metrics
     for key, value in metrics.items():
         if key != "detailed_forecast_ha":
@@ -230,3 +267,30 @@ def apply_forecast_metrics(
         out["energy_remaining_kwh"] = metrics["forecast_remaining_today_kwh"]
     out["period_count"] = len(rows)
     return out
+
+
+def merge_forecast_metrics_into_status(
+    target: dict[str, Any],
+    parsed: dict[str, Any] | None,
+    hass: HomeAssistant | None,
+) -> None:
+    """Copy forecast rows and flattened sensor metrics onto a solcast status dict."""
+    if not isinstance(parsed, dict):
+        target["pv_forecast_available"] = False
+        target.setdefault("detailed_forecast", [])
+        return
+    enriched = apply_forecast_metrics(parsed, hass)
+    rows = enriched.get("detailed_forecast")
+    if not isinstance(rows, list):
+        rows = []
+    target["pv_forecast_available"] = len(rows) >= 1
+    target["detailed_forecast"] = rows
+    target["detailed_forecast_by_site"] = enriched.get("detailed_forecast_by_site") or {}
+    target["pv_power_now_kw"] = enriched.get("power_now_kw")
+    target["pv_energy_remaining_kwh"] = enriched.get("energy_remaining_kwh")
+    target["pv_forecast_periods"] = enriched.get("period_count", 0)
+    for key in FORECAST_METRIC_KEYS:
+        if key in enriched:
+            target[key] = enriched[key]
+    if "forecast_next_x_hours" in enriched:
+        target["forecast_next_x_hours"] = enriched["forecast_next_x_hours"]

@@ -328,27 +328,9 @@ def solcast_status_dict(
         out["cache_updated_at"] = cache.get("updated_at")
         pv_parsed = cache.get("pv_forecast_parsed")
         if isinstance(pv_parsed, dict):
-            from .solcast_forecast_metrics import apply_forecast_metrics
+            from .solcast_forecast_metrics import merge_forecast_metrics_into_status
 
-            pv_parsed = apply_forecast_metrics(pv_parsed, hass)
-            out["pv_forecast_available"] = bool(pv_parsed.get("detailed_forecast"))
-            out["detailed_forecast"] = pv_parsed.get("detailed_forecast") or []
-            out["detailed_forecast_by_site"] = pv_parsed.get("detailed_forecast_by_site") or {}
-            out["pv_power_now_kw"] = pv_parsed.get("power_now_kw")
-            out["pv_energy_remaining_kwh"] = pv_parsed.get("energy_remaining_kwh")
-            out["pv_forecast_periods"] = pv_parsed.get("period_count", 0)
-            skip = frozenset(
-                {
-                    "detailed_forecast",
-                    "detailed_forecast_by_site",
-                    "period_count",
-                    "forecast_metrics",
-                    "detailed_forecast_ha",
-                }
-            )
-            for key, value in pv_parsed.items():
-                if key not in skip and key not in out:
-                    out[key] = value
+            merge_forecast_metrics_into_status(out, pv_parsed, hass)
     return out
 
 
