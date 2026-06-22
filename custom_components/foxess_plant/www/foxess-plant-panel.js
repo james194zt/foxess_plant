@@ -1849,11 +1849,12 @@ function octopusChartTooltipHtml(chartMode, bar) {
   if (chartMode === "dual") {
     const scoreText = bar.low_carbon_score != null ? `${bar.low_carbon_score}/10` : "—";
     const carbonLabel = bar.is_green ? "Low carbon" : "Higher carbon";
-    const priceText = bar.p_per_kwh != null ? formatOctopusRate(bar.p_per_kwh) : "—";
+    const importPrice = bar.p_per_kwh != null ? formatOctopusRate(bar.p_per_kwh) : "—";
+    const exportPrice = bar.export_p_per_kwh != null ? formatOctopusRate(bar.export_p_per_kwh) : "—";
     const gco2Text = bar.gco2 != null ? `${bar.gco2} gCO₂/kWh` : "";
     return `${timeRow}
 <div class="octopus-greener-tooltip-score">${esc(carbonLabel)} score: <strong>${esc(scoreText)}</strong></div>
-<div class="octopus-greener-tooltip-gco2">Import price: <strong>${esc(priceText)}</strong>${gco2Text ? ` · ${esc(gco2Text)}` : ""}</div>`;
+<div class="octopus-greener-tooltip-gco2">Import price: <strong>${esc(importPrice)}</strong> · Export price: <strong>${esc(exportPrice)}</strong>${gco2Text ? ` · ${esc(gco2Text)}` : ""}</div>`;
   }
   return `${timeRow}<div class="octopus-greener-tooltip-gco2">${esc(String(bar.value ?? "—"))}</div>`;
 }
@@ -2632,12 +2633,28 @@ function renderOctopusRateChartSvg(slots, { kind = "import" } = {}) {
   return `${chart}<p class="octopus-analysis-chart-hint"><i class="octopus-analysis-swatch" style="background:${color}"></i> ${esc(legendLabel)} — hover bars for time and price</p>`;
 }
 
+function octopusDualPriceLinePoints(rows, rateKey, maxRate, padL, padT, chartH, slotW) {
+  return rows
+    .map((row, i) => {
+      const rate = row[rateKey];
+      if (rate == null || !Number.isFinite(Number(rate))) return null;
+      const x = padL + i * slotW + slotW / 2;
+      const y = padT + chartH - (Number(rate) / Math.max(0.01, maxRate)) * chartH;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .filter(Boolean)
+    .join(" ");
+}
+
 function renderOctopusDualChartSvg(dualPeriods) {
   const rows = (Array.isArray(dualPeriods) ? dualPeriods : []).filter((p) => p?.start_ms != null);
   if (!rows.length) {
     return `<p class="octopus-greener-empty">Price and carbon overlay unavailable. Save Octopus API credentials and postcode.</p>`;
   }
-  const rates = rows.map((r) => (r.p_per_kwh != null ? Number(r.p_per_kwh) : null)).filter((v) => v != null);
+  const rates = rows
+    .flatMap((r) => [r.p_per_kwh, r.export_p_per_kwh])
+    .map((v) => (v != null ? Number(v) : null))
+    .filter((v) => v != null && Number.isFinite(v));
   const maxRate = rates.length ? Math.max(...rates) : 1;
   const W = 640;
   const H = 168;
@@ -2648,17 +2665,21 @@ function renderOctopusDualChartSvg(dualPeriods) {
   const chartW = W - padL - padR;
   const chartH = H - padT - padB;
   const slotW = chartW / rows.length;
-  const points = rows
-    .map((row, i) => {
-      if (row.p_per_kwh == null || !Number.isFinite(Number(row.p_per_kwh))) return null;
-      const x = padL + i * slotW + slotW / 2;
-      const y = padT + chartH - (Number(row.p_per_kwh) / Math.max(0.01, maxRate)) * chartH;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .filter(Boolean)
-    .join(" ");
-  const priceLine = points
-    ? `<polyline points="${points}" fill="none" stroke="#03a9f4" stroke-width="2" stroke-linejoin="round" opacity="0.9" />`
+  const importPoints = octopusDualPriceLinePoints(rows, "p_per_kwh", maxRate, padL, padT, chartH, slotW);
+  const exportPoints = octopusDualPriceLinePoints(
+    rows,
+    "export_p_per_kwh",
+    maxRate,
+    padL,
+    padT,
+    chartH,
+    slotW
+  );
+  const importLine = importPoints
+    ? `<polyline points="${importPoints}" fill="none" stroke="#03a9f4" stroke-width="2" stroke-linejoin="round" opacity="0.9" />`
+    : "";
+  const exportLine = exportPoints
+    ? `<polyline points="${exportPoints}" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linejoin="round" opacity="0.9" />`
     : "";
   const chart = renderOctopusGenericBarChartSvg(rows, {
     valueKey: "low_carbon_score",
@@ -2667,10 +2688,11 @@ function renderOctopusDualChartSvg(dualPeriods) {
     emptyHint: "No carbon periods.",
     ariaLabel: "Price and carbon overlay chart",
     chartMode: "dual",
-    overlaySvg: priceLine,
+    overlaySvg: `${importLine}${exportLine}`,
     barsMetaFn: (row) => ({
       low_carbon_score: row.low_carbon_score,
       p_per_kwh: row.p_per_kwh,
+      export_p_per_kwh: row.export_p_per_kwh,
       is_green: row.is_green,
       gco2: row.gco2_per_kwh != null ? Math.round(Number(row.gco2_per_kwh)) : null,
     }),
@@ -2679,10 +2701,11 @@ function renderOctopusDualChartSvg(dualPeriods) {
 <div class="octopus-analysis-dual-legend">
 <span><i class="octopus-analysis-swatch octopus-analysis-swatch--green"></i> Low carbon</span>
 <span><i class="octopus-analysis-swatch octopus-analysis-swatch--purple"></i> Higher carbon</span>
-<span><i class="octopus-analysis-swatch-line"></i> Import price</span>
+<span><i class="octopus-analysis-swatch-line octopus-analysis-swatch-line--import"></i> Import price</span>
+<span><i class="octopus-analysis-swatch-line octopus-analysis-swatch-line--export"></i> Export price</span>
 </div>
 ${chart}
-<p class="octopus-analysis-chart-hint">Hover bars for carbon score, import price, and time</p>
+<p class="octopus-analysis-chart-hint">Hover bars for carbon score, import/export prices, and time</p>
 </div>`;
 }
 
@@ -2810,7 +2833,7 @@ ${rewardsHtml}
 <div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Import price (48h)</h3>${renderOctopusRateChartSvg(payload.import_rate_slots, { kind: "import" })}</div>
 <div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Export price (48h)</h3>${renderOctopusRateChartSvg(payload.export_rate_slots, { kind: "export" })}</div>
 </div>
-<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Price and carbon overlay</h3><p class="octopus-greener-intro">Bars show low carbon score; blue line is import price — look for cheap, green periods to run loads or charge the battery.</p>${renderOctopusDualChartSvg(payload.dual_periods)}</div>
+<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Price and carbon overlay</h3><p class="octopus-greener-intro">Bars show low carbon score; blue line is import price and amber is export price — look for cheap, green periods to run loads or charge the battery.</p>${renderOctopusDualChartSvg(payload.dual_periods)}</div>
 ${renderOctopusCarbonInsightsCard(payload.carbon_extremes)}
 ${renderOctopusComplianceCard(payload.compliance)}
 <div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Smart-meter import (14 days)</h3>${renderOctopusConsumptionChartSvg(payload.consumption)}</div>
@@ -10071,6 +10094,8 @@ const STYLES = `
   vertical-align: middle;
   border-top: 2px solid #03a9f4;
 }
+.octopus-analysis-swatch-line--import { border-top-color: #03a9f4; }
+.octopus-analysis-swatch-line--export { border-top-color: #f59e0b; }
 .octopus-analysis-chart-hint {
   margin: 8px 0 0;
   font-size: 11px;

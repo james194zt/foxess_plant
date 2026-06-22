@@ -144,13 +144,18 @@ def carbon_extremes(periods: list[dict[str, Any]], *, now_ms: int | None = None)
 def merge_price_and_carbon(
     rate_slots: list[dict[str, Any]],
     carbon_periods: list[dict[str, Any]],
+    export_slots: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Align half-hour import rates with carbon intensity for dual-axis charts."""
+    """Align half-hour import/export rates with carbon intensity for dual-axis charts."""
     carbon_by_start = {p["start_ms"]: p for p in carbon_periods if p.get("start_ms") is not None}
+    export_by_start = {
+        p["start_ms"]: p for p in (export_slots or []) if p.get("start_ms") is not None
+    }
     merged: list[dict[str, Any]] = []
     for slot in rate_slots:
         start_ms = slot.get("start_ms")
         carbon = carbon_by_start.get(start_ms) if start_ms is not None else None
+        export_slot = export_by_start.get(start_ms) if start_ms is not None else None
         gco2 = carbon.get("gco2_per_kwh") if carbon else None
         score = carbon.get("low_carbon_score") if carbon else None
         if score is None and gco2 is not None:
@@ -160,6 +165,7 @@ def merge_price_and_carbon(
                 "start_ms": start_ms,
                 "end_ms": slot.get("end_ms"),
                 "p_per_kwh": slot.get("p_per_kwh"),
+                "export_p_per_kwh": export_slot.get("p_per_kwh") if export_slot else None,
                 "gco2_per_kwh": gco2,
                 "low_carbon_score": score,
                 "is_green": gco2 is not None and float(gco2) < GREEN_THRESHOLD_GCO2,
@@ -434,7 +440,7 @@ async def build_octopus_analysis_snapshot(
     export_rates = normalize_rate_periods(octopus_cache.get("export_rates") or [])
     import_slots = expand_rates_to_half_hours(import_rates, now_ms=now_ms)
     export_slots = expand_rates_to_half_hours(export_rates, now_ms=now_ms) if export_rates else []
-    dual_periods = merge_price_and_carbon(import_slots, carbon_periods)
+    dual_periods = merge_price_and_carbon(import_slots, carbon_periods, export_slots)
 
     snapshot: dict[str, Any] = {
         "fetched_at": dt_util.utcnow().isoformat(),
