@@ -204,3 +204,29 @@ def compute_forecast_metrics(
         "power_in_1_hour_w": power_1h_w,
         "detailed_forecast_ha": detailed_ha,
     }
+
+
+def apply_forecast_metrics(
+    parsed: dict[str, Any] | None,
+    hass: HomeAssistant | None = None,
+) -> dict[str, Any]:
+    """Merge sensor-ready metrics into pv_forecast_parsed from detailed_forecast rows."""
+    if not isinstance(parsed, dict):
+        return {}
+    rows = parsed.get("detailed_forecast")
+    if not isinstance(rows, list) or not rows:
+        return dict(parsed)
+    metrics = compute_forecast_metrics(hass, rows)
+    if not metrics:
+        return dict(parsed)
+    out = dict(parsed)
+    out["forecast_metrics"] = metrics
+    for key, value in metrics.items():
+        if key != "detailed_forecast_ha":
+            out[key] = value
+    if metrics.get("power_now_w") is not None:
+        out["power_now_kw"] = metrics["power_now_w"] / 1000.0
+    if metrics.get("forecast_remaining_today_kwh") is not None:
+        out["energy_remaining_kwh"] = metrics["forecast_remaining_today_kwh"]
+    out["period_count"] = len(rows)
+    return out

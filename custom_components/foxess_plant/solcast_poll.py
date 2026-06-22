@@ -328,6 +328,9 @@ def solcast_status_dict(
         out["cache_updated_at"] = cache.get("updated_at")
         pv_parsed = cache.get("pv_forecast_parsed")
         if isinstance(pv_parsed, dict):
+            from .solcast_forecast_metrics import apply_forecast_metrics
+
+            pv_parsed = apply_forecast_metrics(pv_parsed, hass)
             out["pv_forecast_available"] = bool(pv_parsed.get("detailed_forecast"))
             out["detailed_forecast"] = pv_parsed.get("detailed_forecast") or []
             out["detailed_forecast_by_site"] = pv_parsed.get("detailed_forecast_by_site") or {}

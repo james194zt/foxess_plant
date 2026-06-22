@@ -163,13 +163,6 @@ def parse_detailed_forecast(
             per_site[f"detailedForecast_{label}"] = rows
 
     combined = merge_rooftop_forecasts(payloads)
-    now_kw = None
-    if combined:
-        now_kw = combined[0]["pv_estimate"]
-    energy_remaining = sum(
-        row["pv_estimate"] * 0.5 for row in combined
-    )  # PT30M ≈ 0.5h per interval; refined below
-
     period_hours = 0.5
     energy_remaining = 0.0
     for i, row in enumerate(combined):
@@ -180,29 +173,17 @@ def parse_detailed_forecast(
                 period_hours = max(0.083, (t1 - t0).total_seconds() / 3600.0)
         energy_remaining += row["pv_estimate"] * period_hours
 
-    from .solcast_forecast_metrics import compute_forecast_metrics
-
-    metrics = compute_forecast_metrics(hass, combined) if combined else {}
-    power_now_kw = now_kw
-    if metrics.get("power_now_w") is not None:
-        power_now_kw = metrics["power_now_w"] / 1000.0
-    remaining_kwh = metrics.get("forecast_remaining_today_kwh")
-    if remaining_kwh is None and combined:
-        remaining_kwh = round(energy_remaining, 2)
+    from .solcast_forecast_metrics import apply_forecast_metrics
 
     out: dict[str, Any] = {
         "detailed_forecast": combined,
         "detailed_forecast_by_site": per_site,
-        "power_now_kw": power_now_kw,
-        "energy_remaining_kwh": remaining_kwh,
         "period_count": len(combined),
     }
-    if metrics:
-        out["forecast_metrics"] = metrics
-        for key, value in metrics.items():
-            if key != "detailed_forecast_ha":
-                out[key] = value
-    return out
+    if combined:
+        out["power_now_kw"] = combined[0]["pv_estimate"]
+        out["energy_remaining_kwh"] = round(energy_remaining, 2)
+    return apply_forecast_metrics(out, hass)
 
 
 def _parse_dt(value: str | None) -> datetime | None:

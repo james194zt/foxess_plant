@@ -336,18 +336,17 @@ class FoxessPlantSolcastForecastSensor(CoordinatorEntity[FoxessPlantCoordinator]
     def _solcast(self) -> dict[str, Any]:
         return (self.coordinator.data or {}).get("solcast") or {}
 
-    @property
-    def available(self) -> bool:
+    def _solcast_metric_value(self) -> float | datetime | None:
         sc = self._solcast()
-        if not sc.get("enabled") or not sc.get("api_key_set"):
-            return False
-        if not sc.get("pv_forecast_available") and not sc.get("detailed_forecast"):
-            return False
-        return sc.get(self._spec.metric_key) is not None
+        raw = sc.get(self._spec.metric_key)
+        if raw is None:
+            rows = sc.get("detailed_forecast") or []
+            if rows:
+                from .solcast_forecast_metrics import compute_forecast_metrics
 
-    @property
-    def native_value(self) -> float | datetime | None:
-        raw = self._solcast().get(self._spec.metric_key)
+                raw = compute_forecast_metrics(self.coordinator.hass, rows).get(
+                    self._spec.metric_key
+                )
         if raw is None:
             return None
         if self._spec.is_timestamp:
@@ -356,6 +355,19 @@ class FoxessPlantSolcastForecastSensor(CoordinatorEntity[FoxessPlantCoordinator]
             parsed = dt_util.parse_datetime(str(raw))
             return dt_util.as_utc(parsed) if parsed else None
         return float(raw)
+
+    @property
+    def available(self) -> bool:
+        sc = self._solcast()
+        if not sc.get("enabled") or not sc.get("api_key_set"):
+            return False
+        if not sc.get("pv_forecast_available") and not sc.get("detailed_forecast"):
+            return False
+        return self._solcast_metric_value() is not None
+
+    @property
+    def native_value(self) -> float | datetime | None:
+        return self._solcast_metric_value()
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:

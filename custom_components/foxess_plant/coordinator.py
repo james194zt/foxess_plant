@@ -262,6 +262,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not _snapshot_has_forecast(cache):
             return False
         self._solcast_cache = cache
+        self._enrich_solcast_cache_metrics()
         _LOGGER.debug("Restored Solcast forecast cache from in-memory poll history")
         return True
 
@@ -337,6 +338,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._solcast_cache = cache_from_storage(stored)
             if len(self._solcast_detailed_forecast_rows()) < 2:
                 self._restore_solcast_cache_from_memory()
+            self._enrich_solcast_cache_metrics()
             self._solcast_history_count = SolcastForecastStore.history_count(stored)
             self._solcast_storage_load_failed = False
             if self._solcast_detailed_forecast_rows():
@@ -893,6 +895,15 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._remember_solcast_stored(repaired if isinstance(repaired, dict) else {})
         _LOGGER.info("Repaired Solcast forecast storage from history snapshot")
 
+    def _enrich_solcast_cache_metrics(self) -> None:
+        """Refresh time-sensitive Solcast sensor metrics from cached detailed_forecast rows."""
+        parsed = self._solcast_cache.get("pv_forecast_parsed")
+        if not isinstance(parsed, dict):
+            return
+        from .solcast_forecast_metrics import apply_forecast_metrics
+
+        self._solcast_cache["pv_forecast_parsed"] = apply_forecast_metrics(parsed, self.hass)
+
     def _solcast_pv_active(self) -> bool:
         """True when automatic Solcast PV polling is configured (matches async_refresh_solcast gates)."""
         sc = self.plant.solcast
@@ -944,6 +955,14 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._restore_solcast_cache_from_memory()
         if not allow_poll:
             return
+        if len(self._solcast_detailed_forecast_rows()) < 2 and self._solcast_pv_active():
+            if not self.plant.solcast.last_fetch_at:
+                try:
+                    await self._async_refresh_solcast_pv(force=True)
+                except Exception:
+                    _LOGGER.exception("Initial Solcast PV forecast fetch failed")
+                if len(self._solcast_detailed_forecast_rows()) >= 2:
+                    return
         if self._solcast_forecast_covers_now():
             return
         if self._solcast_poll_due():
@@ -1867,6 +1886,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_update_data(self) -> dict[str, Any]:
         await self.async_ensure_solcast_cache()
+        self._enrich_solcast_cache_metrics()
         try:
             await self._evaluate_smart_charge()
         except Exception as err:
