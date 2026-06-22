@@ -9346,9 +9346,11 @@ function applySocDrag(d, thumb, pct) {
 const STYLES = `
 :host {
   display: block;
-  height: auto;
-  min-height: 100%;
-  overflow: visible;
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
   font-family: var(--ha-font-family, Roboto, sans-serif);
   background: var(--primary-background-color);
   color: var(--primary-text-color);
