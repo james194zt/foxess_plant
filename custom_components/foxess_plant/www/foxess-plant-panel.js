@@ -3528,9 +3528,9 @@ function tariffSettingsSummary(tariff) {
   return parts.join(" · ") + status;
 }
 
-/** Google Weather API v2 icons — https://gitlab.com/bignutty/google-weather-icons (icons/weather/v2) */
-const GOOGLE_WEATHER_ICON_VER = 1;
-const GOOGLE_WEATHER_ICON_BASE = "/foxess_plant_panel/weather/v2";
+/** Google Weather API icons — https://gitlab.com/bignutty/google-weather-icons (icons/weather/v1) */
+const GOOGLE_WEATHER_ICON_VER = 3;
+const GOOGLE_WEATHER_ICON_BASE = "/foxess_plant_panel/weather/v1";
 
 function googleWeatherIconTheme(hass) {
   return resolveHaUiDark(hass) ? "dark" : "light";
@@ -3633,6 +3633,7 @@ function googleWeatherIconFileFromGoogleType(type, isNight) {
   ) {
     return "wintry_mix.svg";
   }
+  if (token === "MIXED_RAIN_HAIL_SLEET") return "mixed_rain_hail_sleet.svg";
   if (token === "HAIL" || token === "HAIL_SHOWERS") return "sleet_hail.svg";
   if (token === "ICY") return "icy.svg";
   if (
@@ -3645,16 +3646,21 @@ function googleWeatherIconFileFromGoogleType(type, isNight) {
     token === "SAND" ||
     token === "SANDSTORM"
   ) {
+    return "haze_fog_dust_smoke.svg";
+  }
+  if (token === "FOG" || token === "HAZE" || token === "MIST" || token === "SMOG") {
     return "haze_fog.svg";
   }
+  if (token === "ISOLATED_THUNDERSTORMS") return "isolated_tstorms.svg";
   if (
     token === "THUNDERSTORM" ||
     token === "THUNDERSHOWER" ||
-    token === "LIGHT_THUNDERSTORM_RAIN" ||
-    token === "SCATTERED_THUNDERSTORMS" ||
-    token === "ISOLATED_THUNDERSTORMS"
+    token === "LIGHT_THUNDERSTORM_RAIN"
   ) {
     return dn("thunderstorms_day.svg", "thunderstorms_night.svg");
+  }
+  if (token === "SCATTERED_THUNDERSTORMS") {
+    return dn("isolated_scattered_tstorms_day.svg", "isolated_scattered_tstorms_night.svg");
   }
   if (
     token === "HEAVY_THUNDERSTORM" ||
