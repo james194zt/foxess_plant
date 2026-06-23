@@ -222,6 +222,7 @@ def evaluate_smart_charge(
     live_load_kw: float | None = None,
     daily_plan: list[dict[str, Any]] | None = None,
     horizon_hours: float = 24.0,
+    tariff_type: str | None = None,
 ) -> SmartChargeDecision:
     """Strategy entry — reserve floor, export peaks, house-load budget, tactical interrupts."""
     ctx = build_context(
@@ -232,6 +233,7 @@ def evaluate_smart_charge(
         forecast_rows=forecast_rows,
         live_load_kw=live_load_kw,
         horizon_hours=horizon_hours,
+        tariff_type=tariff_type,
     )
 
     if _config_bool(config, "negative_import_interrupt", True):

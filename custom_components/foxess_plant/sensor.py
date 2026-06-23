@@ -218,6 +218,7 @@ async def async_setup_entry(
                 coordinator, entry, kind, unit, name, icon, device_class, state_class
             )
         )
+    entities.append(FoxessPlantSmartChargeDecisionSensor(coordinator, entry))
     async_add_entities(entities)
 
 
@@ -501,6 +502,43 @@ class FoxessPlantOctopusConsumptionSensor(CoordinatorEntity[FoxessPlantCoordinat
 
     async def async_publish(self) -> None:
         self.async_write_ha_state()
+
+
+class FoxessPlantSmartChargeDecisionSensor(CoordinatorEntity[FoxessPlantCoordinator], SensorEntity):
+    """SmartCharge tactical decision and daily plan snapshot for automations."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:battery-charging-wireless"
+
+    def __init__(self, coordinator: FoxessPlantCoordinator, entry: ConfigEntry) -> None:
+        super().__init__(coordinator)
+        self._entry = entry
+        self._attr_device_info = plant_device_info(entry)
+        self._attr_unique_id = f"{entry.entry_id}_smart_charge_decision"
+        self._attr_name = f"{entry.title} smart charge decision"
+
+    @property
+    def native_value(self) -> str:
+        decision = (self.coordinator.data or {}).get("smart_charge", {}).get("decision") or {}
+        return str(decision.get("action") or "idle")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        state = self.coordinator.data or {}
+        smart = state.get("smart_charge") or {}
+        decision = smart.get("decision") or {}
+        return {
+            "armed": smart.get("armed"),
+            "discharge_armed": smart.get("discharge_armed"),
+            "reason": decision.get("reason"),
+            "eval_tier": decision.get("eval_tier"),
+            "operating_mode": decision.get("operating_mode"),
+            "decision": decision,
+            "daily_plan": smart.get("daily_plan"),
+            "current_plan_slot": decision.get("current_plan_slot"),
+            "spread_pairs": decision.get("spread_pairs"),
+            "planned_spread_profit_p": decision.get("planned_spread_profit_p"),
+        }
 
 
 class FoxessPlantGlowSensor(CoordinatorEntity[FoxessPlantCoordinator], SensorEntity):

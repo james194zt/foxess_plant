@@ -764,6 +764,15 @@ class TariffDynamicConfig:
             and self.source == OCTOPUS_SOURCE_NATIVE
         )
 
+    def entity_octopus(self) -> bool:
+        from .octopus_tariff import OCTOPUS_PROVIDER, OCTOPUS_SOURCE_ENTITY
+
+        return (
+            self.enabled
+            and self.provider == OCTOPUS_PROVIDER
+            and self.source == OCTOPUS_SOURCE_ENTITY
+        )
+
     def to_dict(self, *, include_api_key: bool = True) -> dict[str, Any]:
         out: dict[str, Any] = {
             "enabled": self.enabled,

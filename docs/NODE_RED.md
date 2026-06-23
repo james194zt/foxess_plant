@@ -34,6 +34,7 @@ Response fields include:
 - `desired_periods`, `actual_periods`, `drift`
 - `analytics` (self-consumption, self-sufficiency, kWh splits)
 - `active_storm_triggers`, `active_outage_triggers`, `forecast_armed`
+- `smart_charge` (decision, daily plan, armed, discharge_armed)
 - `plant_id`, `inverter`, `entity_map`, `tariff_modes`
 
 ## Example: listen for drift
@@ -80,6 +81,44 @@ When tomorrow's forecast drops below threshold, plant arms overnight charge auto
 | `foxess_plant_forecast_disarmed` | Forecast prep cleared |
 | `foxess_plant_tariff_applied` | Tariff mode applied |
 | `foxess_plant_baseline_restored` | Baseline reapplied |
+| `foxess_plant_smart_charge_armed` | SmartCharge grid charge or export armed |
+| `foxess_plant_smart_charge_disarmed` | SmartCharge override cleared |
+
+## SmartCharge automation
+
+SmartCharge combines Solcast PV forecast with Octopus Agile (or entity-mode rate sensors). **StormSafe and outage prep always override** SmartCharge.
+
+### Read state
+
+Use `foxess_plant.get_plant_state` or the diagnostic sensor `{plant} smart charge decision`:
+
+- `smart_charge.decision.action` — `grid_charge`, `arbitrage`, `export_discharge`, `spread_plan`, `idle`, etc.
+- `smart_charge.decision.reason` — human-readable explanation
+- `smart_charge.daily_plan` — next 24h slot list (built at daily plan time, default 16:00 UK)
+- `smart_charge.armed` / `smart_charge.discharge_armed` — grid charge vs Force Discharge export
+- `smart_charge_armed` binary sensor — on when either charge or export is armed
+
+### Entity-mode Octopus rates
+
+When Octopus is configured in **entity mode** (external HA rate sensors instead of the native API), point **import** at a sensor or event entity that exposes a `rates` array (e.g. Octopus Energy `event.*_current_day_rates`). Each rate row needs `start`/`end` (or `valid_from`/`valid_to`) and `value_inc_vat`. SmartCharge rebuilds half-hour slots from that timeline.
+
+### Example: alert on negative import
+
+**Trigger:** state node on `{plant} smart charge decision` where `action` = `arbitrage`
+
+**Action:** notify mobile app with `reason` attribute.
+
+### Example: pause automations during SmartCharge export
+
+**Trigger:** `{plant} smart charge active` binary → on
+
+**Condition:** attribute `decision.action` on decision sensor = `export_discharge`
+
+**Action:** your custom flow (e.g. defer EV charging).
+
+### Example: replan after cheap Agile plunge
+
+SmartCharge already replans on material import price drops (configurable threshold). For Node-RED visibility, listen for `foxess_plant_smart_charge_armed` with reason containing `Spread` or `Negative import`.
 
 ## Maintenance mode
 

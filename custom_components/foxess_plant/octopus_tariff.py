@@ -114,6 +114,10 @@ def is_variable_tariff_type(tariff_type: str) -> bool:
     return tariff_type in (TARIFF_TYPE_AGILE, TARIFF_TYPE_TRACKER)
 
 
+def is_tracker_tariff_type(tariff_type: str | None) -> bool:
+    return str(tariff_type or "") == TARIFF_TYPE_TRACKER
+
+
 def list_account_meters(account: dict[str, Any]) -> tuple[list[OctopusMeterSummary], list[OctopusMeterSummary]]:
     """Split import and export electricity meter points from an account payload."""
     import_meters: list[OctopusMeterSummary] = []

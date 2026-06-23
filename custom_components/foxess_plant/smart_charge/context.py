@@ -43,6 +43,7 @@ def build_context(
     forecast_rows: list[dict[str, Any]],
     live_load_kw: float | None,
     horizon_hours: float,
+    tariff_type: str | None = None,
 ) -> dict[str, Any]:
     operating_mode = str(getattr(config, "operating_mode", OPERATING_MODE_MAX_SAFETY) or OPERATING_MODE_MAX_SAFETY)
     load_kw = effective_home_load_kw(config, live_load_kw)
@@ -72,4 +73,5 @@ def build_context(
         "grid_gap_kwh": budget.grid_gap_kwh,
         "dark_hours_kwh": budget.dark_hours_kwh,
         "budget": budget,
+        "tariff_type": tariff_type,
     }

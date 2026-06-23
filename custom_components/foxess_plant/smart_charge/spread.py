@@ -121,7 +121,10 @@ def optimize_spread_plan(
             export_scores.append((i, export_p, profit))
 
     pairs_meta: list[dict[str, Any]] = []
-    if bool(getattr(config, "spread_optimizer_enabled", True)):
+    from ..octopus_tariff import is_tracker_tariff_type
+
+    spread_enabled = bool(getattr(config, "spread_optimizer_enabled", True))
+    if spread_enabled and not is_tracker_tariff_type(ctx.get("tariff_type")):
         charge_sorted = sorted(charge_scores, key=lambda row: row[1])
         raw_pairs = pair_spread_indices(charge_sorted, export_scores, min_profit_p=threshold)
         for ci, ei, profit in raw_pairs:

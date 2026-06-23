@@ -67,6 +67,40 @@ def rate_slots_from_octopus(
     return slots
 
 
+def merge_rate_slots_to_hours(slots: list[RateSlot]) -> list[RateSlot]:
+    """Collapse half-hour Agile slots into hourly windows (Tracker tariffs)."""
+    if not slots:
+        return []
+    merged: list[RateSlot] = []
+    bucket: RateSlot | None = None
+    for slot in slots:
+        local = dt_util.as_local(slot.start)
+        hour_key = (local.year, local.month, local.day, local.hour)
+        if bucket is None:
+            bucket = slot
+            bucket_hour = hour_key
+            continue
+        same_hour = hour_key == bucket_hour
+        same_rates = (
+            round(bucket.import_p_per_kwh, 4) == round(slot.import_p_per_kwh, 4)
+            and round(bucket.export_p_per_kwh or 0, 4) == round(slot.export_p_per_kwh or 0, 4)
+        )
+        if same_hour and same_rates:
+            bucket = RateSlot(
+                start=bucket.start,
+                end=slot.end,
+                import_p_per_kwh=bucket.import_p_per_kwh,
+                export_p_per_kwh=bucket.export_p_per_kwh,
+            )
+        else:
+            merged.append(bucket)
+            bucket = slot
+            bucket_hour = hour_key
+    if bucket is not None:
+        merged.append(bucket)
+    return merged
+
+
 def rate_slots_from_schedule(
     tariff: Any,
     *,

@@ -117,4 +117,5 @@ class FoxessPlantSmartChargeActiveBinary(_PlantBinary):
     @property
     def is_on(self) -> bool:
         data = self.coordinator.data or {}
-        return bool(data.get("smart_charge_armed"))
+        smart = data.get("smart_charge") or {}
+        return bool(data.get("smart_charge_armed")) or bool(smart.get("discharge_armed"))

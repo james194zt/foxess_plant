@@ -54,6 +54,7 @@ def build_daily_plan(
     soc_pct: float | None = None,
     carbon_periods: list[dict[str, Any]] | None = None,
     greener_nights: list[dict[str, Any]] | None = None,
+    tariff_type: str | None = None,
 ) -> list[dict[str, Any]]:
     """Build next 24h plan (or rest-of-today before daily plan time)."""
     ctx = build_context(
@@ -64,6 +65,7 @@ def build_daily_plan(
         forecast_rows=forecast_rows,
         live_load_kw=live_load_kw,
         horizon_hours=horizon_hours,
+        tariff_type=tariff_type,
     )
 
     now = dt_util.utcnow()
