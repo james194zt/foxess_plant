@@ -289,6 +289,14 @@ class SmartChargeConfig:
     exportable_fraction_profit: float = 1.0
     exportable_fraction_safety: float = 0.35
     exportable_fraction_green: float = 0.15
+    spread_optimizer_enabled: bool = True
+    min_spread_profit_p_per_kwh: float = 3.0
+    peak_import_avoid_start: str = "16:00"
+    peak_import_avoid_end: str = "19:00"
+    winter_fill_enabled: bool = True
+    green_export_spread_multiplier: float = 2.0
+    cheap_import_p_per_kwh: float = 8.0
+    peak_import_penalty_p_per_kwh: float = 5.0
     charge_periods: list[ChargePeriodConfig] = field(default_factory=list)
 
     @classmethod
@@ -338,6 +346,16 @@ class SmartChargeConfig:
             exportable_fraction_profit=float(data.get("exportable_fraction_profit", 1.0) or 1.0),
             exportable_fraction_safety=float(data.get("exportable_fraction_safety", 0.35) or 0.35),
             exportable_fraction_green=float(data.get("exportable_fraction_green", 0.15) or 0.15),
+            spread_optimizer_enabled=bool(data.get("spread_optimizer_enabled", True)),
+            min_spread_profit_p_per_kwh=float(data.get("min_spread_profit_p_per_kwh", 3.0) or 3.0),
+            peak_import_avoid_start=str(data.get("peak_import_avoid_start", "16:00") or "16:00"),
+            peak_import_avoid_end=str(data.get("peak_import_avoid_end", "19:00") or "19:00"),
+            winter_fill_enabled=bool(data.get("winter_fill_enabled", True)),
+            green_export_spread_multiplier=float(
+                data.get("green_export_spread_multiplier", 2.0) or 2.0
+            ),
+            cheap_import_p_per_kwh=float(data.get("cheap_import_p_per_kwh", 8.0) or 8.0),
+            peak_import_penalty_p_per_kwh=float(data.get("peak_import_penalty_p_per_kwh", 5.0) or 5.0),
             charge_periods=[ChargePeriodConfig.from_dict(p) for p in periods_raw],
         )
 
@@ -374,6 +392,14 @@ class SmartChargeConfig:
             "exportable_fraction_profit": round(self.exportable_fraction_profit, 2),
             "exportable_fraction_safety": round(self.exportable_fraction_safety, 2),
             "exportable_fraction_green": round(self.exportable_fraction_green, 2),
+            "spread_optimizer_enabled": self.spread_optimizer_enabled,
+            "min_spread_profit_p_per_kwh": round(self.min_spread_profit_p_per_kwh, 2),
+            "peak_import_avoid_start": self.peak_import_avoid_start,
+            "peak_import_avoid_end": self.peak_import_avoid_end,
+            "winter_fill_enabled": self.winter_fill_enabled,
+            "green_export_spread_multiplier": round(self.green_export_spread_multiplier, 2),
+            "cheap_import_p_per_kwh": round(self.cheap_import_p_per_kwh, 2),
+            "peak_import_penalty_p_per_kwh": round(self.peak_import_penalty_p_per_kwh, 2),
             "charge_periods": [p.to_dict() for p in self.charge_periods],
         }
 

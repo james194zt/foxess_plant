@@ -1,4 +1,4 @@
-"""Daily plan builder — charge, export, and idle slots for next 24h."""
+"""Daily plan builder — spread optimizer, charge, export, and idle slots."""
 
 from __future__ import annotations
 
@@ -7,10 +7,9 @@ from typing import Any
 
 from homeassistant.util import dt as dt_util
 
-from .export_limits import export_allowed_for_mode, mode_export_limits
-from .export_peak import planned_export_kwh, solcast_covers_export_recharge
 from .context import build_context, config_float
-from .grid_charge import _fmt_hhmm, _merge_slots
+from .grid_charge import _merge_slots
+from .spread import optimize_spread_plan
 from .types import RateSlot
 
 
@@ -53,8 +52,10 @@ def build_daily_plan(
     capacity_kwh: float | None = None,
     kwh_remaining: float | None = None,
     soc_pct: float | None = None,
+    carbon_periods: list[dict[str, Any]] | None = None,
+    greener_nights: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Build next 24h plan (or rest-of-today before daily plan time) with export peaks."""
+    """Build next 24h plan (or rest-of-today before daily plan time)."""
     ctx = build_context(
         config=config,
         soc_pct=soc_pct,
@@ -64,63 +65,32 @@ def build_daily_plan(
         live_load_kw=live_load_kw,
         horizon_hours=horizon_hours,
     )
-    exportable = exportable_kwh if exportable_kwh is not None else ctx.get("exportable_kwh")
-    operating_mode = ctx["operating_mode"]
-    min_export_p, _ = mode_export_limits(operating_mode, config)
-    margin = config_float(config, "solar_safety_margin", 1.15)
-    allow_export = export_allowed_for_mode(operating_mode, config)
 
     now = dt_util.utcnow()
     end = plan_horizon_end(config=config, horizon_hours=horizon_hours, when=now)
-    plan: list[dict[str, Any]] = []
-    for slot in _merge_slots(import_slots):
-        if slot.end <= now or slot.start >= end:
-            continue
-        export_p = slot.export_p_per_kwh
-        entry: dict[str, Any] = {
-            "start": _fmt_hhmm(slot.start),
-            "end": _fmt_hhmm(slot.end),
-            "import_p_per_kwh": round(slot.import_p_per_kwh, 4),
-            "export_p_per_kwh": round(export_p, 4) if export_p is not None else None,
-        }
-        if slot.import_p_per_kwh < 0:
-            entry["action"] = "charge"
-            entry["reason"] = "negative_import"
-        elif allow_export and export_p is not None and export_p >= min_export_p:
-            export_kwh = planned_export_kwh(
-                exportable_kwh=exportable,
-                slot=slot,
-                operating_mode=operating_mode,
-                config=config,
-            )
-            if export_kwh and solcast_covers_export_recharge(
-                forecast_rows,
-                export_kwh=export_kwh,
-                solar_safety_margin=margin,
-                horizon_hours=horizon_hours,
-            ):
-                entry["action"] = "export"
-                entry["reason"] = "high_export"
-                entry["planned_export_kwh"] = export_kwh
-            elif slot.import_p_per_kwh <= 5.0:
-                entry["action"] = "charge_candidate"
-                entry["reason"] = "cheap_import"
-            else:
-                entry["action"] = "idle"
-                entry["reason"] = "hold"
-        elif slot.import_p_per_kwh <= 5.0:
-            entry["action"] = "charge_candidate"
-            entry["reason"] = "cheap_import"
-        else:
-            entry["action"] = "idle"
-            entry["reason"] = "hold"
-        plan.append(entry)
+    horizon_slots = [s for s in _merge_slots(import_slots) if s.end > now and s.start < end]
+
+    plan, pairs = optimize_spread_plan(
+        config=config,
+        slots=horizon_slots,
+        ctx=ctx,
+        forecast_rows=forecast_rows,
+        horizon_hours=horizon_hours,
+        carbon_periods=carbon_periods,
+        greener_nights=greener_nights,
+        exportable_kwh=exportable_kwh,
+    )
 
     meta = {
-        "operating_mode": operating_mode,
+        "operating_mode": ctx["operating_mode"],
         "grid_gap_kwh": ctx["grid_gap_kwh"],
         "reserve_kwh": ctx["reserve_kwh"],
         "plan_horizon": "24h" if is_after_daily_plan_time(config) else "rest_of_today",
+        "spread_pairs": pairs,
+        "spread_optimizer": bool(getattr(config, "spread_optimizer_enabled", True)),
+        "expected_spread_profit_p": round(sum(p.get("spread_p_per_kwh", 0) for p in pairs), 2)
+        if pairs
+        else None,
     }
     if plan:
         plan[0].update(meta)
@@ -163,3 +133,11 @@ def current_plan_slot(
         except (TypeError, ValueError, IndexError):
             continue
     return None
+
+
+__all__ = [
+    "build_daily_plan",
+    "current_plan_slot",
+    "is_after_daily_plan_time",
+    "plan_horizon_end",
+]

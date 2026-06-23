@@ -824,6 +824,14 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
                 "exportable_fraction_profit",
                 "exportable_fraction_safety",
                 "exportable_fraction_green",
+                "spread_optimizer_enabled",
+                "min_spread_profit_p_per_kwh",
+                "peak_import_avoid_start",
+                "peak_import_avoid_end",
+                "winter_fill_enabled",
+                "green_export_spread_multiplier",
+                "cheap_import_p_per_kwh",
+                "peak_import_penalty_p_per_kwh",
                 "charge_periods",
             )
             if key in msg

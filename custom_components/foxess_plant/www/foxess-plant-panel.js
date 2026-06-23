@@ -13373,6 +13373,14 @@ Reloading panel registration…
       exportable_fraction_profit: sc.exportable_fraction_profit ?? 1,
       exportable_fraction_safety: sc.exportable_fraction_safety ?? 0.35,
       exportable_fraction_green: sc.exportable_fraction_green ?? 0.15,
+      spread_optimizer_enabled: sc.spread_optimizer_enabled !== false,
+      min_spread_profit_p_per_kwh: sc.min_spread_profit_p_per_kwh ?? 3,
+      peak_import_avoid_start: sc.peak_import_avoid_start ?? "16:00",
+      peak_import_avoid_end: sc.peak_import_avoid_end ?? "19:00",
+      winter_fill_enabled: sc.winter_fill_enabled !== false,
+      green_export_spread_multiplier: sc.green_export_spread_multiplier ?? 2,
+      cheap_import_p_per_kwh: sc.cheap_import_p_per_kwh ?? 8,
+      peak_import_penalty_p_per_kwh: sc.peak_import_penalty_p_per_kwh ?? 5,
       charge_periods: periods,
     };
   }
@@ -13426,6 +13434,14 @@ Reloading panel registration…
         exportable_fraction_profit: Number(d.exportable_fraction_profit) || 1,
         exportable_fraction_safety: Number(d.exportable_fraction_safety) || 0.35,
         exportable_fraction_green: Number(d.exportable_fraction_green) || 0.15,
+        spread_optimizer_enabled: Boolean(d.spread_optimizer_enabled),
+        min_spread_profit_p_per_kwh: Number(d.min_spread_profit_p_per_kwh) || 3,
+        peak_import_avoid_start: String(d.peak_import_avoid_start || "16:00"),
+        peak_import_avoid_end: String(d.peak_import_avoid_end || "19:00"),
+        winter_fill_enabled: Boolean(d.winter_fill_enabled),
+        green_export_spread_multiplier: Number(d.green_export_spread_multiplier) || 2,
+        cheap_import_p_per_kwh: Number(d.cheap_import_p_per_kwh) || 8,
+        peak_import_penalty_p_per_kwh: Number(d.peak_import_penalty_p_per_kwh) || 5,
         charge_periods: d.charge_periods,
       });
       if (state) this._plantState = state;
@@ -15278,6 +15294,40 @@ Reloading panel registration…
       }
       if (field === "exportable_fraction_green") {
         this._smartChargeDraft.exportable_fraction_green = Math.max(0.05, Math.min(1, parseFloat(el.value) || 0.15));
+        return;
+      }
+      if (field === "spread_optimizer_enabled") {
+        this._smartChargeDraft.spread_optimizer_enabled = el.checked;
+        this._scheduleRender();
+        return;
+      }
+      if (field === "min_spread_profit_p_per_kwh") {
+        this._smartChargeDraft.min_spread_profit_p_per_kwh = Math.max(0, parseFloat(el.value) || 3);
+        return;
+      }
+      if (field === "peak_import_avoid_start") {
+        this._smartChargeDraft.peak_import_avoid_start = el.value || "16:00";
+        return;
+      }
+      if (field === "peak_import_avoid_end") {
+        this._smartChargeDraft.peak_import_avoid_end = el.value || "19:00";
+        return;
+      }
+      if (field === "winter_fill_enabled") {
+        this._smartChargeDraft.winter_fill_enabled = el.checked;
+        this._scheduleRender();
+        return;
+      }
+      if (field === "green_export_spread_multiplier") {
+        this._smartChargeDraft.green_export_spread_multiplier = Math.max(1, parseFloat(el.value) || 2);
+        return;
+      }
+      if (field === "cheap_import_p_per_kwh") {
+        this._smartChargeDraft.cheap_import_p_per_kwh = Math.max(0, parseFloat(el.value) || 8);
+        return;
+      }
+      if (field === "peak_import_penalty_p_per_kwh") {
+        this._smartChargeDraft.peak_import_penalty_p_per_kwh = Math.max(0, parseFloat(el.value) || 5);
         return;
       }
     }
@@ -19057,6 +19107,9 @@ ${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">
     if (decision.planned_export_kwh != null) {
       metrics.push(`Export ${Number(decision.planned_export_kwh).toFixed(1)} kWh`);
     }
+    if (decision.planned_spread_profit_p != null) {
+      metrics.push(`Spread profit ~${Number(decision.planned_spread_profit_p).toFixed(1)}p/kWh`);
+    }
     if (decision.windows?.length) {
       const w = decision.windows[0];
       const rate =
@@ -19068,13 +19121,27 @@ ${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">
     const dailyPlan = (live.daily_plan ?? decision.daily_plan ?? []).filter(
       (s) => s.start && s.end && s.reason !== "no_slots"
     );
-    const exportSlots = dailyPlan.filter((s) => s.action === "export");
-    const chargeSlots = dailyPlan.filter((s) => s.action === "charge" || s.action === "charge_candidate");
+    const exportSlots = dailyPlan.filter((s) => s.action === "export" || s.action === "spread_export");
+    const chargeSlots = dailyPlan.filter(
+      (s) =>
+        s.action === "charge" ||
+        s.action === "charge_candidate" ||
+        s.action === "spread_charge" ||
+        s.action === "winter_fill"
+    );
+    const spreadPairs =
+      (decision.spread_pairs?.length ? decision.spread_pairs : null) ??
+      (dailyPlan[0]?.spread_pairs?.length ? dailyPlan[0].spread_pairs : []);
     const planHorizon = dailyPlan[0]?.plan_horizon === "24h" ? "24h plan" : "rest-of-today plan";
+    const spreadLabel = spreadPairs.length ? ` · ${spreadPairs.length} spread pair${spreadPairs.length === 1 ? "" : "s"}` : "";
     const planSummary =
       dailyPlan.length > 0
-        ? `${planHorizon}: ${exportSlots.length} export · ${chargeSlots.length} charge · ${dailyPlan.length} slots`
+        ? `${planHorizon}: ${exportSlots.length} export · ${chargeSlots.length} charge · ${dailyPlan.length} slots${spreadLabel}`
         : "No daily plan yet (built at daily plan time after Octopus refresh)";
+    const spreadPreview = spreadPairs
+      .slice(0, 4)
+      .map((p) => `${p.charge_start}→${p.export_start} (+${Number(p.spread_p_per_kwh).toFixed(1)}p)`)
+      .join(" · ");
     const planPreview = dailyPlan
       .slice(0, 12)
       .map((s) => {
@@ -19180,6 +19247,34 @@ ${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">
 <div class="field"><label>Daily plan horizon (hours)</label>
 <input type="number" min="1" max="48" step="1" data-field="smart-charge:daily_plan_horizon_hours" value="${esc(String(draft.daily_plan_horizon_hours ?? 24))}" ${this._busy ? "disabled" : ""}>
 </div>
+<div class="field"><label>Price-drop replan threshold (p/kWh)</label>
+<input type="number" min="0" max="50" step="0.5" data-field="smart-charge:price_drop_interrupt_p_per_kwh" value="${esc(String(draft.price_drop_interrupt_p_per_kwh ?? 2))}" ${this._busy ? "disabled" : ""}>
+<p class="field-hint">On each Agile poll, rebuild the daily plan when an import slot drops by at least this much.</p>
+</div>
+<p class="card-title" style="margin-top:16px">Spread optimizer</p>
+<div class="toggle-row"><span><strong>Enable spread pairing</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Pair cheap import slots with later high export for arbitrage</span></span>
+<input type="checkbox" data-field="smart-charge:spread_optimizer_enabled" ${draft.spread_optimizer_enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+<div class="toggle-row"><span><strong>Winter cheap-fill</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Extra charge slots when solar forecast cannot cover house load</span></span>
+<input type="checkbox" data-field="smart-charge:winter_fill_enabled" ${draft.winter_fill_enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+<div class="field"><label>Min spread profit (p/kWh)</label>
+<input type="number" min="0" max="50" step="0.5" data-field="smart-charge:min_spread_profit_p_per_kwh" value="${esc(String(draft.min_spread_profit_p_per_kwh ?? 3))}" ${this._busy ? "disabled" : ""}>
+</div>
+<div class="field"><label>Cheap import ceiling (p/kWh)</label>
+<input type="number" min="0" max="50" step="0.5" data-field="smart-charge:cheap_import_p_per_kwh" value="${esc(String(draft.cheap_import_p_per_kwh ?? 8))}" ${this._busy ? "disabled" : ""}>
+</div>
+<div class="field"><label>Peak import avoid — start</label>
+<input type="time" data-field="smart-charge:peak_import_avoid_start" value="${esc(String(draft.peak_import_avoid_start ?? "16:00"))}" ${this._busy ? "disabled" : ""}>
+</div>
+<div class="field"><label>Peak import avoid — end</label>
+<input type="time" data-field="smart-charge:peak_import_avoid_end" value="${esc(String(draft.peak_import_avoid_end ?? "19:00"))}" ${this._busy ? "disabled" : ""}>
+</div>
+<div class="field"><label>Peak import penalty (p/kWh)</label>
+<input type="number" min="0" max="50" step="0.5" data-field="smart-charge:peak_import_penalty_p_per_kwh" value="${esc(String(draft.peak_import_penalty_p_per_kwh ?? 5))}" ${this._busy ? "disabled" : ""}>
+</div>
+<div class="field"><label>Green mode spread multiplier</label>
+<input type="number" min="1" max="10" step="0.1" data-field="smart-charge:green_export_spread_multiplier" value="${esc(String(draft.green_export_spread_multiplier ?? 2))}" ${this._busy ? "disabled" : ""}>
+<p class="field-hint">Higher bar for spread pairs in max green mode (uses greener nights and carbon score).</p>
+</div>
 <p class="card-title" style="margin-top:16px">Charge period template</p>
 <p class="field-hint">Start/end times are chosen automatically each evaluation — these flags apply to the programmed window.</p>
 ${this._renderPeriodCard(0, draft.charge_periods[0], "smart-period", "Charge template")}
@@ -19191,6 +19286,7 @@ ${this._renderPeriodCard(1, draft.charge_periods[1], "smart-period", "Reserve pe
 <p style="margin:0 0 8px;font-size:14px">${esc(statusLine)}</p>
 ${metrics.length ? `<p class="field-hint" style="margin:0 0 8px">${esc(metrics.join(" · "))}</p>` : ""}
 <p class="field-hint" style="margin:0">${esc(planSummary)}</p>
+${spreadPreview ? `<p class="field-hint" style="margin:8px 0 0;font-size:12px">Spread pairs: ${esc(spreadPreview)}</p>` : ""}
 ${planPreview ? `<p class="field-hint" style="margin:8px 0 0;font-size:12px">${esc(planPreview)}</p>` : ""}
 </div>`;
   }

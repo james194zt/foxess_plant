@@ -402,6 +402,14 @@ DEFAULT_SMART_CHARGE = {
     "exportable_fraction_profit": 1.0,
     "exportable_fraction_safety": 0.35,
     "exportable_fraction_green": 0.15,
+    "spread_optimizer_enabled": True,
+    "min_spread_profit_p_per_kwh": 3.0,
+    "peak_import_avoid_start": "16:00",
+    "peak_import_avoid_end": "19:00",
+    "winter_fill_enabled": True,
+    "green_export_spread_multiplier": 2.0,
+    "cheap_import_p_per_kwh": 8.0,
+    "peak_import_penalty_p_per_kwh": 5.0,
     "charge_periods": [
         {
             "enable_force_charge": True,

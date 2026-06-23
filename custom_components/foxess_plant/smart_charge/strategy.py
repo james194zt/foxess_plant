@@ -20,6 +20,28 @@ from .grid_charge import (
 from .types import RateSlot, SmartChargeDecision
 
 
+CHARGE_PLAN_ACTIONS = frozenset({"charge", "spread_charge", "winter_fill", "charge_candidate", "arbitrage"})
+EXPORT_PLAN_ACTIONS = frozenset({"export", "spread_export"})
+
+
+def _spread_meta_from_plan(daily_plan: list[dict[str, Any]] | None) -> tuple[list[dict[str, Any]], float | None]:
+    if not daily_plan:
+        return [], None
+    head = daily_plan[0]
+    pairs = head.get("spread_pairs") if isinstance(head.get("spread_pairs"), list) else []
+    profit = head.get("expected_spread_profit_p")
+    return pairs, float(profit) if profit is not None else None
+
+
+def _attach_spread_meta(decision: SmartChargeDecision, daily_plan: list[dict[str, Any]] | None) -> SmartChargeDecision:
+    pairs, profit = _spread_meta_from_plan(daily_plan)
+    if pairs:
+        decision.spread_pairs = pairs
+    if profit is not None:
+        decision.planned_spread_profit_p = profit
+    return decision
+
+
 def _config_bool(config: Any, key: str, default: bool) -> bool:
     value = getattr(config, key, default)
     if value is None:
@@ -170,7 +192,7 @@ def _try_export_decision(
     min_export_p, _ = mode_export_limits(ctx["operating_mode"], config)
     slot: RateSlot | None = None
     eval_tier = "tactical"
-    if plan_slot and plan_slot.get("action") == "export":
+    if plan_slot and plan_slot.get("action") in EXPORT_PLAN_ACTIONS:
         slot = _slot_from_plan_entry(plan_slot, import_slots)
         eval_tier = "daily_plan"
     if slot is None:
@@ -229,6 +251,72 @@ def evaluate_smart_charge(
             )
 
     plan_slot = current_plan_slot(daily_plan)
+    pairs, _ = _spread_meta_from_plan(daily_plan)
+
+    if plan_slot and plan_slot.get("action") in CHARGE_PLAN_ACTIONS:
+        charge_slot = _slot_from_plan_entry(plan_slot, import_slots)
+        if charge_slot is not None:
+            templates = list(getattr(config, "charge_periods", []) or [])
+            if len(templates) < 2:
+                templates = templates + [ChargePeriodConfig()] * (2 - len(templates))
+            periods = _periods_from_block([charge_slot], templates)
+            reason = plan_slot.get("reason") or "daily_plan"
+            if reason == "spread_pair":
+                reason = f"Spread charge {plan_slot.get('start')}-{plan_slot.get('end')}"
+            elif reason == "winter_fill":
+                reason = f"Winter fill {plan_slot.get('start')}-{plan_slot.get('end')}"
+            decision = evaluate_grid_charge(
+                config=config,
+                soc_pct=soc_pct,
+                capacity_kwh=capacity_kwh,
+                kwh_remaining=kwh_remaining,
+                forecast_rows=forecast_rows,
+                import_slots=import_slots,
+                export_slots=export_slots,
+                target_soc_pct=ctx["target_soc_pct"],
+                reserve_kwh=ctx["reserve_kwh"],
+                exportable_kwh=ctx["exportable_kwh"],
+                operating_mode=ctx["operating_mode"],
+                grid_gap_kwh=ctx["grid_gap_kwh"],
+                dark_hours_kwh=ctx["dark_hours_kwh"],
+                eval_tier="daily_plan",
+                daily_plan=daily_plan,
+            )
+            if decision.action in ("grid_charge", "arbitrage"):
+                decision.reason = reason
+                decision.charge_periods = periods
+                decision.eval_tier = "daily_plan"
+                return _attach_spread_meta(decision, daily_plan)
+            if plan_slot.get("action") in ("charge", "spread_charge", "winter_fill"):
+                action = "spread_plan" if reason.startswith("Spread") else "grid_charge"
+                return _attach_spread_meta(
+                    SmartChargeDecision(
+                        action=action,
+                        reason=reason,
+                        charge_periods=periods,
+                        target_max_soc=decision.target_max_soc,
+                        deficit_kwh=decision.deficit_kwh,
+                        forecast_kwh=decision.forecast_kwh,
+                        windows=[
+                            {
+                                "start": _fmt_hhmm_local(charge_slot.start),
+                                "end": _fmt_hhmm_local(charge_slot.end),
+                                "import_p_per_kwh": round(charge_slot.import_p_per_kwh, 4),
+                            }
+                        ],
+                        operating_mode=ctx["operating_mode"],
+                        reserve_kwh=ctx["reserve_kwh"],
+                        exportable_kwh=ctx["exportable_kwh"],
+                        target_soc_effective=ctx["target_soc_pct"],
+                        grid_gap_kwh=ctx["grid_gap_kwh"],
+                        dark_hours_kwh=ctx["dark_hours_kwh"],
+                        daily_plan=daily_plan or [],
+                        eval_tier="daily_plan",
+                        spread_pairs=pairs,
+                    ),
+                    daily_plan,
+                )
+
     export_decision = _try_export_decision(
         config=config,
         ctx=ctx,
@@ -242,10 +330,10 @@ def evaluate_smart_charge(
         kwh_remaining=kwh_remaining,
     )
     if export_decision is not None:
-        return export_decision
+        return _attach_spread_meta(export_decision, daily_plan)
 
     eval_tier = "daily_plan" if plan_slot else "tactical"
-    return evaluate_grid_charge(
+    decision = evaluate_grid_charge(
         config=config,
         soc_pct=soc_pct,
         capacity_kwh=capacity_kwh,
@@ -262,6 +350,7 @@ def evaluate_smart_charge(
         eval_tier=eval_tier,
         daily_plan=daily_plan,
     )
+    return _attach_spread_meta(decision, daily_plan)
 
 
 __all__ = [

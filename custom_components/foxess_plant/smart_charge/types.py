@@ -41,6 +41,8 @@ class SmartChargeDecision:
     discharge_window: dict[str, Any] | None = None
     work_mode_target: str | None = None
     planned_export_kwh: float | None = None
+    spread_pairs: list[dict[str, Any]] = field(default_factory=list)
+    planned_spread_profit_p: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -62,6 +64,8 @@ class SmartChargeDecision:
             "discharge_window": self.discharge_window,
             "work_mode_target": self.work_mode_target,
             "planned_export_kwh": self.planned_export_kwh,
+            "spread_pairs": self.spread_pairs,
+            "planned_spread_profit_p": self.planned_spread_profit_p,
         }
 
 

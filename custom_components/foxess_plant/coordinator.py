@@ -104,6 +104,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._smart_charge_daily_plan: list[dict[str, Any]] = []
         self._smart_charge_periods_sig = ""
         self._smart_charge_discharge_sig = ""
+        self._smart_charge_rates_snapshot: list[tuple[str, float]] = []
         self._storm_forecast_active = False
         self._storm_forecast_detail = {}
         self._solcast_cache: dict[str, Any] = {}
@@ -757,12 +758,27 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.hass.async_create_task(self._async_octopus_tick())
 
     async def _async_octopus_tick(self) -> None:
+        cfg = self.plant.smart_charge
+        prev_rates = list(self._smart_charge_rates_snapshot)
         await self._async_refresh_octopus()
         self._setup_octopus_timer()
         if self._octopus_agile_active():
             await self.async_update_tariff_sensors(record_history=True)
+        from .smart_charge.spread_math import material_import_price_drop, rates_snapshot
+
+        current_rates = rates_snapshot(self._octopus_cache.get("import_rates") or [])
+        self._smart_charge_rates_snapshot = current_rates
+        price_drop_replan = False
+        if cfg.enabled and prev_rates and current_rates:
+            threshold = float(cfg.price_drop_interrupt_p_per_kwh or 2.0)
+            price_drop_replan = material_import_price_drop(
+                prev_rates, current_rates, threshold_p=threshold
+            )
         try:
-            await self._evaluate_smart_charge()
+            if price_drop_replan:
+                await self._evaluate_smart_charge_daily_plan()
+            else:
+                await self._evaluate_smart_charge()
         except Exception as err:
             _LOGGER.warning("Smart charge evaluation failed: %s", err)
         await self.async_request_refresh()
@@ -1428,6 +1444,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         return rate_slots_from_schedule(self.plant.tariff, horizon_hours=horizon_hours)
 
+    def _smart_charge_greener_inputs(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        cache = self._octopus_greener_cache or {}
+        carbon = cache.get("carbon_periods") if isinstance(cache.get("carbon_periods"), list) else []
+        greener = cache.get("greener_nights") if isinstance(cache.get("greener_nights"), list) else []
+        return carbon, greener
+
     async def _clear_smart_charge_export_before_higher_priority(self) -> None:
         if self._smart_charge_discharge_armed:
             await self._disarm_smart_charge_export()
@@ -1574,6 +1596,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if capacity_kwh is None or capacity_kwh <= 0:
             if soc_pct and soc_pct > 0 and kwh_remaining is not None:
                 capacity_kwh = kwh_remaining * 100.0 / soc_pct
+        carbon_periods, greener_nights = self._smart_charge_greener_inputs()
         self._smart_charge_daily_plan = build_daily_plan(
             config=cfg,
             import_slots=import_slots,
@@ -1584,6 +1607,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             capacity_kwh=capacity_kwh,
             kwh_remaining=kwh_remaining,
             soc_pct=soc_pct,
+            carbon_periods=carbon_periods,
+            greener_nights=greener_nights,
         )
         await self._evaluate_smart_charge()
 
@@ -1635,7 +1660,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         if decision.action == "export_discharge":
             await self._arm_smart_charge_export(decision)
-        elif decision.action in ("grid_charge", "arbitrage"):
+        elif decision.action in ("grid_charge", "arbitrage", "spread_plan"):
             await self._arm_smart_charge_grid(decision)
         else:
             if self._smart_charge_discharge_armed:
