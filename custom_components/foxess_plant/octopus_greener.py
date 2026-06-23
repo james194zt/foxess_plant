@@ -10,7 +10,11 @@ from zoneinfo import ZoneInfo
 from homeassistant.util import dt as dt_util
 
 from .octopus_api import OctopusApiClient, OctopusApiError
-from .octopus_graphql import OctopusGraphqlClient, OctopusGraphqlError
+from .octopus_graphql import (
+    OctopusGraphqlClient,
+    OctopusGraphqlError,
+    octopus_rewards_has_data,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -426,7 +430,12 @@ def merge_octopus_greener_snapshots(
         merged["carbon_periods"] = previous["carbon_periods"]
     if _keep_previous("postcode", ("account",)):
         merged["postcode"] = previous.get("postcode")
-    if _keep_previous("rewards", ("rewards",)):
+    incoming_rewards = incoming.get("rewards")
+    if _keep_previous("rewards", ("rewards",)) or (
+        isinstance(incoming_rewards, dict)
+        and not octopus_rewards_has_data(incoming_rewards)
+        and octopus_rewards_has_data(previous.get("rewards"))
+    ):
         merged["rewards"] = previous.get("rewards")
     for meter_key in ("import_meter", "export_meter"):
         if _keep_previous(meter_key, ("account",)):

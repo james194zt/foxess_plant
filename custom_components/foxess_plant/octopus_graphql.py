@@ -160,31 +160,222 @@ class OctopusGraphqlClient:
             return []
         return [row for row in rows if isinstance(row, dict)]
 
+    async def _request_data_optional(
+        self,
+        query: str,
+        *,
+        variables: dict[str, Any] | None = None,
+        auth: bool = False,
+    ) -> dict[str, Any] | None:
+        """GraphQL request that returns data on partial field failures."""
+        try:
+            return await self._request(query, variables=variables, auth=auth)
+        except OctopusGraphqlError as err:
+            _LOGGER.debug("Optional Octopus GraphQL query failed: %s", err)
+            return None
+
     async def fetch_rewards(self, account_number: str) -> dict[str, Any]:
-        query = """
-        query OctopusRewards($accountNumber: String!) {
-          account(accountNumber: $accountNumber) {
-            balance
-          }
-          loyaltyPointsBalance(input: { accountNumber: $accountNumber }) {
-            loyaltyPoints
-            totalMonetaryAmount
-          }
+        account_number = account_number.strip().upper()
+        rewards = {
+            "account_balance_pence": None,
+            "loyalty_points": None,
+            "loyalty_monetary_amount": None,
         }
-        """
-        data = await self._request(
-            query,
-            variables={"accountNumber": account_number.strip().upper()},
+
+        primary = await self._request_data_optional(
+            """
+            query OctopusRewards($accountNumber: String!) {
+              account(accountNumber: $accountNumber) {
+                balance(includeAllLedgers: true)
+                users {
+                  id
+                }
+              }
+              loyaltyPointsBalance(input: { accountNumber: $accountNumber }) {
+                loyaltyPoints
+                totalMonetaryAmount
+              }
+            }
+            """,
+            variables={"accountNumber": account_number},
             auth=True,
         )
-        account = data.get("account") if isinstance(data.get("account"), dict) else {}
-        loyalty = (
-            data.get("loyaltyPointsBalance")
-            if isinstance(data.get("loyaltyPointsBalance"), dict)
-            else {}
+        user_ids: list[str] = []
+        if isinstance(primary, dict):
+            account = primary.get("account")
+            if isinstance(account, dict):
+                rewards["account_balance_pence"] = parse_octopus_account_balance(
+                    account.get("balance")
+                )
+                user_ids = octopus_account_user_ids(account.get("users"))
+            loyalty = primary.get("loyaltyPointsBalance")
+            if isinstance(loyalty, dict):
+                rewards["loyalty_points"] = parse_octopus_loyalty_points(
+                    loyalty.get("loyaltyPoints")
+                )
+                rewards["loyalty_monetary_amount"] = parse_octopus_loyalty_monetary(
+                    loyalty.get("totalMonetaryAmount")
+                )
+
+        if rewards["loyalty_points"] is None:
+            legacy = await self._request_data_optional(
+                """
+                query OctopusRewardsLegacy($accountNumber: String!) {
+                  loyaltyPointsBalance(accountNumber: $accountNumber) {
+                    loyaltyPoints
+                    totalMonetaryAmount
+                  }
+                }
+                """,
+                variables={"accountNumber": account_number},
+                auth=True,
+            )
+            if isinstance(legacy, dict):
+                loyalty = legacy.get("loyaltyPointsBalance")
+                if isinstance(loyalty, dict):
+                    rewards["loyalty_points"] = parse_octopus_loyalty_points(
+                        loyalty.get("loyaltyPoints")
+                    )
+                    rewards["loyalty_monetary_amount"] = parse_octopus_loyalty_monetary(
+                        loyalty.get("totalMonetaryAmount")
+                    )
+
+        if rewards["loyalty_points"] is None:
+            ledger_points = await self._fetch_loyalty_points_from_ledgers()
+            if ledger_points is not None:
+                rewards["loyalty_points"] = ledger_points
+
+        if rewards["loyalty_points"] is None and user_ids:
+            for user_id in user_ids:
+                balance_block = await self._request_data_optional(
+                    """
+                    query OctopusRewardsUser(
+                      $accountNumber: String!
+                      $accountUserId: String!
+                    ) {
+                      loyaltyPointsBalance(
+                        input: {
+                          accountNumber: $accountNumber
+                          accountUserId: $accountUserId
+                        }
+                      ) {
+                        loyaltyPoints
+                        totalMonetaryAmount
+                      }
+                      loyaltyPointLedgers(
+                        input: { accountUserId: $accountUserId }
+                      ) {
+                        balanceCarriedForward
+                      }
+                    }
+                    """,
+                    variables={
+                        "accountNumber": account_number,
+                        "accountUserId": user_id,
+                    },
+                    auth=True,
+                )
+                if not isinstance(balance_block, dict):
+                    continue
+                loyalty = balance_block.get("loyaltyPointsBalance")
+                if isinstance(loyalty, dict):
+                    if rewards["loyalty_points"] is None:
+                        rewards["loyalty_points"] = parse_octopus_loyalty_points(
+                            loyalty.get("loyaltyPoints")
+                        )
+                    if rewards["loyalty_monetary_amount"] is None:
+                        rewards["loyalty_monetary_amount"] = parse_octopus_loyalty_monetary(
+                            loyalty.get("totalMonetaryAmount")
+                        )
+                if rewards["loyalty_points"] is None:
+                    ledger_points = parse_octopus_ledger_balance(
+                        balance_block.get("loyaltyPointLedgers")
+                    )
+                    if ledger_points is not None:
+                        rewards["loyalty_points"] = ledger_points
+                if rewards["loyalty_points"] is not None:
+                    break
+
+        return rewards
+
+    async def _fetch_loyalty_points_from_ledgers(self) -> int | None:
+        """Match Home Assistant Octopus Energy octoplus points query."""
+        data = await self._request_data_optional(
+            """
+            query OctopusLoyaltyLedgers {
+              loyaltyPointLedgers {
+                balanceCarriedForward
+              }
+            }
+            """,
+            auth=True,
         )
-        return {
-            "account_balance_pence": account.get("balance"),
-            "loyalty_points": loyalty.get("loyaltyPoints"),
-            "loyalty_monetary_amount": loyalty.get("totalMonetaryAmount"),
-        }
+        if not isinstance(data, dict):
+            return None
+        return parse_octopus_ledger_balance(data.get("loyaltyPointLedgers"))
+
+
+def parse_octopus_account_balance(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_octopus_loyalty_points(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        points = int(value)
+    except (TypeError, ValueError):
+        return None
+    return points if points >= 0 else None
+
+
+def parse_octopus_loyalty_monetary(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_octopus_ledger_balance(rows: Any) -> int | None:
+    if not isinstance(rows, list) or not rows:
+        return None
+    first = rows[0]
+    if not isinstance(first, dict):
+        return None
+    return parse_octopus_loyalty_points(first.get("balanceCarriedForward"))
+
+
+def octopus_account_user_ids(users: Any) -> list[str]:
+    if not isinstance(users, list):
+        return []
+    ids: list[str] = []
+    for row in users:
+        if not isinstance(row, dict):
+            continue
+        user_id = row.get("id")
+        if user_id is None:
+            continue
+        text = str(user_id).strip()
+        if text:
+            ids.append(text)
+    return ids
+
+
+def octopus_rewards_has_data(rewards: Any) -> bool:
+    if not isinstance(rewards, dict):
+        return False
+    return any(
+        rewards.get(key) is not None
+        for key in (
+            "loyalty_points",
+            "loyalty_monetary_amount",
+            "account_balance_pence",
+        )
+    )
