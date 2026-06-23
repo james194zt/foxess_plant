@@ -6237,14 +6237,9 @@ const SMART_CHARGE_MODE_META = {
   },
 };
 
-function smartChargeModeIconSvg(mode) {
-  if (mode === "max_profit") {
-    return `<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="color-mix(in srgb, var(--fp-amber,#f9a825) 22%, transparent)"/><path d="M10 28V14h4l6 10 6-10h4v14h-3.5V19l-5.5 9h-2L14 19v9H10z" fill="var(--fp-amber,#f9a825)"/></svg>`;
-  }
-  if (mode === "max_green") {
-    return `<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="color-mix(in srgb, var(--fp-green,#4caf50) 22%, transparent)"/><path d="M20 8c-6 4-9 9-9 14a9 9 0 1018 0c0-5-3-10-9-14zm0 22a8 8 0 01-8-8c0-3.2 2-6.8 8-11.2 6 4.4 8 8 8 11.2a8 8 0 01-8 8z" fill="var(--fp-green,#4caf50)"/></svg>`;
-  }
-  return `<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="color-mix(in srgb, var(--fp-accent) 22%, transparent)"/><path d="M20 9l9 4v8c0 5.5-3.8 10.6-9 12-5.2-1.4-9-6.5-9-12v-8l9-4zm0 3.2L13 15.1v5.9c0 4.2 2.9 8.1 7 9.4 4.1-1.3 7-5.2 7-9.4v-5.9l-7-2.9z" fill="var(--fp-accent)"/></svg>`;
+function smartChargeModeIconHtml(mode) {
+  const src = SMART_CHARGE_MODE_ICONS[mode] || SMART_CHARGE_MODE_ICONS.max_safety;
+  return `<img src="${esc(src)}" width="40" height="40" alt="" decoding="async" />`;
 }
 
 function smartChargePlanActionTone(action) {
@@ -9239,6 +9234,12 @@ const DEFAULT_BRAND_ICON_STATIC = "/foxess_plant_panel/icon.png";
 const DEVICE_EVO_IMAGE_STATIC = "/foxess_plant_panel/evo10.png?v=15";
 const STORM_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_storm_safe_charging.png?v=5";
 const SMART_CHARGE_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_smart_charge.png?v=3";
+const SMART_CHARGE_MODE_ICON_VER = 1;
+const SMART_CHARGE_MODE_ICONS = {
+  max_safety: `/foxess_plant_panel/smart-charge-max-safety.png?v=${SMART_CHARGE_MODE_ICON_VER}`,
+  max_profit: `/foxess_plant_panel/smart-charge-max-profit.png?v=${SMART_CHARGE_MODE_ICON_VER}`,
+  max_green: `/foxess_plant_panel/smart-charge-max-green.png?v=${SMART_CHARGE_MODE_ICON_VER}`,
+};
 const OCTOPUS_GREENER_CARD_TITLE = "Octopus Green Nights 24h Forecast";
 const OCTOPUS_UPCOMING_WEEK_CARD_TITLE = "Octopus Greener Nights Week Ahead";
 const OCTOPUS_GREENER_DAILY_INTRO =
@@ -12310,6 +12311,7 @@ const STYLES = `
   flex: 0 0 40px; width: 40px; height: 40px; border-radius: 8px; overflow: hidden;
 }
 .mode-option-icon svg { display: block; width: 100%; height: 100%; }
+.mode-option-icon img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .mode-option-body { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; flex: 1; min-width: 0; }
 .mode-option .name { display: block; font-weight: 600; font-size: 15px; line-height: 1.3; }
 .mode-option .hint { display: block; font-size: 12px; line-height: 1.4; color: var(--secondary-text-color); }
@@ -12383,7 +12385,9 @@ const STYLES = `
   background: color-mix(in srgb, var(--sc-mode-accent, var(--fp-accent)) 6%, var(--card-background-color));
   border-left: 4px solid var(--sc-mode-accent, var(--fp-accent));
 }
-.sc-mode-panel-title { margin: 0 0 12px; font-size: 13px; font-weight: 600; color: var(--secondary-text-color); text-transform: uppercase; letter-spacing: 0.04em; }
+.sc-mode-panel-title { margin: 0 0 12px; font-size: 13px; font-weight: 600; color: var(--secondary-text-color); text-transform: uppercase; letter-spacing: 0.04em; display: flex; align-items: center; gap: 8px; }
+.sc-mode-panel-icon { flex: 0 0 28px; width: 28px; height: 28px; border-radius: 6px; overflow: hidden; }
+.sc-mode-panel-icon img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .sc-spread-pairs { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 0; }
 .sc-spread-pair {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -19248,7 +19252,7 @@ ${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">
         const meta = SMART_CHARGE_MODE_META[mode];
         const sel = draft.operating_mode === mode ? "selected" : "";
         return `<button type="button" class="mode-option ${sel}" data-action="pick-smart-charge-mode" data-mode="${esc(mode)}" ${busy}>
-<span class="mode-option-icon" aria-hidden="true">${smartChargeModeIconSvg(mode)}</span>
+<span class="mode-option-icon" aria-hidden="true">${smartChargeModeIconHtml(mode)}</span>
 <span class="mode-option-body"><span class="name">${esc(meta.title)}</span><span class="hint">${esc(meta.hint)}</span></span>
 </button>`;
       })
@@ -19301,7 +19305,7 @@ ${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">
     body += `<div class="field"><label>Minimum export energy (kWh)</label>
 <input type="number" min="0.1" max="50" step="0.1" data-field="smart-charge:min_export_kwh" value="${esc(String(draft.min_export_kwh ?? 0.5))}" ${busy}></div>`;
     return `<div class="sc-mode-panel" style="--sc-mode-accent: ${meta.accent}">
-<p class="sc-mode-panel-title">${esc(meta.title)} settings</p>
+<p class="sc-mode-panel-title"><span class="sc-mode-panel-icon" aria-hidden="true">${smartChargeModeIconHtml(mode)}</span>${esc(meta.title)} settings</p>
 ${body}
 </div>`;
   }
