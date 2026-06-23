@@ -6166,6 +6166,69 @@ ${body}
 </div>`;
 }
 
+function overviewAutomationStatusPillClass(tone) {
+  if (tone === "armed") return "overview-automation-status-pill overview-automation-status-pill--armed";
+  if (tone === "watch") return "overview-automation-status-pill overview-automation-status-pill--watch";
+  if (tone === "idle") return "overview-automation-status-pill overview-automation-status-pill--idle";
+  return "overview-automation-status-pill overview-automation-status-pill--off";
+}
+
+function overviewStormStatusSummary(plantState) {
+  const storm = plantState?.storm_prep ?? {};
+  if (!storm.enabled) return { label: "Off", tone: "off", detail: "Disabled in settings" };
+  const triggersArmed = Boolean(plantState?.active_storm_triggers?.length);
+  const overrideArmed =
+    Boolean(plantState?.override_active) && String(plantState?.mode ?? "") === "storm";
+  const forecastArmed = Boolean(plantState?.forecast_armed);
+  const armed = triggersArmed || overrideArmed || forecastArmed;
+  if (armed) {
+    const precheck = storm.solcast_precheck ?? {};
+    let detail = "Storm charge schedule applied";
+    if (precheck.action === "pv_only") detail = "PV top-up only — no grid import";
+    else if (forecastArmed && !triggersArmed && !overrideArmed) detail = "Forecast pre-charge armed";
+    return { label: "Active", tone: "armed", detail };
+  }
+  if (storm.condition_active) {
+    const label = storm.current_condition?.label;
+    return { label: "Monitoring", tone: "watch", detail: label || "Storm conditions detected" };
+  }
+  if (storm.forecast_active) {
+    return { label: "Monitoring", tone: "watch", detail: "Severe weather in forecast" };
+  }
+  return { label: "Ready", tone: "idle", detail: "Watching Google Weather" };
+}
+
+function overviewSmartChargeStatusSummary(plantState) {
+  const sc = plantState?.smart_charge ?? {};
+  if (!sc.enabled) return { label: "Off", tone: "off", detail: "Disabled in settings" };
+  if (sc.armed) {
+    const reason = sc.decision?.reason;
+    return { label: "Armed", tone: "armed", detail: reason || "Grid charge in progress" };
+  }
+  const reason = sc.decision?.reason;
+  return { label: "Ready", tone: "idle", detail: reason || "Watching tariffs and solar" };
+}
+
+function renderOverviewAutomationHalf({ sub, title, summary }) {
+  const pillClass = overviewAutomationStatusPillClass(summary.tone);
+  return `<button type="button" class="overview-automation-half" data-action="settings-sub" data-sub="${esc(sub)}" aria-label="${esc(title)}: ${esc(summary.label)}">
+<div class="overview-automation-half-head">
+<span class="overview-automation-half-title">${esc(title)}</span>
+<span class="${pillClass}">${esc(summary.label)}</span>
+</div>
+<span class="overview-automation-half-detail">${esc(summary.detail)}</span>
+</button>`;
+}
+
+function renderOverviewAutomationStatusCard(plantState) {
+  const storm = overviewStormStatusSummary(plantState);
+  const smart = overviewSmartChargeStatusSummary(plantState);
+  return `<div class="overview-automation-status-card">
+${renderOverviewAutomationHalf({ sub: "storm", title: "StormSafe", summary: storm })}
+${renderOverviewAutomationHalf({ sub: "smart", title: "SmartCharge", summary: smart })}
+</div>`;
+}
+
 function parseAlarmStateList(state) {
   if (!state || state === "unknown" || state === "unavailable" || state === "None") return [];
   return String(state)
@@ -9614,7 +9677,105 @@ const STYLES = `
 }
 .overview-hero-scene-slot { flex: 1 1 auto; min-height: 0; }
 .overview-hero-scene .scene-card--fox-flow { margin-bottom: 0; width: 100%; height: 100%; }
-.overview-system-status-slot { flex: 0 0 auto; width: 100%; }
+.overview-status-row {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+}
+.overview-system-status-slot,
+.overview-automation-status-slot {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+}
+.overview-system-status-slot { width: auto; }
+.overview-automation-status-card {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  background: var(--card-background-color);
+  border-radius: var(--fp-radius);
+  border: 1px solid var(--divider-color, transparent);
+  box-shadow: var(--ha-card-box-shadow, 0 1px 2px rgba(0,0,0,0.06));
+  overflow: hidden;
+}
+.overview-automation-half {
+  flex: 1 1 50%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 10px 14px;
+  margin: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-height: 0;
+}
+.overview-automation-half:hover { background: var(--secondary-background-color); }
+.overview-automation-half:focus-visible {
+  outline: 2px solid var(--primary-color, #894bfc);
+  outline-offset: -2px;
+  z-index: 1;
+}
+.overview-automation-half + .overview-automation-half {
+  border-top: 1px solid var(--divider-color, rgba(127,127,127,0.25));
+}
+.overview-automation-half-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 20px;
+}
+.overview-automation-half-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--secondary-text-color);
+  letter-spacing: 0.01em;
+}
+.overview-automation-status-pill {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  line-height: 1.3;
+}
+.overview-automation-status-pill--off {
+  background: var(--secondary-background-color);
+  color: var(--secondary-text-color);
+}
+.overview-automation-status-pill--idle {
+  background: color-mix(in srgb, var(--fp-accent) 14%, transparent);
+  color: var(--fp-accent);
+}
+.overview-automation-status-pill--watch {
+  background: color-mix(in srgb, var(--fp-amber) 18%, transparent);
+  color: var(--fp-amber);
+}
+.overview-automation-status-pill--armed {
+  background: color-mix(in srgb, #52c41a 18%, transparent);
+  color: #52c41a;
+}
+.overview-automation-half-detail {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--secondary-text-color);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 .overview-energy-band {
   display: flex; flex-direction: column; gap: 14px;
   width: 100%; margin-bottom: 14px; min-width: 0;
@@ -9665,7 +9826,10 @@ const STYLES = `
 }
 .overview-hero-daily-charts .overview-daily-card { min-height: 0; height: 100%; }
 .overview-system-status-card {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
   background: var(--card-background-color); border-radius: var(--fp-radius);
   border: 1px solid var(--divider-color, transparent);
   box-shadow: var(--ha-card-box-shadow, 0 1px 2px rgba(0,0,0,0.06));
@@ -12174,6 +12338,14 @@ const STYLES = `
     height: 100%;
   }
 }
+.shell.narrow .overview-status-row {
+  flex-direction: column;
+}
+@media (max-width: 720px) {
+  .overview-status-row {
+    flex-direction: column;
+  }
+}
 .shell.narrow .overview-hero-row {
   display: flex;
   flex-direction: column;
@@ -12330,6 +12502,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._overviewSystemStatusLoading = false;
     this._overviewSystemStatusPlantId = undefined;
     this._overviewSystemStatusSlotCache = undefined;
+    this._overviewAutomationStatusSlotCache = undefined;
     this._overviewSystemStatusInflight = undefined;
     this._overviewHourlyWeatherSlotCache = undefined;
     this._overviewBreakdownSlotCache = undefined;
@@ -15726,7 +15899,7 @@ ${this._renderImpactPanel()}`;
 
   _ensureOverviewHeroLayout(mainEl) {
     const heroRow = mainEl?.querySelector?.(".overview-hero-row");
-    if (!heroRow || heroRow.dataset.overviewHeroLayout === "2") return;
+    if (!heroRow || heroRow.dataset.overviewHeroLayout === "3") return;
     const sceneSlot = heroRow.querySelector(".overview-hero-scene-slot");
     let sceneHtml = sceneSlot?.innerHTML || "";
     if (!sceneHtml) {
@@ -15734,7 +15907,9 @@ ${this._renderImpactPanel()}`;
       if (sceneEl) {
         const scratch = document.createElement("div");
         scratch.innerHTML = sceneEl.innerHTML;
-        scratch.querySelector(".overview-system-status-slot, .overview-system-status-card")?.remove();
+        scratch.querySelector(
+          ".overview-status-row, .overview-system-status-slot, .overview-automation-status-slot, .overview-system-status-card, .overview-automation-status-card"
+        )?.remove();
         sceneHtml = scratch.innerHTML.trim();
       }
     }
@@ -15744,12 +15919,16 @@ ${this._renderImpactPanel()}`;
     const chartsHtml = chartsEl?.innerHTML || "";
     heroRow.innerHTML = `<div class="overview-hero-scene">
 <div class="overview-hero-scene-slot">${sceneHtml}</div>
+<div class="overview-status-row">
 <div class="overview-system-status-slot"></div>
+<div class="overview-automation-status-slot"></div>
+</div>
 </div>
 <div class="overview-hero-daily-slot"><div class="overview-hero-daily-charts">${chartsHtml}</div></div>`;
-    heroRow.dataset.overviewHeroLayout = "2";
+    heroRow.dataset.overviewHeroLayout = "3";
     this._overviewDailySlotCache = undefined;
     this._overviewSystemStatusSlotCache = undefined;
+    this._overviewAutomationStatusSlotCache = undefined;
   }
 
   _patchOverviewHourlyWeatherSlot(mainEl) {
@@ -15778,6 +15957,7 @@ ${this._renderImpactPanel()}`;
       this._flowSceneKeyPendingN = 0;
       this._overviewDailySlotCache = undefined;
       this._overviewSystemStatusSlotCache = undefined;
+      this._overviewAutomationStatusSlotCache = undefined;
       this._overviewHourlyWeatherSlotCache = undefined;
       this._overviewBreakdownSlotCache = undefined;
       this._overviewSummarySlotCache = undefined;
@@ -15789,10 +15969,13 @@ ${this._renderImpactPanel()}`;
     if (!mainEl.querySelector(".overview-root")) {
       mainEl.innerHTML = `<div class="overview-root">
 <div class="overview-chrome"></div>
-<div class="overview-hero-row" data-overview-hero-layout="2">
+<div class="overview-hero-row" data-overview-hero-layout="3">
 <div class="overview-hero-scene">
 <div class="overview-hero-scene-slot"></div>
+<div class="overview-status-row">
 <div class="overview-system-status-slot"></div>
+<div class="overview-automation-status-slot"></div>
+</div>
 </div>
 <div class="overview-hero-daily-slot"><div class="overview-hero-daily-charts"></div></div>
 </div>
@@ -15812,6 +15995,14 @@ ${this._renderImpactPanel()}`;
       if (statusSlot) {
         statusSlot.innerHTML = this._renderOverviewSystemStatusCard();
         this._overviewSystemStatusSlotCache = statusKey;
+      }
+    }
+    const automationKey = this._overviewAutomationStatusSlotKey();
+    if (automationKey !== this._overviewAutomationStatusSlotCache) {
+      const automationSlot = mainEl.querySelector(".overview-automation-status-slot");
+      if (automationSlot) {
+        automationSlot.innerHTML = this._renderOverviewAutomationStatusCard();
+        this._overviewAutomationStatusSlotCache = automationKey;
       }
     }
     const chartsSlot = mainEl.querySelector(".overview-hero-daily-charts");
@@ -15951,6 +16142,30 @@ ${chart}
     return `ok:${data.faultCount ?? 0}`;
   }
 
+  _overviewAutomationStatusSlotKey() {
+    const st = this._plantState;
+    if (!st) return "pending";
+    const storm = st.storm_prep ?? {};
+    const sc = st.smart_charge ?? {};
+    return [
+      storm.enabled,
+      storm.condition_active,
+      storm.forecast_active,
+      (st.active_storm_triggers ?? []).join(","),
+      st.mode,
+      st.override_active,
+      st.forecast_armed,
+      storm.solcast_precheck?.action,
+      sc.enabled,
+      sc.armed,
+      sc.decision?.reason,
+    ].join("|");
+  }
+
+  _renderOverviewAutomationStatusCard() {
+    return renderOverviewAutomationStatusCard(this._plantState ?? {});
+  }
+
   _renderOverviewSystemStatusCard() {
     if (this._overviewSystemStatusLoading) {
       return renderOverviewSystemStatusCard({ loading: true });
@@ -16005,6 +16220,7 @@ ${chart}
     this._overviewSystemStatusInflight = plantId;
     this._overviewSystemStatusLoading = true;
     this._overviewSystemStatusSlotCache = undefined;
+    this._overviewAutomationStatusSlotCache = undefined;
     this._scheduleRender();
     try {
       if (!this._plantState) await this._refreshPlantState();
@@ -16029,6 +16245,7 @@ ${chart}
       this._overviewSystemStatusLoading = false;
       if (this._view === "overview" && this._getPlant()?.entry_id === plantId) {
         this._overviewSystemStatusSlotCache = undefined;
+    this._overviewAutomationStatusSlotCache = undefined;
         this._scheduleRender();
       }
     }
@@ -16074,10 +16291,13 @@ ${chart}
   _renderOverview(plant) {
     return `${this._renderOverviewHeader(plant)}
 ${this._renderPanelStaleBanner()}
-<div class="overview-hero-row" data-overview-hero-layout="2">
+<div class="overview-hero-row" data-overview-hero-layout="3">
 <div class="overview-hero-scene">
 <div class="overview-hero-scene-slot">${this._renderEnergyScene(plant)}</div>
+<div class="overview-status-row">
 <div class="overview-system-status-slot">${this._renderOverviewSystemStatusCard()}</div>
+<div class="overview-automation-status-slot">${this._renderOverviewAutomationStatusCard()}</div>
+</div>
 </div>
 ${this._renderOverviewHeroDailyColumn()}
 </div>
