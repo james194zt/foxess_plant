@@ -9677,21 +9677,16 @@ const STYLES = `
 }
 .overview-hero-scene-slot { flex: 1 1 auto; min-height: 0; }
 .overview-hero-scene .scene-card--fox-flow { margin-bottom: 0; width: 100%; height: 100%; }
-.overview-status-row {
-  display: flex;
-  flex-direction: row;
-  align-items: stretch;
-  gap: 12px;
+.overview-system-status-slot {
+  flex: 0 0 auto;
   width: 100%;
-  min-width: 0;
-}
-.overview-system-status-slot,
-.overview-automation-status-slot {
-  flex: 1 1 0;
-  min-width: 0;
   display: flex;
 }
-.overview-system-status-slot { width: auto; }
+.overview-automation-status-slot {
+  flex: 0 0 auto;
+  width: 100%;
+  display: flex;
+}
 .overview-automation-status-card {
   flex: 1 1 auto;
   width: 100%;
@@ -9816,9 +9811,9 @@ const STYLES = `
   width: 132px; max-width: 42vw; flex-shrink: 0; display: flex; align-items: center; justify-content: flex-end;
 }
 .overview-hero-daily-slot {
-  display: flex; flex-direction: column; gap: 0;
+  display: flex; flex-direction: column; gap: 12px;
   width: 100%; max-width: none; min-width: 0;
-  box-sizing: border-box; align-self: stretch; min-height: 0;
+  box-sizing: border-box; align-self: stretch; min-height: 0; height: 100%;
 }
 .overview-hero-daily-charts {
   display: grid; grid-template-rows: 1fr 1fr; gap: 12px;
@@ -12336,14 +12331,6 @@ const STYLES = `
     width: 100%;
     min-width: 0;
     height: 100%;
-  }
-}
-.shell.narrow .overview-status-row {
-  flex-direction: column;
-}
-@media (max-width: 720px) {
-  .overview-status-row {
-    flex-direction: column;
   }
 }
 .shell.narrow .overview-hero-row {
@@ -15899,7 +15886,7 @@ ${this._renderImpactPanel()}`;
 
   _ensureOverviewHeroLayout(mainEl) {
     const heroRow = mainEl?.querySelector?.(".overview-hero-row");
-    if (!heroRow || heroRow.dataset.overviewHeroLayout === "3") return;
+    if (!heroRow || heroRow.dataset.overviewHeroLayout === "4") return;
     const sceneSlot = heroRow.querySelector(".overview-hero-scene-slot");
     let sceneHtml = sceneSlot?.innerHTML || "";
     if (!sceneHtml) {
@@ -15917,15 +15904,17 @@ ${this._renderImpactPanel()}`;
       heroRow.querySelector(".overview-hero-daily .overview-hero-daily-charts") ||
       heroRow.querySelector(".overview-hero-daily-charts");
     const chartsHtml = chartsEl?.innerHTML || "";
+    const automationEl = heroRow.querySelector(".overview-automation-status-slot");
+    const automationHtml = automationEl?.innerHTML || "";
     heroRow.innerHTML = `<div class="overview-hero-scene">
 <div class="overview-hero-scene-slot">${sceneHtml}</div>
-<div class="overview-status-row">
 <div class="overview-system-status-slot"></div>
-<div class="overview-automation-status-slot"></div>
 </div>
-</div>
-<div class="overview-hero-daily-slot"><div class="overview-hero-daily-charts">${chartsHtml}</div></div>`;
-    heroRow.dataset.overviewHeroLayout = "3";
+<div class="overview-hero-daily-slot">
+<div class="overview-hero-daily-charts">${chartsHtml}</div>
+<div class="overview-automation-status-slot">${automationHtml}</div>
+</div>`;
+    heroRow.dataset.overviewHeroLayout = "4";
     this._overviewDailySlotCache = undefined;
     this._overviewSystemStatusSlotCache = undefined;
     this._overviewAutomationStatusSlotCache = undefined;
@@ -15969,15 +15958,15 @@ ${this._renderImpactPanel()}`;
     if (!mainEl.querySelector(".overview-root")) {
       mainEl.innerHTML = `<div class="overview-root">
 <div class="overview-chrome"></div>
-<div class="overview-hero-row" data-overview-hero-layout="3">
+<div class="overview-hero-row" data-overview-hero-layout="4">
 <div class="overview-hero-scene">
 <div class="overview-hero-scene-slot"></div>
-<div class="overview-status-row">
 <div class="overview-system-status-slot"></div>
+</div>
+<div class="overview-hero-daily-slot">
+<div class="overview-hero-daily-charts"></div>
 <div class="overview-automation-status-slot"></div>
 </div>
-</div>
-<div class="overview-hero-daily-slot"><div class="overview-hero-daily-charts"></div></div>
 </div>
 <div class="overview-energy-band-slot"></div>
 <div class="overview-hourly-weather-slot"></div>
@@ -16208,7 +16197,10 @@ ${chart}
   }
 
   _renderOverviewHeroDailyColumn() {
-    return `<div class="overview-hero-daily-slot"><div class="overview-hero-daily-charts">${this._renderOverviewDailyCharts()}</div></div>`;
+    return `<div class="overview-hero-daily-slot">
+<div class="overview-hero-daily-charts">${this._renderOverviewDailyCharts()}</div>
+<div class="overview-automation-status-slot">${this._renderOverviewAutomationStatusCard()}</div>
+</div>`;
   }
 
   async _loadOverviewSystemStatus({ force = false } = {}) {
@@ -16291,13 +16283,10 @@ ${chart}
   _renderOverview(plant) {
     return `${this._renderOverviewHeader(plant)}
 ${this._renderPanelStaleBanner()}
-<div class="overview-hero-row" data-overview-hero-layout="3">
+<div class="overview-hero-row" data-overview-hero-layout="4">
 <div class="overview-hero-scene">
 <div class="overview-hero-scene-slot">${this._renderEnergyScene(plant)}</div>
-<div class="overview-status-row">
 <div class="overview-system-status-slot">${this._renderOverviewSystemStatusCard()}</div>
-<div class="overview-automation-status-slot">${this._renderOverviewAutomationStatusCard()}</div>
-</div>
 </div>
 ${this._renderOverviewHeroDailyColumn()}
 </div>
