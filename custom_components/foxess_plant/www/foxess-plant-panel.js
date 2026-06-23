@@ -272,6 +272,10 @@ const HA_WS_TIMEOUT_MS = 90000;
 const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
+/** MDI menu — opens Home Assistant sidebar via hass-toggle-menu. */
+const HA_MENU_ICON_SVG =
+  '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M3 6h18v2H3V6m0 5h18v2H3v-2m0 5h18v2H3v-2z"/></svg>';
+
 /** Manifest version from cached module filename (foxess-plant-panel.v0_8_109.{hash}.js). */
 function panelVersionFromModuleUrl() {
   const re = /foxess-plant-panel\.v(\d+)_(\d+)_(\d+)\.[a-f0-9]+\.js/i;
@@ -9375,9 +9379,49 @@ const STYLES = `
   background: var(--app-header-background-color, var(--primary-background-color));
 }
 .shell.has-subnav .main-inner { padding-top: 28px; }
+.panel-header-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+}
+.panel-ha-menu-btn {
+  display: none;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin: 8px 0 0 4px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--primary-text-color);
+  cursor: pointer;
+}
+.panel-ha-menu-btn:hover {
+  background: color-mix(in srgb, var(--primary-text-color) 8%, transparent);
+}
+.panel-ha-menu-btn:focus-visible {
+  outline: 2px solid var(--primary-color, #894bfc);
+  outline-offset: 2px;
+}
+:host(.narrow) .panel-ha-menu-btn,
+.shell.narrow .panel-ha-menu-btn {
+  display: inline-flex;
+}
+@media (max-width: 870px) {
+  .panel-ha-menu-btn { display: inline-flex; }
+  .panel-brand-row { padding: 12px 12px 4px 0; }
+}
 .panel-brand-row {
   display: flex; align-items: center; gap: 12px;
+  flex: 1; min-width: 0;
   padding: 12px 16px 4px;
+}
+:host(.narrow) .panel-brand-row,
+.shell.narrow .panel-brand-row {
+  padding: 12px 12px 4px 0;
 }
 .panel-brand-icon {
   width: 40px; height: 40px; flex-shrink: 0;
@@ -12563,13 +12607,22 @@ Reloading panel registration…
   }
 
   _renderPanelBrand() {
-    return `<div class="panel-brand-row">
+    const menuLabel =
+      this._hass?.localize?.("ui.sidebar.sidebar_toggle") || "Open menu";
+    return `<div class="panel-header-top">
+<button type="button" class="panel-ha-menu-btn" data-action="ha-menu-toggle" aria-label="${esc(menuLabel)}">${HA_MENU_ICON_SVG}</button>
+<div class="panel-brand-row">
 <img class="panel-brand-icon" src="${esc(this._brandIconSrc)}" data-fallback="${esc(this._brandIconFallback)}" data-static="${esc(this._brandIconStatic)}" width="40" height="40" alt="FoxESS">
 <div>
 <div class="panel-brand-title">Fox Plant</div>
 <div class="panel-brand-sub">FoxESS inverter control</div>
 </div>
+</div>
 </div>`;
+  }
+
+  _toggleHaSidebar() {
+    this.dispatchEvent(new Event("hass-toggle-menu", { bubbles: true, composed: true }));
   }
 
   _bindPanelBrandIcon(headerEl) {
@@ -14061,6 +14114,10 @@ Reloading panel registration…
     if (!btn || this._busy) return;
     const action = btn.dataset.action;
 
+    if (action === "ha-menu-toggle") {
+      this._toggleHaSidebar();
+      return;
+    }
     if (action === "energy-balance-help-dialog") return;
     if (action === "octopus-greener-view") {
       const nextView = btn.dataset.view === "detailed" ? "detailed" : "standard";
