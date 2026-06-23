@@ -9234,7 +9234,7 @@ const DEFAULT_BRAND_ICON_STATIC = "/foxess_plant_panel/icon.png";
 const DEVICE_EVO_IMAGE_STATIC = "/foxess_plant_panel/evo10.png?v=15";
 const STORM_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_storm_safe_charging.png?v=5";
 const SMART_CHARGE_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_smart_charge.png?v=3";
-const SMART_CHARGE_MODE_ICON_VER = 1;
+const SMART_CHARGE_MODE_ICON_VER = 2;
 const SMART_CHARGE_MODE_ICONS = {
   max_safety: `/foxess_plant_panel/smart-charge-max-safety.png?v=${SMART_CHARGE_MODE_ICON_VER}`,
   max_profit: `/foxess_plant_panel/smart-charge-max-profit.png?v=${SMART_CHARGE_MODE_ICON_VER}`,
@@ -12311,7 +12311,10 @@ const STYLES = `
   flex: 0 0 40px; width: 40px; height: 40px; border-radius: 8px; overflow: hidden;
 }
 .mode-option-icon svg { display: block; width: 100%; height: 100%; }
-.mode-option-icon img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.mode-option-icon--smart-charge { border: none; background: transparent; }
+.mode-option-icon--smart-charge img {
+  display: block; width: 100%; height: 100%; object-fit: cover; border: none;
+}
 .mode-option-body { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; flex: 1; min-width: 0; }
 .mode-option .name { display: block; font-weight: 600; font-size: 15px; line-height: 1.3; }
 .mode-option .hint { display: block; font-size: 12px; line-height: 1.4; color: var(--secondary-text-color); }
@@ -12387,7 +12390,7 @@ const STYLES = `
 }
 .sc-mode-panel-title { margin: 0 0 12px; font-size: 13px; font-weight: 600; color: var(--secondary-text-color); text-transform: uppercase; letter-spacing: 0.04em; display: flex; align-items: center; gap: 8px; }
 .sc-mode-panel-icon { flex: 0 0 28px; width: 28px; height: 28px; border-radius: 6px; overflow: hidden; }
-.sc-mode-panel-icon img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.sc-mode-panel-icon img { display: block; width: 100%; height: 100%; object-fit: cover; border: none; }
 .sc-spread-pairs { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 0; }
 .sc-spread-pair {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -19252,7 +19255,7 @@ ${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">
         const meta = SMART_CHARGE_MODE_META[mode];
         const sel = draft.operating_mode === mode ? "selected" : "";
         return `<button type="button" class="mode-option ${sel}" data-action="pick-smart-charge-mode" data-mode="${esc(mode)}" ${busy}>
-<span class="mode-option-icon" aria-hidden="true">${smartChargeModeIconHtml(mode)}</span>
+<span class="mode-option-icon mode-option-icon--smart-charge" aria-hidden="true">${smartChargeModeIconHtml(mode)}</span>
 <span class="mode-option-body"><span class="name">${esc(meta.title)}</span><span class="hint">${esc(meta.hint)}</span></span>
 </button>`;
       })

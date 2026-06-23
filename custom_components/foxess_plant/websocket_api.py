@@ -776,6 +776,22 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             vol.Optional("exportable_fraction_green", default=0.15): vol.All(
                 vol.Coerce(float), vol.Range(min=0.05, max=1.0)
             ),
+            vol.Optional("spread_optimizer_enabled", default=True): cv.boolean,
+            vol.Optional("min_spread_profit_p_per_kwh", default=3.0): vol.All(
+                vol.Coerce(float), vol.Range(min=0, max=50)
+            ),
+            vol.Optional("peak_import_avoid_start", default="16:00"): cv.string,
+            vol.Optional("peak_import_avoid_end", default="19:00"): cv.string,
+            vol.Optional("winter_fill_enabled", default=True): cv.boolean,
+            vol.Optional("green_export_spread_multiplier", default=2.0): vol.All(
+                vol.Coerce(float), vol.Range(min=1, max=10)
+            ),
+            vol.Optional("cheap_import_p_per_kwh", default=8.0): vol.All(
+                vol.Coerce(float), vol.Range(min=0, max=50)
+            ),
+            vol.Optional("peak_import_penalty_p_per_kwh", default=5.0): vol.All(
+                vol.Coerce(float), vol.Range(min=0, max=50)
+            ),
             vol.Required("charge_periods"): [PERIOD_SCHEMA],
         }
     )
