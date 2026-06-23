@@ -49,6 +49,7 @@ def compute_house_energy_budget(
 
     if capacity_kwh is not None and capacity_kwh > 0:
         target_soc_pct = min(ceiling_soc, target_kwh / capacity_kwh * 100.0)
+        target_soc_pct = max(1.0, target_soc_pct)
     else:
         target_soc_pct = ceiling_soc
 

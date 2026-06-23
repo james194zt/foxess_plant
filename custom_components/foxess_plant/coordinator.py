@@ -1713,12 +1713,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         horizon = max(1, int(cfg.daily_plan_horizon_hours or 24))
         import_slots = self._smart_charge_rate_slots(horizon_hours=horizon)
-        soc_pct = self._entity_float("battery_soc")
-        capacity_kwh = self._battery_capacity_kwh()
-        kwh_remaining = self._entity_float("battery_kwh_remaining")
-        if capacity_kwh is None or capacity_kwh <= 0:
-            if soc_pct and soc_pct > 0 and kwh_remaining is not None:
-                capacity_kwh = kwh_remaining * 100.0 / soc_pct
+        soc_pct, capacity_kwh, kwh_remaining = self._smart_charge_battery_metrics()
         carbon_periods, greener_nights = self._smart_charge_greener_inputs()
         self._smart_charge_daily_plan = build_daily_plan(
             config=cfg,
@@ -1759,14 +1754,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         export_slots = import_slots
         tariff_type = self._smart_charge_tariff_type()
 
-        soc_pct = self._entity_float("battery_soc")
-        capacity_kwh = self._battery_capacity_kwh()
-        kwh_remaining = self._entity_float("battery_kwh_remaining")
-        if capacity_kwh is None or capacity_kwh <= 0:
-            cap_from_soc = None
-            if soc_pct and soc_pct > 0 and kwh_remaining is not None:
-                cap_from_soc = kwh_remaining * 100.0 / soc_pct
-            capacity_kwh = cap_from_soc
+        soc_pct, capacity_kwh, kwh_remaining = self._smart_charge_battery_metrics()
 
         decision = evaluate_smart_charge(
             config=cfg,
@@ -1936,6 +1924,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         from .storm_solcast import evaluate_storm_solcast_precheck
 
         cfg = self.plant.storm_prep
+        soc_pct, capacity_kwh, kwh_remaining = self._smart_charge_battery_metrics()
         return evaluate_storm_solcast_precheck(
             cfg=cfg,
             solcast_configured=bool(
@@ -1947,9 +1936,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             condition_active=self._is_storm_condition_active(),
             forecast_active=self._storm_forecast_active,
             forecast_detail=self._storm_forecast_detail,
-            soc_pct=self._entity_float("battery_soc"),
-            capacity_kwh=self._battery_capacity_kwh(),
-            kwh_remaining=self._entity_float("battery_kwh_remaining"),
+            soc_pct=soc_pct,
+            capacity_kwh=capacity_kwh,
+            kwh_remaining=kwh_remaining,
         )
 
     def _storm_solcast_arm_decision(self) -> dict[str, Any]:
@@ -2278,42 +2267,76 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         state = self.hass.states.get(entity_id)
         return state.state if state else None
 
-    def _battery_capacity_kwh(self) -> float | None:
-        """Nominal pack capacity in kWh from modbus BMS entities."""
-        capacity = self._entity_float("bms_kwh_nominal")
-        if capacity is not None and capacity > 0:
-            return capacity
-        design = self._entity_float("bms_design_energy_wh")
-        if design is None or design <= 0:
-            return None
+    def _entity_unit(self, key: str) -> str:
         from .discovery import resolve_entity_id
 
         entity_id = resolve_entity_id(
             self.hass,
             self.plant.entity_map,
-            "bms_design_energy_wh",
+            key,
             device_id=self.plant.device_id,
         )
-        unit = ""
-        if entity_id:
-            st = self.hass.states.get(entity_id)
-            if st is not None:
-                unit = str(st.attributes.get("unit_of_measurement") or "").strip().lower()
-        if unit == "kwh":
-            return design
-        if unit == "wh":
-            return design / 1000.0
-        # foxess_modbus design energy is usually Wh; small values are already kWh.
-        return design / 1000.0 if design > 200 else design
+        if not entity_id:
+            return ""
+        state = self.hass.states.get(entity_id)
+        if state is None:
+            return ""
+        return str(state.attributes.get("unit_of_measurement") or "").strip()
+
+    def _refresh_battery_entity_map(self) -> bool:
+        from .discovery import _state_is_usable, discover_entity_map_extended
+
+        battery_keys = (
+            "battery_soc",
+            "battery_kwh_remaining",
+            "bms_kwh_nominal",
+            "bms_kwh_remaining_1",
+            "bms_design_energy_wh",
+            "bms_ah_nominal",
+            "bms_ah_fcc",
+            "battery_ah_remaining",
+            "batvolt_1",
+        )
+        fresh = discover_entity_map_extended(self.hass, self.plant.device_id)
+        updated = False
+        for key in battery_keys:
+            entity_id = fresh.get(key)
+            if not entity_id:
+                continue
+            existing = self.plant.entity_map.get(key)
+            if existing == entity_id:
+                continue
+            if existing is None or not _state_is_usable(self.hass, existing):
+                self.plant.entity_map[key] = entity_id
+                updated = True
+        if updated:
+            self.hass.async_create_task(self._persist())
+        return updated
+
+    def _smart_charge_battery_metrics(self) -> tuple[float | None, float | None, float | None]:
+        from .smart_charge.battery_metrics import parse_state_float, resolve_battery_metrics
+
+        def read_float(key: str) -> float | None:
+            return parse_state_float(self._entity_state(key))
+
+        def read_unit(key: str) -> str:
+            return self._entity_unit(key)
+
+        metrics = resolve_battery_metrics(read_float=read_float, read_unit=read_unit)
+        if metrics[0] is not None and metrics[1] is not None:
+            return metrics
+        if self._refresh_battery_entity_map():
+            metrics = resolve_battery_metrics(read_float=read_float, read_unit=read_unit)
+        return metrics
+
+    def _battery_capacity_kwh(self) -> float | None:
+        """Nominal pack capacity in kWh from modbus BMS entities."""
+        return self._smart_charge_battery_metrics()[1]
 
     def _entity_float(self, key: str) -> float | None:
-        raw = self._entity_state(key)
-        if raw in (None, "unavailable", "unknown"):
-            return None
-        try:
-            return float(raw)
-        except (TypeError, ValueError):
-            return None
+        from .smart_charge.battery_metrics import parse_state_float
+
+        return parse_state_float(self._entity_state(key))
 
     def _entity_options(self, key: str) -> list[str]:
         entity_id = self.plant.entity_map.get(key)

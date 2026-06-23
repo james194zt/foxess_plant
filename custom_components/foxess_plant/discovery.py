@@ -119,7 +119,8 @@ def missing_charge_period_entities(entity_map: dict[str, str]) -> list[str]:
     return [key for key in CHARGE_PERIOD_KEYS if key not in entity_map]
 
 
-def _entity_id_matches_suffix(entity_id: str, suffix: str) -> bool:
+def _entity_id_matches_panel_suffix(entity_id: str, suffix: str) -> bool:
+    """Match standard suffixes and long ids such as ``..._pv_power_evo_10``."""
     if not entity_id or not suffix:
         return False
     if entity_id.endswith(f"_{suffix}"):
@@ -127,7 +128,46 @@ def _entity_id_matches_suffix(entity_id: str, suffix: str) -> bool:
     local = entity_id.rsplit(".", 1)[-1]
     if local == suffix:
         return True
-    return f"_{suffix}_" in entity_id
+    needle = f"_{suffix}_"
+    return needle in entity_id
+
+
+def _entity_id_matches_suffix(entity_id: str, suffix: str) -> bool:
+    return _entity_id_matches_panel_suffix(entity_id, suffix)
+
+
+def _foxess_modbus_host(device: dr.DeviceEntry) -> str | None:
+    for identifier in device.identifiers:
+        if identifier[0] == MODBUS_DOMAIN and len(identifier) >= 3:
+            host = identifier[2]
+            if host:
+                return str(host)
+    return None
+
+
+def discover_entity_map_extended(hass: HomeAssistant, device_id: str) -> dict[str, str]:
+    """Discover entities on the plant device and sibling foxess_modbus devices (same host)."""
+    entity_map = discover_entity_map(hass, device_id)
+    device_reg = dr.async_get(hass)
+    device = device_reg.async_get(device_id)
+    if device is None:
+        return entity_map
+
+    host = _foxess_modbus_host(device)
+    if not host:
+        return entity_map
+
+    for entry in device_reg.devices.values():
+        if entry.id == device_id or not is_foxess_modbus_device(entry):
+            continue
+        if _foxess_modbus_host(entry) != host:
+            continue
+        sibling_map = discover_entity_map(hass, entry.id)
+        for key, entity_id in sibling_map.items():
+            existing = entity_map.get(key)
+            if existing is None or not _state_is_usable(hass, existing):
+                entity_map[key] = entity_id
+    return entity_map
 
 
 def _suffixes_for_key(key: str) -> tuple[str, ...]:
@@ -136,7 +176,19 @@ def _suffixes_for_key(key: str) -> tuple[str, ...]:
     if key in IDENTITY_ENTITY_SUFFIXES:
         return IDENTITY_ENTITY_SUFFIXES[key]
     single = DISCOVERY_SUFFIXES.get(key)
-    return (single,) if single else ()
+    if isinstance(single, str):
+        return (single,)
+    if isinstance(single, tuple):
+        return single
+    return ()
+
+
+def _integration_domain(hass: HomeAssistant, entity_id: str) -> str | None:
+    entry = er.async_get(hass).async_get(entity_id)
+    if not entry or not entry.config_entry_id:
+        return None
+    cfg = hass.config_entries.async_get_entry(entry.config_entry_id)
+    return cfg.domain if cfg else None
 
 
 def _state_is_usable(hass: HomeAssistant, entity_id: str | None) -> bool:
@@ -156,25 +208,46 @@ def resolve_entity_id(
     device_id: str | None = None,
 ) -> str | None:
     """Resolve a plant logical key to a live entity_id (stored map + runtime suffix fallbacks)."""
-    mapped = entity_map.get(key)
-    if _state_is_usable(hass, mapped):
-        return mapped
-
     suffixes = _suffixes_for_key(key)
     if not suffixes:
-        return mapped
+        return entity_map.get(key)
 
     candidates: list[str] = []
+    mapped = entity_map.get(key)
+    if mapped:
+        candidates.append(mapped)
+
     if device_id:
         entity_reg = er.async_get(hass)
         for entry in er.async_entries_for_device(entity_reg, device_id):
             if entry.entity_id:
                 candidates.append(entry.entity_id)
-    if not candidates:
-        candidates = list(hass.states.async_entity_ids())
 
-    for suffix in suffixes:
-        for entity_id in candidates:
-            if _entity_id_matches_suffix(entity_id, suffix) and _state_is_usable(hass, entity_id):
-                return entity_id
-    return mapped
+    candidates.extend(hass.states.async_entity_ids())
+
+    seen: set[str] = set()
+    matches: list[str] = []
+    for entity_id in candidates:
+        if not entity_id or entity_id in seen:
+            continue
+        seen.add(entity_id)
+        if not any(_entity_id_matches_panel_suffix(entity_id, suffix) for suffix in suffixes):
+            continue
+        if not _state_is_usable(hass, entity_id):
+            continue
+        matches.append(entity_id)
+
+    if not matches:
+        return mapped
+
+    def rank(entity_id: str) -> tuple[int, int, str]:
+        on_device = 0
+        if device_id:
+            entity_reg = er.async_get(hass)
+            entry = entity_reg.async_get(entity_id)
+            on_device = 0 if entry and entry.device_id == device_id else 1
+        modbus = 0 if _integration_domain(hass, entity_id) == MODBUS_DOMAIN else 1
+        return (on_device, modbus, entity_id)
+
+    matches.sort(key=rank)
+    return matches[0]

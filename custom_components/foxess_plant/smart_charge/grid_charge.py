@@ -22,11 +22,12 @@ def battery_deficit_kwh(
 ) -> float | None:
     if target_soc_pct <= 0:
         return None
+    effective_target = max(0.1, float(target_soc_pct))
     if kwh_remaining is not None and capacity_kwh is not None and capacity_kwh > 0:
-        target_kwh = capacity_kwh * target_soc_pct / 100.0
+        target_kwh = capacity_kwh * effective_target / 100.0
         return max(0.0, target_kwh - max(0.0, kwh_remaining))
     if soc_pct is not None and capacity_kwh is not None and capacity_kwh > 0:
-        return max(0.0, capacity_kwh * (target_soc_pct - soc_pct) / 100.0)
+        return max(0.0, capacity_kwh * (effective_target - soc_pct) / 100.0)
     return None
 
 
@@ -293,9 +294,15 @@ def evaluate_grid_charge(
     }
 
     if deficit is None:
+        missing = []
+        if capacity_kwh is None or capacity_kwh <= 0:
+            missing.append("capacity")
+        if soc_pct is None and kwh_remaining is None:
+            missing.append("SOC")
+        detail = f" ({', '.join(missing)})" if missing else ""
         return SmartChargeDecision(
             action="idle",
-            reason="Battery SOC or capacity unavailable",
+            reason=f"Battery SOC or capacity unavailable{detail}",
             deficit_kwh=deficit,
             forecast_kwh=forecast_kwh,
             **base_kwargs,
