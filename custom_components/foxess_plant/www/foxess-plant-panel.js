@@ -9693,7 +9693,8 @@ const STYLES = `
   min-height: 0;
   box-sizing: border-box;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: stretch;
   background: var(--card-background-color);
   border-radius: var(--fp-radius);
   border: 1px solid var(--divider-color, transparent);
@@ -9701,12 +9702,13 @@ const STYLES = `
   overflow: hidden;
 }
 .overview-automation-half {
-  flex: 1 1 50%;
+  flex: 1 1 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   justify-content: center;
   gap: 4px;
-  padding: 10px 14px;
+  padding: 10px 12px;
   margin: 0;
   border: none;
   background: transparent;
@@ -9723,13 +9725,14 @@ const STYLES = `
   z-index: 1;
 }
 .overview-automation-half + .overview-automation-half {
-  border-top: 1px solid var(--divider-color, rgba(127,127,127,0.25));
+  border-top: none;
+  border-left: 1px solid var(--divider-color, rgba(127,127,127,0.25));
 }
 .overview-automation-half-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
   min-height: 20px;
 }
 .overview-automation-half-title {
@@ -9737,6 +9740,7 @@ const STYLES = `
   font-weight: 600;
   color: var(--secondary-text-color);
   letter-spacing: 0.01em;
+  min-width: 0;
 }
 .overview-automation-status-pill {
   flex-shrink: 0;
