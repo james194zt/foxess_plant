@@ -1962,7 +1962,7 @@ function formatOctopusTileDate(d) {
   return `${day}/${mo}`;
 }
 
-const OCTOPUS_GREENER_SAPLING_VER = 3;
+const OCTOPUS_GREENER_SAPLING_VER = 4;
 const OCTOPUS_GREENER_SAPLING_LOW_URL = `/foxess_plant_panel/octopus_greener_sapling.png?v=${OCTOPUS_GREENER_SAPLING_VER}`;
 const OCTOPUS_GREENER_SAPLING_GREEN_URL = `/foxess_plant_panel/octopus_greener_sapling_green.png?v=${OCTOPUS_GREENER_SAPLING_VER}`;
 
@@ -10916,7 +10916,7 @@ const STYLES = `
   align-items: center;
   justify-content: flex-start;
   gap: 4px;
-  min-height: 168px;
+  min-height: 118px;
   padding: 10px 6px 8px;
   border-radius: 14px;
   border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.25));
@@ -10961,7 +10961,7 @@ const STYLES = `
 .octopus-upcoming-week-plant-wrap {
   margin-top: auto;
   width: 100%;
-  height: 112px;
+  height: 56px;
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -10975,12 +10975,12 @@ const STYLES = `
   max-width: 100%;
 }
 .octopus-upcoming-week-plant--green {
-  width: 112px;
-  height: 112px;
+  width: 56px;
+  height: 56px;
 }
 .octopus-upcoming-week-plant--low {
-  width: 96px;
-  height: 96px;
+  width: 48px;
+  height: 48px;
 }
 @media (max-width: 720px) {
   .octopus-upcoming-week-grid {
