@@ -2093,7 +2093,7 @@ function renderOctopusGreenerWeekChartSvg(greenerNights, periodOffset = 0) {
       const h = Math.max(4, (r.greenness_score / scoreMax) * chartH);
       const y = padT + chartH - h;
       const color = r.is_greener_night
-        ? "var(--octopus-green-bar, #22c55e)"
+        ? "var(--octopus-green-bar, #4caf50)"
         : "var(--octopus-purple-bar, #8b5cf6)";
       const rx = Math.min(barW / 2, h / 2, 6);
       return `<rect class="octopus-greener-bar" data-bar-index="${i}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${color}" rx="${rx.toFixed(1)}" />`;
@@ -2180,7 +2180,7 @@ function renderOctopusGreenerCarbonLegend(threshold) {
 </div>`;
 }
 
-const OCTOPUS_TIMELINE_LEAF_SVG = `<svg class="octopus-greener-timeline-icon-svg octopus-greener-timeline-icon-svg--leaf" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 26" aria-hidden="true"><path fill="#18f0b8" d="M15.938 3.718c-4.606 0-8.502 2.988-9.827 7.108a14.56 14.56 0 0 1 6.545-1.537h5.156c.516 0 .938.417.938.928 0 .51-.422.928-.938.928H12.656c-.972 0-1.916.11-2.824.314-1.518.342-2.93.951-4.184 1.781C2.244 15.486 0 19.321 0 23.68v.928C0 25.38.627 26 1.406 26c.78 0 1.407-.62 1.407-1.393v-.928a9.675 9.675 0 0 1 3.152-7.149c1.16 4.381 5.185 7.613 9.973 7.613h.058C23.736 24.103 30 16.548 30 7.234c0-2.471-.44-4.822-1.236-6.94-.153-.4-.744-.382-.95-.005a6.56 6.56 0 0 1-5.783 3.429h-6.093Z"/></svg>`;
+const OCTOPUS_TIMELINE_LEAF_SVG = `<svg class="octopus-greener-timeline-icon-svg octopus-greener-timeline-icon-svg--leaf" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30 26" aria-hidden="true"><path fill="#4caf50" d="M15.938 3.718c-4.606 0-8.502 2.988-9.827 7.108a14.56 14.56 0 0 1 6.545-1.537h5.156c.516 0 .938.417.938.928 0 .51-.422.928-.938.928H12.656c-.972 0-1.916.11-2.824.314-1.518.342-2.93.951-4.184 1.781C2.244 15.486 0 19.321 0 23.68v.928C0 25.38.627 26 1.406 26c.78 0 1.407-.62 1.407-1.393v-.928a9.675 9.675 0 0 1 3.152-7.149c1.16 4.381 5.185 7.613 9.973 7.613h.058C23.736 24.103 30 16.548 30 7.234c0-2.471-.44-4.822-1.236-6.94-.153-.4-.744-.382-.95-.005a6.56 6.56 0 0 1-5.783 3.429h-6.093Z"/></svg>`;
 
 const OCTOPUS_TIMELINE_UNPLUGGED_SVG = `<svg class="octopus-greener-timeline-icon-svg octopus-greener-timeline-icon-svg--unplugged" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 15 21" aria-hidden="true"><path fill="#8b5cf6" d="M13.8887 6.5244c.1206.0086.2399.034.3535.0772a1.2471 1.2471 0 0 1 .8037 1.165c0 .1677-.0339.334-.0996.4883a1.2474 1.2474 0 0 1-1.1963.7568v1.2451c0 3.012-2.148 5.4906-5 6.1006v2.6094a1.2502 1.2502 0 0 1-2.1338.8838 1.2502 1.2502 0 0 1-.3662-.8838v-2.6094a6.4213 6.4213 0 0 1-1.6133-.581l9.252-9.252Zm-12.041 6.3848c-.383-.8028-.5977-1.7009-.5977-2.6524v-1.245C.56 9.0117 0 8.4555 0 7.7665c.0002-.6888.5601-1.2441 1.25-1.2441h6.9854l-6.3877 6.3867Z"/><path fill="#8b5cf6" d="M3.832 0c.677 0 1.2225.5839 1.2227 1.3037v5.2188H2.6094V1.3037C2.6105.5838 3.157 0 3.832 0ZM11.17 0c.6769 0 1.2225.5838 1.2227 1.3037l-.001 1.0928a2.0151 2.0151 0 0 0-.2197.1894L9.9463 4.8115V1.3037C9.9464.584 10.493 0 11.1699 0Z"/><path fill="#8b5cf6" d="M12.8787 3.2929c.3905-.3905 1.0237-.3905 1.4142 0 .3905.3905.3905 1.0237 0 1.4142L2.7071 16.293c-.3905.3905-1.0237.3905-1.4142 0-.3905-.3905-.3905-1.0237 0-1.4142L12.8787 3.2929Z"/></svg>`;
 
@@ -2257,7 +2257,7 @@ function renderOctopusGreenerChartSvg(periods, threshold) {
       const x = padL + i * slotW + (slotW - barW) / 2;
       const y = padT + chartH - h;
       const green = octopusCarbonPeriodIsGreen(p, threshold);
-      const color = green ? "var(--octopus-green-bar, #22c55e)" : "var(--octopus-purple-bar, #8b5cf6)";
+      const color = green ? "var(--octopus-green-bar, #4caf50)" : "var(--octopus-purple-bar, #8b5cf6)";
       const rx = Math.min(barW / 2, h / 2, 4);
       return `<rect class="octopus-greener-bar" data-bar-index="${i}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${color}" rx="${rx.toFixed(1)}" />`;
     })
@@ -2796,7 +2796,7 @@ function octopusConsumptionDailyTotals(consumption, days = 14) {
 function renderOctopusGenericBarChartSvg(rows, {
   valueKey,
   maxValue = null,
-  colorFn = () => "#22c55e",
+  colorFn = () => "#4caf50",
   emptyHint = "No data available.",
   ariaLabel = "Chart",
   chartMode = "generic",
@@ -2933,7 +2933,7 @@ function renderOctopusDualChartSvg(dualPeriods) {
   const chart = renderOctopusGenericBarChartSvg(rows, {
     valueKey: "low_carbon_score",
     maxValue: 10,
-    colorFn: (row) => (octopusCarbonPeriodIsGreen(row) ? "#22c55e" : "#8b5cf6"),
+    colorFn: (row) => (octopusCarbonPeriodIsGreen(row) ? "#4caf50" : "#8b5cf6"),
     emptyHint: "No carbon periods.",
     ariaLabel: "Price and carbon overlay chart",
     chartMode: "dual",
@@ -9997,6 +9997,8 @@ const STYLES = `
   --fp-radius: 14px;
   --fp-accent: var(--primary-color, #03a9f4);
   --fp-green: #2e7d32;
+  --octopus-greener-accent: #4caf50;
+  --octopus-green-bar: var(--octopus-greener-accent);
   --fp-amber: #f9a825;
   --fp-red: #e53935;
 }
@@ -10593,7 +10595,7 @@ const STYLES = `
 }
 .octopus-greener-headline {
   font-weight: 700; font-size: 15px; line-height: 1.3; margin: 0 0 10px;
-  color: var(--octopus-green-bar, #22c55e);
+  color: var(--octopus-green-bar, #4caf50);
 }
 .octopus-greener-view-toggle {
   display: inline-flex; padding: 3px; border-radius: 999px;
@@ -10703,7 +10705,7 @@ const STYLES = `
 .octopus-greener-swatch {
   display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px;
 }
-.octopus-greener-swatch--green { background: #22c55e; }
+.octopus-greener-swatch--green { background: var(--octopus-green-bar, #4caf50); }
 .octopus-greener-swatch--purple { background: #8b5cf6; }
 .octopus-greener-swatch-line {
   display: inline-block;
@@ -10861,7 +10863,7 @@ const STYLES = `
   margin-right: 6px;
   vertical-align: -1px;
 }
-.octopus-analysis-swatch--green { background: #22c55e; }
+.octopus-analysis-swatch--green { background: var(--octopus-green-bar, #4caf50); }
 .octopus-analysis-swatch--purple { background: #8b5cf6; }
 .octopus-analysis-swatch-line {
   display: inline-block;
@@ -10924,9 +10926,9 @@ const STYLES = `
   text-align: center;
 }
 .octopus-upcoming-week-day--featured {
-  background: rgba(24, 240, 184, 0.18);
-  border-color: #18f0b8;
-  box-shadow: inset 0 0 0 1px rgba(24, 240, 184, 0.28);
+  background: color-mix(in srgb, var(--octopus-greener-accent, #4caf50) 18%, transparent);
+  border-color: var(--octopus-greener-accent, #4caf50);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--octopus-greener-accent, #4caf50) 28%, transparent);
 }
 .octopus-upcoming-week-day--today:not(.octopus-upcoming-week-day--featured) {
   border-color: var(--primary-color, rgba(3, 169, 244, 0.45));
@@ -10939,8 +10941,8 @@ const STYLES = `
   transform: translateX(-50%);
   padding: 2px 9px;
   border-radius: 999px;
-  background: #18f0b8;
-  color: #0b1220;
+  background: var(--octopus-greener-accent, #4caf50);
+  color: #fff;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.02em;
