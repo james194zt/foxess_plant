@@ -3002,6 +3002,12 @@ function octopusNativeManagesSchedule(tariff, octopusDraft) {
   return true;
 }
 
+/** True when a native tariff API (e.g. Octopus fixed tariff) owns the plugin standing charge. */
+function tariffApiLocksStandingCharge(tariff, octopusDraft) {
+  if (normalizeTariffStandingSource(tariff?.standing_source) !== "plugin") return false;
+  return octopusNativeManagesSchedule(tariff, octopusDraft);
+}
+
 function normalizeOctopusDraft(raw, octopusLive) {
   const base = DEFAULT_TARIFF.dynamic;
   const t = raw && typeof raw === "object" ? raw : {};
@@ -12024,6 +12030,7 @@ const STYLES = `
 .tariff-schedule-card.tariff-schedule-locked .tariff-hour-block { cursor: default; transform: none; }
 .tariff-schedule-card.tariff-schedule-locked .tariff-band-chip[data-action="tariff-pick-band"] { cursor: default; }
 .tariff-schedule-card.tariff-schedule-locked .tariff-band-rate-row input { opacity: 0.55; cursor: not-allowed; }
+.tariff-rate-block.tariff-standing-locked input[data-field="tariff:standing:p"] { opacity: 0.55; cursor: not-allowed; }
 @media (max-width: 720px) {
   .tariff-band-rate-row { grid-template-columns: 1fr; }
   .tariff-hour-grid, .tariff-hour-labels { grid-template-columns: repeat(12, minmax(0, 1fr)); }
@@ -13579,7 +13586,11 @@ Reloading panel registration…
       );
     }
     const standingEl = this._root.querySelector('[data-field="tariff:standing:p"]');
-    if (standingEl && normalizeTariffStandingSource(this._tariffDraft.standing_source) === "plugin") {
+    if (
+      standingEl &&
+      normalizeTariffStandingSource(this._tariffDraft.standing_source) === "plugin" &&
+      !tariffApiLocksStandingCharge(this._plantState?.tariff, this._octopusDraft)
+    ) {
       this._tariffDraft.standing_charge_p_per_day = majorToMinor(parseTariffRate(standingEl.value), currency);
     }
   }
@@ -15225,6 +15236,7 @@ Reloading panel registration…
         return;
       }
       if (rateKind === "standing" && sub === "p") {
+        if (tariffApiLocksStandingCharge(this._plantState?.tariff, this._octopusDraft)) return;
         this._tariffDraft.standing_charge_p_per_day = majorToMinor(parseTariffRate(el.value), currency);
         return;
       }
@@ -19128,14 +19140,23 @@ ${this._renderPvStringBlock("pv2")}
       liveHint = "Save to create plugin sensors that update each hour (or when the band changes)";
     }
     const entityHint = source === "entity" ? liveHint || suggestedHint : liveHint;
+    const standingApiLocked =
+      isStanding &&
+      source === "plugin" &&
+      tariffApiLocksStandingCharge(this._plantState?.tariff, this._octopusDraft);
+    const standingInputDisabled = this._busy || standingApiLocked;
     const standingManualBlock =
       isStanding && source === "plugin"
         ? `<div class="field" data-tariff-manual="${esc(kind)}">
-<p class="field-hint">Daily standing charge in ${esc(currency)} — published to the plugin sensor on save</p>
-<input type="number" min="0" max="9999" step="${esc(inputStep)}" inputmode="decimal" data-field="tariff:${esc(kind)}:p" value="${esc(String(manualDisplay || ""))}" placeholder="${esc(placeholder)}" ${this._busy ? "disabled" : ""}>
+<p class="field-hint">${
+            standingApiLocked
+              ? `Synced from Octopus automatically whenever rates are fetched — published to the plugin sensor in ${esc(currency)}/day`
+              : `Daily standing charge in ${esc(currency)} — published to the plugin sensor on save`
+          }</p>
+<input type="number" min="0" max="9999" step="${esc(inputStep)}" inputmode="decimal" data-field="tariff:${esc(kind)}:p" value="${esc(String(manualDisplay || ""))}" placeholder="${esc(placeholder)}" ${standingInputDisabled ? "disabled readonly" : ""}>
 </div>`
         : "";
-    return `<div class="tariff-rate-block" data-tariff-kind="${esc(kind)}">
+    return `<div class="tariff-rate-block${standingApiLocked ? " tariff-standing-locked" : ""}" data-tariff-kind="${esc(kind)}">
 <div class="field">
 <label>${esc(label)}</label>
 <select data-field="tariff:${esc(kind)}:source" ${this._busy ? "disabled" : ""}>
