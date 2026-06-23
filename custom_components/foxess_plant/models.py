@@ -279,6 +279,16 @@ class SmartChargeConfig:
     outage_reserve_margin: float = 1.2
     safety_reserve_multiplier: float = 1.5
     green_carbon_weight: float = 0.5
+    export_enabled: bool = True
+    export_enabled_safety: bool = True
+    export_enabled_green: bool = False
+    min_export_kwh: float = 0.5
+    min_export_p_profit: float = 12.0
+    min_export_p_safety: float = 20.0
+    min_export_p_green: float = 25.0
+    exportable_fraction_profit: float = 1.0
+    exportable_fraction_safety: float = 0.35
+    exportable_fraction_green: float = 0.15
     charge_periods: list[ChargePeriodConfig] = field(default_factory=list)
 
     @classmethod
@@ -318,6 +328,16 @@ class SmartChargeConfig:
             outage_reserve_margin=float(data.get("outage_reserve_margin", 1.2) or 1.2),
             safety_reserve_multiplier=float(data.get("safety_reserve_multiplier", 1.5) or 1.5),
             green_carbon_weight=float(data.get("green_carbon_weight", 0.5) or 0.5),
+            export_enabled=bool(data.get("export_enabled", True)),
+            export_enabled_safety=bool(data.get("export_enabled_safety", True)),
+            export_enabled_green=bool(data.get("export_enabled_green", False)),
+            min_export_kwh=float(data.get("min_export_kwh", 0.5) or 0.5),
+            min_export_p_profit=float(data.get("min_export_p_profit", 12.0) or 12.0),
+            min_export_p_safety=float(data.get("min_export_p_safety", 20.0) or 20.0),
+            min_export_p_green=float(data.get("min_export_p_green", 25.0) or 25.0),
+            exportable_fraction_profit=float(data.get("exportable_fraction_profit", 1.0) or 1.0),
+            exportable_fraction_safety=float(data.get("exportable_fraction_safety", 0.35) or 0.35),
+            exportable_fraction_green=float(data.get("exportable_fraction_green", 0.15) or 0.15),
             charge_periods=[ChargePeriodConfig.from_dict(p) for p in periods_raw],
         )
 
@@ -344,6 +364,16 @@ class SmartChargeConfig:
             "outage_reserve_margin": round(self.outage_reserve_margin, 2),
             "safety_reserve_multiplier": round(self.safety_reserve_multiplier, 2),
             "green_carbon_weight": round(self.green_carbon_weight, 2),
+            "export_enabled": self.export_enabled,
+            "export_enabled_safety": self.export_enabled_safety,
+            "export_enabled_green": self.export_enabled_green,
+            "min_export_kwh": round(self.min_export_kwh, 2),
+            "min_export_p_profit": round(self.min_export_p_profit, 2),
+            "min_export_p_safety": round(self.min_export_p_safety, 2),
+            "min_export_p_green": round(self.min_export_p_green, 2),
+            "exportable_fraction_profit": round(self.exportable_fraction_profit, 2),
+            "exportable_fraction_safety": round(self.exportable_fraction_safety, 2),
+            "exportable_fraction_green": round(self.exportable_fraction_green, 2),
             "charge_periods": [p.to_dict() for p in self.charge_periods],
         }
 

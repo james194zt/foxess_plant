@@ -99,9 +99,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._active_outage_triggers = set()
         self._forecast_armed = False
         self._smart_charge_armed = False
+        self._smart_charge_discharge_armed = False
         self._smart_charge_decision: dict[str, Any] = {}
         self._smart_charge_daily_plan: list[dict[str, Any]] = []
         self._smart_charge_periods_sig = ""
+        self._smart_charge_discharge_sig = ""
         self._storm_forecast_active = False
         self._storm_forecast_detail = {}
         self._solcast_cache: dict[str, Any] = {}
@@ -1290,6 +1292,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self.plant.override.active and self.plant.override.mode == MODE_OUTAGE:
                 if self.plant.override.reason == reason:
                     return
+            await self._clear_smart_charge_export_before_higher_priority()
             await self._arm_policy(
                 MODE_OUTAGE,
                 self.plant.outage_prep.charge_periods,
@@ -1309,6 +1312,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self.plant.override.active and self.plant.override.mode == MODE_STORM:
                 if self.plant.override.reason == reason:
                     return
+            await self._clear_smart_charge_export_before_higher_priority()
             await self._arm_policy(
                 MODE_STORM,
                 periods,
@@ -1318,7 +1322,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             return
 
-        if self._smart_charge_armed:
+        if self._smart_charge_armed or self._smart_charge_discharge_armed:
             return
 
         if self._forecast_armed:
@@ -1424,80 +1428,91 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         return rate_slots_from_schedule(self.plant.tariff, horizon_hours=horizon_hours)
 
-    async def _evaluate_smart_charge_daily_plan(self) -> None:
-        from .smart_charge import build_daily_plan
+    async def _clear_smart_charge_export_before_higher_priority(self) -> None:
+        if self._smart_charge_discharge_armed:
+            await self._disarm_smart_charge_export()
+        self._smart_charge_armed = False
+        self._smart_charge_discharge_armed = False
+        self._smart_charge_periods_sig = ""
+        self._smart_charge_discharge_sig = ""
 
-        cfg = self.plant.smart_charge
-        if not cfg.enabled or not self.plant.control_active:
+    async def _enable_force_discharge(self) -> None:
+        entity_id = self.plant.entity_map.get("work_mode")
+        options = self._entity_options("work_mode")
+        if entity_id and options and "Force Discharge" in options:
+            await self._set_work_mode("Force Discharge")
             return
-        if self.plant.outage_prep.enabled and self._active_outage_triggers:
+        await set_remote_control_mode(self.hass, self.plant.entity_map, "Force Discharge")
+
+    async def _disarm_smart_charge_export(self) -> None:
+        if not self._smart_charge_discharge_armed:
             return
-        if self.plant.storm_prep.enabled and self._active_storm_triggers:
+        self._smart_charge_discharge_armed = False
+        self._smart_charge_discharge_sig = ""
+        saved_max_soc = self.plant.override.saved_max_soc
+        saved_work_mode = self.plant.override.saved_work_mode
+        if (
+            self.plant.override.active
+            and self.plant.override.mode == MODE_SMART_CHARGE
+            and (self.plant.override.reason or "").startswith("smart_charge:export")
+        ):
+            self.plant.override = OverrideState()
+            await self._persist()
+            await self._restore_after_automation_disarm(
+                saved_max_soc=saved_max_soc,
+                saved_work_mode=saved_work_mode,
+            )
+        else:
+            await self._clear_remote_control_for_restore()
+        self._fire(EVENT_SMART_CHARGE_DISARMED, {"reason": "export_complete"})
+
+    async def _arm_smart_charge_export(self, decision: Any) -> None:
+        from .smart_charge import discharge_window_signature
+
+        window = decision.discharge_window or (decision.windows[0] if decision.windows else None)
+        sig = discharge_window_signature(window)
+        if self._smart_charge_armed:
+            self._smart_charge_armed = False
+            self._smart_charge_periods_sig = ""
+            if self.plant.override.active and self.plant.override.mode == MODE_SMART_CHARGE:
+                reason = self.plant.override.reason or ""
+                if reason.startswith("smart_charge:") and "export" not in reason:
+                    await self._disarm_policy(MODE_SMART_CHARGE, EVENT_SMART_CHARGE_DISARMED)
+
+        if self.plant.override.active and self.plant.override.mode not in AUTOMATION_MODES:
             return
 
-        await self._async_refresh_octopus(force=True)
-
-        forecast_rows = self._solcast_detailed_forecast_rows()
-        if not forecast_rows and self._solcast_cache.get("detailed_forecast"):
-            raw = self._solcast_cache.get("detailed_forecast")
-            forecast_rows = raw if isinstance(raw, list) else []
-
-        horizon = max(1, int(cfg.daily_plan_horizon_hours or 24))
-        import_slots = self._smart_charge_rate_slots(horizon_hours=horizon)
-        self._smart_charge_daily_plan = build_daily_plan(
-            config=cfg,
-            import_slots=import_slots,
-            forecast_rows=forecast_rows,
-            live_load_kw=self._live_home_load_kw(),
-            horizon_hours=float(horizon),
-        )
-        await self._evaluate_smart_charge()
-
-    async def _evaluate_smart_charge(self) -> None:
-        from .smart_charge import (
-            charge_periods_signature,
-            evaluate_smart_charge,
-        )
-
-        cfg = self.plant.smart_charge
-        if not cfg.enabled or not self.plant.control_active:
-            return
-        if self.plant.outage_prep.enabled and self._active_outage_triggers:
-            return
-        if self.plant.storm_prep.enabled and self._active_storm_triggers:
+        if not self._smart_charge_discharge_armed:
+            self._smart_charge_discharge_armed = True
+            self._smart_charge_discharge_sig = sig
+            await self._save_work_mode_if_needed()
+            self.plant.override.active = True
+            self.plant.override.mode = MODE_SMART_CHARGE
+            self.plant.override.reason = "smart_charge:export_discharge"
+            self.plant.override.periods = [
+                ChargePeriodConfig.from_dict(p.to_dict()) for p in self.plant.baseline_periods
+            ]
+            await self._persist()
+            await self._enable_force_discharge()
+            self._fire(
+                EVENT_SMART_CHARGE_ARMED,
+                {"reason": "smart_charge:export_discharge", "mode": MODE_SMART_CHARGE},
+            )
             return
 
-        forecast_rows = self._solcast_detailed_forecast_rows()
-        if not forecast_rows and self._solcast_cache.get("detailed_forecast"):
-            raw = self._solcast_cache.get("detailed_forecast")
-            forecast_rows = raw if isinstance(raw, list) else []
+        if sig != self._smart_charge_discharge_sig:
+            self._smart_charge_discharge_sig = sig
+            await self._enable_force_discharge()
+            self._fire(
+                EVENT_SMART_CHARGE_ARMED,
+                {"reason": "smart_charge:export_discharge", "mode": MODE_SMART_CHARGE},
+            )
 
-        horizon = max(1, int(cfg.daily_plan_horizon_hours or 24))
-        import_slots = self._smart_charge_rate_slots(horizon_hours=horizon)
-        export_slots = import_slots
+    async def _arm_smart_charge_grid(self, decision: Any) -> None:
+        from .smart_charge import charge_periods_signature
 
-        soc_pct = self._entity_float("battery_soc")
-        capacity_kwh = self._entity_float("bms_kwh_nominal")
-        kwh_remaining = self._entity_float("battery_kwh_remaining")
-        if capacity_kwh is None or capacity_kwh <= 0:
-            cap_from_soc = None
-            if soc_pct and soc_pct > 0 and kwh_remaining is not None:
-                cap_from_soc = kwh_remaining * 100.0 / soc_pct
-            capacity_kwh = cap_from_soc
-
-        decision = evaluate_smart_charge(
-            config=cfg,
-            soc_pct=soc_pct,
-            capacity_kwh=capacity_kwh,
-            kwh_remaining=kwh_remaining,
-            forecast_rows=forecast_rows,
-            import_slots=import_slots,
-            export_slots=export_slots,
-            live_load_kw=self._live_home_load_kw(),
-            daily_plan=self._smart_charge_daily_plan,
-            horizon_hours=float(horizon),
-        )
-        self._smart_charge_decision = decision.to_dict()
+        if self._smart_charge_discharge_armed:
+            await self._disarm_smart_charge_export()
 
         should_arm = decision.action in ("grid_charge", "arbitrage") and decision.charge_periods
         new_sig = charge_periods_signature(decision.charge_periods) if decision.charge_periods else ""
@@ -1532,6 +1547,104 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         decision.target_max_soc,
                         EVENT_SMART_CHARGE_ARMED,
                     )
+
+    async def _evaluate_smart_charge_daily_plan(self) -> None:
+        from .smart_charge import build_daily_plan
+
+        cfg = self.plant.smart_charge
+        if not cfg.enabled or not self.plant.control_active:
+            return
+        if self.plant.outage_prep.enabled and self._active_outage_triggers:
+            return
+        if self.plant.storm_prep.enabled and self._active_storm_triggers:
+            return
+
+        await self._async_refresh_octopus(force=True)
+
+        forecast_rows = self._solcast_detailed_forecast_rows()
+        if not forecast_rows and self._solcast_cache.get("detailed_forecast"):
+            raw = self._solcast_cache.get("detailed_forecast")
+            forecast_rows = raw if isinstance(raw, list) else []
+
+        horizon = max(1, int(cfg.daily_plan_horizon_hours or 24))
+        import_slots = self._smart_charge_rate_slots(horizon_hours=horizon)
+        soc_pct = self._entity_float("battery_soc")
+        capacity_kwh = self._entity_float("bms_kwh_nominal")
+        kwh_remaining = self._entity_float("battery_kwh_remaining")
+        if capacity_kwh is None or capacity_kwh <= 0:
+            if soc_pct and soc_pct > 0 and kwh_remaining is not None:
+                capacity_kwh = kwh_remaining * 100.0 / soc_pct
+        self._smart_charge_daily_plan = build_daily_plan(
+            config=cfg,
+            import_slots=import_slots,
+            forecast_rows=forecast_rows,
+            live_load_kw=self._live_home_load_kw(),
+            horizon_hours=float(horizon),
+            exportable_kwh=None,
+            capacity_kwh=capacity_kwh,
+            kwh_remaining=kwh_remaining,
+            soc_pct=soc_pct,
+        )
+        await self._evaluate_smart_charge()
+
+    async def _evaluate_smart_charge(self) -> None:
+        from .smart_charge import current_plan_slot, evaluate_smart_charge
+
+        cfg = self.plant.smart_charge
+        if not cfg.enabled or not self.plant.control_active:
+            return
+        if self.plant.outage_prep.enabled and self._active_outage_triggers:
+            await self._disarm_smart_charge_export()
+            return
+        if self.plant.storm_prep.enabled and self._active_storm_triggers:
+            await self._disarm_smart_charge_export()
+            return
+
+        forecast_rows = self._solcast_detailed_forecast_rows()
+        if not forecast_rows and self._solcast_cache.get("detailed_forecast"):
+            raw = self._solcast_cache.get("detailed_forecast")
+            forecast_rows = raw if isinstance(raw, list) else []
+
+        horizon = max(1, int(cfg.daily_plan_horizon_hours or 24))
+        import_slots = self._smart_charge_rate_slots(horizon_hours=horizon)
+        export_slots = import_slots
+
+        soc_pct = self._entity_float("battery_soc")
+        capacity_kwh = self._entity_float("bms_kwh_nominal")
+        kwh_remaining = self._entity_float("battery_kwh_remaining")
+        if capacity_kwh is None or capacity_kwh <= 0:
+            cap_from_soc = None
+            if soc_pct and soc_pct > 0 and kwh_remaining is not None:
+                cap_from_soc = kwh_remaining * 100.0 / soc_pct
+            capacity_kwh = cap_from_soc
+
+        decision = evaluate_smart_charge(
+            config=cfg,
+            soc_pct=soc_pct,
+            capacity_kwh=capacity_kwh,
+            kwh_remaining=kwh_remaining,
+            forecast_rows=forecast_rows,
+            import_slots=import_slots,
+            export_slots=export_slots,
+            live_load_kw=self._live_home_load_kw(),
+            daily_plan=self._smart_charge_daily_plan,
+            horizon_hours=float(horizon),
+        )
+        self._smart_charge_decision = decision.to_dict()
+        self._smart_charge_decision["current_plan_slot"] = current_plan_slot(self._smart_charge_daily_plan)
+
+        if decision.action == "export_discharge":
+            await self._arm_smart_charge_export(decision)
+        elif decision.action in ("grid_charge", "arbitrage"):
+            await self._arm_smart_charge_grid(decision)
+        else:
+            if self._smart_charge_discharge_armed:
+                await self._disarm_smart_charge_export()
+            if self._smart_charge_armed:
+                self._smart_charge_armed = False
+                self._smart_charge_periods_sig = ""
+                if self.plant.override.active and self.plant.override.mode == MODE_SMART_CHARGE:
+                    await self._disarm_policy(MODE_SMART_CHARGE, EVENT_SMART_CHARGE_DISARMED)
 
     async def _save_max_soc_if_needed(self, target: float | None) -> None:
         if target is None or self.plant.override.saved_max_soc is not None:
@@ -1748,6 +1861,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "smart_charge": {
                 **self.plant.smart_charge.to_dict(),
                 "armed": self._smart_charge_armed,
+                "discharge_armed": self._smart_charge_discharge_armed,
                 "decision": self._smart_charge_decision,
                 "daily_plan": self._smart_charge_daily_plan,
             },
@@ -2234,6 +2348,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.plant.override = OverrideState()
         self._forecast_armed = False
         self._smart_charge_armed = False
+        self._smart_charge_discharge_armed = False
         self._active_storm_triggers.clear()
         self._active_outage_triggers.clear()
         await self._persist()

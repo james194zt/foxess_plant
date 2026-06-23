@@ -1,4 +1,4 @@
-"""SmartCharge strategy engine — operating modes, reserve floor, daily plan scaffold."""
+"""SmartCharge strategy engine — operating modes, reserve floor, export, daily plan."""
 
 from __future__ import annotations
 
@@ -8,23 +8,16 @@ from typing import Any
 from homeassistant.util import dt as dt_util
 
 from ..models import ChargePeriodConfig
+from .context import build_context
+from .daily_plan import build_daily_plan, current_plan_slot
+from .export_peak import evaluate_export_discharge, find_export_slot, mode_export_limits
 from .grid_charge import (
-    _fmt_hhmm,
-    _merge_slots,
     _periods_from_block,
+    battery_deficit_kwh,
     evaluate_grid_charge,
     find_negative_import_slot,
 )
-from .reserve import OPERATING_MODE_MAX_SAFETY, compute_exportable_kwh, compute_outage_reserve_kwh
-from .solcast_budget import compute_house_energy_budget
 from .types import RateSlot, SmartChargeDecision
-
-
-def _config_float(config: Any, key: str, default: float) -> float:
-    try:
-        return float(getattr(config, key, default) or default)
-    except (TypeError, ValueError):
-        return default
 
 
 def _config_bool(config: Any, key: str, default: bool) -> bool:
@@ -34,115 +27,48 @@ def _config_bool(config: Any, key: str, default: bool) -> bool:
     return bool(value)
 
 
-def _effective_home_load_kw(config: Any, live_load_kw: float | None) -> float:
-    reserve_load = getattr(config, "outage_reserve_load_kw", None)
-    if reserve_load is not None:
-        try:
-            return max(0.0, float(reserve_load))
-        except (TypeError, ValueError):
-            pass
-    if live_load_kw is not None and live_load_kw > 0:
-        return live_load_kw
-    return _config_float(config, "house_load_kw_fallback", 1.0)
+def _fmt_hhmm_local(when: datetime) -> str:
+    return dt_util.as_local(when).strftime("%H:%M")
 
 
-def _max_target_soc(config: Any) -> float:
-    explicit = getattr(config, "max_target_soc", None)
-    if explicit is not None:
-        return min(100.0, max(10.0, float(explicit)))
-    return min(100.0, max(10.0, _config_float(config, "target_soc", 100.0)))
-
-
-def _build_context(
-    *,
-    config: Any,
-    soc_pct: float | None,
-    capacity_kwh: float | None,
-    kwh_remaining: float | None,
-    forecast_rows: list[dict[str, Any]],
-    live_load_kw: float | None,
-    horizon_hours: float,
-) -> dict[str, Any]:
-    operating_mode = str(getattr(config, "operating_mode", OPERATING_MODE_MAX_SAFETY) or OPERATING_MODE_MAX_SAFETY)
-    load_kw = _effective_home_load_kw(config, live_load_kw)
-    reserve_kwh = compute_outage_reserve_kwh(
-        avg_home_load_kw=load_kw,
-        vulnerable_hours=_config_float(config, "outage_reserve_hours", 3.0),
-        safety_margin=_config_float(config, "outage_reserve_margin", 1.2),
-        operating_mode=operating_mode,
-        safety_reserve_multiplier=_config_float(config, "safety_reserve_multiplier", 1.5),
-    )
-    exportable_kwh = compute_exportable_kwh(kwh_remaining=kwh_remaining, reserve_kwh=reserve_kwh)
-    budget = compute_house_energy_budget(
-        forecast_rows=forecast_rows,
-        avg_home_load_kw=load_kw,
-        dark_hours_estimate=_config_float(config, "dark_hours_estimate", 8.0),
-        solar_safety_margin=_config_float(config, "solar_safety_margin", 1.15),
-        capacity_kwh=capacity_kwh,
-        max_target_soc=_max_target_soc(config),
-        reserve_kwh=reserve_kwh,
-        horizon_hours=horizon_hours,
-    )
-    return {
-        "operating_mode": operating_mode,
-        "reserve_kwh": round(reserve_kwh, 2),
-        "exportable_kwh": round(exportable_kwh, 2) if exportable_kwh is not None else None,
-        "target_soc_pct": budget.target_soc_pct,
-        "grid_gap_kwh": budget.grid_gap_kwh,
-        "dark_hours_kwh": budget.dark_hours_kwh,
-        "budget": budget,
-    }
-
-
-def build_daily_plan(
-    *,
-    config: Any,
+def _slot_from_plan_entry(
+    entry: dict[str, Any],
     import_slots: list[RateSlot],
-    forecast_rows: list[dict[str, Any]],
-    live_load_kw: float | None,
-    horizon_hours: float = 24.0,
-) -> list[dict[str, Any]]:
-    """Phase-1 scaffold: annotate next 24h half-hour slots for panel diagnostics."""
-    ctx = _build_context(
-        config=config,
-        soc_pct=None,
-        capacity_kwh=None,
-        kwh_remaining=None,
-        forecast_rows=forecast_rows,
-        live_load_kw=live_load_kw,
-        horizon_hours=horizon_hours,
-    )
-    now = dt_util.utcnow()
-    end = now + timedelta(hours=horizon_hours)
-    plan: list[dict[str, Any]] = []
-    for slot in _merge_slots(import_slots):
-        if slot.end <= now or slot.start >= end:
-            continue
-        if slot.import_p_per_kwh < 0:
-            action = "charge"
-            reason = "negative_import"
-        elif slot.import_p_per_kwh <= 5.0:
-            action = "charge_candidate"
-            reason = "cheap_import"
-        else:
-            action = "idle"
-            reason = "hold"
-        plan.append(
-            {
-                "start": _fmt_hhmm(slot.start),
-                "end": _fmt_hhmm(slot.end),
-                "action": action,
-                "reason": reason,
-                "import_p_per_kwh": round(slot.import_p_per_kwh, 4),
-                "export_p_per_kwh": round(slot.export_p_per_kwh, 4)
-                if slot.export_p_per_kwh is not None
-                else None,
-            }
+) -> RateSlot | None:
+    start_s = entry.get("start")
+    end_s = entry.get("end")
+    if not start_s or not end_s:
+        return None
+    for slot in import_slots:
+        if _fmt_hhmm_local(slot.start) == start_s and _fmt_hhmm_local(slot.end) == end_s:
+            return slot
+    local_now = dt_util.as_local(dt_util.now())
+    try:
+        start = local_now.replace(
+            hour=int(start_s.split(":")[0]),
+            minute=int(start_s.split(":")[1]),
+            second=0,
+            microsecond=0,
         )
-    if plan:
-        plan[0]["operating_mode"] = ctx["operating_mode"]
-        plan[0]["grid_gap_kwh"] = ctx["grid_gap_kwh"]
-    return plan
+        end = local_now.replace(
+            hour=int(end_s.split(":")[0]),
+            minute=int(end_s.split(":")[1]),
+            second=0,
+            microsecond=0,
+        )
+        if end <= start:
+            end += timedelta(days=1)
+        import_p = float(entry.get("import_p_per_kwh") or 0)
+        export_raw = entry.get("export_p_per_kwh")
+        export_p = float(export_raw) if export_raw is not None else None
+        return RateSlot(
+            start=dt_util.as_utc(start),
+            end=dt_util.as_utc(end),
+            import_p_per_kwh=import_p,
+            export_p_per_kwh=export_p,
+        )
+    except (TypeError, ValueError, IndexError):
+        return None
 
 
 def _negative_import_decision(
@@ -190,8 +116,8 @@ def _negative_import_decision(
             forecast_kwh=decision.forecast_kwh,
             windows=[
                 {
-                    "start": _fmt_hhmm(slot.start),
-                    "end": _fmt_hhmm(slot.end),
+                    "start": _fmt_hhmm_local(slot.start),
+                    "end": _fmt_hhmm_local(slot.end),
                     "import_p_per_kwh": round(import_p, 4),
                 }
             ],
@@ -209,8 +135,8 @@ def _negative_import_decision(
     decision.charge_periods = periods
     decision.windows = [
         {
-            "start": _fmt_hhmm(slot.start),
-            "end": _fmt_hhmm(slot.end),
+            "start": _fmt_hhmm_local(slot.start),
+            "end": _fmt_hhmm_local(slot.end),
             "import_p_per_kwh": round(import_p, 4),
         }
     ]
@@ -218,38 +144,48 @@ def _negative_import_decision(
     return decision
 
 
-def _current_plan_slot(
+def _try_export_decision(
+    *,
+    config: Any,
+    ctx: dict[str, Any],
+    forecast_rows: list[dict[str, Any]],
+    import_slots: list[RateSlot],
     daily_plan: list[dict[str, Any]] | None,
-    now: datetime | None = None,
-) -> dict[str, Any] | None:
-    if not daily_plan:
+    horizon_hours: float,
+    plan_slot: dict[str, Any] | None,
+    soc_pct: float | None,
+    capacity_kwh: float | None,
+    kwh_remaining: float | None,
+) -> SmartChargeDecision | None:
+    deficit = battery_deficit_kwh(
+        soc_pct=soc_pct,
+        capacity_kwh=capacity_kwh,
+        kwh_remaining=kwh_remaining,
+        target_soc_pct=ctx["target_soc_pct"],
+    )
+    min_deficit = float(getattr(config, "min_deficit_kwh", 0.5) or 0.5)
+    if deficit is not None and deficit > min_deficit:
         return None
-    local_now = dt_util.as_local(now or dt_util.now())
-    for entry in daily_plan:
-        start_s = entry.get("start")
-        end_s = entry.get("end")
-        if not start_s or not end_s:
-            continue
-        try:
-            start = local_now.replace(
-                hour=int(start_s.split(":")[0]),
-                minute=int(start_s.split(":")[1]),
-                second=0,
-                microsecond=0,
-            )
-            end = local_now.replace(
-                hour=int(end_s.split(":")[0]),
-                minute=int(end_s.split(":")[1]),
-                second=0,
-                microsecond=0,
-            )
-            if end <= start:
-                end += timedelta(days=1)
-            if start <= local_now < end:
-                return entry
-        except (TypeError, ValueError, IndexError):
-            continue
-    return None
+
+    min_export_p, _ = mode_export_limits(ctx["operating_mode"], config)
+    slot: RateSlot | None = None
+    eval_tier = "tactical"
+    if plan_slot and plan_slot.get("action") == "export":
+        slot = _slot_from_plan_entry(plan_slot, import_slots)
+        eval_tier = "daily_plan"
+    if slot is None:
+        slot = find_export_slot(import_slots, min_export_p=min_export_p)
+    if slot is None:
+        return None
+    return evaluate_export_discharge(
+        config=config,
+        slot=slot,
+        ctx=ctx,
+        forecast_rows=forecast_rows,
+        horizon_hours=horizon_hours,
+        eval_tier=eval_tier,
+        daily_plan=daily_plan,
+    )
 
 
 def evaluate_smart_charge(
@@ -265,8 +201,8 @@ def evaluate_smart_charge(
     daily_plan: list[dict[str, Any]] | None = None,
     horizon_hours: float = 24.0,
 ) -> SmartChargeDecision:
-    """Strategy entry — reserve floor, house-load budget, tactical interrupts."""
-    ctx = _build_context(
+    """Strategy entry — reserve floor, export peaks, house-load budget, tactical interrupts."""
+    ctx = build_context(
         config=config,
         soc_pct=soc_pct,
         capacity_kwh=capacity_kwh,
@@ -292,11 +228,23 @@ def evaluate_smart_charge(
                 daily_plan=daily_plan,
             )
 
-    plan_slot = _current_plan_slot(daily_plan)
-    eval_tier = "daily_plan" if plan_slot else "tactical"
-    if plan_slot and plan_slot.get("action") == "charge":
-        pass  # fall through to grid charge evaluator
+    plan_slot = current_plan_slot(daily_plan)
+    export_decision = _try_export_decision(
+        config=config,
+        ctx=ctx,
+        forecast_rows=forecast_rows,
+        import_slots=import_slots,
+        daily_plan=daily_plan,
+        horizon_hours=horizon_hours,
+        plan_slot=plan_slot,
+        soc_pct=soc_pct,
+        capacity_kwh=capacity_kwh,
+        kwh_remaining=kwh_remaining,
+    )
+    if export_decision is not None:
+        return export_decision
 
+    eval_tier = "daily_plan" if plan_slot else "tactical"
     return evaluate_grid_charge(
         config=config,
         soc_pct=soc_pct,
@@ -314,3 +262,9 @@ def evaluate_smart_charge(
         eval_tier=eval_tier,
         daily_plan=daily_plan,
     )
+
+
+__all__ = [
+    "build_daily_plan",
+    "evaluate_smart_charge",
+]

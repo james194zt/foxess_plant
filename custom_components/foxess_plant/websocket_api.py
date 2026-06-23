@@ -754,6 +754,28 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             vol.Optional("green_carbon_weight", default=0.5): vol.All(
                 vol.Coerce(float), vol.Range(min=0, max=1.0)
             ),
+            vol.Optional("export_enabled", default=True): cv.boolean,
+            vol.Optional("export_enabled_safety", default=True): cv.boolean,
+            vol.Optional("export_enabled_green", default=False): cv.boolean,
+            vol.Optional("min_export_kwh", default=0.5): vol.All(vol.Coerce(float), vol.Range(min=0.1, max=50)),
+            vol.Optional("min_export_p_profit", default=12.0): vol.All(
+                vol.Coerce(float), vol.Range(min=0, max=100)
+            ),
+            vol.Optional("min_export_p_safety", default=20.0): vol.All(
+                vol.Coerce(float), vol.Range(min=0, max=100)
+            ),
+            vol.Optional("min_export_p_green", default=25.0): vol.All(
+                vol.Coerce(float), vol.Range(min=0, max=100)
+            ),
+            vol.Optional("exportable_fraction_profit", default=1.0): vol.All(
+                vol.Coerce(float), vol.Range(min=0.05, max=1.0)
+            ),
+            vol.Optional("exportable_fraction_safety", default=0.35): vol.All(
+                vol.Coerce(float), vol.Range(min=0.05, max=1.0)
+            ),
+            vol.Optional("exportable_fraction_green", default=0.15): vol.All(
+                vol.Coerce(float), vol.Range(min=0.05, max=1.0)
+            ),
             vol.Required("charge_periods"): [PERIOD_SCHEMA],
         }
     )
@@ -792,6 +814,16 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
                 "outage_reserve_margin",
                 "safety_reserve_multiplier",
                 "green_carbon_weight",
+                "export_enabled",
+                "export_enabled_safety",
+                "export_enabled_green",
+                "min_export_kwh",
+                "min_export_p_profit",
+                "min_export_p_safety",
+                "min_export_p_green",
+                "exportable_fraction_profit",
+                "exportable_fraction_safety",
+                "exportable_fraction_green",
                 "charge_periods",
             )
             if key in msg

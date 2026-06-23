@@ -20,8 +20,9 @@ from .reserve import (
 )
 from .solcast_budget import HouseEnergyBudget, compute_house_energy_budget
 from .solcast_remaining import solcast_forecast_kwh_for_horizon, solcast_remaining_kwh
-from .strategy import build_daily_plan, evaluate_smart_charge
-from .types import RateSlot, SmartChargeDecision, charge_periods_signature
+from .daily_plan import build_daily_plan, current_plan_slot
+from .strategy import evaluate_smart_charge
+from .types import RateSlot, SmartChargeDecision, charge_periods_signature, discharge_window_signature
 
 __all__ = [
     "OPERATING_MODE_MAX_GREEN",
@@ -33,7 +34,9 @@ __all__ = [
     "SmartChargeDecision",
     "battery_deficit_kwh",
     "build_daily_plan",
+    "current_plan_slot",
     "charge_periods_signature",
+    "discharge_window_signature",
     "compute_exportable_kwh",
     "compute_house_energy_budget",
     "compute_min_reserve_soc",

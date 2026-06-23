@@ -392,6 +392,16 @@ DEFAULT_SMART_CHARGE = {
     "outage_reserve_margin": 1.2,
     "safety_reserve_multiplier": 1.5,
     "green_carbon_weight": 0.5,
+    "export_enabled": True,
+    "export_enabled_safety": True,
+    "export_enabled_green": False,
+    "min_export_kwh": 0.5,
+    "min_export_p_profit": 12.0,
+    "min_export_p_safety": 20.0,
+    "min_export_p_green": 25.0,
+    "exportable_fraction_profit": 1.0,
+    "exportable_fraction_safety": 0.35,
+    "exportable_fraction_green": 0.15,
     "charge_periods": [
         {
             "enable_force_charge": True,

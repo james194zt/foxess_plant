@@ -38,6 +38,9 @@ class SmartChargeDecision:
     dark_hours_kwh: float | None = None
     daily_plan: list[dict[str, Any]] = field(default_factory=list)
     eval_tier: str | None = None
+    discharge_window: dict[str, Any] | None = None
+    work_mode_target: str | None = None
+    planned_export_kwh: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -56,7 +59,19 @@ class SmartChargeDecision:
             "dark_hours_kwh": self.dark_hours_kwh,
             "daily_plan": self.daily_plan,
             "eval_tier": self.eval_tier,
+            "discharge_window": self.discharge_window,
+            "work_mode_target": self.work_mode_target,
+            "planned_export_kwh": self.planned_export_kwh,
         }
+
+
+def discharge_window_signature(window: dict[str, Any] | None) -> str:
+    if not window:
+        return ""
+    return (
+        f"{window.get('start')}|{window.get('end')}|"
+        f"{window.get('export_p_per_kwh')}"
+    )
 
 
 def charge_periods_signature(periods: list[ChargePeriodConfig]) -> str:

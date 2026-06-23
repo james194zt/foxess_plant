@@ -13363,6 +13363,16 @@ Reloading panel registration…
       outage_reserve_margin: sc.outage_reserve_margin ?? 1.2,
       safety_reserve_multiplier: sc.safety_reserve_multiplier ?? 1.5,
       green_carbon_weight: sc.green_carbon_weight ?? 0.5,
+      export_enabled: sc.export_enabled !== false,
+      export_enabled_safety: sc.export_enabled_safety !== false,
+      export_enabled_green: Boolean(sc.export_enabled_green),
+      min_export_kwh: sc.min_export_kwh ?? 0.5,
+      min_export_p_profit: sc.min_export_p_profit ?? 12,
+      min_export_p_safety: sc.min_export_p_safety ?? 20,
+      min_export_p_green: sc.min_export_p_green ?? 25,
+      exportable_fraction_profit: sc.exportable_fraction_profit ?? 1,
+      exportable_fraction_safety: sc.exportable_fraction_safety ?? 0.35,
+      exportable_fraction_green: sc.exportable_fraction_green ?? 0.15,
       charge_periods: periods,
     };
   }
@@ -13406,6 +13416,16 @@ Reloading panel registration…
         outage_reserve_margin: Number(d.outage_reserve_margin) || 1.2,
         safety_reserve_multiplier: Number(d.safety_reserve_multiplier) || 1.5,
         green_carbon_weight: Number(d.green_carbon_weight) || 0.5,
+        export_enabled: Boolean(d.export_enabled),
+        export_enabled_safety: Boolean(d.export_enabled_safety),
+        export_enabled_green: Boolean(d.export_enabled_green),
+        min_export_kwh: Number(d.min_export_kwh) || 0.5,
+        min_export_p_profit: Number(d.min_export_p_profit) || 12,
+        min_export_p_safety: Number(d.min_export_p_safety) || 20,
+        min_export_p_green: Number(d.min_export_p_green) || 25,
+        exportable_fraction_profit: Number(d.exportable_fraction_profit) || 1,
+        exportable_fraction_safety: Number(d.exportable_fraction_safety) || 0.35,
+        exportable_fraction_green: Number(d.exportable_fraction_green) || 0.15,
         charge_periods: d.charge_periods,
       });
       if (state) this._plantState = state;
@@ -15215,6 +15235,49 @@ Reloading panel registration…
       }
       if (field === "green_carbon_weight") {
         this._smartChargeDraft.green_carbon_weight = Math.max(0, Math.min(1, parseFloat(el.value) || 0.5));
+        return;
+      }
+      if (field === "export_enabled") {
+        this._smartChargeDraft.export_enabled = el.checked;
+        this._scheduleRender();
+        return;
+      }
+      if (field === "export_enabled_safety") {
+        this._smartChargeDraft.export_enabled_safety = el.checked;
+        this._scheduleRender();
+        return;
+      }
+      if (field === "export_enabled_green") {
+        this._smartChargeDraft.export_enabled_green = el.checked;
+        this._scheduleRender();
+        return;
+      }
+      if (field === "min_export_kwh") {
+        this._smartChargeDraft.min_export_kwh = Math.max(0.1, parseFloat(el.value) || 0.5);
+        return;
+      }
+      if (field === "min_export_p_profit") {
+        this._smartChargeDraft.min_export_p_profit = Math.max(0, parseFloat(el.value) || 12);
+        return;
+      }
+      if (field === "min_export_p_safety") {
+        this._smartChargeDraft.min_export_p_safety = Math.max(0, parseFloat(el.value) || 20);
+        return;
+      }
+      if (field === "min_export_p_green") {
+        this._smartChargeDraft.min_export_p_green = Math.max(0, parseFloat(el.value) || 25);
+        return;
+      }
+      if (field === "exportable_fraction_profit") {
+        this._smartChargeDraft.exportable_fraction_profit = Math.max(0.05, Math.min(1, parseFloat(el.value) || 1));
+        return;
+      }
+      if (field === "exportable_fraction_safety") {
+        this._smartChargeDraft.exportable_fraction_safety = Math.max(0.05, Math.min(1, parseFloat(el.value) || 0.35));
+        return;
+      }
+      if (field === "exportable_fraction_green") {
+        this._smartChargeDraft.exportable_fraction_green = Math.max(0.05, Math.min(1, parseFloat(el.value) || 0.15));
         return;
       }
     }
@@ -18821,6 +18884,7 @@ ${note}${via}${forecastHint}${activeBadge}
     const sc = this._plantState?.smart_charge ?? {};
     if (!sc.enabled) return "Off";
     const decision = sc.decision?.reason;
+    if (sc.discharge_armed) return decision ? `Exporting — ${decision}` : "Exporting";
     if (sc.armed) return decision ? `Armed — ${decision}` : "Armed";
     return decision || "Enabled";
   }
@@ -18962,6 +19026,7 @@ ${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">
     const live = this._plantState?.smart_charge ?? {};
     const decision = live.decision ?? {};
     const armed = Boolean(live.armed);
+    const dischargeArmed = Boolean(live.discharge_armed);
     const modeLabel =
       draft.operating_mode === "max_profit"
         ? "Max profit"
@@ -18969,11 +19034,18 @@ ${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">
           ? "Max green"
           : "Max safety";
     const statusLine = decision.reason
-      ? `${armed ? "Armed" : "Idle"} — ${decision.reason}`
-      : armed
-        ? "Armed"
-        : "Waiting for first evaluation";
+      ? `${dischargeArmed ? "Exporting" : armed ? "Armed" : "Idle"} — ${decision.reason}`
+      : dischargeArmed
+        ? "Exporting"
+        : armed
+          ? "Armed"
+          : "Waiting for first evaluation";
     const metrics = [];
+    if (decision.eval_tier) metrics.push(`Tier ${decision.eval_tier}`);
+    const currentSlot = decision.current_plan_slot;
+    if (currentSlot?.start && currentSlot?.end) {
+      metrics.push(`Now ${currentSlot.start}-${currentSlot.end} (${currentSlot.action || "idle"})`);
+    }
     if (decision.operating_mode) metrics.push(`Mode ${decision.operating_mode.replace("max_", "")}`);
     if (decision.reserve_kwh != null) metrics.push(`Reserve ${Number(decision.reserve_kwh).toFixed(1)} kWh`);
     if (decision.target_soc_effective != null) {
@@ -18982,15 +19054,37 @@ ${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">
     if (decision.grid_gap_kwh != null) metrics.push(`Grid gap ${Number(decision.grid_gap_kwh).toFixed(1)} kWh`);
     if (decision.deficit_kwh != null) metrics.push(`Deficit ${Number(decision.deficit_kwh).toFixed(1)} kWh`);
     if (decision.forecast_kwh != null) metrics.push(`Solar forecast ${Number(decision.forecast_kwh).toFixed(1)} kWh`);
+    if (decision.planned_export_kwh != null) {
+      metrics.push(`Export ${Number(decision.planned_export_kwh).toFixed(1)} kWh`);
+    }
     if (decision.windows?.length) {
       const w = decision.windows[0];
-      metrics.push(`Window ${w.start}-${w.end} @ ${Number(w.import_p_per_kwh).toFixed(2)}p/kWh`);
+      const rate =
+        w.export_p_per_kwh != null
+          ? `${Number(w.export_p_per_kwh).toFixed(2)}p export`
+          : `${Number(w.import_p_per_kwh).toFixed(2)}p import`;
+      metrics.push(`Window ${w.start}-${w.end} @ ${rate}`);
     }
-    const dailyPlan = live.daily_plan ?? decision.daily_plan ?? [];
+    const dailyPlan = (live.daily_plan ?? decision.daily_plan ?? []).filter(
+      (s) => s.start && s.end && s.reason !== "no_slots"
+    );
+    const exportSlots = dailyPlan.filter((s) => s.action === "export");
+    const chargeSlots = dailyPlan.filter((s) => s.action === "charge" || s.action === "charge_candidate");
+    const planHorizon = dailyPlan[0]?.plan_horizon === "24h" ? "24h plan" : "rest-of-today plan";
     const planSummary =
       dailyPlan.length > 0
-        ? `${dailyPlan.filter((s) => s.action === "charge" || s.action === "charge_candidate").length} charge slot(s) in ${dailyPlan.length} planned`
-        : "No daily plan yet (runs at daily plan time after Octopus refresh)";
+        ? `${planHorizon}: ${exportSlots.length} export · ${chargeSlots.length} charge · ${dailyPlan.length} slots`
+        : "No daily plan yet (built at daily plan time after Octopus refresh)";
+    const planPreview = dailyPlan
+      .slice(0, 12)
+      .map((s) => {
+        const rate =
+          s.action === "export" && s.export_p_per_kwh != null
+            ? `${Number(s.export_p_per_kwh).toFixed(1)}p exp`
+            : `${Number(s.import_p_per_kwh ?? 0).toFixed(1)}p imp`;
+        return `${s.start}-${s.end} ${s.action} (${rate})`;
+      })
+      .join(" · ");
     return `${this._renderSmartChargeHero()}
 <header class="header smart-charge-settings-header"><h1>SmartCharge</h1><p>Combines Solcast PV forecast with Octopus Agile rates. Targets house-load sufficiency (not 100% SOC), with an outage reserve floor. StormSafe always overrides.</p></header>
 <div class="card">
@@ -19003,7 +19097,34 @@ ${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">
 <option value="max_profit" ${draft.operating_mode === "max_profit" ? "selected" : ""}>Max profit (aggressive arbitrage)</option>
 <option value="max_green" ${draft.operating_mode === "max_green" ? "selected" : ""}>Max green (renewable-first)</option>
 </select>
-<p class="field-hint">Current: ${esc(modeLabel)}. Export arbitrage phases in later releases.</p>
+<p class="field-hint">Current: ${esc(modeLabel)}. Export uses Force Discharge during high Agile export windows.</p>
+</div>
+<div class="toggle-row"><span><strong>Enable grid export</strong></span>
+<input type="checkbox" data-field="smart-charge:export_enabled" ${draft.export_enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+<div class="field"><label>Min export rate — profit mode (p/kWh)</label>
+<input type="number" min="0" max="100" step="0.5" data-field="smart-charge:min_export_p_profit" value="${esc(String(draft.min_export_p_profit ?? 12))}" ${this._busy ? "disabled" : ""}>
+</div>
+<div class="field"><label>Min export rate — safety mode (p/kWh)</label>
+<input type="number" min="0" max="100" step="0.5" data-field="smart-charge:min_export_p_safety" value="${esc(String(draft.min_export_p_safety ?? 20))}" ${this._busy ? "disabled" : ""}>
+</div>
+<div class="field"><label>Min export rate — green mode (p/kWh)</label>
+<input type="number" min="0" max="100" step="0.5" data-field="smart-charge:min_export_p_green" value="${esc(String(draft.min_export_p_green ?? 25))}" ${this._busy ? "disabled" : ""}>
+</div>
+<div class="field"><label>Minimum export energy (kWh)</label>
+<input type="number" min="0.1" max="50" step="0.1" data-field="smart-charge:min_export_kwh" value="${esc(String(draft.min_export_kwh ?? 0.5))}" ${this._busy ? "disabled" : ""}>
+</div>
+<div class="toggle-row"><span><strong>Allow export in max safety mode</strong></span>
+<input type="checkbox" data-field="smart-charge:export_enabled_safety" ${draft.export_enabled_safety ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+<div class="toggle-row"><span><strong>Allow export in max green mode</strong></span>
+<input type="checkbox" data-field="smart-charge:export_enabled_green" ${draft.export_enabled_green ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+<div class="field"><label>Max exportable fraction — profit</label>
+<input type="number" min="0.05" max="1" step="0.05" data-field="smart-charge:exportable_fraction_profit" value="${esc(String(draft.exportable_fraction_profit ?? 1))}" ${this._busy ? "disabled" : ""}>
+</div>
+<div class="field"><label>Max exportable fraction — safety</label>
+<input type="number" min="0.05" max="1" step="0.05" data-field="smart-charge:exportable_fraction_safety" value="${esc(String(draft.exportable_fraction_safety ?? 0.35))}" ${this._busy ? "disabled" : ""}>
+</div>
+<div class="field"><label>Max exportable fraction — green</label>
+<input type="number" min="0.05" max="1" step="0.05" data-field="smart-charge:exportable_fraction_green" value="${esc(String(draft.exportable_fraction_green ?? 0.15))}" ${this._busy ? "disabled" : ""}>
 </div>
 <div class="field"><label>Max target SOC ceiling (%)</label>
 <input type="number" min="10" max="100" step="1" data-field="smart-charge:max_target_soc" value="${esc(String(draft.max_target_soc ?? 100))}" ${this._busy ? "disabled" : ""}>
@@ -19070,6 +19191,7 @@ ${this._renderPeriodCard(1, draft.charge_periods[1], "smart-period", "Reserve pe
 <p style="margin:0 0 8px;font-size:14px">${esc(statusLine)}</p>
 ${metrics.length ? `<p class="field-hint" style="margin:0 0 8px">${esc(metrics.join(" · "))}</p>` : ""}
 <p class="field-hint" style="margin:0">${esc(planSummary)}</p>
+${planPreview ? `<p class="field-hint" style="margin:8px 0 0;font-size:12px">${esc(planPreview)}</p>` : ""}
 </div>`;
   }
 
