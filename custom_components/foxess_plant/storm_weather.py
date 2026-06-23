@@ -734,12 +734,28 @@ def read_overview_weather(hass: HomeAssistant, storm_prep: Any) -> dict[str, Any
                 source="ha_condition",
                 text=condition_text,
             )
+
+    is_daytime: bool | None = None
+    ha_condition: str | None = None
+    if condition_entity_id:
+        cond_state = hass.states.get(condition_entity_id)
+        if cond_state:
+            raw_day = cond_state.attributes.get("is_daytime")
+            if isinstance(raw_day, bool):
+                is_daytime = raw_day
+    if weather_entity_id:
+        weather_state = hass.states.get(weather_entity_id)
+        if weather_state and weather_state.state not in ("unknown", "unavailable"):
+            ha_condition = str(weather_state.state)
+
     return {
         "temperature": temperature,
         "temperature_unit": temperature_unit,
         "temperature_display": _format_temperature(temperature, temperature_unit),
         "condition_label": _weather_short_label(icon_key, snap),
         "condition_type": condition_type,
+        "ha_condition": ha_condition,
+        "is_daytime": is_daytime,
         "icon_key": icon_key,
         "weather_entity_id": weather_entity_id,
         "condition_entity_id": condition_entity_id,

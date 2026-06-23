@@ -3528,34 +3528,229 @@ function tariffSettingsSummary(tariff) {
   return parts.join(" · ") + status;
 }
 
-function overviewWeatherIconSvg(iconKey, className = "overview-weather-icon") {
-  const key = String(iconKey || "unknown");
+/** Google Weather API v2 icons — https://gitlab.com/bignutty/google-weather-icons (icons/weather/v2) */
+const GOOGLE_WEATHER_ICON_VER = 1;
+const GOOGLE_WEATHER_ICON_BASE = "/foxess_plant_panel/weather/v2";
+
+function googleWeatherIconTheme(hass) {
+  return resolveHaUiDark(hass) ? "dark" : "light";
+}
+
+function googleWeatherIconAssetUrl(theme, iconFile) {
+  return `${GOOGLE_WEATHER_ICON_BASE}/${theme}/${iconFile}?v=${GOOGLE_WEATHER_ICON_VER}`;
+}
+
+function normalizeGoogleConditionToken(raw) {
+  if (raw == null || raw === "") return "";
+  return String(raw).trim().toUpperCase().replace(/-/g, "_");
+}
+
+function isWeatherNightAt(atMs, isDaytime) {
+  if (typeof isDaytime === "boolean") return !isDaytime;
+  const d = new Date(atMs ?? Date.now());
+  if (Number.isNaN(d.getTime())) return false;
+  const hour = d.getHours();
+  return hour < 6 || hour >= 21;
+}
+
+function googleWeatherDayNightIcon(dayFile, nightFile, isNight) {
+  return isNight ? nightFile : dayFile;
+}
+
+function googleWeatherIconFileFromGoogleType(type, isNight) {
+  const token = normalizeGoogleConditionToken(type);
+  if (!token || token === "TYPE_UNSPECIFIED") return null;
+  const dn = (day, night) => googleWeatherDayNightIcon(day, night, isNight);
+  if (token === "CLEAR" || token === "FAIR") return dn("clear_day.svg", "clear_night.svg");
+  if (token === "MOSTLY_CLEAR") return dn("clear_day.svg", "mostly_clear_night.svg");
+  if (token === "PARTLY_CLOUDY") return dn("partly_cloudy_day.svg", "partly_cloudy_night.svg");
+  if (token === "MOSTLY_CLOUDY" || token === "OVERCAST") {
+    return dn("mostly_cloudy_day.svg", "mostly_cloudy_night.svg");
+  }
+  if (token === "CLOUDY") return "cloudy.svg";
+  if (token === "WINDY" || token === "WIND" || token === "GALE" || token === "BREEZY") return "windy.svg";
+  if (token === "WIND_AND_RAIN") return "rain_showers.svg";
+  if (
+    token === "LIGHT_RAIN_SHOWERS" ||
+    token === "CHANCE_OF_SHOWERS" ||
+    token === "SCATTERED_SHOWERS"
+  ) {
+    return dn("scattered_rain_showers_day.svg", "scattered_rain_showers_night.svg");
+  }
+  if (token === "RAIN_SHOWERS") return "rain_showers.svg";
+  if (
+    token === "HEAVY_RAIN_SHOWERS" ||
+    token === "HEAVY_RAIN" ||
+    token === "MODERATE_TO_HEAVY_RAIN" ||
+    token === "RAIN_PERIODICALLY_HEAVY"
+  ) {
+    return "heavy_rain.svg";
+  }
+  if (
+    token === "LIGHT_TO_MODERATE_RAIN" ||
+    token === "RAIN" ||
+    token === "LIGHT_RAIN" ||
+    token === "DRIZZLE"
+  ) {
+    return "drizzle.svg";
+  }
+  if (
+    token === "LIGHT_SNOW_SHOWERS" ||
+    token === "CHANCE_OF_SNOW_SHOWERS" ||
+    token === "SCATTERED_SNOW_SHOWERS"
+  ) {
+    return dn("scattered_snow_showers_day.svg", "scattered_snow_showers_night.svg");
+  }
+  if (token === "SNOW_SHOWERS") return "snow_showers.svg";
+  if (
+    token === "HEAVY_SNOW_SHOWERS" ||
+    token === "HEAVY_SNOW" ||
+    token === "MODERATE_TO_HEAVY_SNOW" ||
+    token === "SNOW_PERIODICALLY_HEAVY" ||
+    token === "SNOWSTORM" ||
+    token === "HEAVY_SNOW_STORM" ||
+    token === "BLIZZARD"
+  ) {
+    return "heavy_snow.svg";
+  }
+  if (
+    token === "LIGHT_TO_MODERATE_SNOW" ||
+    token === "SNOW" ||
+    token === "LIGHT_SNOW" ||
+    token === "FLURRIES"
+  ) {
+    return "flurries.svg";
+  }
+  if (token === "BLOWING_SNOW") return "blowing_snow.svg";
+  if (
+    token === "RAIN_AND_SNOW" ||
+    token === "SLEET" ||
+    token === "WINTRY_MIX" ||
+    token === "GLAZE" ||
+    token === "FREEZING_RAIN" ||
+    token === "ICE_STORM" ||
+    token === "WINTER_STORM"
+  ) {
+    return "wintry_mix.svg";
+  }
+  if (token === "HAIL" || token === "HAIL_SHOWERS") return "sleet_hail.svg";
+  if (token === "ICY") return "icy.svg";
+  if (
+    token === "FOG" ||
+    token === "HAZE" ||
+    token === "MIST" ||
+    token === "SMOG" ||
+    token === "DUST" ||
+    token === "DUST_STORM" ||
+    token === "SAND" ||
+    token === "SANDSTORM"
+  ) {
+    return "haze_fog.svg";
+  }
+  if (
+    token === "THUNDERSTORM" ||
+    token === "THUNDERSHOWER" ||
+    token === "LIGHT_THUNDERSTORM_RAIN" ||
+    token === "SCATTERED_THUNDERSTORMS" ||
+    token === "ISOLATED_THUNDERSTORMS"
+  ) {
+    return dn("thunderstorms_day.svg", "thunderstorms_night.svg");
+  }
+  if (
+    token === "HEAVY_THUNDERSTORM" ||
+    token === "SEVERE_THUNDERSTORM" ||
+    token === "STRONG_THUNDERSTORMS"
+  ) {
+    return "strong_thunderstorms.svg";
+  }
+  if (token === "TORNADO") return "tornado.svg";
+  if (
+    token === "HURRICANE" ||
+    token === "TROPICAL_STORM" ||
+    token === "TYPHOON" ||
+    token === "CYCLONE" ||
+    token === "TROPICAL_CYCLONE" ||
+    token === "EXTRATROPICAL_CYCLONE"
+  ) {
+    return "hurricane.svg";
+  }
+  if (token === "HEAT" || token === "HOT") return "hot.svg";
+  if (token === "COLD" || token === "WIND_CHILL" || token === "VERY_COLD") return "cold.svg";
+  if (token === "WILDFIRE" || token === "FIRE" || token === "BUSHFIRE" || token === "FIRE_WEATHER") {
+    return "haze_fog.svg";
+  }
+  if (token.includes("_WITH_") || token.includes("_THEN_")) {
+    return `${token.toLowerCase()}.svg`;
+  }
+  return null;
+}
+
+function googleWeatherIconFileFromHaCondition(condition, isNight) {
+  const token = String(condition || "").toLowerCase();
+  if (!token) return null;
+  const dn = (day, night) => googleWeatherDayNightIcon(day, night, isNight);
+  if (token === "clear-night") return "clear_night.svg";
+  if (token === "sunny" || token === "clear") return dn("clear_day.svg", "clear_night.svg");
+  if (token === "partlycloudy" || token === "partly-cloudy") {
+    return dn("partly_cloudy_day.svg", "partly_cloudy_night.svg");
+  }
+  if (token === "cloudy") return "cloudy.svg";
+  if (token === "pouring") return "heavy_rain.svg";
+  if (token === "rainy") return "rain_showers.svg";
+  if (token === "snowy") return "heavy_snow.svg";
+  if (token === "snowy-rainy") return "wintry_mix.svg";
+  if (token === "fog") return "haze_fog.svg";
+  if (token === "hail") return "sleet_hail.svg";
+  if (token === "windy" || token === "windy-variant") return "windy.svg";
+  if (token === "lightning") return dn("thunderstorms_day.svg", "thunderstorms_night.svg");
+  if (token === "lightning-rainy") return "strong_thunderstorms.svg";
+  if (token === "exceptional" || token === "hurricane") return "hurricane.svg";
+  return null;
+}
+
+function googleWeatherIconFileFromIconKey(iconKey, isNight) {
+  const key = String(iconKey || "");
+  const dn = (day, night) => googleWeatherDayNightIcon(day, night, isNight);
+  if (key === "sunny") return dn("clear_day.svg", "clear_night.svg");
+  if (key === "partly-cloudy") return dn("partly_cloudy_day.svg", "partly_cloudy_night.svg");
+  if (key === "cloudy") return "cloudy.svg";
+  if (key === "rain") return "heavy_rain.svg";
+  if (key === "snow") return "heavy_snow.svg";
+  if (key === "storm") return "strong_thunderstorms.svg";
+  if (key === "fog") return "haze_fog.svg";
+  if (key === "wind") return "windy.svg";
+  return null;
+}
+
+function resolveGoogleWeatherIconFile({ conditionType, haCondition, iconKey, isNight, isDaytime, atMs }) {
+  const night =
+    typeof isDaytime === "boolean" ? !isDaytime : isWeatherNightAt(atMs, isDaytime);
+  return (
+    googleWeatherIconFileFromGoogleType(conditionType, night) ||
+    googleWeatherIconFileFromHaCondition(haCondition || conditionType, night) ||
+    googleWeatherIconFileFromIconKey(iconKey, night) ||
+    "not_available.svg"
+  );
+}
+
+function googleWeatherIconHtml(hass, opts = {}, className = "overview-weather-icon") {
+  const theme = googleWeatherIconTheme(hass);
+  const iconFile = resolveGoogleWeatherIconFile(opts);
+  const url = googleWeatherIconAssetUrl(theme, iconFile);
   const cls = esc(className);
-  if (key === "cloudy") {
-    return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18h11a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6-1.2A3.8 3.8 0 0 0 7 18z" fill="#b0b8c4"/></svg>`;
+  const size = className.includes("hourly") ? 28 : 18;
+  return `<img class="${cls}" src="${esc(url)}" alt="" width="${size}" height="${size}" loading="lazy" decoding="async">`;
+}
+
+function overviewWeatherIconSvg(hass, opts, className = "overview-weather-icon") {
+  if (opts && typeof opts === "object") {
+    return googleWeatherIconHtml(hass, opts, className);
   }
-  if (key === "partly-cloudy") {
-    return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8.5" cy="9" r="3.2" fill="#f5bc00"/><g stroke="#f5bc00" stroke-width="1.6" stroke-linecap="round"><path d="M8.5 4.5v2M8.5 11.5v2M4.5 9h2M11.5 9h2"/></g><path d="M7 18h11a4 4 0 0 0 .3-8 5.2 5.2 0 0 0-10.2-1.4A3.8 3.8 0 0 0 7 18z" fill="#b0b8c4"/></svg>`;
-  }
-  if (key === "rain") {
-    return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 15h11a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6-1.2A3.8 3.8 0 0 0 7 15z" fill="#8ea0b4"/><g stroke="#5b9bd5" stroke-width="1.8" stroke-linecap="round"><path d="M9 17.5v3M12 17.5v3.5M15 17.5v3"/></g></svg>`;
-  }
-  if (key === "snow") {
-    return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 15h11a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6-1.2A3.8 3.8 0 0 0 7 15z" fill="#b0b8c4"/><g stroke="#dbeafe" stroke-width="1.6" stroke-linecap="round"><path d="M9 17l1.5 2.5M12 16.5v4M15 17l-1.5 2.5"/></g></svg>`;
-  }
-  if (key === "storm") {
-    return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 14h11a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6-1.2A3.8 3.8 0 0 0 7 14z" fill="#7a8798"/><path d="M13 15.5l-2.5 4h2l-1 3.5 4-5.5h-2.2l1.7-2z" fill="#f5bc00"/></svg>`;
-  }
-  if (key === "fog") {
-    return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true"><g stroke="#a8b0bc" stroke-width="1.8" stroke-linecap="round"><path d="M5 10h14M4 14h16M6 18h12"/></g></svg>`;
-  }
-  if (key === "wind") {
-    return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true"><g stroke="#8ea0b4" stroke-width="1.8" stroke-linecap="round" fill="none"><path d="M4 8h11a3 3 0 1 0-3-3M4 13h13a2.5 2.5 0 1 1 0 5H4M4 18h9"/></g></svg>`;
-  }
-  if (key === "sunny") {
-    return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2" fill="#f5bc00"/><g stroke="#f5bc00" stroke-width="2" stroke-linecap="round"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></g></svg>`;
-  }
-  return `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18h11a4 4 0 0 0 .3-8 5.5 5.5 0 0 0-10.6-1.2A3.8 3.8 0 0 0 7 18z" fill="#b0b8c4"/></svg>`;
+  return googleWeatherIconHtml(
+    null,
+    { iconKey: opts, atMs: Date.now() },
+    className
+  );
 }
 
 function haConditionToIconKey(condition) {
@@ -3600,10 +3795,22 @@ function parseHourlyWeatherSlots(forecast, overviewWx, maxHours = 24) {
       const parsed = parseFloat(precipRaw);
       if (Number.isFinite(parsed)) precipPct = Math.round(parsed);
     }
+    const nativeType =
+      row.native_condition ||
+      row.condition_type ||
+      row.type ||
+      row.weather_condition ||
+      null;
+    let isDaytime = null;
+    if (typeof row.is_daytime === "boolean") isDaytime = row.is_daytime;
+    else if (typeof row.isDaytime === "boolean") isDaytime = row.isDaytime;
     slots.push({
       t,
       tempDisplay: formatHourlyWeatherTemp(row.temperature, unit ?? row.temperature_unit),
       precipPct,
+      haCondition: row.condition,
+      conditionType: nativeType,
+      isDaytime,
       iconKey: haConditionToIconKey(row.condition),
       isNow: false,
     });
@@ -3643,7 +3850,10 @@ async function fetchHourlyWeatherOverview(hass, weatherEntityId, overviewWx) {
         overviewWx.temperature,
         overviewWx.temperature_unit
       );
-      if (overviewWx.icon_key) slots[0].iconKey = overviewWx.icon_key;
+      if (overviewWx.condition_type) slots[0].conditionType = overviewWx.condition_type;
+      if (overviewWx.ha_condition) slots[0].haCondition = overviewWx.ha_condition;
+      if (typeof overviewWx.is_daytime === "boolean") slots[0].isDaytime = overviewWx.is_daytime;
+      else if (overviewWx.icon_key) slots[0].iconKey = overviewWx.icon_key;
     }
     return { slots, weatherEntityId };
   } catch (err) {
@@ -3651,7 +3861,7 @@ async function fetchHourlyWeatherOverview(hass, weatherEntityId, overviewWx) {
   }
 }
 
-function renderHourlyWeatherOverviewHtml(data) {
+function renderHourlyWeatherOverviewHtml(hass, data) {
   if (data?.error) {
     return `<p class="placeholder hourly-weather-empty">${esc(data.error)}</p>`;
   }
@@ -3666,7 +3876,13 @@ function renderHourlyWeatherOverviewHtml(data) {
     .map(
       (slot) => `<div class="hourly-weather-col">
 <div class="hourly-weather-temp">${esc(slot.tempDisplay)}</div>
-<div class="hourly-weather-icon-wrap">${overviewWeatherIconSvg(slot.iconKey, "hourly-weather-icon")}</div>
+<div class="hourly-weather-icon-wrap">${googleWeatherIconHtml(hass, {
+        conditionType: slot.conditionType,
+        haCondition: slot.haCondition,
+        iconKey: slot.iconKey,
+        isDaytime: slot.isDaytime,
+        atMs: slot.t,
+      }, "hourly-weather-icon")}</div>
 <div class="hourly-weather-precip">${slot.precipPct != null ? `${esc(String(slot.precipPct))}%` : "—"}</div>
 <div class="hourly-weather-time${slot.isNow ? " hourly-weather-time--now" : ""}">${esc(formatHourlyWeatherTime(slot.t, slot.isNow))}</div>
 </div>`
@@ -9942,7 +10158,7 @@ const STYLES = `
   display: flex; align-items: center; gap: 6px; margin-top: 8px;
   font-size: 14px; font-weight: 600; color: var(--primary-text-color); line-height: 1.2;
 }
-.overview-weather-icon { width: 18px; height: 18px; flex-shrink: 0; display: block; }
+.overview-weather-icon { width: 18px; height: 18px; flex-shrink: 0; display: block; object-fit: contain; }
 .overview-weather-temp { letter-spacing: -0.01em; }
 .overview-weather-label { font-size: 13px; font-weight: 500; color: var(--secondary-text-color); }
 .hourly-weather-card { margin-top: 14px; padding-bottom: 12px; }
@@ -9983,7 +10199,7 @@ const STYLES = `
   font-variant-numeric: tabular-nums;
 }
 .hourly-weather-icon-wrap { display: flex; align-items: center; justify-content: center; min-height: 28px; }
-.hourly-weather-icon { width: 28px; height: 28px; display: block; }
+.hourly-weather-icon { width: 28px; height: 28px; display: block; object-fit: contain; }
 .hourly-weather-precip {
   font-size: 12px; line-height: 1.2; color: var(--secondary-text-color);
   font-variant-numeric: tabular-nums; min-height: 14px;
@@ -16345,7 +16561,12 @@ ${renderSocFeedbackHtml(validateSocLimits(clamped, live), this._socSaveError, th
   _renderOverviewWeather() {
     const wx = this._plantState?.overview_weather;
     if (!wx || (!wx.temperature_display && !wx.condition_label)) return "";
-    const icon = overviewWeatherIconSvg(wx.icon_key);
+    const icon = googleWeatherIconHtml(this._hass, {
+      conditionType: wx.condition_type,
+      haCondition: wx.ha_condition,
+      iconKey: wx.icon_key,
+      isDaytime: wx.is_daytime,
+    });
     const temp = wx.temperature_display
       ? `<span class="overview-weather-temp">${esc(wx.temperature_display)}</span>`
       : "";
@@ -16373,7 +16594,7 @@ ${renderSocFeedbackHtml(validateSocLimits(clamped, live), this._socSaveError, th
     if (this._hourlyWeatherLoading) {
       return `<div class="card hourly-weather-card"><p class="chart-loading">Loading hourly forecast…</p></div>`;
     }
-    const body = renderHourlyWeatherOverviewHtml(this._hourlyWeather);
+    const body = renderHourlyWeatherOverviewHtml(this._hass, this._hourlyWeather);
     return `<div class="card hourly-weather-card">${body}</div>`;
   }
 
