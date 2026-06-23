@@ -9681,11 +9681,13 @@ const STYLES = `
   flex: 0 0 auto;
   width: 100%;
   display: flex;
+  align-items: stretch;
 }
 .overview-automation-status-slot {
   flex: 0 0 auto;
   width: 100%;
   display: flex;
+  align-items: stretch;
 }
 .overview-automation-status-card {
   flex: 1 1 auto;
@@ -9853,6 +9855,7 @@ const STYLES = `
 }
 .overview-system-status-body {
   display: flex; align-items: center; gap: 8px; min-height: 20px;
+  flex: 1 1 auto;
   font-size: 13px; line-height: 1.35; color: var(--secondary-text-color);
 }
 .overview-system-status-body--loading { color: var(--secondary-text-color); opacity: 0.85; }
@@ -12321,20 +12324,33 @@ const STYLES = `
   .overview-hero-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
     align-items: stretch;
     gap: 14px;
   }
-  .overview-hero-scene {
+  .overview-hero-scene,
+  .overview-hero-daily-slot {
+    display: grid;
+    grid-template-rows: subgrid;
+    grid-row: span 2;
+    gap: 12px;
+    min-height: 0;
+    height: auto;
     width: 100%;
     max-width: none;
     margin: 0;
-    min-width: 0;
-    height: 100%;
   }
-  .overview-hero-daily-slot {
-    width: 100%;
+  .overview-hero-scene-slot,
+  .overview-hero-daily-charts {
+    min-height: 0;
+  }
+  .overview-system-status-slot,
+  .overview-automation-status-slot {
     min-width: 0;
-    height: 100%;
+  }
+  .overview-system-status-card,
+  .overview-automation-status-card {
+    min-height: 100%;
   }
 }
 .shell.narrow .overview-hero-row {
