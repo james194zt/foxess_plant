@@ -1962,7 +1962,7 @@ function formatOctopusTileDate(d) {
   return `${day}/${mo}`;
 }
 
-const OCTOPUS_GREENER_SAPLING_VER = 1;
+const OCTOPUS_GREENER_SAPLING_VER = 2;
 const OCTOPUS_GREENER_SAPLING_LOW_URL = `/foxess_plant_panel/octopus_greener_sapling.png?v=${OCTOPUS_GREENER_SAPLING_VER}`;
 const OCTOPUS_GREENER_SAPLING_GREEN_URL = `/foxess_plant_panel/octopus_greener_sapling_green.png?v=${OCTOPUS_GREENER_SAPLING_VER}`;
 
@@ -1972,8 +1972,7 @@ function octopusGreenerPlantSvg(isGreenerNight) {
     ? "octopus-upcoming-week-plant octopus-upcoming-week-plant--green"
     : "octopus-upcoming-week-plant octopus-upcoming-week-plant--low";
   const url = isGreen ? OCTOPUS_GREENER_SAPLING_GREEN_URL : OCTOPUS_GREENER_SAPLING_LOW_URL;
-  const size = isGreen ? 42 : 28;
-  return `<img class="${cls}" src="${esc(url)}" alt="" width="${size}" height="${size}" loading="lazy" decoding="async">`;
+  return `<img class="${cls}" src="${esc(url)}" alt="" loading="lazy" decoding="async">`;
 }
 
 function octopusUpcomingWeekRows(greenerNights, now = new Date()) {
@@ -10917,8 +10916,8 @@ const STYLES = `
   align-items: center;
   justify-content: flex-start;
   gap: 4px;
-  min-height: 118px;
-  padding: 10px 6px 8px;
+  min-height: 132px;
+  padding: 10px 6px 10px;
   border-radius: 14px;
   border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.25));
   background: var(--secondary-background-color, rgba(127, 127, 127, 0.06));
@@ -10964,14 +10963,15 @@ const STYLES = `
   display: block;
   flex-shrink: 0;
   object-fit: contain;
+  max-width: 100%;
 }
 .octopus-upcoming-week-plant--green {
-  width: 42px;
-  height: 42px;
+  width: 64px;
+  height: 64px;
 }
 .octopus-upcoming-week-plant--low {
-  width: 28px;
-  height: 28px;
+  width: 52px;
+  height: 52px;
 }
 @media (max-width: 720px) {
   .octopus-upcoming-week-grid {
