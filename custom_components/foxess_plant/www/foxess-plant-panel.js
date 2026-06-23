@@ -6207,12 +6207,110 @@ function overviewStormStatusSummary(plantState) {
 function overviewSmartChargeStatusSummary(plantState) {
   const sc = plantState?.smart_charge ?? {};
   if (!sc.enabled) return { label: "Off", tone: "off", detail: "Disabled in settings" };
+  if (sc.discharge_armed) {
+    const reason = sc.decision?.reason;
+    return { label: "Exporting", tone: "armed", detail: reason || "Force Discharge active" };
+  }
   if (sc.armed) {
     const reason = sc.decision?.reason;
     return { label: "Armed", tone: "armed", detail: reason || "Grid charge in progress" };
   }
   const reason = sc.decision?.reason;
   return { label: "Ready", tone: "idle", detail: reason || "Watching tariffs and solar" };
+}
+
+const SMART_CHARGE_MODE_META = {
+  max_safety: {
+    title: "Max safety",
+    hint: "Higher reserve, minimal export — backup first",
+    accent: "var(--fp-accent)",
+  },
+  max_profit: {
+    title: "Max profit",
+    hint: "Aggressive Agile arbitrage — charge low, export high",
+    accent: "var(--fp-amber, #f9a825)",
+  },
+  max_green: {
+    title: "Max green",
+    hint: "Renewable-first — greener nights and low carbon",
+    accent: "var(--fp-green, #4caf50)",
+  },
+};
+
+function smartChargeModeIconSvg(mode) {
+  if (mode === "max_profit") {
+    return `<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="color-mix(in srgb, var(--fp-amber,#f9a825) 22%, transparent)"/><path d="M10 28V14h4l6 10 6-10h4v14h-3.5V19l-5.5 9h-2L14 19v9H10z" fill="var(--fp-amber,#f9a825)"/></svg>`;
+  }
+  if (mode === "max_green") {
+    return `<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="color-mix(in srgb, var(--fp-green,#4caf50) 22%, transparent)"/><path d="M20 8c-6 4-9 9-9 14a9 9 0 1018 0c0-5-3-10-9-14zm0 22a8 8 0 01-8-8c0-3.2 2-6.8 8-11.2 6 4.4 8 8 8 11.2a8 8 0 01-8 8z" fill="var(--fp-green,#4caf50)"/></svg>`;
+  }
+  return `<svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="40" height="40" rx="8" fill="color-mix(in srgb, var(--fp-accent) 22%, transparent)"/><path d="M20 9l9 4v8c0 5.5-3.8 10.6-9 12-5.2-1.4-9-6.5-9-12v-8l9-4zm0 3.2L13 15.1v5.9c0 4.2 2.9 8.1 7 9.4 4.1-1.3 7-5.2 7-9.4v-5.9l-7-2.9z" fill="var(--fp-accent)"/></svg>`;
+}
+
+function smartChargePlanActionTone(action) {
+  if (action === "export" || action === "spread_export") return "export";
+  if (action === "charge" || action === "spread_charge" || action === "winter_fill") return "charge";
+  if (action === "charge_candidate" || action === "arbitrage") return "candidate";
+  return "idle";
+}
+
+function renderSmartChargePlanTimeline(dailyPlan, currentSlot) {
+  const slots = (dailyPlan || []).filter((s) => s.start && s.end && s.reason !== "no_slots").slice(0, 24);
+  if (!slots.length) {
+    return `<p class="sc-empty-hint">Plan appears after the daily Octopus refresh (default 16:00 UK).</p>`;
+  }
+  const nowKey =
+    currentSlot?.start && currentSlot?.end ? `${currentSlot.start}-${currentSlot.end}` : null;
+  const segments = slots
+    .map((s) => {
+      const tone = smartChargePlanActionTone(s.action);
+      const isNow = nowKey === `${s.start}-${s.end}`;
+      const imp = Number(s.import_p_per_kwh ?? 0).toFixed(1);
+      const exp = s.export_p_per_kwh != null ? Number(s.export_p_per_kwh).toFixed(1) : null;
+      const title = `${s.start}–${s.end} ${s.action}${exp != null ? ` · ${exp}p exp` : ` · ${imp}p imp`}`;
+      return `<div class="sc-timeline-seg sc-timeline-seg--${tone}${isNow ? " sc-timeline-seg--now" : ""}" title="${esc(title)}" aria-label="${esc(title)}"></div>`;
+    })
+    .join("");
+  return `<div class="sc-timeline-wrap">
+<div class="sc-timeline" role="img" aria-label="Daily charge and export plan">${segments}</div>
+<div class="sc-timeline-legend">
+<span><i class="sc-legend-dot sc-legend-dot--charge"></i>Charge</span>
+<span><i class="sc-legend-dot sc-legend-dot--export"></i>Export</span>
+<span><i class="sc-legend-dot sc-legend-dot--candidate"></i>Candidate</span>
+<span><i class="sc-legend-dot sc-legend-dot--idle"></i>Hold</span>
+</div>
+</div>`;
+}
+
+function renderSmartChargeStatTiles(decision) {
+  const tiles = [];
+  if (decision.target_soc_effective != null) {
+    const pct = Math.max(0, Math.min(100, Number(decision.target_soc_effective)));
+    tiles.push({
+      label: "Target SOC",
+      value: `${pct.toFixed(0)}%`,
+      gauge: pct,
+    });
+  }
+  if (decision.reserve_kwh != null) {
+    tiles.push({ label: "Reserve floor", value: `${Number(decision.reserve_kwh).toFixed(1)} kWh` });
+  }
+  if (decision.grid_gap_kwh != null) {
+    tiles.push({ label: "Grid gap", value: `${Number(decision.grid_gap_kwh).toFixed(1)} kWh` });
+  }
+  if (decision.forecast_kwh != null) {
+    tiles.push({ label: "Solar forecast", value: `${Number(decision.forecast_kwh).toFixed(1)} kWh` });
+  }
+  if (!tiles.length) return "";
+  return `<div class="sc-stat-grid">${tiles
+    .map((t) => {
+      const gauge =
+        t.gauge != null
+          ? `<div class="sc-gauge-track" aria-hidden="true"><div class="sc-gauge-fill" style="width:${t.gauge}%"></div></div>`
+          : "";
+      return `<div class="sc-stat-tile"><span class="sc-stat-label">${esc(t.label)}</span><strong class="sc-stat-value">${esc(t.value)}</strong>${gauge}</div>`;
+    })
+    .join("")}</div>`;
 }
 
 function renderOverviewAutomationHalf({ sub, title, summary }) {
@@ -12234,6 +12332,69 @@ const STYLES = `
   object-fit: contain; object-position: center top;
 }
 .smart-charge-settings-header { margin-top: 0; margin-bottom: 16px; }
+.sc-status-card {
+  border-radius: 14px; padding: 16px; margin-bottom: 14px;
+  border: 1px solid var(--divider-color);
+  background: linear-gradient(145deg, color-mix(in srgb, var(--fp-accent) 8%, var(--card-background-color)), var(--card-background-color));
+}
+.sc-status-card--exporting {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--fp-amber,#f9a825) 14%, var(--card-background-color)), var(--card-background-color));
+}
+.sc-status-card--armed {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--fp-green,#4caf50) 12%, var(--card-background-color)), var(--card-background-color));
+}
+.sc-status-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.sc-status-title { margin: 0; font-size: 15px; font-weight: 600; }
+.sc-status-reason { margin: 4px 0 0; font-size: 13px; line-height: 1.45; color: var(--secondary-text-color); }
+.sc-status-pill {
+  flex-shrink: 0; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  background: color-mix(in srgb, var(--secondary-text-color) 12%, transparent);
+}
+.sc-status-pill--armed { background: color-mix(in srgb, var(--fp-green,#4caf50) 22%, transparent); color: var(--fp-green,#4caf50); }
+.sc-status-pill--export { background: color-mix(in srgb, var(--fp-amber,#f9a825) 22%, transparent); color: var(--fp-amber,#f9a825); }
+.sc-status-pill--idle { background: color-mix(in srgb, var(--fp-accent) 18%, transparent); color: var(--fp-accent); }
+.sc-stat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+.sc-stat-tile {
+  padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--primary-text-color) 4%, var(--card-background-color));
+  border: 1px solid color-mix(in srgb, var(--divider-color) 80%, transparent);
+}
+.sc-stat-label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--secondary-text-color); margin-bottom: 4px; }
+.sc-stat-value { font-size: 18px; font-weight: 700; line-height: 1.2; }
+.sc-gauge-track { margin-top: 8px; height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--divider-color) 70%, transparent); overflow: hidden; }
+.sc-gauge-fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--fp-accent), var(--fp-green,#4caf50)); }
+.sc-timeline-wrap { margin-top: 4px; }
+.sc-timeline { display: flex; gap: 2px; height: 28px; align-items: stretch; }
+.sc-timeline-seg { flex: 1 1 0; min-width: 2px; border-radius: 3px; opacity: 0.85; }
+.sc-timeline-seg--charge { background: var(--fp-green,#4caf50); }
+.sc-timeline-seg--export { background: var(--fp-amber,#f9a825); }
+.sc-timeline-seg--candidate { background: color-mix(in srgb, var(--fp-accent) 70%, var(--fp-green,#4caf50)); }
+.sc-timeline-seg--idle { background: color-mix(in srgb, var(--secondary-text-color) 35%, transparent); }
+.sc-timeline-seg--now { box-shadow: 0 0 0 2px var(--primary-text-color); opacity: 1; }
+.sc-timeline-legend { display: flex; flex-wrap: wrap; gap: 10px 14px; margin-top: 8px; font-size: 11px; color: var(--secondary-text-color); }
+.sc-legend-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
+.sc-legend-dot--charge { background: var(--fp-green,#4caf50); }
+.sc-legend-dot--export { background: var(--fp-amber,#f9a825); }
+.sc-legend-dot--candidate { background: var(--fp-accent); }
+.sc-legend-dot--idle { background: color-mix(in srgb, var(--secondary-text-color) 45%, transparent); }
+.sc-empty-hint { margin: 0; font-size: 12px; color: var(--secondary-text-color); line-height: 1.45; }
+.sc-mode-panel {
+  margin-top: 14px; padding: 14px 14px 4px; border-radius: 12px;
+  border: 1px solid var(--divider-color);
+  background: color-mix(in srgb, var(--sc-mode-accent, var(--fp-accent)) 6%, var(--card-background-color));
+  border-left: 4px solid var(--sc-mode-accent, var(--fp-accent));
+}
+.sc-mode-panel-title { margin: 0 0 12px; font-size: 13px; font-weight: 600; color: var(--secondary-text-color); text-transform: uppercase; letter-spacing: 0.04em; }
+.sc-spread-pairs { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 0; }
+.sc-spread-pair {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 10px; border-radius: 8px; font-size: 12px;
+  background: color-mix(in srgb, var(--primary-text-color) 4%, var(--card-background-color));
+  border: 1px solid color-mix(in srgb, var(--divider-color) 70%, transparent);
+}
+.sc-spread-pair strong { color: var(--fp-green,#4caf50); font-weight: 600; }
+.sc-section-details { margin-top: 12px; }
+.sc-section-details summary { cursor: pointer; font-weight: 600; font-size: 13px; padding: 6px 0; color: var(--secondary-text-color); }
+.sc-section-details[open] summary { margin-bottom: 10px; color: inherit; }
 .storm-settings-header { margin-top: 0; margin-bottom: 16px; }
 .trigger-chip { display: inline-block; padding: 4px 10px; border-radius: 8px; font-size: 12px; background: var(--secondary-background-color); margin: 4px 4px 0 0; }
 .trigger-chips-wrap { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; min-height: 28px; }
@@ -14799,6 +14960,12 @@ Reloading panel registration…
       this._render();
       return;
     }
+    if (action === "pick-smart-charge-mode") {
+      if (!this._smartChargeDraft) this._initSmartChargeDraft();
+      this._smartChargeDraft.operating_mode = btn.dataset.mode || "max_safety";
+      this._render();
+      return;
+    }
     if (action === "copy-period") {
       if (!this._chargeDraft) return;
       const from = parseInt(btn.dataset.from, 10);
@@ -15197,6 +15364,7 @@ Reloading panel registration…
       }
       if (field === "operating_mode") {
         this._smartChargeDraft.operating_mode = el.value || "max_safety";
+        this._scheduleRender();
         return;
       }
       if (field === "max_target_soc") {
@@ -19070,224 +19238,223 @@ ${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">
 <div class="btn-row" style="margin-top:16px"><button type="button" class="btn btn-primary" data-action="save-work-mode" ${this._busy ? "disabled" : ""}>Apply work mode</button></div>`;
   }
 
+  _renderSmartChargeModePicker(draft) {
+    const busy = this._busy ? "disabled" : "";
+    const modes = ["max_safety", "max_profit", "max_green"];
+    const cards = modes
+      .map((mode) => {
+        const meta = SMART_CHARGE_MODE_META[mode];
+        const sel = draft.operating_mode === mode ? "selected" : "";
+        return `<button type="button" class="mode-option ${sel}" data-action="pick-smart-charge-mode" data-mode="${esc(mode)}" ${busy}>
+<span class="mode-option-icon" aria-hidden="true">${smartChargeModeIconSvg(mode)}</span>
+<span class="mode-option-body"><span class="name">${esc(meta.title)}</span><span class="hint">${esc(meta.hint)}</span></span>
+</button>`;
+      })
+      .join("");
+    return `<p class="card-title" style="margin-top:14px">Operating mode</p>
+<div class="mode-grid">${cards}</div>`;
+  }
+
+  _renderSmartChargeModePanel(draft) {
+    const mode = draft.operating_mode || "max_safety";
+    const meta = SMART_CHARGE_MODE_META[mode] || SMART_CHARGE_MODE_META.max_safety;
+    const busy = this._busy ? "disabled" : "";
+    let body = "";
+    if (mode === "max_profit") {
+      body = `<div class="toggle-row"><span><strong>Enable grid export</strong></span>
+<input type="checkbox" data-field="smart-charge:export_enabled" ${draft.export_enabled ? "checked" : ""} ${busy}></div>
+<div class="field"><label>Min export rate (p/kWh)</label>
+<input type="number" min="0" max="100" step="0.5" data-field="smart-charge:min_export_p_profit" value="${esc(String(draft.min_export_p_profit ?? 12))}" ${busy}></div>
+<div class="field"><label>Max exportable fraction</label>
+<input type="number" min="0.05" max="1" step="0.05" data-field="smart-charge:exportable_fraction_profit" value="${esc(String(draft.exportable_fraction_profit ?? 1))}" ${busy}></div>
+<div class="field"><label>Min arbitrage profit (p/kWh)</label>
+<input type="number" min="0" max="50" step="0.1" data-field="smart-charge:min_arbitrage_p_per_kwh" value="${esc(String(draft.min_arbitrage_p_per_kwh ?? 0.5))}" ${busy}>
+<p class="field-hint">Negative import — charge when later export beats this after losses.</p></div>`;
+    } else if (mode === "max_green") {
+      body = `<div class="toggle-row"><span><strong>Enable grid export</strong></span>
+<input type="checkbox" data-field="smart-charge:export_enabled" ${draft.export_enabled ? "checked" : ""} ${busy}></div>
+<div class="toggle-row"><span><strong>Allow export in green mode</strong></span>
+<input type="checkbox" data-field="smart-charge:export_enabled_green" ${draft.export_enabled_green ? "checked" : ""} ${busy}></div>
+<div class="field"><label>Min export rate (p/kWh)</label>
+<input type="number" min="0" max="100" step="0.5" data-field="smart-charge:min_export_p_green" value="${esc(String(draft.min_export_p_green ?? 25))}" ${busy}></div>
+<div class="field"><label>Max exportable fraction</label>
+<input type="number" min="0.05" max="1" step="0.05" data-field="smart-charge:exportable_fraction_green" value="${esc(String(draft.exportable_fraction_green ?? 0.15))}" ${busy}></div>
+<div class="field"><label>Carbon weight (0–1)</label>
+<input type="number" min="0" max="1" step="0.05" data-field="smart-charge:green_carbon_weight" value="${esc(String(draft.green_carbon_weight ?? 0.5))}" ${busy}>
+<p class="field-hint">Prefer low-carbon slots when choosing charge windows.</p></div>
+<div class="field"><label>Green spread multiplier</label>
+<input type="number" min="1" max="10" step="0.1" data-field="smart-charge:green_export_spread_multiplier" value="${esc(String(draft.green_export_spread_multiplier ?? 2))}" ${busy}></div>`;
+    } else {
+      body = `<div class="toggle-row"><span><strong>Enable grid export</strong></span>
+<input type="checkbox" data-field="smart-charge:export_enabled" ${draft.export_enabled ? "checked" : ""} ${busy}></div>
+<div class="toggle-row"><span><strong>Allow export in safety mode</strong></span>
+<input type="checkbox" data-field="smart-charge:export_enabled_safety" ${draft.export_enabled_safety ? "checked" : ""} ${busy}></div>
+<div class="field"><label>Min export rate (p/kWh)</label>
+<input type="number" min="0" max="100" step="0.5" data-field="smart-charge:min_export_p_safety" value="${esc(String(draft.min_export_p_safety ?? 20))}" ${busy}></div>
+<div class="field"><label>Max exportable fraction</label>
+<input type="number" min="0.05" max="1" step="0.05" data-field="smart-charge:exportable_fraction_safety" value="${esc(String(draft.exportable_fraction_safety ?? 0.35))}" ${busy}></div>
+<div class="field"><label>Safety reserve multiplier</label>
+<input type="number" min="1" max="5" step="0.05" data-field="smart-charge:safety_reserve_multiplier" value="${esc(String(draft.safety_reserve_multiplier ?? 1.5))}" ${busy}></div>`;
+    }
+    body += `<div class="field"><label>Minimum export energy (kWh)</label>
+<input type="number" min="0.1" max="50" step="0.1" data-field="smart-charge:min_export_kwh" value="${esc(String(draft.min_export_kwh ?? 0.5))}" ${busy}></div>`;
+    return `<div class="sc-mode-panel" style="--sc-mode-accent: ${meta.accent}">
+<p class="sc-mode-panel-title">${esc(meta.title)} settings</p>
+${body}
+</div>`;
+  }
+
+  _renderSmartChargeSpreadPanel(draft) {
+    const mode = draft.operating_mode || "max_safety";
+    if (mode === "max_safety") return "";
+    const busy = this._busy ? "disabled" : "";
+    const greenOnly = mode === "max_green";
+    return `<details class="sc-section-details"${mode === "max_profit" ? " open" : ""}>
+<summary>Spread optimizer</summary>
+<div class="toggle-row"><span><strong>Enable spread pairing</strong></span>
+<input type="checkbox" data-field="smart-charge:spread_optimizer_enabled" ${draft.spread_optimizer_enabled ? "checked" : ""} ${busy}></div>
+<div class="toggle-row"><span><strong>Winter cheap-fill</strong></span>
+<input type="checkbox" data-field="smart-charge:winter_fill_enabled" ${draft.winter_fill_enabled ? "checked" : ""} ${busy}></div>
+${greenOnly ? "" : `<div class="field"><label>Min spread profit (p/kWh)</label>
+<input type="number" min="0" max="50" step="0.5" data-field="smart-charge:min_spread_profit_p_per_kwh" value="${esc(String(draft.min_spread_profit_p_per_kwh ?? 3))}" ${busy}></div>`}
+<div class="field"><label>Cheap import ceiling (p/kWh)</label>
+<input type="number" min="0" max="50" step="0.5" data-field="smart-charge:cheap_import_p_per_kwh" value="${esc(String(draft.cheap_import_p_per_kwh ?? 8))}" ${busy}></div>
+<div class="field"><label>Peak import avoid — start</label>
+<input type="time" data-field="smart-charge:peak_import_avoid_start" value="${esc(String(draft.peak_import_avoid_start ?? "16:00"))}" ${busy}></div>
+<div class="field"><label>Peak import avoid — end</label>
+<input type="time" data-field="smart-charge:peak_import_avoid_end" value="${esc(String(draft.peak_import_avoid_end ?? "19:00"))}" ${busy}></div>
+<div class="field"><label>Peak import penalty (p/kWh)</label>
+<input type="number" min="0" max="50" step="0.5" data-field="smart-charge:peak_import_penalty_p_per_kwh" value="${esc(String(draft.peak_import_penalty_p_per_kwh ?? 5))}" ${busy}></div>
+</details>`;
+  }
+
+  _renderSmartChargeStatusCard(live, decision, dailyPlan, spreadPairs, planSummary) {
+    const armed = Boolean(live.armed);
+    const dischargeArmed = Boolean(live.discharge_armed);
+    const statusLine = decision.reason
+      ? `${dischargeArmed ? "Exporting" : armed ? "Charging" : "Idle"} — ${decision.reason}`
+      : dischargeArmed
+        ? "Exporting to grid"
+        : armed
+          ? "Grid charge armed"
+          : "Waiting for first evaluation";
+    const pillClass = dischargeArmed
+      ? "sc-status-pill sc-status-pill--export"
+      : armed
+        ? "sc-status-pill sc-status-pill--armed"
+        : "sc-status-pill sc-status-pill--idle";
+    const pillLabel = dischargeArmed ? "Exporting" : armed ? "Charging" : "Ready";
+    const cardClass = dischargeArmed
+      ? "sc-status-card sc-status-card--exporting"
+      : armed
+        ? "sc-status-card sc-status-card--armed"
+        : "sc-status-card";
+    const spreadHtml = spreadPairs.length
+      ? `<div class="sc-spread-pairs">${spreadPairs
+          .slice(0, 4)
+          .map(
+            (p) =>
+              `<div class="sc-spread-pair"><span>${esc(p.charge_start)} → ${esc(p.export_start)}</span><strong>+${Number(p.spread_p_per_kwh).toFixed(1)}p</strong></div>`
+          )
+          .join("")}</div>`
+      : "";
+    return `<div class="${cardClass}">
+<div class="sc-status-head">
+<div><p class="sc-status-title">Live status</p><p class="sc-status-reason">${esc(statusLine)}</p></div>
+<span class="${pillClass}">${esc(pillLabel)}</span>
+</div>
+${renderSmartChargeStatTiles(decision)}
+${renderSmartChargePlanTimeline(dailyPlan, decision.current_plan_slot)}
+<p class="field-hint" style="margin:10px 0 0">${esc(planSummary)}</p>
+${spreadHtml}
+</div>`;
+  }
+
   _renderSettingsSmartCharge() {
     if (!this._smartChargeDraft) this._initSmartChargeDraft();
     const draft = this._smartChargeDraft;
     const live = this._plantState?.smart_charge ?? {};
     const decision = live.decision ?? {};
-    const armed = Boolean(live.armed);
-    const dischargeArmed = Boolean(live.discharge_armed);
-    const modeLabel =
-      draft.operating_mode === "max_profit"
-        ? "Max profit"
-        : draft.operating_mode === "max_green"
-          ? "Max green"
-          : "Max safety";
-    const statusLine = decision.reason
-      ? `${dischargeArmed ? "Exporting" : armed ? "Armed" : "Idle"} — ${decision.reason}`
-      : dischargeArmed
-        ? "Exporting"
-        : armed
-          ? "Armed"
-          : "Waiting for first evaluation";
-    const metrics = [];
-    if (decision.eval_tier) metrics.push(`Tier ${decision.eval_tier}`);
-    const currentSlot = decision.current_plan_slot;
-    if (currentSlot?.start && currentSlot?.end) {
-      metrics.push(`Now ${currentSlot.start}-${currentSlot.end} (${currentSlot.action || "idle"})`);
-    }
-    if (decision.operating_mode) metrics.push(`Mode ${decision.operating_mode.replace("max_", "")}`);
-    if (decision.reserve_kwh != null) metrics.push(`Reserve ${Number(decision.reserve_kwh).toFixed(1)} kWh`);
-    if (decision.target_soc_effective != null) {
-      metrics.push(`Target ${Number(decision.target_soc_effective).toFixed(0)}% SOC`);
-    }
-    if (decision.grid_gap_kwh != null) metrics.push(`Grid gap ${Number(decision.grid_gap_kwh).toFixed(1)} kWh`);
-    if (decision.deficit_kwh != null) metrics.push(`Deficit ${Number(decision.deficit_kwh).toFixed(1)} kWh`);
-    if (decision.forecast_kwh != null) metrics.push(`Solar forecast ${Number(decision.forecast_kwh).toFixed(1)} kWh`);
-    if (decision.planned_export_kwh != null) {
-      metrics.push(`Export ${Number(decision.planned_export_kwh).toFixed(1)} kWh`);
-    }
-    if (decision.planned_spread_profit_p != null) {
-      metrics.push(`Spread profit ~${Number(decision.planned_spread_profit_p).toFixed(1)}p/kWh`);
-    }
-    if (decision.windows?.length) {
-      const w = decision.windows[0];
-      const rate =
-        w.export_p_per_kwh != null
-          ? `${Number(w.export_p_per_kwh).toFixed(2)}p export`
-          : `${Number(w.import_p_per_kwh).toFixed(2)}p import`;
-      metrics.push(`Window ${w.start}-${w.end} @ ${rate}`);
-    }
-    const dailyPlan = (live.daily_plan ?? decision.daily_plan ?? []).filter(
-      (s) => s.start && s.end && s.reason !== "no_slots"
-    );
-    const exportSlots = dailyPlan.filter((s) => s.action === "export" || s.action === "spread_export");
-    const chargeSlots = dailyPlan.filter(
+    const dailyPlan = live.daily_plan ?? decision.daily_plan ?? [];
+    const planSlots = dailyPlan.filter((s) => s.start && s.end && s.reason !== "no_slots");
+    const spreadPairs =
+      (decision.spread_pairs?.length ? decision.spread_pairs : null) ??
+      (dailyPlan[0]?.spread_pairs?.length ? dailyPlan[0].spread_pairs : []);
+    const planHorizon = dailyPlan[0]?.plan_horizon === "24h" ? "24h plan" : "rest-of-today plan";
+    const exportCount = planSlots.filter((s) => s.action === "export" || s.action === "spread_export").length;
+    const chargeCount = planSlots.filter(
       (s) =>
         s.action === "charge" ||
         s.action === "charge_candidate" ||
         s.action === "spread_charge" ||
         s.action === "winter_fill"
-    );
-    const spreadPairs =
-      (decision.spread_pairs?.length ? decision.spread_pairs : null) ??
-      (dailyPlan[0]?.spread_pairs?.length ? dailyPlan[0].spread_pairs : []);
-    const planHorizon = dailyPlan[0]?.plan_horizon === "24h" ? "24h plan" : "rest-of-today plan";
+    ).length;
     const spreadLabel = spreadPairs.length ? ` · ${spreadPairs.length} spread pair${spreadPairs.length === 1 ? "" : "s"}` : "";
     const planSummary =
-      dailyPlan.length > 0
-        ? `${planHorizon}: ${exportSlots.length} export · ${chargeSlots.length} charge · ${dailyPlan.length} slots${spreadLabel}`
+      planSlots.length > 0
+        ? `${planHorizon}: ${exportCount} export · ${chargeCount} charge · ${planSlots.length} slots${spreadLabel}`
         : "No daily plan yet (built at daily plan time after Octopus refresh)";
-    const spreadPreview = spreadPairs
-      .slice(0, 4)
-      .map((p) => `${p.charge_start}→${p.export_start} (+${Number(p.spread_p_per_kwh).toFixed(1)}p)`)
-      .join(" · ");
-    const planPreview = dailyPlan
-      .slice(0, 12)
-      .map((s) => {
-        const rate =
-          s.action === "export" && s.export_p_per_kwh != null
-            ? `${Number(s.export_p_per_kwh).toFixed(1)}p exp`
-            : `${Number(s.import_p_per_kwh ?? 0).toFixed(1)}p imp`;
-        return `${s.start}-${s.end} ${s.action} (${rate})`;
-      })
-      .join(" · ");
+    const busy = this._busy ? "disabled" : "";
+    const statusCard = draft.enabled
+      ? this._renderSmartChargeStatusCard(live, decision, planSlots, spreadPairs, planSummary)
+      : "";
     return `${this._renderSmartChargeHero()}
 <header class="header smart-charge-settings-header"><h1>SmartCharge</h1><p>Combines Solcast PV forecast with Octopus Agile rates. Targets house-load sufficiency (not 100% SOC), with an outage reserve floor. StormSafe always overrides.</p></header>
+${statusCard}
 <div class="card">
 <p class="card-title">Automation</p>
 <div class="toggle-row"><span><strong>Enable SmartCharge</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Requires Fox Plant control, Solcast PV forecast, and tariff rates</span></span>
-<input type="checkbox" data-field="smart-charge:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
-<div class="field"><label>Operating mode</label>
-<select data-field="smart-charge:operating_mode" ${this._busy ? "disabled" : ""}>
-<option value="max_safety" ${draft.operating_mode === "max_safety" ? "selected" : ""}>Max safety (conservative)</option>
-<option value="max_profit" ${draft.operating_mode === "max_profit" ? "selected" : ""}>Max profit (aggressive arbitrage)</option>
-<option value="max_green" ${draft.operating_mode === "max_green" ? "selected" : ""}>Max green (renewable-first)</option>
-</select>
-<p class="field-hint">Current: ${esc(modeLabel)}. Export uses Force Discharge during high Agile export windows.</p>
-</div>
-<div class="toggle-row"><span><strong>Enable grid export</strong></span>
-<input type="checkbox" data-field="smart-charge:export_enabled" ${draft.export_enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
-<div class="field"><label>Min export rate — profit mode (p/kWh)</label>
-<input type="number" min="0" max="100" step="0.5" data-field="smart-charge:min_export_p_profit" value="${esc(String(draft.min_export_p_profit ?? 12))}" ${this._busy ? "disabled" : ""}>
-</div>
-<div class="field"><label>Min export rate — safety mode (p/kWh)</label>
-<input type="number" min="0" max="100" step="0.5" data-field="smart-charge:min_export_p_safety" value="${esc(String(draft.min_export_p_safety ?? 20))}" ${this._busy ? "disabled" : ""}>
-</div>
-<div class="field"><label>Min export rate — green mode (p/kWh)</label>
-<input type="number" min="0" max="100" step="0.5" data-field="smart-charge:min_export_p_green" value="${esc(String(draft.min_export_p_green ?? 25))}" ${this._busy ? "disabled" : ""}>
-</div>
-<div class="field"><label>Minimum export energy (kWh)</label>
-<input type="number" min="0.1" max="50" step="0.1" data-field="smart-charge:min_export_kwh" value="${esc(String(draft.min_export_kwh ?? 0.5))}" ${this._busy ? "disabled" : ""}>
-</div>
-<div class="toggle-row"><span><strong>Allow export in max safety mode</strong></span>
-<input type="checkbox" data-field="smart-charge:export_enabled_safety" ${draft.export_enabled_safety ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
-<div class="toggle-row"><span><strong>Allow export in max green mode</strong></span>
-<input type="checkbox" data-field="smart-charge:export_enabled_green" ${draft.export_enabled_green ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
-<div class="field"><label>Max exportable fraction — profit</label>
-<input type="number" min="0.05" max="1" step="0.05" data-field="smart-charge:exportable_fraction_profit" value="${esc(String(draft.exportable_fraction_profit ?? 1))}" ${this._busy ? "disabled" : ""}>
-</div>
-<div class="field"><label>Max exportable fraction — safety</label>
-<input type="number" min="0.05" max="1" step="0.05" data-field="smart-charge:exportable_fraction_safety" value="${esc(String(draft.exportable_fraction_safety ?? 0.35))}" ${this._busy ? "disabled" : ""}>
-</div>
-<div class="field"><label>Max exportable fraction — green</label>
-<input type="number" min="0.05" max="1" step="0.05" data-field="smart-charge:exportable_fraction_green" value="${esc(String(draft.exportable_fraction_green ?? 0.15))}" ${this._busy ? "disabled" : ""}>
-</div>
+<input type="checkbox" data-field="smart-charge:enabled" ${draft.enabled ? "checked" : ""} ${busy}></div>
+${draft.enabled ? this._renderSmartChargeModePicker(draft) : ""}
+${draft.enabled ? this._renderSmartChargeModePanel(draft) : ""}
+${draft.enabled ? `<details class="sc-section-details" open>
+<summary>Energy budget</summary>
 <div class="field"><label>Max target SOC ceiling (%)</label>
-<input type="number" min="10" max="100" step="1" data-field="smart-charge:max_target_soc" value="${esc(String(draft.max_target_soc ?? 100))}" ${this._busy ? "disabled" : ""}>
-<p class="field-hint">House-load budget sets the effective target — this is the upper limit only.</p>
-</div>
+<input type="number" min="10" max="100" step="1" data-field="smart-charge:max_target_soc" value="${esc(String(draft.max_target_soc ?? 100))}" ${busy}>
+<p class="field-hint">House-load budget sets the effective target — this is the upper limit only.</p></div>
 <div class="field"><label>Max SOC when charging (optional)</label>
-<input type="number" min="10" max="100" step="1" data-field="smart-charge:target_max_soc" value="${draft.target_max_soc != null ? esc(String(draft.target_max_soc)) : ""}" placeholder="Same as ceiling" ${this._busy ? "disabled" : ""}>
-</div>
+<input type="number" min="10" max="100" step="1" data-field="smart-charge:target_max_soc" value="${draft.target_max_soc != null ? esc(String(draft.target_max_soc)) : ""}" placeholder="Same as ceiling" ${busy}></div>
 <div class="field"><label>Solar safety margin</label>
-<input type="number" min="1" max="3" step="0.05" data-field="smart-charge:solar_safety_margin" value="${esc(String(draft.solar_safety_margin ?? 1.15))}" ${this._busy ? "disabled" : ""}>
-<p class="field-hint">Require forecast × margin before skipping grid charge (e.g. 1.15 = 15% headroom).</p>
-</div>
+<input type="number" min="1" max="3" step="0.05" data-field="smart-charge:solar_safety_margin" value="${esc(String(draft.solar_safety_margin ?? 1.15))}" ${busy}></div>
 <div class="field"><label>Minimum deficit (kWh)</label>
-<input type="number" min="0" max="50" step="0.1" data-field="smart-charge:min_deficit_kwh" value="${esc(String(draft.min_deficit_kwh ?? 0.5))}" ${this._busy ? "disabled" : ""}>
-</div>
+<input type="number" min="0" max="50" step="0.1" data-field="smart-charge:min_deficit_kwh" value="${esc(String(draft.min_deficit_kwh ?? 0.5))}" ${busy}></div>
 <div class="field"><label>Round-trip efficiency</label>
-<input type="number" min="0.5" max="1" step="0.01" data-field="smart-charge:round_trip_efficiency" value="${esc(String(draft.round_trip_efficiency ?? 0.9))}" ${this._busy ? "disabled" : ""}>
-</div>
-<div class="field"><label>Min arbitrage profit (p/kWh)</label>
-<input type="number" min="0" max="50" step="0.1" data-field="smart-charge:min_arbitrage_p_per_kwh" value="${esc(String(draft.min_arbitrage_p_per_kwh ?? 0.5))}" ${this._busy ? "disabled" : ""}>
-<p class="field-hint">For negative import rates — charge only when export later beats this threshold after losses.</p>
-</div>
-<p class="card-title" style="margin-top:16px">Outage reserve &amp; house load</p>
+<input type="number" min="0.5" max="1" step="0.01" data-field="smart-charge:round_trip_efficiency" value="${esc(String(draft.round_trip_efficiency ?? 0.9))}" ${busy}></div>
+</details>
+<details class="sc-section-details">
+<summary>Outage reserve &amp; house load</summary>
 <div class="field"><label>House load fallback (kW)</label>
-<input type="number" min="0.1" max="50" step="0.1" data-field="smart-charge:house_load_kw_fallback" value="${esc(String(draft.house_load_kw_fallback ?? 1))}" ${this._busy ? "disabled" : ""}>
-<p class="field-hint">Used when live load sensor unavailable.</p>
-</div>
+<input type="number" min="0.1" max="50" step="0.1" data-field="smart-charge:house_load_kw_fallback" value="${esc(String(draft.house_load_kw_fallback ?? 1))}" ${busy}></div>
 <div class="field"><label>Reserve load override (kW, optional)</label>
-<input type="number" min="0" max="50" step="0.1" data-field="smart-charge:outage_reserve_load_kw" value="${draft.outage_reserve_load_kw != null ? esc(String(draft.outage_reserve_load_kw)) : ""}" placeholder="Use live/fallback load" ${this._busy ? "disabled" : ""}>
-</div>
+<input type="number" min="0" max="50" step="0.1" data-field="smart-charge:outage_reserve_load_kw" value="${draft.outage_reserve_load_kw != null ? esc(String(draft.outage_reserve_load_kw)) : ""}" placeholder="Use live/fallback load" ${busy}></div>
 <div class="field"><label>Vulnerable hours (reserve)</label>
-<input type="number" min="0" max="24" step="0.5" data-field="smart-charge:outage_reserve_hours" value="${esc(String(draft.outage_reserve_hours ?? 3))}" ${this._busy ? "disabled" : ""}>
-</div>
+<input type="number" min="0" max="24" step="0.5" data-field="smart-charge:outage_reserve_hours" value="${esc(String(draft.outage_reserve_hours ?? 3))}" ${busy}></div>
 <div class="field"><label>Reserve safety margin</label>
-<input type="number" min="1" max="5" step="0.05" data-field="smart-charge:outage_reserve_margin" value="${esc(String(draft.outage_reserve_margin ?? 1.2))}" ${this._busy ? "disabled" : ""}>
-</div>
+<input type="number" min="1" max="5" step="0.05" data-field="smart-charge:outage_reserve_margin" value="${esc(String(draft.outage_reserve_margin ?? 1.2))}" ${busy}></div>
 <div class="field"><label>Dark hours estimate (no meaningful PV)</label>
-<input type="number" min="0" max="24" step="0.5" data-field="smart-charge:dark_hours_estimate" value="${esc(String(draft.dark_hours_estimate ?? 8))}" ${this._busy ? "disabled" : ""}>
-</div>
-<div class="field"><label>Safety mode reserve multiplier</label>
-<input type="number" min="1" max="5" step="0.05" data-field="smart-charge:safety_reserve_multiplier" value="${esc(String(draft.safety_reserve_multiplier ?? 1.5))}" ${this._busy ? "disabled" : ""}>
-</div>
-<p class="card-title" style="margin-top:16px">Agile polling &amp; daily plan</p>
+<input type="number" min="0" max="24" step="0.5" data-field="smart-charge:dark_hours_estimate" value="${esc(String(draft.dark_hours_estimate ?? 8))}" ${busy}></div>
+</details>
+<details class="sc-section-details">
+<summary>Agile polling &amp; daily plan</summary>
 <div class="field"><label>Agile poll interval (minutes)</label>
-<input type="number" min="5" max="60" step="1" data-field="smart-charge:agile_poll_interval_minutes" value="${esc(String(draft.agile_poll_interval_minutes ?? 15))}" ${this._busy ? "disabled" : ""}>
-</div>
-<div class="toggle-row"><span><strong>Negative import interrupt</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Charge immediately when a negative Agile import slot is detected</span></span>
-<input type="checkbox" data-field="smart-charge:negative_import_interrupt" ${draft.negative_import_interrupt ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+<input type="number" min="5" max="60" step="1" data-field="smart-charge:agile_poll_interval_minutes" value="${esc(String(draft.agile_poll_interval_minutes ?? 15))}" ${busy}></div>
+<div class="toggle-row"><span><strong>Negative import interrupt</strong></span>
+<input type="checkbox" data-field="smart-charge:negative_import_interrupt" ${draft.negative_import_interrupt ? "checked" : ""} ${busy}></div>
 <div class="field"><label>Daily plan time (UK local)</label>
-<input type="time" data-field="smart-charge:daily_plan_time" value="${esc(String(draft.daily_plan_time ?? "16:00"))}" ${this._busy ? "disabled" : ""}>
-<p class="field-hint">Octopus publishes tomorrow's Agile rates around 16:00 UK.</p>
-</div>
+<input type="time" data-field="smart-charge:daily_plan_time" value="${esc(String(draft.daily_plan_time ?? "16:00"))}" ${busy}></div>
 <div class="field"><label>Daily plan horizon (hours)</label>
-<input type="number" min="1" max="48" step="1" data-field="smart-charge:daily_plan_horizon_hours" value="${esc(String(draft.daily_plan_horizon_hours ?? 24))}" ${this._busy ? "disabled" : ""}>
-</div>
+<input type="number" min="1" max="48" step="1" data-field="smart-charge:daily_plan_horizon_hours" value="${esc(String(draft.daily_plan_horizon_hours ?? 24))}" ${busy}></div>
 <div class="field"><label>Price-drop replan threshold (p/kWh)</label>
-<input type="number" min="0" max="50" step="0.5" data-field="smart-charge:price_drop_interrupt_p_per_kwh" value="${esc(String(draft.price_drop_interrupt_p_per_kwh ?? 2))}" ${this._busy ? "disabled" : ""}>
-<p class="field-hint">On each Agile poll, rebuild the daily plan when an import slot drops by at least this much.</p>
-</div>
-<p class="card-title" style="margin-top:16px">Spread optimizer</p>
-<div class="toggle-row"><span><strong>Enable spread pairing</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Pair cheap import slots with later high export for arbitrage</span></span>
-<input type="checkbox" data-field="smart-charge:spread_optimizer_enabled" ${draft.spread_optimizer_enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
-<div class="toggle-row"><span><strong>Winter cheap-fill</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Extra charge slots when solar forecast cannot cover house load</span></span>
-<input type="checkbox" data-field="smart-charge:winter_fill_enabled" ${draft.winter_fill_enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
-<div class="field"><label>Min spread profit (p/kWh)</label>
-<input type="number" min="0" max="50" step="0.5" data-field="smart-charge:min_spread_profit_p_per_kwh" value="${esc(String(draft.min_spread_profit_p_per_kwh ?? 3))}" ${this._busy ? "disabled" : ""}>
-</div>
-<div class="field"><label>Cheap import ceiling (p/kWh)</label>
-<input type="number" min="0" max="50" step="0.5" data-field="smart-charge:cheap_import_p_per_kwh" value="${esc(String(draft.cheap_import_p_per_kwh ?? 8))}" ${this._busy ? "disabled" : ""}>
-</div>
-<div class="field"><label>Peak import avoid — start</label>
-<input type="time" data-field="smart-charge:peak_import_avoid_start" value="${esc(String(draft.peak_import_avoid_start ?? "16:00"))}" ${this._busy ? "disabled" : ""}>
-</div>
-<div class="field"><label>Peak import avoid — end</label>
-<input type="time" data-field="smart-charge:peak_import_avoid_end" value="${esc(String(draft.peak_import_avoid_end ?? "19:00"))}" ${this._busy ? "disabled" : ""}>
-</div>
-<div class="field"><label>Peak import penalty (p/kWh)</label>
-<input type="number" min="0" max="50" step="0.5" data-field="smart-charge:peak_import_penalty_p_per_kwh" value="${esc(String(draft.peak_import_penalty_p_per_kwh ?? 5))}" ${this._busy ? "disabled" : ""}>
-</div>
-<div class="field"><label>Green mode spread multiplier</label>
-<input type="number" min="1" max="10" step="0.1" data-field="smart-charge:green_export_spread_multiplier" value="${esc(String(draft.green_export_spread_multiplier ?? 2))}" ${this._busy ? "disabled" : ""}>
-<p class="field-hint">Higher bar for spread pairs in max green mode (uses greener nights and carbon score).</p>
-</div>
-<p class="card-title" style="margin-top:16px">Charge period template</p>
-<p class="field-hint">Start/end times are chosen automatically each evaluation — these flags apply to the programmed window.</p>
+<input type="number" min="0" max="50" step="0.5" data-field="smart-charge:price_drop_interrupt_p_per_kwh" value="${esc(String(draft.price_drop_interrupt_p_per_kwh ?? 2))}" ${busy}></div>
+</details>
+${this._renderSmartChargeSpreadPanel(draft)}
+<details class="sc-section-details">
+<summary>Charge period template</summary>
+<p class="field-hint">Start/end times are chosen automatically — these flags apply to the programmed window.</p>
 ${this._renderPeriodCard(0, draft.charge_periods[0], "smart-period", "Charge template")}
 ${this._renderPeriodCard(1, draft.charge_periods[1], "smart-period", "Reserve period")}
-<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-smart-charge" ${this._busy ? "disabled" : ""}>Save SmartCharge</button></div>
-</div>
-<div class="card">
-<p class="card-title">Status &amp; diagnostics</p>
-<p style="margin:0 0 8px;font-size:14px">${esc(statusLine)}</p>
-${metrics.length ? `<p class="field-hint" style="margin:0 0 8px">${esc(metrics.join(" · "))}</p>` : ""}
-<p class="field-hint" style="margin:0">${esc(planSummary)}</p>
-${spreadPreview ? `<p class="field-hint" style="margin:8px 0 0;font-size:12px">Spread pairs: ${esc(spreadPreview)}</p>` : ""}
-${planPreview ? `<p class="field-hint" style="margin:8px 0 0;font-size:12px">${esc(planPreview)}</p>` : ""}
+</details>` : ""}
+<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-smart-charge" ${busy}>Save SmartCharge</button></div>
 </div>`;
   }
 
