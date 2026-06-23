@@ -1962,7 +1962,7 @@ function formatOctopusTileDate(d) {
   return `${day}/${mo}`;
 }
 
-const OCTOPUS_GREENER_SAPLING_VER = 2;
+const OCTOPUS_GREENER_SAPLING_VER = 3;
 const OCTOPUS_GREENER_SAPLING_LOW_URL = `/foxess_plant_panel/octopus_greener_sapling.png?v=${OCTOPUS_GREENER_SAPLING_VER}`;
 const OCTOPUS_GREENER_SAPLING_GREEN_URL = `/foxess_plant_panel/octopus_greener_sapling_green.png?v=${OCTOPUS_GREENER_SAPLING_VER}`;
 
@@ -1972,7 +1972,7 @@ function octopusGreenerPlantSvg(isGreenerNight) {
     ? "octopus-upcoming-week-plant octopus-upcoming-week-plant--green"
     : "octopus-upcoming-week-plant octopus-upcoming-week-plant--low";
   const url = isGreen ? OCTOPUS_GREENER_SAPLING_GREEN_URL : OCTOPUS_GREENER_SAPLING_LOW_URL;
-  return `<img class="${cls}" src="${esc(url)}" alt="" loading="lazy" decoding="async">`;
+  return `<div class="octopus-upcoming-week-plant-wrap"><img class="${cls}" src="${esc(url)}" alt="" loading="lazy" decoding="async"></div>`;
 }
 
 function octopusUpcomingWeekRows(greenerNights, now = new Date()) {
@@ -10916,8 +10916,8 @@ const STYLES = `
   align-items: center;
   justify-content: flex-start;
   gap: 4px;
-  min-height: 132px;
-  padding: 10px 6px 10px;
+  min-height: 168px;
+  padding: 10px 6px 8px;
   border-radius: 14px;
   border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.25));
   background: var(--secondary-background-color, rgba(127, 127, 127, 0.06));
@@ -10958,20 +10958,29 @@ const STYLES = `
   font-size: 12px;
   color: var(--secondary-text-color);
 }
-.octopus-upcoming-week-plant {
+.octopus-upcoming-week-plant-wrap {
   margin-top: auto;
+  width: 100%;
+  height: 112px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.octopus-upcoming-week-plant {
   display: block;
   flex-shrink: 0;
   object-fit: contain;
+  object-position: bottom center;
   max-width: 100%;
 }
 .octopus-upcoming-week-plant--green {
-  width: 64px;
-  height: 64px;
+  width: 112px;
+  height: 112px;
 }
 .octopus-upcoming-week-plant--low {
-  width: 52px;
-  height: 52px;
+  width: 96px;
+  height: 96px;
 }
 @media (max-width: 720px) {
   .octopus-upcoming-week-grid {
