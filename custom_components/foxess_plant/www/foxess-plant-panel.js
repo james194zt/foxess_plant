@@ -1852,7 +1852,7 @@ function octopusChartTooltipHtml(chartMode, bar) {
   }
   if (chartMode === "dual") {
     const scoreText = bar.low_carbon_score != null ? `${bar.low_carbon_score}/10` : "—";
-    const carbonLabel = bar.is_green ? "Low carbon" : "Higher carbon";
+    const carbonLabel = octopusCarbonPeriodIsGreen(bar) ? "Low carbon" : "Higher carbon";
     const importPrice = bar.p_per_kwh != null ? formatOctopusRate(bar.p_per_kwh) : "—";
     const exportPrice = bar.export_p_per_kwh != null ? formatOctopusRate(bar.export_p_per_kwh) : "—";
     const gco2Text = bar.gco2 != null ? `${bar.gco2} gCO₂/kWh` : "";
@@ -1887,6 +1887,14 @@ function octopusBarScore(period) {
     return Number(period.low_carbon_score);
   }
   return octopusLowCarbonScoreFromGco2(period?.gco2_per_kwh) ?? 1;
+}
+
+function octopusLowCarbonScoreGreenMin(threshold = 99) {
+  return octopusLowCarbonScoreFromGco2(threshold) ?? 8;
+}
+
+function octopusCarbonPeriodIsGreen(period, threshold = 99) {
+  return octopusBarScore(period) >= octopusLowCarbonScoreGreenMin(threshold);
 }
 
 function octopusGreenerNightByDate(greenerNights) {
@@ -2149,8 +2157,8 @@ function renderOctopusGreenerWeekTimeline(rows) {
 
 function renderOctopusGreenerCarbonLegend(threshold) {
   return `<div class="octopus-greener-legend octopus-greener-legend--top">
-<span><i class="octopus-greener-swatch octopus-greener-swatch--green"></i>&lt;${Math.round(threshold)}gCO₂/kWh Green</span>
-<span><i class="octopus-greener-swatch octopus-greener-swatch--purple"></i>&gt;${Math.round(threshold + 1)}gCO₂/kWh Not-so-green</span>
+<span><i class="octopus-greener-swatch octopus-greener-swatch--green"></i>≤${Math.round(threshold)}gCO₂/kWh Green</span>
+<span><i class="octopus-greener-swatch octopus-greener-swatch--purple"></i>&gt;${Math.round(threshold)}gCO₂/kWh Not-so-green</span>
 <span><i class="octopus-greener-swatch-line" aria-hidden="true"></i>National green line</span>
 </div>`;
 }
@@ -2214,7 +2222,7 @@ function renderOctopusGreenerChartSvg(periods, threshold) {
   if (!rows.length) {
     return `<p class="octopus-greener-empty">Half-hourly carbon forecast unavailable. Save a valid Octopus API key and account number with a UK postcode on your account.</p>`;
   }
-  const greenScoreLine = octopusLowCarbonScoreFromGco2(threshold) ?? 8;
+  const greenScoreLine = octopusLowCarbonScoreGreenMin(threshold);
   const greenY = padT + chartH - (greenScoreLine / scoreMax) * chartH;
   const slotW = chartW / rows.length;
   const barW = Math.max(2, Math.min(8, slotW * 0.75));
@@ -2223,7 +2231,7 @@ function renderOctopusGreenerChartSvg(periods, threshold) {
     end_ms: p.end_ms,
     score: octopusBarScore(p),
     gco2: p.gco2_per_kwh != null ? Math.round(Number(p.gco2_per_kwh)) : null,
-    green: Boolean(p.is_green ?? Number(p.gco2_per_kwh ?? 0) < threshold),
+    green: octopusCarbonPeriodIsGreen(p, threshold),
   }));
   const bars = rows
     .map((p, i) => {
@@ -2231,7 +2239,7 @@ function renderOctopusGreenerChartSvg(periods, threshold) {
       const h = Math.max(2, (score / scoreMax) * chartH);
       const x = padL + i * slotW + (slotW - barW) / 2;
       const y = padT + chartH - h;
-      const green = Boolean(p.is_green ?? Number(p.gco2_per_kwh ?? 0) < threshold);
+      const green = octopusCarbonPeriodIsGreen(p, threshold);
       const color = green ? "var(--octopus-green-bar, #22c55e)" : "var(--octopus-purple-bar, #8b5cf6)";
       const rx = Math.min(barW / 2, h / 2, 4);
       return `<rect class="octopus-greener-bar" data-bar-index="${i}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${color}" rx="${rx.toFixed(1)}" />`;
@@ -2688,7 +2696,7 @@ function renderOctopusDualChartSvg(dualPeriods) {
   const chart = renderOctopusGenericBarChartSvg(rows, {
     valueKey: "low_carbon_score",
     maxValue: 10,
-    colorFn: (row) => (row.is_green ? "#22c55e" : "#8b5cf6"),
+    colorFn: (row) => (octopusCarbonPeriodIsGreen(row) ? "#22c55e" : "#8b5cf6"),
     emptyHint: "No carbon periods.",
     ariaLabel: "Price and carbon overlay chart",
     chartMode: "dual",
@@ -2697,7 +2705,7 @@ function renderOctopusDualChartSvg(dualPeriods) {
       low_carbon_score: row.low_carbon_score,
       p_per_kwh: row.p_per_kwh,
       export_p_per_kwh: row.export_p_per_kwh,
-      is_green: row.is_green,
+      is_green: octopusCarbonPeriodIsGreen(row),
       gco2: row.gco2_per_kwh != null ? Math.round(Number(row.gco2_per_kwh)) : null,
     }),
   });

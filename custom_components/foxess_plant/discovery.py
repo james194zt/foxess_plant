@@ -117,3 +117,64 @@ def discover_entity_map(hass: HomeAssistant, device_id: str) -> dict[str, str]:
 def missing_charge_period_entities(entity_map: dict[str, str]) -> list[str]:
     """Return charge-period keys missing from the map."""
     return [key for key in CHARGE_PERIOD_KEYS if key not in entity_map]
+
+
+def _entity_id_matches_suffix(entity_id: str, suffix: str) -> bool:
+    if not entity_id or not suffix:
+        return False
+    if entity_id.endswith(f"_{suffix}"):
+        return True
+    local = entity_id.rsplit(".", 1)[-1]
+    if local == suffix:
+        return True
+    return f"_{suffix}_" in entity_id
+
+
+def _suffixes_for_key(key: str) -> tuple[str, ...]:
+    if key in PANEL_ENTITY_SUFFIXES:
+        return PANEL_ENTITY_SUFFIXES[key]
+    if key in IDENTITY_ENTITY_SUFFIXES:
+        return IDENTITY_ENTITY_SUFFIXES[key]
+    single = DISCOVERY_SUFFIXES.get(key)
+    return (single,) if single else ()
+
+
+def _state_is_usable(hass: HomeAssistant, entity_id: str | None) -> bool:
+    if not entity_id:
+        return False
+    state = hass.states.get(entity_id)
+    if state is None:
+        return False
+    return state.state not in ("unavailable", "unknown", None, "")
+
+
+def resolve_entity_id(
+    hass: HomeAssistant,
+    entity_map: dict[str, str],
+    key: str,
+    *,
+    device_id: str | None = None,
+) -> str | None:
+    """Resolve a plant logical key to a live entity_id (stored map + runtime suffix fallbacks)."""
+    mapped = entity_map.get(key)
+    if _state_is_usable(hass, mapped):
+        return mapped
+
+    suffixes = _suffixes_for_key(key)
+    if not suffixes:
+        return mapped
+
+    candidates: list[str] = []
+    if device_id:
+        entity_reg = er.async_get(hass)
+        for entry in er.async_entries_for_device(entity_reg, device_id):
+            if entry.entity_id:
+                candidates.append(entry.entity_id)
+    if not candidates:
+        candidates = list(hass.states.async_entity_ids())
+
+    for suffix in suffixes:
+        for entity_id in candidates:
+            if _entity_id_matches_suffix(entity_id, suffix) and _state_is_usable(hass, entity_id):
+                return entity_id
+    return mapped

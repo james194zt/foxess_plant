@@ -55,6 +55,20 @@ def low_carbon_score_from_gco2(value: float | None) -> int | None:
     return max(1, min(10, score))
 
 
+def low_carbon_score_green_min() -> int:
+    """Minimum low-carbon score (1–10) that counts as green at the national threshold."""
+    return low_carbon_score_from_gco2(GREEN_THRESHOLD_GCO2) or 8
+
+
+def is_low_carbon_green(*, gco2: float | None = None, score: int | None = None) -> bool:
+    """True when the half-hourly low carbon score meets the national green line (8/10 at 99 gCO₂/kWh)."""
+    if score is None:
+        score = low_carbon_score_from_gco2(gco2)
+    if score is None:
+        return False
+    return score >= low_carbon_score_green_min()
+
+
 def _parse_period_start(raw: Any) -> datetime | None:
     if not raw:
         return None
@@ -90,7 +104,7 @@ def normalize_carbon_periods(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
                 "gco2_per_kwh": gco2,
                 "low_carbon_score": score,
                 "index": row.get("index"),
-                "is_green": gco2 is not None and gco2 < GREEN_THRESHOLD_GCO2,
+                "is_green": is_low_carbon_green(gco2=gco2, score=score),
             }
         )
     out.sort(key=lambda item: item["start_ms"])

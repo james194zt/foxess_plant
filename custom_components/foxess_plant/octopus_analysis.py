@@ -11,7 +11,12 @@ from homeassistant.util import dt as dt_util
 
 from .octopus_api import OctopusApiClient, OctopusApiError
 from .octopus_consumption_store import OctopusConsumptionStore
-from .octopus_greener import GREEN_THRESHOLD_GCO2, low_carbon_score_from_gco2, normalize_carbon_periods
+from .octopus_greener import (
+    GREEN_THRESHOLD_GCO2,
+    is_low_carbon_green,
+    low_carbon_score_from_gco2,
+    normalize_carbon_periods,
+)
 from .octopus_tariff import _parse_api_dt, _rate_value_inc_vat, is_variable_tariff_type
 
 _LOGGER = logging.getLogger(__name__)
@@ -168,7 +173,7 @@ def merge_price_and_carbon(
                 "export_p_per_kwh": export_slot.get("p_per_kwh") if export_slot else None,
                 "gco2_per_kwh": gco2,
                 "low_carbon_score": score,
-                "is_green": gco2 is not None and float(gco2) < GREEN_THRESHOLD_GCO2,
+                "is_green": is_low_carbon_green(gco2=gco2, score=score),
             }
         )
     return merged
