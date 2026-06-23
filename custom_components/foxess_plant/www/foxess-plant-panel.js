@@ -1778,6 +1778,18 @@ function octopusTariffEnabled(plantState) {
   return Boolean(dynamic?.enabled && String(dynamic?.provider || "").toLowerCase() === "octopus");
 }
 
+function smartChargeEnabled(plantState) {
+  return Boolean(plantState?.smart_charge?.enabled);
+}
+
+function reportsNavForState(plantState) {
+  const items = [...REPORTS_NAV];
+  if (smartChargeEnabled(plantState)) {
+    items.push({ id: "smart_charge", label: "SmartCharge Analysis" });
+  }
+  return items;
+}
+
 function octopusGreenerPayload(plantState) {
   const raw = plantState?.tariff?.octopus_greener;
   return raw && typeof raw === "object" ? raw : null;
@@ -2540,6 +2552,226 @@ ${moneyVal ? `<span class="octopus-rewards-sub">${esc(moneyVal)}</span>` : ""}
 function octopusAnalysisPayload(plantState) {
   const raw = plantState?.tariff?.octopus_analysis;
   return raw && typeof raw === "object" ? raw : null;
+}
+
+function formatSmartChargeMode(mode) {
+  const m = String(mode || "").toLowerCase();
+  if (m === "max_safety") return "Max Safety";
+  if (m === "max_profit") return "Max Profit";
+  if (m === "max_green") return "Max Green";
+  return mode ? String(mode) : "—";
+}
+
+function formatSmartChargeKwh(v) {
+  if (v == null || !Number.isFinite(Number(v))) return "—";
+  return `${Number(v).toFixed(2)} kWh`;
+}
+
+function formatSmartChargeDuration(min) {
+  if (min == null || !Number.isFinite(Number(min))) return "—";
+  const m = Math.max(0, Math.round(Number(min)));
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  return r ? `${h}h ${r}m` : `${h}h`;
+}
+
+function formatSmartChargeDateTimeMs(ms) {
+  if (!Number.isFinite(ms)) return "—";
+  return new Date(ms).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function renderSmartChargeSummaryCards(summary) {
+  const s = summary || {};
+  const cards = [
+    {
+      label: "Grid import (actual)",
+      value: formatSmartChargeKwh(s.grid_import_kwh_actual),
+      sub: s.grid_import_kwh_planned != null ? `Planned ${formatSmartChargeKwh(s.grid_import_kwh_planned)}` : "",
+      tone: "import",
+    },
+    {
+      label: "Grid export (actual)",
+      value: formatSmartChargeKwh(s.grid_export_kwh_actual),
+      sub: s.grid_export_kwh_planned != null ? `Planned ${formatSmartChargeKwh(s.grid_export_kwh_planned)}` : "",
+      tone: "export",
+    },
+    {
+      label: "Armed sessions",
+      value: String(s.armed_sessions ?? 0),
+      sub: `${s.import_sessions ?? 0} import · ${s.export_sessions ?? 0} export`,
+      tone: "sessions",
+    },
+    {
+      label: "Spread profit (theoretical)",
+      value: s.theoretical_spread_profit_p != null ? `${Number(s.theoretical_spread_profit_p).toFixed(2)}p` : "—",
+      sub: formatSmartChargeMode(s.operating_mode),
+      tone: "profit",
+    },
+  ];
+  return `<div class="fox-sc-analysis-summary">${cards
+    .map(
+      (c) => `<div class="fox-sc-analysis-card fox-sc-analysis-card--${esc(c.tone)}">
+<div class="fox-sc-analysis-card-label">${esc(c.label)}</div>
+<div class="fox-sc-analysis-card-value">${esc(c.value)}</div>
+${c.sub ? `<div class="fox-sc-analysis-card-sub">${esc(c.sub)}</div>` : ""}
+</div>`
+    )
+    .join("")}</div>`;
+}
+
+function renderSmartChargeDailyChartSvg(dailyChart) {
+  const rows = (Array.isArray(dailyChart) ? dailyChart : []).filter((r) => r?.date);
+  if (!rows.length) {
+    return `<p class="octopus-greener-empty">No daily SmartCharge activity for this period.</p>`;
+  }
+  const mapped = rows.map((row) => {
+    const d = new Date(`${row.date}T12:00:00`);
+    return {
+      start_ms: d.getTime(),
+      label: d.toLocaleDateString(undefined, { day: "numeric", month: "short" }),
+      import_actual: Number(row.import_actual_kwh) || 0,
+      export_actual: Number(row.export_actual_kwh) || 0,
+      import_planned: Number(row.import_planned_kwh) || 0,
+      export_planned: Number(row.export_planned_kwh) || 0,
+    };
+  });
+  const maxVal = Math.max(
+    ...mapped.flatMap((r) => [r.import_actual, r.export_actual, r.import_planned, r.export_planned]),
+    0.1
+  );
+  const W = 640;
+  const H = 168;
+  const padL = 28;
+  const padR = 12;
+  const padT = 12;
+  const padB = 28;
+  const chartW = W - padL - padR;
+  const chartH = H - padT - padB;
+  const slotW = chartW / mapped.length;
+  const barW = Math.max(2, slotW * 0.18);
+  const bars = mapped
+    .map((row, i) => {
+      const x0 = padL + i * slotW + slotW * 0.08;
+      const specs = [
+        { key: "import_actual", color: "#2F6BFF" },
+        { key: "import_planned", color: "#8DB6FF" },
+        { key: "export_actual", color: "#FF6FAF" },
+        { key: "export_planned", color: "#ffc2dd" },
+      ];
+      return specs
+        .map((spec, j) => {
+          const v = row[spec.key];
+          const h = Math.max(1, (v / maxVal) * chartH);
+          const x = x0 + j * (barW + 1);
+          const y = padT + chartH - h;
+          return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${spec.color}" rx="1" />`;
+        })
+        .join("");
+    })
+    .join("");
+  const legend = `<div class="fox-sc-analysis-chart-legend">
+<span><i style="background:#2F6BFF"></i> Import actual</span>
+<span><i style="background:#8DB6FF"></i> Import planned</span>
+<span><i style="background:#FF6FAF"></i> Export actual</span>
+<span><i style="background:#ffc2dd"></i> Export planned</span>
+</div>`;
+  return `${legend}<svg class="fox-sc-analysis-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="SmartCharge daily import and export"><rect x="${padL}" y="${padT}" width="${chartW}" height="${chartH}" fill="none" stroke="var(--divider-color,#333)" stroke-opacity="0.25"/>${bars}</svg>`;
+}
+
+function renderSmartChargeSessionsTable(sessions) {
+  const rows = Array.isArray(sessions) ? sessions : [];
+  if (!rows.length) {
+    return `<p class="placeholder">No armed SmartCharge sessions recorded in this period.</p>`;
+  }
+  const body = rows
+    .slice()
+    .sort((a, b) => (b.start_ms || 0) - (a.start_ms || 0))
+    .map((row) => {
+      const dir = row.direction === "export" ? "Export" : "Import";
+      const actual =
+        row.direction === "export"
+          ? formatSmartChargeKwh(row.actual_export_kwh)
+          : formatSmartChargeKwh(row.actual_import_kwh);
+      const planned =
+        row.direction === "export"
+          ? formatSmartChargeKwh(row.planned_export_kwh)
+          : formatSmartChargeKwh(row.planned_import_kwh);
+      return `<tr>
+<td>${esc(formatSmartChargeDateTimeMs(row.start_ms))}</td>
+<td>${esc(dir)}</td>
+<td>${esc(String(row.action || "—"))}</td>
+<td>${esc(formatSmartChargeDuration(row.duration_min))}</td>
+<td>${esc(actual)}</td>
+<td>${esc(planned)}</td>
+</tr>`;
+    })
+    .join("");
+  return `<div class="table-wrap"><table class="data-table fox-sc-analysis-table">
+<thead><tr><th>Started</th><th>Direction</th><th>Action</th><th>Duration</th><th>Actual</th><th>Planned</th></tr></thead>
+<tbody>${body}</tbody>
+</table></div>`;
+}
+
+function renderSmartChargePlannedTable(slots) {
+  const rows = Array.isArray(slots) ? slots : [];
+  if (!rows.length) {
+    return `<p class="placeholder">No daily plan slots in recorder history for this period.</p>`;
+  }
+  const body = rows
+    .map((row) => {
+      const isExport = String(row.action || "").includes("export");
+      const planned = isExport
+        ? formatSmartChargeKwh(row.planned_export_kwh)
+        : formatSmartChargeKwh(row.planned_import_kwh);
+      return `<tr>
+<td>${esc(formatSmartChargeDateTimeMs(row.start_ms))}</td>
+<td>${esc(formatSmartChargeDateTimeMs(row.end_ms))}</td>
+<td>${esc(String(row.action || "—"))}</td>
+<td>${esc(String(row.reason || "—"))}</td>
+<td>${esc(planned)}</td>
+</tr>`;
+    })
+    .join("");
+  return `<div class="table-wrap"><table class="data-table fox-sc-analysis-table">
+<thead><tr><th>Start</th><th>End</th><th>Action</th><th>Reason</th><th>Planned kWh</th></tr></thead>
+<tbody>${body}</tbody>
+</table></div>`;
+}
+
+function renderSmartChargeAnalysisPage(report, { loading = false } = {}) {
+  if (loading && !report) {
+    return `<div data-smart-charge-analysis-main="1"><header class="header"><h1>SmartCharge Analysis</h1></header><p class="chart-loading">Loading SmartCharge analysis…</p></div>`;
+  }
+  if (!report || report.enabled === false) {
+    return `<div data-smart-charge-analysis-main="1"><header class="header"><h1>SmartCharge Analysis</h1></header><p class="placeholder">Enable SmartCharge in Settings → SmartCharge to use this report.</p></div>`;
+  }
+  if (report.error) {
+    return `<div data-smart-charge-analysis-main="1"><header class="header"><h1>SmartCharge Analysis</h1><p class="placeholder">${esc(report.error)}</p></div>`;
+  }
+  const hint = report.hint ? `<p class="field-hint">${esc(report.hint)}</p>` : "";
+  return `<div data-smart-charge-analysis-main="1">
+<header class="header"><h1>SmartCharge Analysis</h1><p>${esc(report.period_label || "")}</p></header>
+${hint}
+${renderSmartChargeSummaryCards(report.summary)}
+<div class="card fox-report-chart-card fox-analysis-chart-card">
+<h3 class="fox-analysis-summary-title fox-analysis-chart-title">Daily import &amp; export</h3>
+${renderSmartChargeDailyChartSvg(report.daily_chart)}
+</div>
+<div class="card fox-report-details">
+<h3 class="fox-report-details-title">Armed sessions</h3>
+${renderSmartChargeSessionsTable(report.sessions)}
+</div>
+<div class="card fox-report-details">
+<h3 class="fox-report-details-title">Planned slots (from daily plan history)</h3>
+${renderSmartChargePlannedTable(report.planned_slots)}
+</div>
+</div>`;
 }
 
 function octopusConsumptionDailyTotals(consumption, days = 14) {
@@ -10929,6 +11161,36 @@ const STYLES = `
   box-sizing: border-box;
   overflow: hidden;
 }
+.fox-sc-analysis-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.fox-sc-analysis-card {
+  background: var(--card-background-color, #1c1c1c);
+  border-radius: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--divider-color, rgba(255,255,255,0.08));
+}
+.fox-sc-analysis-card-label { font-size: 12px; opacity: 0.75; margin-bottom: 6px; }
+.fox-sc-analysis-card-value { font-size: 22px; font-weight: 600; line-height: 1.2; }
+.fox-sc-analysis-card-sub { font-size: 12px; opacity: 0.7; margin-top: 6px; }
+.fox-sc-analysis-chart { width: 100%; height: auto; display: block; }
+.fox-sc-analysis-chart-legend {
+  display: flex; flex-wrap: wrap; gap: 10px 14px; font-size: 12px; margin-bottom: 8px; opacity: 0.85;
+}
+.fox-sc-analysis-chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.fox-sc-analysis-chart-legend i {
+  display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+}
+.fox-sc-analysis-table { font-size: 13px; }
+@media (max-width: 900px) {
+  .fox-sc-analysis-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 520px) {
+  .fox-sc-analysis-summary { grid-template-columns: 1fr; }
+}
 .fox-report-balance-card {
   display: flex;
   flex-direction: column;
@@ -12669,6 +12931,9 @@ class FoxessPlantPanel extends HTMLElement {
     this._reportsView = "energy_report";
     this._octopusAnalysisLoading = false;
     this._octopusAnalysisPlantId = undefined;
+    this._smartChargeAnalysis = null;
+    this._smartChargeAnalysisLoading = false;
+    this._smartChargeAnalysisPlantId = undefined;
     this._energyReport = null;
     this._energyReportLoading = false;
     this._energyReportPlantId = undefined;
@@ -13458,14 +13723,32 @@ Reloading panel registration…
       .join("")}</select></div>`;
   }
 
+  _ensureReportsViewValid() {
+    if (this._reportsView === "smart_charge" && !smartChargeEnabled(this._plantState)) {
+      this._reportsView = "energy_report";
+    }
+    const nav = reportsNavForState(this._plantState);
+    if (!nav.some((item) => item.id === this._reportsView)) {
+      this._reportsView = "energy_report";
+    }
+  }
+
+  _loadActiveReport() {
+    this._ensureReportsViewValid();
+    if (this._reportsView === "octopus") void this._loadOctopusAnalysis();
+    else if (this._reportsView === "smart_charge") void this._loadSmartChargeAnalysis();
+    else this._loadEnergyReport();
+  }
+
   _rebuildPageHeader(headerEl) {
+    this._ensureReportsViewValid();
     const showSubTabs = this._view === "settings" || this._view === "device_new" || this._view === "reports";
     const subNav =
       this._view === "settings"
         ? SETTINGS_NAV
         : this._view === "device_new"
           ? DEVICE_NEW_NAV
-          : REPORTS_NAV;
+          : reportsNavForState(this._plantState);
     const subActive =
       this._view === "settings"
         ? this._settingsView
@@ -14625,6 +14908,8 @@ Reloading panel registration…
         this._reportsView = "energy_report";
         this._energyReport = null;
         this._energyReportPlantId = undefined;
+        this._smartChargeAnalysis = null;
+        this._smartChargeAnalysisPlantId = undefined;
         this._octopusAnalysisPlantId = undefined;
         this._energyBalanceHelpOpen = false;
       }
@@ -14649,8 +14934,7 @@ Reloading panel registration…
       if (this._view === "energy_analysis") this._loadEnergyCharts();
       if (this._view === "reports") {
         this._normalizeReportsPeriodState();
-        if (this._reportsView === "octopus") void this._loadOctopusAnalysis();
-        else this._loadEnergyReport();
+        this._loadActiveReport();
       }
       if (this._view === "overview") this._loadOverviewStatisticsChart();
       if (this._view === "device_new") {
@@ -14787,7 +15071,9 @@ Reloading panel registration…
       this._reportsPeriodOffset = 0;
       this._energyReport = null;
       this._energyReportPlantId = undefined;
-      this._loadEnergyReport();
+      this._smartChargeAnalysis = null;
+      this._smartChargeAnalysisPlantId = undefined;
+      this._loadActiveReport();
       this._scheduleRender(true);
       return;
     }
@@ -14803,7 +15089,9 @@ Reloading panel registration…
       }
       this._energyReport = null;
       this._energyReportPlantId = undefined;
-      this._loadEnergyReport();
+      this._smartChargeAnalysis = null;
+      this._smartChargeAnalysisPlantId = undefined;
+      this._loadActiveReport();
       this._scheduleRender(true);
       return;
     }
@@ -14883,6 +15171,7 @@ Reloading panel registration…
       if (!sub || sub === this._reportsView) return;
       this._reportsView = sub;
       if (sub === "octopus") void this._loadOctopusAnalysis();
+      else if (sub === "smart_charge") void this._loadSmartChargeAnalysis();
       else this._loadEnergyReport();
       this._scheduleRender(true);
       return;
@@ -17843,7 +18132,73 @@ ${detailsHtml}
     if (this._reportsView === "octopus") {
       return this._renderOctopusEnergyAnalysis(plant);
     }
+    if (this._reportsView === "smart_charge") {
+      return this._renderSmartChargeAnalysisReport(plant);
+    }
     return this._renderEnergyReport(plant);
+  }
+
+  _smartChargeAnalysisCacheKey(plant) {
+    return `${plant.entry_id}:smart_charge_analysis:${this._reportsPeriod}:${this._reportsPeriodOffset}`;
+  }
+
+  async _loadSmartChargeAnalysis() {
+    const plant = this._getPlant();
+    if (!plant || !this._hass || this._view !== "reports" || this._reportsView !== "smart_charge") return;
+    if (!smartChargeEnabled(this._plantState)) return;
+    this._normalizeReportsPeriodState();
+    const cacheKey = this._smartChargeAnalysisCacheKey(plant);
+    if (this._smartChargeAnalysisPlantId === cacheKey && this._smartChargeAnalysis) return;
+    this._smartChargeAnalysisLoading = true;
+    this._smartChargeAnalysis = null;
+    this._smartChargeAnalysisPlantId = cacheKey;
+    this._scheduleRender();
+    try {
+      if (!this._plantState) await this._refreshPlantState();
+      const result = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/fetch_smart_charge_analysis",
+        plant_id: plant.entry_id,
+        period: this._reportsPeriod,
+        offset: this._reportsPeriodOffset,
+      });
+      if (result?.plant_state) this._plantState = result.plant_state;
+      if (this._smartChargeAnalysisCacheKey(this._getPlant()) === cacheKey) {
+        this._smartChargeAnalysis = result?.smart_charge_analysis || null;
+      }
+    } catch (err) {
+      if (this._smartChargeAnalysisCacheKey(this._getPlant()) === cacheKey) {
+        this._smartChargeAnalysis = {
+          error:
+            err?.message ||
+            "Could not load SmartCharge analysis. Enable the recorder for smart charge and power sensors.",
+        };
+      }
+    } finally {
+      this._smartChargeAnalysisLoading = false;
+      if (this._view === "reports" && this._reportsView === "smart_charge") {
+        this._scheduleRender();
+      }
+    }
+  }
+
+  _renderSmartChargeAnalysisReport(plant) {
+    if (!smartChargeEnabled(this._plantState)) {
+      return renderSmartChargeAnalysisPage({ enabled: false });
+    }
+    const toolbar = `<div class="card fox-analysis-toolbar" data-smart-charge-report-toolbar="1">
+${this._renderReportsPeriodTabs()}
+${this._renderReportsDateNav()}
+</div>`;
+    const body = renderSmartChargeAnalysisPage(this._smartChargeAnalysis, {
+      loading: this._smartChargeAnalysisLoading && !this._smartChargeAnalysis,
+    });
+    if (body.includes("data-smart-charge-analysis-main")) {
+      return body.replace(
+        "<header class=\"header\">",
+        `${toolbar}<header class="header">`
+      );
+    }
+    return `${toolbar}${body}`;
   }
 
   _octopusAnalysisCacheKey(plant) {
@@ -20267,9 +20622,20 @@ ${active
     this._syncPanelBuildFooter(shell);
 
     const headerEl = shell.querySelector(".page-header");
-    if (this._headerHasSubTabs !== showSubTabs || this._headerSubNavView !== subNavView) {
+    const reportsNavKey =
+      this._view === "reports"
+        ? reportsNavForState(this._plantState)
+            .map((item) => item.id)
+            .join(",")
+        : "";
+    if (
+      this._headerHasSubTabs !== showSubTabs ||
+      this._headerSubNavView !== subNavView ||
+      this._headerReportsNavKey !== reportsNavKey
+    ) {
       this._rebuildPageHeader(headerEl);
       this._headerSubNavView = subNavView;
+      this._headerReportsNavKey = reportsNavKey;
     } else {
       this._syncTabActive(headerEl);
     }
@@ -20459,9 +20825,20 @@ ${active
     }
     if (this._view === "reports") {
       const plant = this._getPlant();
+      this._ensureReportsViewValid();
       if (this._reportsView === "octopus") {
         if (plant && !this._octopusAnalysisLoading && !octopusAnalysisPayload(this._plantState)) {
           void this._loadOctopusAnalysis();
+        }
+      } else if (this._reportsView === "smart_charge") {
+        if (
+          plant &&
+          smartChargeEnabled(this._plantState) &&
+          !this._smartChargeAnalysisLoading &&
+          (this._smartChargeAnalysisPlantId !== this._smartChargeAnalysisCacheKey(plant) ||
+            !this._smartChargeAnalysis)
+        ) {
+          void this._loadSmartChargeAnalysis();
         }
       } else if (
         plant &&

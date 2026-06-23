@@ -35,6 +35,7 @@ WS_TYPE_TEST_OCTOPUS = "foxess_plant/test_octopus"
 WS_TYPE_FETCH_OCTOPUS = "foxess_plant/fetch_octopus"
 WS_TYPE_FETCH_OCTOPUS_ANALYSIS = "foxess_plant/fetch_octopus_analysis"
 WS_TYPE_APPLY_OCTOPUS_SCHEDULE = "foxess_plant/apply_octopus_schedule"
+WS_TYPE_FETCH_SMART_CHARGE_ANALYSIS = "foxess_plant/fetch_smart_charge_analysis"
 WS_TYPE_UPDATE_SMART_CHARGE = "foxess_plant/update_smart_charge"
 WS_TYPE_TARIFF_ENTITY_CANDIDATES = "foxess_plant/tariff_entity_candidates"
 WS_TYPE_UPDATE_SOLCAST = "foxess_plant/update_solcast"
@@ -705,6 +706,43 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
 
     @websocket_api.websocket_command(
         {
+            vol.Required("type"): WS_TYPE_FETCH_SMART_CHARGE_ANALYSIS,
+            vol.Optional("plant_id"): str,
+            vol.Optional("period", default="week"): vol.In(["week", "month", "year"]),
+            vol.Optional("offset", default=0): vol.Coerce(int),
+        }
+    )
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def ws_fetch_smart_charge_analysis(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        from .smart_charge_analysis import async_build_smart_charge_analysis
+
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        try:
+            analysis = await async_build_smart_charge_analysis(
+                hass,
+                coordinator,
+                period=str(msg.get("period") or "week"),
+                offset=int(msg.get("offset") or 0),
+            )
+        except Exception as err:
+            _LOGGER.exception("fetch_smart_charge_analysis failed")
+            connection.send_error(msg["id"], "smart_charge_analysis_failed", str(err))
+            return
+        connection.send_result(
+            msg["id"],
+            {"smart_charge_analysis": analysis, "plant_state": coordinator.get_plant_state()},
+        )
+
+    @websocket_api.websocket_command(
+        {
             vol.Required("type"): WS_TYPE_UPDATE_SMART_CHARGE,
             vol.Optional("plant_id"): str,
             vol.Required("enabled"): cv.boolean,
@@ -1224,6 +1262,7 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_fetch_octopus)
     websocket_api.async_register_command(hass, ws_fetch_octopus_analysis)
     websocket_api.async_register_command(hass, ws_apply_octopus_schedule)
+    websocket_api.async_register_command(hass, ws_fetch_smart_charge_analysis)
     websocket_api.async_register_command(hass, ws_update_smart_charge)
     websocket_api.async_register_command(hass, ws_update_solcast)
     websocket_api.async_register_command(hass, ws_test_solcast)
