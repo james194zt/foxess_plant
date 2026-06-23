@@ -12621,6 +12621,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._deviceNewAlarmPlantId = undefined;
     this._foxAlarmDetailName = null;
     this._deviceParamOpen = new Set();
+    this._smartChargeSectionOpen = null;
     this._plantState = undefined;
     this._selectedPlantId = undefined;
     this._timer = undefined;
@@ -13387,6 +13388,7 @@ Reloading panel registration…
         this._patchDeviceNewAlarmsLiveIfNeeded() ||
         this._patchSettingsMainLiveIfNeeded() ||
         this._patchGlowSettingsLiveIfNeeded() ||
+        this._patchSettingsSmartChargeLiveIfNeeded() ||
         this._patchEnergyAnalysisMainIfNeeded())
     ) {
       this._renderPending = false;
@@ -19304,12 +19306,92 @@ ${body}
 </div>`;
   }
 
+  _smartChargeSectionDefaults(draft) {
+    const mode = draft?.operating_mode || "max_safety";
+    return {
+      energy: true,
+      reserve: false,
+      agile: false,
+      spread: mode === "max_profit",
+      charge: false,
+    };
+  }
+
+  _smartChargeSectionIsOpen(sectionId, draft) {
+    if (this._smartChargeSectionOpen && sectionId in this._smartChargeSectionOpen) {
+      return Boolean(this._smartChargeSectionOpen[sectionId]);
+    }
+    return Boolean(this._smartChargeSectionDefaults(draft)[sectionId]);
+  }
+
+  _smartChargeSectionOpenAttr(sectionId, draft) {
+    return this._smartChargeSectionIsOpen(sectionId, draft) ? " open" : "";
+  }
+
+  _captureSmartChargeDetailsOpen() {
+    if (!this._smartChargeSectionOpen) this._smartChargeSectionOpen = {};
+    const sections = this._root?.querySelectorAll?.("details.sc-section-details[data-sc-section]");
+    if (!sections?.length) return;
+    sections.forEach((el) => {
+      this._smartChargeSectionOpen[el.dataset.scSection] = el.open;
+    });
+  }
+
+  _bindSmartChargeDetailsOpen() {
+    const sections = this._root?.querySelectorAll?.("details.sc-section-details[data-sc-section]");
+    if (!sections?.length) return;
+    sections.forEach((el) => {
+      el.addEventListener(
+        "toggle",
+        () => {
+          if (!this._smartChargeSectionOpen) this._smartChargeSectionOpen = {};
+          this._smartChargeSectionOpen[el.dataset.scSection] = el.open;
+        },
+        { passive: true }
+      );
+    });
+  }
+
+  _smartChargeLivePlanContext() {
+    const live = this._plantState?.smart_charge ?? {};
+    const decision = live.decision ?? {};
+    const dailyPlan = live.daily_plan ?? decision.daily_plan ?? [];
+    const planSlots = dailyPlan.filter((s) => s.start && s.end && s.reason !== "no_slots");
+    const spreadPairs =
+      (decision.spread_pairs?.length ? decision.spread_pairs : null) ??
+      (dailyPlan[0]?.spread_pairs?.length ? dailyPlan[0].spread_pairs : []);
+    const planHorizon = dailyPlan[0]?.plan_horizon === "24h" ? "24h plan" : "rest-of-today plan";
+    const exportCount = planSlots.filter((s) => s.action === "export" || s.action === "spread_export").length;
+    const chargeCount = planSlots.filter(
+      (s) =>
+        s.action === "charge" ||
+        s.action === "charge_candidate" ||
+        s.action === "spread_charge" ||
+        s.action === "winter_fill"
+    ).length;
+    const spreadLabel = spreadPairs.length ? ` · ${spreadPairs.length} spread pair${spreadPairs.length === 1 ? "" : "s"}` : "";
+    const planSummary =
+      planSlots.length > 0
+        ? `${planHorizon}: ${exportCount} export · ${chargeCount} charge · ${planSlots.length} slots${spreadLabel}`
+        : "No daily plan yet (built at daily plan time after Octopus refresh)";
+    return { live, decision, planSlots, spreadPairs, planSummary };
+  }
+
+  _patchSettingsSmartChargeLiveIfNeeded() {
+    if (this._view !== "settings" || this._settingsView !== "smart" || !this._hass) return false;
+    const liveEl = this._root.querySelector("[data-smart-charge-live]");
+    if (!liveEl || !this._smartChargeDraft?.enabled) return false;
+    const { live, decision, planSlots, spreadPairs, planSummary } = this._smartChargeLivePlanContext();
+    liveEl.innerHTML = this._renderSmartChargeStatusCard(live, decision, planSlots, spreadPairs, planSummary);
+    return true;
+  }
+
   _renderSmartChargeSpreadPanel(draft) {
     const mode = draft.operating_mode || "max_safety";
     if (mode === "max_safety") return "";
     const busy = this._busy ? "disabled" : "";
     const greenOnly = mode === "max_green";
-    return `<details class="sc-section-details"${mode === "max_profit" ? " open" : ""}>
+    return `<details class="sc-section-details" data-sc-section="spread"${this._smartChargeSectionOpenAttr("spread", draft)}>
 <summary>Spread optimizer</summary>
 <div class="toggle-row"><span><strong>Enable spread pairing</strong></span>
 <input type="checkbox" data-field="smart-charge:spread_optimizer_enabled" ${draft.spread_optimizer_enabled ? "checked" : ""} ${busy}></div>
@@ -19373,41 +19455,21 @@ ${spreadHtml}
   _renderSettingsSmartCharge() {
     if (!this._smartChargeDraft) this._initSmartChargeDraft();
     const draft = this._smartChargeDraft;
-    const live = this._plantState?.smart_charge ?? {};
-    const decision = live.decision ?? {};
-    const dailyPlan = live.daily_plan ?? decision.daily_plan ?? [];
-    const planSlots = dailyPlan.filter((s) => s.start && s.end && s.reason !== "no_slots");
-    const spreadPairs =
-      (decision.spread_pairs?.length ? decision.spread_pairs : null) ??
-      (dailyPlan[0]?.spread_pairs?.length ? dailyPlan[0].spread_pairs : []);
-    const planHorizon = dailyPlan[0]?.plan_horizon === "24h" ? "24h plan" : "rest-of-today plan";
-    const exportCount = planSlots.filter((s) => s.action === "export" || s.action === "spread_export").length;
-    const chargeCount = planSlots.filter(
-      (s) =>
-        s.action === "charge" ||
-        s.action === "charge_candidate" ||
-        s.action === "spread_charge" ||
-        s.action === "winter_fill"
-    ).length;
-    const spreadLabel = spreadPairs.length ? ` · ${spreadPairs.length} spread pair${spreadPairs.length === 1 ? "" : "s"}` : "";
-    const planSummary =
-      planSlots.length > 0
-        ? `${planHorizon}: ${exportCount} export · ${chargeCount} charge · ${planSlots.length} slots${spreadLabel}`
-        : "No daily plan yet (built at daily plan time after Octopus refresh)";
+    const { live, decision, planSlots, spreadPairs, planSummary } = this._smartChargeLivePlanContext();
     const busy = this._busy ? "disabled" : "";
     const statusCard = draft.enabled
       ? this._renderSmartChargeStatusCard(live, decision, planSlots, spreadPairs, planSummary)
       : "";
-    return `${this._renderSmartChargeHero()}
+    return `<div data-smart-charge-settings="1">${this._renderSmartChargeHero()}
 <header class="header smart-charge-settings-header"><h1>SmartCharge</h1><p>Combines Solcast PV forecast with Octopus Agile rates. Targets house-load sufficiency (not 100% SOC), with an outage reserve floor. StormSafe always overrides.</p></header>
-${statusCard}
+${draft.enabled ? `<div data-smart-charge-live>${statusCard}</div>` : statusCard}
 <div class="card">
 <p class="card-title">Automation</p>
 <div class="toggle-row"><span><strong>Enable SmartCharge</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Requires Fox Plant control, Solcast PV forecast, and tariff rates</span></span>
 <input type="checkbox" data-field="smart-charge:enabled" ${draft.enabled ? "checked" : ""} ${busy}></div>
 ${draft.enabled ? this._renderSmartChargeModePicker(draft) : ""}
 ${draft.enabled ? this._renderSmartChargeModePanel(draft) : ""}
-${draft.enabled ? `<details class="sc-section-details" open>
+${draft.enabled ? `<details class="sc-section-details" data-sc-section="energy"${this._smartChargeSectionOpenAttr("energy", draft)}>
 <summary>Energy budget</summary>
 <div class="field"><label>Max target SOC ceiling (%)</label>
 <input type="number" min="10" max="100" step="1" data-field="smart-charge:max_target_soc" value="${esc(String(draft.max_target_soc ?? 100))}" ${busy}>
@@ -19421,7 +19483,7 @@ ${draft.enabled ? `<details class="sc-section-details" open>
 <div class="field"><label>Round-trip efficiency</label>
 <input type="number" min="0.5" max="1" step="0.01" data-field="smart-charge:round_trip_efficiency" value="${esc(String(draft.round_trip_efficiency ?? 0.9))}" ${busy}></div>
 </details>
-<details class="sc-section-details">
+<details class="sc-section-details" data-sc-section="reserve"${this._smartChargeSectionOpenAttr("reserve", draft)}>
 <summary>Outage reserve &amp; house load</summary>
 <div class="field"><label>House load fallback (kW)</label>
 <input type="number" min="0.1" max="50" step="0.1" data-field="smart-charge:house_load_kw_fallback" value="${esc(String(draft.house_load_kw_fallback ?? 1))}" ${busy}></div>
@@ -19434,7 +19496,7 @@ ${draft.enabled ? `<details class="sc-section-details" open>
 <div class="field"><label>Dark hours estimate (no meaningful PV)</label>
 <input type="number" min="0" max="24" step="0.5" data-field="smart-charge:dark_hours_estimate" value="${esc(String(draft.dark_hours_estimate ?? 8))}" ${busy}></div>
 </details>
-<details class="sc-section-details">
+<details class="sc-section-details" data-sc-section="agile"${this._smartChargeSectionOpenAttr("agile", draft)}>
 <summary>Agile polling &amp; daily plan</summary>
 <div class="field"><label>Agile poll interval (minutes)</label>
 <input type="number" min="5" max="60" step="1" data-field="smart-charge:agile_poll_interval_minutes" value="${esc(String(draft.agile_poll_interval_minutes ?? 15))}" ${busy}></div>
@@ -19448,14 +19510,14 @@ ${draft.enabled ? `<details class="sc-section-details" open>
 <input type="number" min="0" max="50" step="0.5" data-field="smart-charge:price_drop_interrupt_p_per_kwh" value="${esc(String(draft.price_drop_interrupt_p_per_kwh ?? 2))}" ${busy}></div>
 </details>
 ${this._renderSmartChargeSpreadPanel(draft)}
-<details class="sc-section-details">
+<details class="sc-section-details" data-sc-section="charge"${this._smartChargeSectionOpenAttr("charge", draft)}>
 <summary>Charge period template</summary>
 <p class="field-hint">Start/end times are chosen automatically — these flags apply to the programmed window.</p>
 ${this._renderPeriodCard(0, draft.charge_periods[0], "smart-period", "Charge template")}
 ${this._renderPeriodCard(1, draft.charge_periods[1], "smart-period", "Reserve period")}
 </details>` : ""}
 <div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-smart-charge" ${busy}>Save SmartCharge</button></div>
-</div>`;
+</div></div>`;
   }
 
   _renderSettingsStorm() {
@@ -20199,6 +20261,9 @@ ${active
 
     const mainEl = shell.querySelector(".main");
     const contentEl = ensureMainInner(mainEl);
+    if (this._view === "settings" && this._settingsView === "smart") {
+      this._captureSmartChargeDetailsOpen();
+    }
     if (this._view === "overview") {
       this._renderOverviewMain(contentEl, plant);
     } else {
@@ -20220,6 +20285,9 @@ ${active
     if (this._view === "settings" && this._settingsView === "tariff" && this._tariffDraft) {
       void this._syncTariffEntityPickers();
       void this._syncOctopusEntityPickers();
+    }
+    if (this._view === "settings" && this._settingsView === "smart") {
+      this._bindSmartChargeDetailsOpen();
     }
     if (
       (this._view === "overview" ||
