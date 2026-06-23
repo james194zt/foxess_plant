@@ -100,6 +100,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._forecast_armed = False
         self._smart_charge_armed = False
         self._smart_charge_decision: dict[str, Any] = {}
+        self._smart_charge_daily_plan: list[dict[str, Any]] = []
+        self._smart_charge_periods_sig = ""
         self._storm_forecast_active = False
         self._storm_forecast_detail = {}
         self._solcast_cache: dict[str, Any] = {}
@@ -119,6 +121,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._unsub_tariff_schedule: callable | None = None
         self._unsub_octopus: callable | None = None
         self._unsub_smart_charge: callable | None = None
+        self._unsub_smart_charge_daily_plan: callable | None = None
         self._unsub_pv_efficiency: callable | None = None
         self._last_tariff_sensor_rates: dict[str, float] = {}
         self._octopus_cache: dict[str, Any] = {}
@@ -740,7 +743,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         from .octopus_tariff import next_octopus_poll_boundary
 
-        when = next_octopus_poll_boundary(agile=self._octopus_agile_active())
+        agile = self._octopus_agile_active()
+        interval = 15
+        if agile and self.plant.smart_charge.enabled:
+            interval = max(5, min(60, int(self.plant.smart_charge.agile_poll_interval_minutes or 15)))
+        when = next_octopus_poll_boundary(agile=agile, interval_minutes=interval)
         self._unsub_octopus = async_track_point_in_time(self.hass, self._octopus_timer_callback, when)
 
     @callback
@@ -777,12 +784,40 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._unsub_smart_charge = None
         if not self.plant.smart_charge.enabled:
             return
-        from .octopus_tariff import next_octopus_poll_boundary
+        from .octopus_tariff import next_agile_poll_boundary
 
-        when = next_octopus_poll_boundary(agile=True)
+        interval = max(5, min(60, int(self.plant.smart_charge.agile_poll_interval_minutes or 15)))
+        when = next_agile_poll_boundary(interval_minutes=interval)
         self._unsub_smart_charge = async_track_point_in_time(
             self.hass, self._smart_charge_timer_callback, when
         )
+
+    def _setup_smart_charge_daily_plan_timer(self) -> None:
+        if self._unsub_smart_charge_daily_plan:
+            self._unsub_smart_charge_daily_plan()
+            self._unsub_smart_charge_daily_plan = None
+        if not self.plant.smart_charge.enabled:
+            return
+        from .octopus_tariff import next_daily_smart_charge_plan_boundary
+
+        when = next_daily_smart_charge_plan_boundary(
+            plan_time=self.plant.smart_charge.daily_plan_time or "16:00"
+        )
+        self._unsub_smart_charge_daily_plan = async_track_point_in_time(
+            self.hass, self._smart_charge_daily_plan_callback, when
+        )
+
+    @callback
+    def _smart_charge_daily_plan_callback(self, _now) -> None:
+        self.hass.async_create_task(self._async_smart_charge_daily_plan_tick())
+
+    async def _async_smart_charge_daily_plan_tick(self) -> None:
+        try:
+            await self._evaluate_smart_charge_daily_plan()
+        except Exception as err:
+            _LOGGER.warning("Smart charge daily plan failed: %s", err)
+        self._setup_smart_charge_daily_plan_timer()
+        await self.async_request_refresh()
 
     @callback
     def _smart_charge_timer_callback(self, _now) -> None:
@@ -994,6 +1029,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._setup_octopus_consumption_timer()
         self._setup_glow_mqtt()
         self._setup_smart_charge_timer()
+        self._setup_smart_charge_daily_plan_timer()
         self._setup_pv_efficiency_timer()
         try:
             await self._async_apply_pv_efficiency_age_derating()
@@ -1365,11 +1401,62 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self.plant.override.active and self.plant.override.mode == MODE_FORECAST:
                 await self._disarm_policy(MODE_FORECAST, EVENT_FORECAST_DISARMED)
 
+    def _live_home_load_kw(self) -> float | None:
+        load_w = self._entity_float("load_power")
+        if load_w is None:
+            return None
+        return max(0.0, abs(load_w) / 1000.0)
+
+    def _smart_charge_rate_slots(self, *, horizon_hours: int) -> list:
+        from .smart_charge import rate_slots_from_octopus, rate_slots_from_schedule
+
+        if self._octopus_agile_active():
+            return rate_slots_from_octopus(
+                self._octopus_cache.get("import_rates") or [],
+                self._octopus_cache.get("export_rates") or [],
+                horizon_hours=horizon_hours,
+            )
+        if self._octopus_cache.get("import_rates"):
+            return rate_slots_from_octopus(
+                self._octopus_cache.get("import_rates") or [],
+                self._octopus_cache.get("export_rates") or [],
+                horizon_hours=horizon_hours,
+            )
+        return rate_slots_from_schedule(self.plant.tariff, horizon_hours=horizon_hours)
+
+    async def _evaluate_smart_charge_daily_plan(self) -> None:
+        from .smart_charge import build_daily_plan
+
+        cfg = self.plant.smart_charge
+        if not cfg.enabled or not self.plant.control_active:
+            return
+        if self.plant.outage_prep.enabled and self._active_outage_triggers:
+            return
+        if self.plant.storm_prep.enabled and self._active_storm_triggers:
+            return
+
+        await self._async_refresh_octopus(force=True)
+
+        forecast_rows = self._solcast_detailed_forecast_rows()
+        if not forecast_rows and self._solcast_cache.get("detailed_forecast"):
+            raw = self._solcast_cache.get("detailed_forecast")
+            forecast_rows = raw if isinstance(raw, list) else []
+
+        horizon = max(1, int(cfg.daily_plan_horizon_hours or 24))
+        import_slots = self._smart_charge_rate_slots(horizon_hours=horizon)
+        self._smart_charge_daily_plan = build_daily_plan(
+            config=cfg,
+            import_slots=import_slots,
+            forecast_rows=forecast_rows,
+            live_load_kw=self._live_home_load_kw(),
+            horizon_hours=float(horizon),
+        )
+        await self._evaluate_smart_charge()
+
     async def _evaluate_smart_charge(self) -> None:
         from .smart_charge import (
+            charge_periods_signature,
             evaluate_smart_charge,
-            rate_slots_from_octopus,
-            rate_slots_from_schedule,
         )
 
         cfg = self.plant.smart_charge
@@ -1385,21 +1472,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raw = self._solcast_cache.get("detailed_forecast")
             forecast_rows = raw if isinstance(raw, list) else []
 
-        if self._octopus_agile_active():
-            import_slots = rate_slots_from_octopus(
-                self._octopus_cache.get("import_rates") or [],
-                self._octopus_cache.get("export_rates") or [],
-            )
-            export_slots = import_slots
-        elif self._octopus_cache.get("import_rates"):
-            import_slots = rate_slots_from_octopus(
-                self._octopus_cache.get("import_rates") or [],
-                self._octopus_cache.get("export_rates") or [],
-            )
-            export_slots = import_slots
-        else:
-            import_slots = rate_slots_from_schedule(self.plant.tariff)
-            export_slots = import_slots
+        horizon = max(1, int(cfg.daily_plan_horizon_hours or 24))
+        import_slots = self._smart_charge_rate_slots(horizon_hours=horizon)
+        export_slots = import_slots
 
         soc_pct = self._entity_float("battery_soc")
         capacity_kwh = self._entity_float("bms_kwh_nominal")
@@ -1418,12 +1493,17 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             forecast_rows=forecast_rows,
             import_slots=import_slots,
             export_slots=export_slots,
+            live_load_kw=self._live_home_load_kw(),
+            daily_plan=self._smart_charge_daily_plan,
+            horizon_hours=float(horizon),
         )
         self._smart_charge_decision = decision.to_dict()
 
         should_arm = decision.action in ("grid_charge", "arbitrage") and decision.charge_periods
+        new_sig = charge_periods_signature(decision.charge_periods) if decision.charge_periods else ""
         if should_arm and not self._smart_charge_armed:
             self._smart_charge_armed = True
+            self._smart_charge_periods_sig = new_sig
             if self.plant.override.active and self.plant.override.mode not in AUTOMATION_MODES:
                 return
             await self._arm_policy(
@@ -1435,11 +1515,16 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         elif not should_arm and self._smart_charge_armed:
             self._smart_charge_armed = False
+            self._smart_charge_periods_sig = ""
             if self.plant.override.active and self.plant.override.mode == MODE_SMART_CHARGE:
                 await self._disarm_policy(MODE_SMART_CHARGE, EVENT_SMART_CHARGE_DISARMED)
         elif should_arm and self._smart_charge_armed:
             if self.plant.override.active and self.plant.override.mode == MODE_SMART_CHARGE:
-                if self.plant.override.reason != f"smart_charge:{decision.action}":
+                if (
+                    new_sig != self._smart_charge_periods_sig
+                    or self.plant.override.reason != f"smart_charge:{decision.action}"
+                ):
+                    self._smart_charge_periods_sig = new_sig
                     await self._arm_policy(
                         MODE_SMART_CHARGE,
                         decision.charge_periods,
@@ -1664,6 +1749,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 **self.plant.smart_charge.to_dict(),
                 "armed": self._smart_charge_armed,
                 "decision": self._smart_charge_decision,
+                "daily_plan": self._smart_charge_daily_plan,
             },
             "tariff_modes": sorted(self.plant.tariff_modes.keys()),
             "storm_prep": self._storm_prep_state(),
@@ -2527,6 +2613,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.hass.config_entries.async_update_entry(self.config_entry, data=data)
         self.update_plant_config(PlantConfig.from_entry_data(data))
         self._setup_smart_charge_timer()
+        self._setup_smart_charge_daily_plan_timer()
         try:
             await self._evaluate_smart_charge()
         except Exception as err:
@@ -2926,6 +3013,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if getattr(self, "_unsub_smart_charge", None):
             self._unsub_smart_charge()
             self._unsub_smart_charge = None
+        if getattr(self, "_unsub_smart_charge_daily_plan", None):
+            self._unsub_smart_charge_daily_plan()
+            self._unsub_smart_charge_daily_plan = None
         if getattr(self, "_unsub_pv_efficiency", None):
             self._unsub_pv_efficiency()
             self._unsub_pv_efficiency = None

@@ -710,6 +710,7 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             vol.Required("enabled"): cv.boolean,
             vol.Optional("target_soc", default=100.0): vol.All(vol.Coerce(float), vol.Range(min=10, max=100)),
             vol.Optional("target_max_soc"): vol.Any(vol.Coerce(float), None),
+            vol.Optional("max_target_soc", default=100.0): vol.All(vol.Coerce(float), vol.Range(min=10, max=100)),
             vol.Optional("min_deficit_kwh", default=0.5): vol.All(vol.Coerce(float), vol.Range(min=0, max=50)),
             vol.Optional("solar_safety_margin", default=1.15): vol.All(
                 vol.Coerce(float), vol.Range(min=1.0, max=3.0)
@@ -719,6 +720,39 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             ),
             vol.Optional("min_arbitrage_p_per_kwh", default=0.5): vol.All(
                 vol.Coerce(float), vol.Range(min=0, max=50)
+            ),
+            vol.Optional("operating_mode", default="max_safety"): vol.In(
+                ("max_profit", "max_safety", "max_green")
+            ),
+            vol.Optional("agile_poll_interval_minutes", default=15): vol.All(
+                vol.Coerce(int), vol.Range(min=5, max=60)
+            ),
+            vol.Optional("negative_import_interrupt", default=True): cv.boolean,
+            vol.Optional("price_drop_interrupt_p_per_kwh", default=2.0): vol.All(
+                vol.Coerce(float), vol.Range(min=0, max=50)
+            ),
+            vol.Optional("daily_plan_time", default="16:00"): cv.string,
+            vol.Optional("daily_plan_horizon_hours", default=24): vol.All(
+                vol.Coerce(int), vol.Range(min=1, max=48)
+            ),
+            vol.Optional("house_load_kw_fallback", default=1.0): vol.All(
+                vol.Coerce(float), vol.Range(min=0.1, max=50)
+            ),
+            vol.Optional("dark_hours_estimate", default=8.0): vol.All(
+                vol.Coerce(float), vol.Range(min=0, max=24)
+            ),
+            vol.Optional("outage_reserve_load_kw"): vol.Any(vol.Coerce(float), None),
+            vol.Optional("outage_reserve_hours", default=3.0): vol.All(
+                vol.Coerce(float), vol.Range(min=0, max=24)
+            ),
+            vol.Optional("outage_reserve_margin", default=1.2): vol.All(
+                vol.Coerce(float), vol.Range(min=1.0, max=5.0)
+            ),
+            vol.Optional("safety_reserve_multiplier", default=1.5): vol.All(
+                vol.Coerce(float), vol.Range(min=1.0, max=5.0)
+            ),
+            vol.Optional("green_carbon_weight", default=0.5): vol.All(
+                vol.Coerce(float), vol.Range(min=0, max=1.0)
             ),
             vol.Required("charge_periods"): [PERIOD_SCHEMA],
         }
@@ -740,10 +774,24 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
                 "enabled",
                 "target_soc",
                 "target_max_soc",
+                "max_target_soc",
                 "min_deficit_kwh",
                 "solar_safety_margin",
                 "round_trip_efficiency",
                 "min_arbitrage_p_per_kwh",
+                "operating_mode",
+                "agile_poll_interval_minutes",
+                "negative_import_interrupt",
+                "price_drop_interrupt_p_per_kwh",
+                "daily_plan_time",
+                "daily_plan_horizon_hours",
+                "house_load_kw_fallback",
+                "dark_hours_estimate",
+                "outage_reserve_load_kw",
+                "outage_reserve_hours",
+                "outage_reserve_margin",
+                "safety_reserve_multiplier",
+                "green_carbon_weight",
                 "charge_periods",
             )
             if key in msg

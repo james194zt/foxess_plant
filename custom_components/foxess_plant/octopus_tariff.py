@@ -312,16 +312,52 @@ def build_schedule_from_rates(
     return TariffScheduleConfig(hours=hours, bands=bands)
 
 
-def next_octopus_poll_boundary(when: datetime | None = None, *, agile: bool) -> datetime:
-    """Next poll instant: half-hour for Agile, hour boundary for fixed tariffs."""
+def next_agile_poll_boundary(
+    when: datetime | None = None,
+    *,
+    interval_minutes: int = 15,
+) -> datetime:
+    """Next Agile poll instant aligned to interval (default every 15 minutes)."""
     local = dt_util.as_local(when or dt_util.now())
+    step = max(1, min(60, interval_minutes))
+    minute = local.minute
+    next_minute = ((minute // step) + 1) * step
+    if next_minute >= 60:
+        nxt = local.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+    else:
+        nxt = local.replace(minute=next_minute, second=0, microsecond=0)
+    return dt_util.as_utc(nxt)
+
+
+def next_daily_smart_charge_plan_boundary(
+    when: datetime | None = None,
+    *,
+    plan_time: str = "16:00",
+) -> datetime:
+    """Next daily SmartCharge plan boundary (default 16:00 UK local)."""
+    local = dt_util.as_local(when or dt_util.now())
+    try:
+        hour_s, minute_s = plan_time.split(":", 1)
+        hour = int(hour_s)
+        minute = int(minute_s)
+    except (TypeError, ValueError):
+        hour, minute = 16, 0
+    candidate = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if candidate <= local:
+        candidate += timedelta(days=1)
+    return dt_util.as_utc(candidate)
+
+
+def next_octopus_poll_boundary(
+    when: datetime | None = None,
+    *,
+    agile: bool,
+    interval_minutes: int = 15,
+) -> datetime:
+    """Next poll instant: Agile interval (default 15 min) or hour boundary for fixed tariffs."""
     if agile:
-        minute = local.minute
-        if minute < 30:
-            nxt = local.replace(minute=30, second=0, microsecond=0)
-        else:
-            nxt = local.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
-        return dt_util.as_utc(nxt)
+        return next_agile_poll_boundary(when, interval_minutes=interval_minutes)
+    local = dt_util.as_local(when or dt_util.now())
     nxt = local.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
     return dt_util.as_utc(nxt)
 

@@ -261,24 +261,63 @@ class SmartChargeConfig:
     enabled: bool = False
     target_soc: float = 100.0
     target_max_soc: float | None = None
+    max_target_soc: float = 100.0
     min_deficit_kwh: float = 0.5
     solar_safety_margin: float = 1.15
     round_trip_efficiency: float = 0.9
     min_arbitrage_p_per_kwh: float = 0.5
+    operating_mode: str = "max_safety"
+    agile_poll_interval_minutes: int = 15
+    negative_import_interrupt: bool = True
+    price_drop_interrupt_p_per_kwh: float = 2.0
+    daily_plan_time: str = "16:00"
+    daily_plan_horizon_hours: int = 24
+    house_load_kw_fallback: float = 1.0
+    dark_hours_estimate: float = 8.0
+    outage_reserve_load_kw: float | None = None
+    outage_reserve_hours: float = 3.0
+    outage_reserve_margin: float = 1.2
+    safety_reserve_multiplier: float = 1.5
+    green_carbon_weight: float = 0.5
     charge_periods: list[ChargePeriodConfig] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], default_periods: list[dict[str, Any]]) -> SmartChargeConfig:
+        from .smart_charge.reserve import OPERATING_MODE_MAX_SAFETY, OPERATING_MODES
+
         periods_raw = data.get("charge_periods") or default_periods
         target_max = data.get("target_max_soc")
+        reserve_load = data.get("outage_reserve_load_kw")
+        mode = str(data.get("operating_mode", OPERATING_MODE_MAX_SAFETY) or OPERATING_MODE_MAX_SAFETY)
+        if mode not in OPERATING_MODES:
+            mode = OPERATING_MODE_MAX_SAFETY
+        max_soc = data.get("max_target_soc")
+        if max_soc is None:
+            max_soc = data.get("target_soc", 100.0)
         return cls(
             enabled=bool(data.get("enabled", False)),
             target_soc=float(data.get("target_soc", 100.0) or 100.0),
             target_max_soc=float(target_max) if target_max is not None else None,
+            max_target_soc=float(max_soc or 100.0),
             min_deficit_kwh=float(data.get("min_deficit_kwh", 0.5) or 0.5),
             solar_safety_margin=float(data.get("solar_safety_margin", 1.15) or 1.15),
             round_trip_efficiency=float(data.get("round_trip_efficiency", 0.9) or 0.9),
             min_arbitrage_p_per_kwh=float(data.get("min_arbitrage_p_per_kwh", 0.5) or 0.5),
+            operating_mode=mode,
+            agile_poll_interval_minutes=int(data.get("agile_poll_interval_minutes", 15) or 15),
+            negative_import_interrupt=bool(data.get("negative_import_interrupt", True)),
+            price_drop_interrupt_p_per_kwh=float(
+                data.get("price_drop_interrupt_p_per_kwh", 2.0) or 2.0
+            ),
+            daily_plan_time=str(data.get("daily_plan_time", "16:00") or "16:00"),
+            daily_plan_horizon_hours=int(data.get("daily_plan_horizon_hours", 24) or 24),
+            house_load_kw_fallback=float(data.get("house_load_kw_fallback", 1.0) or 1.0),
+            dark_hours_estimate=float(data.get("dark_hours_estimate", 8.0) or 8.0),
+            outage_reserve_load_kw=float(reserve_load) if reserve_load is not None else None,
+            outage_reserve_hours=float(data.get("outage_reserve_hours", 3.0) or 3.0),
+            outage_reserve_margin=float(data.get("outage_reserve_margin", 1.2) or 1.2),
+            safety_reserve_multiplier=float(data.get("safety_reserve_multiplier", 1.5) or 1.5),
+            green_carbon_weight=float(data.get("green_carbon_weight", 0.5) or 0.5),
             charge_periods=[ChargePeriodConfig.from_dict(p) for p in periods_raw],
         )
 
@@ -287,10 +326,24 @@ class SmartChargeConfig:
             "enabled": self.enabled,
             "target_soc": round(self.target_soc, 1),
             "target_max_soc": self.target_max_soc,
+            "max_target_soc": round(self.max_target_soc, 1),
             "min_deficit_kwh": round(self.min_deficit_kwh, 2),
             "solar_safety_margin": round(self.solar_safety_margin, 2),
             "round_trip_efficiency": round(self.round_trip_efficiency, 2),
             "min_arbitrage_p_per_kwh": round(self.min_arbitrage_p_per_kwh, 2),
+            "operating_mode": self.operating_mode,
+            "agile_poll_interval_minutes": self.agile_poll_interval_minutes,
+            "negative_import_interrupt": self.negative_import_interrupt,
+            "price_drop_interrupt_p_per_kwh": round(self.price_drop_interrupt_p_per_kwh, 2),
+            "daily_plan_time": self.daily_plan_time,
+            "daily_plan_horizon_hours": self.daily_plan_horizon_hours,
+            "house_load_kw_fallback": round(self.house_load_kw_fallback, 2),
+            "dark_hours_estimate": round(self.dark_hours_estimate, 1),
+            "outage_reserve_load_kw": self.outage_reserve_load_kw,
+            "outage_reserve_hours": round(self.outage_reserve_hours, 1),
+            "outage_reserve_margin": round(self.outage_reserve_margin, 2),
+            "safety_reserve_multiplier": round(self.safety_reserve_multiplier, 2),
+            "green_carbon_weight": round(self.green_carbon_weight, 2),
             "charge_periods": [p.to_dict() for p in self.charge_periods],
         }
 
