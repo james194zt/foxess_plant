@@ -9234,7 +9234,7 @@ const DEFAULT_BRAND_ICON_STATIC = "/foxess_plant_panel/icon.png";
 const DEVICE_EVO_IMAGE_STATIC = "/foxess_plant_panel/evo10.png?v=15";
 const STORM_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_storm_safe_charging.png?v=5";
 const SMART_CHARGE_HERO_IMAGE_STATIC = "/foxess_plant_panel/bg_smart_charge.png?v=3";
-const SMART_CHARGE_MODE_ICON_VER = 2;
+const SMART_CHARGE_MODE_ICON_VER = 3;
 const SMART_CHARGE_MODE_ICONS = {
   max_safety: `/foxess_plant_panel/smart-charge-max-safety.png?v=${SMART_CHARGE_MODE_ICON_VER}`,
   max_profit: `/foxess_plant_panel/smart-charge-max-profit.png?v=${SMART_CHARGE_MODE_ICON_VER}`,
