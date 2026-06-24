@@ -12,7 +12,6 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
-from .const import MODBUS_DOMAIN
 from .discovery import resolve_uses_h3_pro_soc_block
 
 _LOGGER = logging.getLogger(__name__)
@@ -25,9 +24,9 @@ SOC_LABELS = {
     "max_soc": "System Max. SOC",
 }
 
-# Physical holding register layout (not logical sort order): 46609=min, 46610=max, 46611=on-grid.
-H3_PRO_SOC_BLOCK_START = 46609
-H3_PRO_SOC_BLOCK_KEYS = ("min_soc", "max_soc", "min_soc_on_grid")
+# Physical holding registers: 46609=off-grid min, 46610=max, 46611=system min.
+# EVO accepts FC6 single-register writes only; FC16 multi-register at 46609 fails IllegalAddress.
+EVO_SOC_WRITE_ORDER = ("min_soc", "min_soc_on_grid", "max_soc")
 
 
 @dataclass
@@ -45,8 +44,8 @@ class SocWriteResult:
         return asdict(self)
 
 _ILLEGAL_VALUE_HINT = (
-    "Modbus IllegalValue on an SOC register (EVO/H3 Pro: 46609 min, 46610 max, 46611 on-grid). "
-    "On EVO/H3 Pro all three limits must be written together — single-register writes to 46610 fail. "
+    "Modbus rejected an SOC limit write (EVO/H3 Pro: 46609 off-grid min, 46610 max, 46611 system min). "
+    "On EVO all three limits must be written as single registers in order: off-grid min, system min, then max. "
     "The inverter also requires off-grid min ≤ system min ≤ max, and max cannot be below the "
     "current battery SOC. Disable FoxESS Modbus Remote Control and close the Fox app before saving."
 )
@@ -329,21 +328,27 @@ def _build_soc_results(
     return rows
 
 
-async def _atomic_h3_pro_soc_write(
+async def _write_soc_number(
     hass: HomeAssistant,
-    inverter_target: str,
-    target: dict[str, int],
+    entity_map: dict[str, str],
+    key: str,
+    value: int,
 ) -> None:
-    """One FC16 write for 46609–46611 (min, max, on-grid) — matches Fox app behaviour."""
-    values = [target[key] for key in H3_PRO_SOC_BLOCK_KEYS]
+    entity_id = entity_map.get(key)
+    if not entity_id:
+        raise HomeAssistantError(
+            f"SOC entity {key} is missing on the linked inverter. "
+            "Reload FoxESS Plant after FoxESS Modbus has finished loading."
+        )
+    if not entity_id.startswith("number."):
+        raise HomeAssistantError(
+            f"SOC entity {entity_id} is not a number entity (writable). "
+            "Reload FoxESS Plant to refresh entity discovery."
+        )
     await hass.services.async_call(
-        MODBUS_DOMAIN,
-        "write_registers",
-        {
-            "inverter": inverter_target,
-            "start_address": H3_PRO_SOC_BLOCK_START,
-            "values": ",".join(str(v) for v in values),
-        },
+        "number",
+        "set_value",
+        {"entity_id": entity_id, "value": value},
         blocking=True,
     )
 
@@ -375,67 +380,51 @@ def _soc_targets_match(target: dict[str, int], current: dict[str, int]) -> bool:
     return all(current.get(key) == target[key] for key in SOC_KEYS)
 
 
-async def _verify_h3_pro_soc_block(
+async def _apply_contiguous_soc_writes(
     hass: HomeAssistant,
     entity_map: dict[str, str],
     target: dict[str, int],
     *,
-    live_battery_soc: float | None,
-) -> list[dict[str, Any]]:
-    outcomes: dict[str, SocWriteResult] = {}
-    for key in SOC_DISPLAY_ORDER:
-        outcomes[key] = await _verify_soc_key(hass, entity_map, key, target[key])
-        if not outcomes[key].success and key == "max_soc":
-            battery_hint = _max_soc_battery_hint(live_battery_soc, target["max_soc"])
-            if battery_hint:
-                outcomes[key] = _soc_result(key, target[key], success=False, message=battery_hint)
-    return _build_soc_results(target, outcomes)
-
-
-async def _apply_h3_pro_soc_block(
-    hass: HomeAssistant,
-    entity_map: dict[str, str],
-    target: dict[str, int],
-    *,
-    inverter_target: str,
     live_battery_soc: float | None,
     verify: bool,
 ) -> list[dict[str, Any]]:
-    """EVO/H3 Pro: one FC16 write to 46609–46611 — per-register 46610 writes fail."""
+    """EVO/H3 Pro: FC6 writes for 46609, 46611, 46610 — always in min → system min → max order."""
     await _maybe_disable_remote_control_for_soc(hass, entity_map)
-    try:
-        await _atomic_h3_pro_soc_write(hass, inverter_target, target)
-    except Exception as err:
-        msg = _format_soc_error(
-            err,
-            key="max_soc",
-            target_max=target["max_soc"],
-            live_battery_soc=live_battery_soc,
-        )
-        outcomes = {
-            key: _soc_result(
+    outcomes: dict[str, SocWriteResult] = {}
+    write_failed = False
+
+    for key in EVO_SOC_WRITE_ORDER:
+        value = target[key]
+        if write_failed:
+            outcomes[key] = _soc_result(
                 key,
-                target[key],
+                value,
                 success=False,
-                message=msg if key == "max_soc" else "Not written (SOC block write failed)",
+                message="Not written (a previous step failed)",
             )
-            for key in SOC_DISPLAY_ORDER
-        }
-        return _build_soc_results(target, outcomes)
+            continue
+        try:
+            await _write_soc_number(hass, entity_map, key, value)
+            if verify:
+                outcomes[key] = await _verify_soc_key(hass, entity_map, key, value)
+                if not outcomes[key].success and key == "max_soc":
+                    battery_hint = _max_soc_battery_hint(live_battery_soc, value)
+                    if battery_hint:
+                        outcomes[key] = _soc_result(key, value, success=False, message=battery_hint)
+                if not outcomes[key].success:
+                    write_failed = True
+            else:
+                outcomes[key] = _soc_result(key, value, success=True, message="Operation successful")
+        except Exception as err:
+            msg = _format_soc_error(
+                err,
+                key=key,
+                target_max=target["max_soc"] if key == "max_soc" else None,
+                live_battery_soc=live_battery_soc,
+            )
+            outcomes[key] = _soc_result(key, value, success=False, message=msg)
+            write_failed = True
 
-    if verify:
-        return await _verify_h3_pro_soc_block(
-            hass,
-            entity_map,
-            target,
-            live_battery_soc=live_battery_soc,
-        )
-
-    await _refresh_soc_entities(hass, entity_map)
-    outcomes = {
-        key: _soc_result(key, target[key], success=True, message="Operation successful")
-        for key in SOC_DISPLAY_ORDER
-    }
     return _build_soc_results(target, outcomes)
 
 
@@ -471,16 +460,15 @@ async def apply_soc_limits(
             if (parsed := _coerce_soc(current.get(key))) is not None
         }
 
-    uses_h3_block = bool(
-        inverter_target
-        and resolve_uses_h3_pro_soc_block(hass, device_id, entity_map)
+    uses_contiguous_soc = bool(
+        resolve_uses_h3_pro_soc_block(hass, device_id, entity_map)
     )
-    if uses_h3_block:
+    if uses_contiguous_soc:
         _LOGGER.info(
-            "SOC write path: atomic block 46609-46611 (min=%s max=%s on-grid=%s)",
+            "SOC write path: sequential FC6 46609→46611→46610 (min=%s system_min=%s max=%s)",
             target["min_soc"],
-            target["max_soc"],
             target["min_soc_on_grid"],
+            target["max_soc"],
         )
     else:
         _LOGGER.debug(
@@ -502,12 +490,11 @@ async def apply_soc_limits(
         }
         return _build_soc_results(target, outcomes)
 
-    if uses_h3_block:
-        return await _apply_h3_pro_soc_block(
+    if uses_contiguous_soc:
+        return await _apply_contiguous_soc_writes(
             hass,
             entity_map,
             target,
-            inverter_target=inverter_target,
             live_battery_soc=live_battery_soc,
             verify=verify,
         )
@@ -547,12 +534,7 @@ async def apply_soc_limits(
                 "Reload FoxESS Plant to refresh entity discovery."
             )
         try:
-            await hass.services.async_call(
-                "number",
-                "set_value",
-                {"entity_id": entity_id, "value": value},
-                blocking=True,
-            )
+            await _write_soc_number(hass, entity_map, key, value)
             if verify:
                 outcomes[key] = await _verify_soc_key(hass, entity_map, key, value)
                 if not outcomes[key].success and key == "max_soc":
@@ -565,25 +547,6 @@ async def apply_soc_limits(
             else:
                 outcomes[key] = _soc_result(key, value, success=True, message="Operation successful")
         except Exception as err:
-            err_text = str(err)
-            if (
-                key == "max_soc"
-                and inverter_target
-                and "IllegalValue" in err_text
-                and ("46610" in err_text or "46609" in err_text or "46611" in err_text)
-            ):
-                _LOGGER.warning(
-                    "max SOC single-register write failed on EVO/H3 Pro register; "
-                    "retrying atomic block 46609-46611"
-                )
-                return await _apply_h3_pro_soc_block(
-                    hass,
-                    entity_map,
-                    target,
-                    inverter_target=inverter_target,
-                    live_battery_soc=live_battery_soc,
-                    verify=verify,
-                )
             msg = _format_soc_error(
                 err,
                 key=key,
