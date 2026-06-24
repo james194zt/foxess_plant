@@ -21458,15 +21458,19 @@ ${this._renderPvTiltAzimuthFields("pv2", { allowWhenDisabled: true })}
     const active = this._plantState?.control_active;
     const sched = this._plantState?.fox_scheduler ?? {};
     const apiReady = Boolean(sched.fox_api_ready);
-    const schedEnabled = sched.enabled === true;
+    const schedEnabled = sched.enabled === true || sched.segments_active === true;
     const schedSupported = sched.supported !== false;
     const schedStatus = esc(String(sched.status || (apiReady ? "Not fetched yet" : "Configure Fox Cloud API first")));
+    const segHint = sched.active_groups
+      ? `<p class="field-hint" style="margin:8px 0 0">Active schedule segments: ${esc(String(sched.active_groups))}${sched.cloud_max_soc ? " · cloud max SOC set in schedule" : ""}</p>`
+      : "";
     const schedErr = sched.last_error && apiReady ? `<p class="field-hint" style="margin:8px 0 0;color:var(--fp-amber)">Last Fox API error: ${esc(String(sched.last_error))}</p>` : "";
     const schedulerCard = apiReady
       ? `<div class="card">
 <p class="card-title">Fox Cloud mode scheduler</p>
-<p class="field-hint" style="margin:0 0 12px">The Fox app <strong>Mode scheduler</strong> (cloud API) can override Modbus SOC limits — especially system max on EVO. Disable it here before manual SOC changes if saves fail.</p>
+<p class="field-hint" style="margin:0 0 12px">On EVO, the scheduler <strong>master flag</strong> and <strong>V3 schedule segments</strong> are separate. Either can block Modbus max SOC (register 46610). Disable here before saving SOC limits.</p>
 <div class="entity-row"><span class="entity-name">Status</span><span class="entity-value">${schedStatus}</span></div>
+${segHint}
 <div class="btn-row" style="margin-top:12px">
 ${schedEnabled && schedSupported ? `<button type="button" class="btn btn-danger" data-action="disable-fox-scheduler" ${this._busy ? "disabled" : ""}>Disable Fox Cloud scheduler</button>` : ""}
 <button type="button" class="btn btn-secondary" data-action="refresh-fox-scheduler" ${this._busy ? "disabled" : ""}>Refresh status</button>

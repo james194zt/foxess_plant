@@ -52,10 +52,10 @@ _ILLEGAL_VALUE_HINT = (
 
 _EVO_MAX_SOC_BLOCKED_HINT = (
     "System max (register 46610) was rejected by the EVO inverter. Off-grid min and system min were saved. "
-    "This is not caused by the target being below battery SOC — on many EVO units register 46610 stays "
-    "read-only until Fox Mode Scheduler is disabled in the Fox web portal (not just the app), firmware is "
-    "updated, and Fox support has enabled installer SOC writes. "
-    "Until then, cap charging with FoxESS Modbus charge periods or max charge current instead of system max."
+    "The Fox Cloud scheduler flag can show Disabled while V3 schedule segments or cloud max SOC still block "
+    "Modbus writes — use Settings → Control → Disable Fox Cloud scheduler, then save again. "
+    "If it still fails, Fox Plant will try Fox Cloud MaxSoc as a fallback when the API is configured. "
+    "Some EVO units keep 46610 read-only until Fox enable installer SOC writes in the web portal."
 )
 
 _VERIFY_FAIL_HINT = (

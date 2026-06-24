@@ -321,3 +321,65 @@ class FoxCloudClient:
         )
         result = await self._post_scheduler_paths(paths, body, operation="set/flag")
         return result if isinstance(result, dict) else {}
+
+    async def disable_scheduler_segments(
+        self,
+        device_sn: str,
+        schedule: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Clear V3/V2/V1/V0 mode-scheduler segments (EVO may keep max SOC locked while segments run)."""
+        from .fox_cloud_scheduler import build_disable_schedule_body
+
+        body = build_disable_schedule_body(device_sn, schedule)
+        paths = (
+            "/op/v3/device/scheduler/enable",
+            "/op/v2/device/scheduler/enable",
+            "/op/v1/device/scheduler/enable",
+            "/op/v0/device/scheduler/enable",
+        )
+        last: FoxCloudApiError | None = None
+        for index, path in enumerate(paths):
+            try:
+                post_body = dict(body)
+                if path.startswith("/op/v3/"):
+                    post_body = {
+                        "deviceSN": body["deviceSN"],
+                        "groups": [
+                            {
+                                k: v
+                                for k, v in group.items()
+                                if k != "enable"
+                            }
+                            for group in body.get("groups", [])
+                            if isinstance(group, dict)
+                        ],
+                    }
+                result = await self._post(path, post_body)
+                return result if isinstance(result, dict) else {}
+            except FoxCloudApiError as err:
+                last = err
+                if index + 1 < len(paths) and err.errno in (41200, 41203, 40256, 41811):
+                    _LOGGER.debug(
+                        "Fox scheduler segment disable %s failed (%s), trying fallback",
+                        path,
+                        err,
+                    )
+                    continue
+                raise
+        if last:
+            raise last
+        return {}
+
+    async def get_device_setting(self, sn: str, key: str) -> dict[str, Any]:
+        result = await self._post(
+            "/op/v0/device/setting/get",
+            {"sn": sn.strip(), "key": key},
+        )
+        return result if isinstance(result, dict) else {}
+
+    async def set_device_setting(self, sn: str, key: str, value: str | int) -> dict[str, Any]:
+        result = await self._post(
+            "/op/v0/device/setting/set",
+            {"sn": sn.strip(), "key": key, "value": str(value)},
+        )
+        return result if isinstance(result, dict) else {}
