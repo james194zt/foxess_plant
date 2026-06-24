@@ -2306,9 +2306,18 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise HomeAssistantError(
                 "Inverter serial number required — set device SN or link PCS serial from Modbus"
             )
-        devices = await client.list_devices(page=1, size=50)
+        devices = await client.list_devices(page=1, size=500)
         canonical = match_fox_device_sn(devices, sn)
         return (canonical or sn), devices
+
+    def _persist_fox_cloud_runtime(self) -> None:
+        fox = self.plant.fox_cloud
+        data = dict(self.config_entry.data)
+        stored = dict(data.get(CONF_FOX_CLOUD) or {})
+        stored["last_error"] = fox.last_error
+        stored["last_fetch_at"] = fox.last_fetch_at
+        data[CONF_FOX_CLOUD] = stored
+        self.hass.config_entries.async_update_entry(self.config_entry, data=data)
 
     async def async_save_fox_cloud(self, *, fox_cloud: dict[str, Any]) -> None:
         from .models import merge_fox_cloud_config
@@ -2340,28 +2349,35 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not key:
             raise HomeAssistantError("Fox Cloud API key required")
         configured_sn = self.resolve_fox_device_sn()
-        if not configured_sn:
-            raise HomeAssistantError(
-                "Inverter serial number required — set device SN or link PCS serial from Modbus"
-            )
         client = FoxCloudClient(self.hass, api_key=key)
         try:
-            devices = await client.list_devices(page=1, size=50)
-            canonical_sn = match_fox_device_sn(devices, configured_sn) or configured_sn
+            devices = await client.list_devices(page=1, size=500)
+            canonical_sn = None
+            if configured_sn:
+                canonical_sn = match_fox_device_sn(devices, configured_sn) or configured_sn
+            elif devices:
+                first = devices[0]
+                if isinstance(first, dict):
+                    canonical_sn = str(first.get("deviceSN") or "").strip() or None
             fox.last_error = None
             fox.last_fetch_at = dt_util.utcnow().isoformat()
+            self._persist_fox_cloud_runtime()
             out: dict[str, Any] = {
                 "device_sn": canonical_sn,
                 "configured_sn": configured_sn,
                 "devices_found": len(devices),
                 "connected": True,
             }
-            if canonical_sn.upper() != str(configured_sn).strip().upper():
+            if not configured_sn and canonical_sn:
+                out["sn_note"] = (
+                    f"No device serial configured — using {canonical_sn} from your Fox account."
+                )
+            elif configured_sn and canonical_sn and canonical_sn.upper() != str(configured_sn).strip().upper():
                 out["sn_note"] = (
                     f"Using Fox Cloud inverter SN {canonical_sn} "
                     f"(matched from configured {configured_sn})."
                 )
-            elif devices and not match_fox_device_sn(devices, configured_sn):
+            elif configured_sn and devices and not match_fox_device_sn(devices, configured_sn):
                 known = [
                     str(row.get("deviceSN") or "").strip()
                     for row in devices
@@ -2372,6 +2388,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         f"Configured SN {configured_sn} was not found in your Fox account — "
                         f"try {known[0]} from the device list."
                     )
+
+            if not canonical_sn:
+                out["scheduler_note"] = (
+                    "API key verified. Set a device serial to probe scheduler and battery warmup."
+                )
+                return out
 
             try:
                 scheduler = normalize_scheduler_flag(await client.get_scheduler_flag(canonical_sn))
@@ -2408,6 +2430,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return out
         except FoxCloudApiError as err:
             fox.last_error = format_fox_cloud_error(err)
+            self._persist_fox_cloud_runtime()
             if fox_cloud_permission_denied(str(err)):
                 raise HomeAssistantError(
                     f"{format_fox_cloud_error(err)} — your API key authenticated but this device "
@@ -2511,6 +2534,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._fox_scheduler_live = parsed
             fox.last_error = None
             fox.last_fetch_at = dt_util.utcnow().isoformat()
+            self._persist_fox_cloud_runtime()
             data = dict(self.config_entry.data)
             data[CONF_FOX_CLOUD] = fox.to_dict()
             self.hass.config_entries.async_update_entry(self.config_entry, data=data)
@@ -2518,6 +2542,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return parsed
         except FoxCloudApiError as err:
             fox.last_error = format_fox_cloud_error(err)
+            self._persist_fox_cloud_runtime()
             raise HomeAssistantError(format_fox_cloud_error(err)) from err
 
     async def async_disable_fox_scheduler(self) -> dict[str, Any]:

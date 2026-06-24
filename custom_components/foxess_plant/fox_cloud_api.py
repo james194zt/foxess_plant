@@ -64,20 +64,17 @@ class FoxCloudClient:
         self._api_key = key
 
     def _headers(self, path: str) -> dict[str, str]:
-        ts = str(int(time.time() * 1000))
-        # Fox API expects literal \r\n characters in the MD5 input, not CRLF bytes.
+        ts = str(round(time.time() * 1000))
+        # Docs: md5(path + "\r\n" + token + "\r\n" + timestamp) — literal \r\n in the string.
         signature = hashlib.md5(
             fr"{path}\r\n{self._api_key}\r\n{ts}".encode("utf-8")
         ).hexdigest()
-        tz = getattr(self._hass.config, "time_zone", None) or "UTC"
         return {
-            "Content-Type": "application/json;charset=UTF-8",
-            "Token": self._api_key,
-            "Signature": signature,
-            "Timestamp": ts,
-            "Lang": "en",
-            "Timezone": tz,
-            "User-Agent": "FoxESS-Plant/1.0",
+            "Content-Type": "application/json",
+            "token": self._api_key,
+            "signature": signature,
+            "timestamp": ts,
+            "lang": "en",
         }
 
     async def _post(self, path: str, body: dict[str, Any] | None = None) -> Any:
@@ -110,7 +107,7 @@ class FoxCloudClient:
         except aiohttp.ClientError as err:
             raise FoxCloudApiError(f"Fox Cloud network error: {err}") from err
 
-    async def list_devices(self, *, page: int = 1, size: int = 10) -> list[dict[str, Any]]:
+    async def list_devices(self, *, page: int = 1, size: int = 500) -> list[dict[str, Any]]:
         result = await self._post("/op/v0/device/list", {"currentPage": page, "pageSize": size})
         if isinstance(result, dict):
             rows = result.get("data") or result.get("list") or []
@@ -119,6 +116,35 @@ class FoxCloudClient:
         if isinstance(result, list):
             return [row for row in result if isinstance(row, dict)]
         return []
+
+    async def get_scheduler_schedule(self, device_sn: str) -> dict[str, Any]:
+        """Read scheduler master switch from V3/V2/V1/V0 schedule endpoints."""
+        body = {"deviceSN": device_sn.strip()}
+        paths = (
+            "/op/v3/device/scheduler/get",
+            "/op/v2/device/scheduler/get",
+            "/op/v1/device/scheduler/get",
+            "/op/v0/device/scheduler/get",
+        )
+        last: FoxCloudApiError | None = None
+        for index, path in enumerate(paths):
+            try:
+                result = await self._post(path, body)
+                if isinstance(result, dict):
+                    return result
+            except FoxCloudApiError as err:
+                last = err
+                if index + 1 < len(paths) and err.errno in (41200, 41203, 40256, 41811):
+                    _LOGGER.debug(
+                        "Fox scheduler get %s failed (%s), trying fallback path",
+                        path,
+                        err,
+                    )
+                    continue
+                raise
+        if last:
+            raise last
+        return {}
 
     async def get_battery_heating(self, sn: str) -> dict[str, Any]:
         result = await self._post("/op/v0/device/batteryHeating/get", {"sn": sn.strip()})
@@ -141,7 +167,7 @@ class FoxCloudClient:
                 return await self._post(path, body)
             except FoxCloudApiError as err:
                 last = err
-                if index + 1 < len(paths) and err.errno in (41200, 41203, 40256):
+                if index + 1 < len(paths) and err.errno in (41200, 41203, 40256, 41811):
                     _LOGGER.debug(
                         "Fox scheduler %s %s failed (%s), trying fallback path",
                         operation,
@@ -156,18 +182,34 @@ class FoxCloudClient:
 
     async def get_scheduler_flag(self, device_sn: str) -> dict[str, Any]:
         body = {"deviceSN": device_sn.strip()}
-        paths = (
+        flag_paths = (
             "/op/v1/device/scheduler/get/flag",
             "/op/v0/device/scheduler/get/flag",
         )
-        result = await self._post_scheduler_paths(paths, body, operation="get/flag")
-        return result if isinstance(result, dict) else {}
+        last: FoxCloudApiError | None = None
+        try:
+            result = await self._post_scheduler_paths(flag_paths, body, operation="get/flag")
+            if isinstance(result, dict) and result:
+                return result
+        except FoxCloudApiError as err:
+            last = err
+            if err.errno not in (41200, 41203, 40256, 41811):
+                raise
+        schedule = await self.get_scheduler_schedule(device_sn)
+        if schedule:
+            enable = schedule.get("enable")
+            if enable is not None:
+                return {"support": True, "enable": enable}
+        if last:
+            raise last
+        return {}
 
     async def set_scheduler_flag(self, device_sn: str, *, enable: bool) -> dict[str, Any]:
         body = {"deviceSN": device_sn.strip(), "enable": 1 if enable else 0}
         paths = (
             "/op/v1/device/scheduler/set/flag",
             "/op/v0/device/scheduler/set/flag",
+            "/op/v0/device/scheduler/set",
         )
         result = await self._post_scheduler_paths(paths, body, operation="set/flag")
         return result if isinstance(result, dict) else {}

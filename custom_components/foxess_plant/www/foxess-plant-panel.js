@@ -14566,6 +14566,7 @@ Reloading panel registration…
       if (key) msg.api_key = key;
       const res = await this._hass.connection.sendMessagePromise(msg);
       if (res?.plant_state) this._plantState = res.plant_state;
+      const connected = res?.connected !== false;
       const sn = res?.device_sn ? ` · ${res.device_sn}` : "";
       const sched = res?.scheduler_status ? ` · ${res.scheduler_status}` : "";
       const notes = [
@@ -14576,8 +14577,10 @@ Reloading panel registration…
         res?.warmup_probe_error ? `Warmup: ${res.warmup_probe_error}` : null,
       ].filter(Boolean);
       const suffix = notes.length ? `. ${notes.join(" ")}` : "";
-      if (notes.length) this._showToast(`Fox Cloud connected${sn}${sched}${suffix}`, notes.some((n) => String(n).includes("not permitted") || String(n).includes("41200")) ? "err" : undefined);
-      else this._showToast(`Fox Cloud connected${sn}${sched}`);
+      const warn = notes.some((n) => /not permitted|41200|41811/i.test(String(n)));
+      if (!connected) this._showToast(`Fox Cloud test failed${suffix}`, "err");
+      else if (warn) this._showToast(`Fox Cloud connected${sn}${sched}${suffix}`, "err");
+      else this._showToast(`Fox Cloud connected${sn}${sched}${suffix}`);
     } catch (err) {
       this._showToast(String(err?.message || err), "err");
     } finally {
