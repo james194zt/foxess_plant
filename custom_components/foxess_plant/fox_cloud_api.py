@@ -30,6 +30,28 @@ def fox_cloud_permission_denied(message: str) -> bool:
     return "permission" in text and "allow" in text
 
 
+def format_fox_cloud_error(err: FoxCloudApiError) -> str:
+    message = str(err)
+    if err.errno is not None:
+        return f"{message} (Fox API {err.errno})"
+    return message
+
+
+def match_fox_device_sn(devices: list[dict[str, Any]], sn: str) -> str | None:
+    """Map PCS/module/configured SN to the Fox Cloud inverter deviceSN."""
+    needle = str(sn or "").strip().upper()
+    if not needle:
+        return None
+    for row in devices:
+        if not isinstance(row, dict):
+            continue
+        device_sn = str(row.get("deviceSN") or "").strip()
+        module_sn = str(row.get("moduleSN") or "").strip()
+        if needle in {device_sn.upper(), module_sn.upper()}:
+            return device_sn or None
+    return None
+
+
 class FoxCloudClient:
     """Minimal FoxESS Cloud Open API client."""
 
@@ -106,12 +128,46 @@ class FoxCloudClient:
         body = {"sn": sn.strip(), **payload}
         await self._post("/op/v0/device/batteryHeating/set", body)
 
+    async def _post_scheduler_paths(
+        self,
+        paths: tuple[str, ...],
+        body: dict[str, Any],
+        *,
+        operation: str,
+    ) -> Any:
+        last: FoxCloudApiError | None = None
+        for index, path in enumerate(paths):
+            try:
+                return await self._post(path, body)
+            except FoxCloudApiError as err:
+                last = err
+                if index + 1 < len(paths) and err.errno in (41200, 41203, 40256):
+                    _LOGGER.debug(
+                        "Fox scheduler %s %s failed (%s), trying fallback path",
+                        operation,
+                        path,
+                        err,
+                    )
+                    continue
+                raise
+        if last:
+            raise last
+        return None
+
     async def get_scheduler_flag(self, device_sn: str) -> dict[str, Any]:
         body = {"deviceSN": device_sn.strip()}
-        result = await self._post("/op/v1/device/scheduler/get/flag", body)
+        paths = (
+            "/op/v1/device/scheduler/get/flag",
+            "/op/v0/device/scheduler/get/flag",
+        )
+        result = await self._post_scheduler_paths(paths, body, operation="get/flag")
         return result if isinstance(result, dict) else {}
 
     async def set_scheduler_flag(self, device_sn: str, *, enable: bool) -> dict[str, Any]:
         body = {"deviceSN": device_sn.strip(), "enable": 1 if enable else 0}
-        result = await self._post("/op/v1/device/scheduler/set/flag", body)
+        paths = (
+            "/op/v1/device/scheduler/set/flag",
+            "/op/v0/device/scheduler/set/flag",
+        )
+        result = await self._post_scheduler_paths(paths, body, operation="set/flag")
         return result if isinstance(result, dict) else {}

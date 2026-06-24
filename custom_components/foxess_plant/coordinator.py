@@ -2293,6 +2293,23 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         return FoxCloudClient(self.hass, api_key=str(self.plant.fox_cloud.api_key or ""))
 
+    async def _fox_cloud_device_sn(
+        self,
+        client,
+        *,
+        configured_sn: str | None = None,
+    ) -> tuple[str, list[dict[str, Any]]]:
+        from .fox_cloud_api import match_fox_device_sn
+
+        sn = (configured_sn or self.resolve_fox_device_sn() or "").strip()
+        if not sn:
+            raise HomeAssistantError(
+                "Inverter serial number required — set device SN or link PCS serial from Modbus"
+            )
+        devices = await client.list_devices(page=1, size=50)
+        canonical = match_fox_device_sn(devices, sn)
+        return (canonical or sn), devices
+
     async def async_save_fox_cloud(self, *, fox_cloud: dict[str, Any]) -> None:
         from .models import merge_fox_cloud_config
 
@@ -2309,51 +2326,94 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_test_fox_cloud(self, *, api_key: str | None = None) -> dict[str, Any]:
         from .fox_cloud_scheduler import normalize_scheduler_flag, scheduler_status_label
-        from .fox_cloud_api import FoxCloudApiError, FoxCloudClient, fox_cloud_permission_denied
+        from .fox_cloud_api import (
+            FoxCloudApiError,
+            FoxCloudClient,
+            format_fox_cloud_error,
+            fox_cloud_permission_denied,
+            match_fox_device_sn,
+        )
         from homeassistant.util import dt as dt_util
 
         fox = self.plant.fox_cloud
         key = (api_key or fox.api_key or "").strip()
         if not key:
             raise HomeAssistantError("Fox Cloud API key required")
-        sn = self.resolve_fox_device_sn()
-        if not sn:
-            raise HomeAssistantError("Inverter serial number required — set device SN or link PCS serial from Modbus")
+        configured_sn = self.resolve_fox_device_sn()
+        if not configured_sn:
+            raise HomeAssistantError(
+                "Inverter serial number required — set device SN or link PCS serial from Modbus"
+            )
         client = FoxCloudClient(self.hass, api_key=key)
         try:
-            scheduler = normalize_scheduler_flag(await client.get_scheduler_flag(sn))
-            self._fox_scheduler_live = scheduler
+            devices = await client.list_devices(page=1, size=50)
+            canonical_sn = match_fox_device_sn(devices, configured_sn) or configured_sn
             fox.last_error = None
             fox.last_fetch_at = dt_util.utcnow().isoformat()
             out: dict[str, Any] = {
-                "device_sn": sn,
-                "scheduler": scheduler,
-                "scheduler_status": scheduler_status_label(scheduler),
+                "device_sn": canonical_sn,
+                "configured_sn": configured_sn,
+                "devices_found": len(devices),
+                "connected": True,
             }
+            if canonical_sn.upper() != str(configured_sn).strip().upper():
+                out["sn_note"] = (
+                    f"Using Fox Cloud inverter SN {canonical_sn} "
+                    f"(matched from configured {configured_sn})."
+                )
+            elif devices and not match_fox_device_sn(devices, configured_sn):
+                known = [
+                    str(row.get("deviceSN") or "").strip()
+                    for row in devices
+                    if isinstance(row, dict) and row.get("deviceSN")
+                ]
+                if known:
+                    out["sn_note"] = (
+                        f"Configured SN {configured_sn} was not found in your Fox account — "
+                        f"try {known[0]} from the device list."
+                    )
+
+            try:
+                scheduler = normalize_scheduler_flag(await client.get_scheduler_flag(canonical_sn))
+                self._fox_scheduler_live = scheduler
+                out["scheduler"] = scheduler
+                out["scheduler_status"] = scheduler_status_label(scheduler)
+            except FoxCloudApiError as sched_err:
+                out["scheduler_error"] = format_fox_cloud_error(sched_err)
+                if sched_err.errno == 41200:
+                    out["scheduler_note"] = (
+                        "Fox Cloud could not read the mode scheduler for this device (41200). "
+                        "API authentication succeeded — try again later or disable the scheduler in the Fox app."
+                    )
+                elif fox_cloud_permission_denied(str(sched_err)):
+                    out["scheduler_note"] = (
+                        "Mode scheduler is not permitted for this API key or account."
+                    )
+
             try:
                 from .battery_warmup import parse_battery_heating_result
 
-                heating = await client.get_battery_heating(sn)
+                heating = await client.get_battery_heating(canonical_sn)
                 out["warmup"] = parse_battery_heating_result(heating)
                 out["warmup_available"] = True
             except FoxCloudApiError as warmup_err:
                 if fox_cloud_permission_denied(str(warmup_err)):
                     out["warmup_available"] = False
                     out["warmup_note"] = (
-                        "Battery warmup is not permitted for this Fox account or device — "
-                        "scheduler access still works for SOC control."
+                        "Battery warmup is not permitted for this Fox account or device."
                     )
                 else:
-                    out["warmup_probe_error"] = str(warmup_err)
+                    out["warmup_probe_error"] = format_fox_cloud_error(warmup_err)
+
             return out
         except FoxCloudApiError as err:
-            fox.last_error = str(err)
+            fox.last_error = format_fox_cloud_error(err)
             if fox_cloud_permission_denied(str(err)):
                 raise HomeAssistantError(
-                    f"{err} — your API key authenticated but this device or account cannot use "
-                    "mode scheduler via the Open API. Try disabling the scheduler in the Fox app instead."
+                    f"{format_fox_cloud_error(err)} — your API key authenticated but this device "
+                    "or account cannot use that Fox Cloud endpoint. Try the Fox app instead."
                 ) from err
-            raise HomeAssistantError(str(err)) from err
+            raise HomeAssistantError(format_fox_cloud_error(err)) from err
 
     async def async_fetch_battery_warmup(self) -> dict[str, Any]:
         from .battery_warmup import parse_battery_heating_result
@@ -2363,11 +2423,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         fox = self.plant.fox_cloud
         if not fox.enabled or not fox.api_key_configured():
             raise HomeAssistantError("Enable Fox Cloud API under Settings → API & accounts")
-        sn = self.resolve_fox_device_sn()
-        if not sn:
+        if not self.resolve_fox_device_sn():
             raise HomeAssistantError("Inverter serial number required for battery warmup")
         client = self._fox_cloud_client()
         try:
+            sn, _devices = await self._fox_cloud_device_sn(client)
             result = await client.get_battery_heating(sn)
             parsed = parse_battery_heating_result(result)
             self._battery_warmup_live = parsed
@@ -2394,8 +2454,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         fox = self.plant.fox_cloud
         if not fox.enabled or not fox.api_key_configured():
             raise HomeAssistantError("Enable Fox Cloud API under Settings → API & accounts")
-        sn = self.resolve_fox_device_sn()
-        if not sn:
+        if not self.resolve_fox_device_sn():
             raise HomeAssistantError("Inverter serial number required for battery warmup")
         err = validate_battery_warmup_config(warmup)
         if err:
@@ -2403,6 +2462,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         payload = build_battery_heating_set_payload(warmup)
         client = self._fox_cloud_client()
         try:
+            sn, _devices = await self._fox_cloud_device_sn(client)
             await client.set_battery_heating(sn, payload)
             result = await client.get_battery_heating(sn)
             parsed = parse_battery_heating_result(result)
@@ -2435,17 +2495,17 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_fetch_fox_scheduler_flag(self) -> dict[str, Any]:
         from .fox_cloud_scheduler import normalize_scheduler_flag
-        from .fox_cloud_api import FoxCloudApiError
+        from .fox_cloud_api import FoxCloudApiError, format_fox_cloud_error
         from homeassistant.util import dt as dt_util
 
         fox = self.plant.fox_cloud
         if not fox.enabled or not fox.api_key_configured():
             raise HomeAssistantError("Enable Fox Cloud API under Settings → API & accounts")
-        sn = self.resolve_fox_device_sn()
-        if not sn:
+        if not self.resolve_fox_device_sn():
             raise HomeAssistantError("Inverter serial number required for Fox Cloud scheduler")
         client = self._fox_cloud_client()
         try:
+            sn, _devices = await self._fox_cloud_device_sn(client)
             result = await client.get_scheduler_flag(sn)
             parsed = normalize_scheduler_flag(result)
             self._fox_scheduler_live = parsed
@@ -2457,22 +2517,22 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.async_request_refresh()
             return parsed
         except FoxCloudApiError as err:
-            fox.last_error = str(err)
-            raise HomeAssistantError(str(err)) from err
+            fox.last_error = format_fox_cloud_error(err)
+            raise HomeAssistantError(format_fox_cloud_error(err)) from err
 
     async def async_disable_fox_scheduler(self) -> dict[str, Any]:
         from .fox_cloud_scheduler import normalize_scheduler_flag, scheduler_flag_enabled
-        from .fox_cloud_api import FoxCloudApiError
+        from .fox_cloud_api import FoxCloudApiError, format_fox_cloud_error
         from homeassistant.util import dt as dt_util
 
         fox = self.plant.fox_cloud
         if not fox.enabled or not fox.api_key_configured():
             raise HomeAssistantError("Enable Fox Cloud API under Settings → API & accounts")
-        sn = self.resolve_fox_device_sn()
-        if not sn:
+        if not self.resolve_fox_device_sn():
             raise HomeAssistantError("Inverter serial number required for Fox Cloud scheduler")
         client = self._fox_cloud_client()
         try:
+            sn, _devices = await self._fox_cloud_device_sn(client)
             current = normalize_scheduler_flag(await client.get_scheduler_flag(sn))
             self._fox_scheduler_live = current
             if not scheduler_flag_enabled(current):
@@ -2491,8 +2551,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.async_request_refresh()
             return {"disabled": True, "flag": updated}
         except FoxCloudApiError as err:
-            fox.last_error = str(err)
-            raise HomeAssistantError(str(err)) from err
+            fox.last_error = format_fox_cloud_error(err)
+            raise HomeAssistantError(format_fox_cloud_error(err)) from err
 
     async def async_ensure_fox_scheduler_disabled(self) -> dict[str, Any] | None:
         """Disable Fox Cloud mode scheduler when enabled, before Modbus SOC writes."""

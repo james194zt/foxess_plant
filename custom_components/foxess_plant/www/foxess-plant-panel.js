@@ -14568,7 +14568,15 @@ Reloading panel registration…
       if (res?.plant_state) this._plantState = res.plant_state;
       const sn = res?.device_sn ? ` · ${res.device_sn}` : "";
       const sched = res?.scheduler_status ? ` · ${res.scheduler_status}` : "";
-      if (res?.warmup_note) this._showToast(`Fox Cloud connected${sn}${sched}. ${res.warmup_note}`, "err");
+      const notes = [
+        res?.sn_note,
+        res?.scheduler_note,
+        res?.warmup_note,
+        res?.scheduler_error && !res?.scheduler_note ? `Scheduler: ${res.scheduler_error}` : null,
+        res?.warmup_probe_error ? `Warmup: ${res.warmup_probe_error}` : null,
+      ].filter(Boolean);
+      const suffix = notes.length ? `. ${notes.join(" ")}` : "";
+      if (notes.length) this._showToast(`Fox Cloud connected${sn}${sched}${suffix}`, notes.some((n) => String(n).includes("not permitted") || String(n).includes("41200")) ? "err" : undefined);
       else this._showToast(`Fox Cloud connected${sn}${sched}`);
     } catch (err) {
       this._showToast(String(err?.message || err), "err");
@@ -21071,7 +21079,7 @@ ${this._renderGlowApiCredentials()}`;
 </div>
 <div class="field"><label>Device serial (optional)</label>
 <input type="text" data-field="fox:device_sn" value="${esc(String(draft.device_sn || ""))}" placeholder="${esc(sn ? `Auto: ${sn}` : "PCS serial from Modbus")}" ${this._busy ? "disabled" : ""}>
-<p class="field-hint">Leave blank to use the PCS serial from your linked foxess_modbus device.</p>
+<p class="field-hint">Leave blank to use the PCS serial from Modbus. Fox Cloud scheduler calls need the inverter <strong>deviceSN</strong> from your Fox account — if test fails with error 41200, open the Fox portal device list and paste that SN here.</p>
 </div>
 <div class="btn-row">
 <button type="button" class="btn btn-primary" data-action="save-fox-cloud" ${this._busy ? "disabled" : ""}>Save Fox Cloud</button>
