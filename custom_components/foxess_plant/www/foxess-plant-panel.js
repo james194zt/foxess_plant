@@ -10284,7 +10284,8 @@ const STYLES = `
   min-width: 0;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
+  align-items: stretch;
   gap: 4px;
   padding: 10px 12px;
   margin: 0;
