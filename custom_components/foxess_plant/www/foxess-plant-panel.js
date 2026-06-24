@@ -109,11 +109,13 @@ const SETTINGS_NAV = [
   { id: "schedules", label: "Schedule" },
   { id: "workmode", label: "Work mode" },
   { id: "pv", label: "PV" },
+  { id: "api", label: "API" },
   { id: "solcast", label: "Solcast" },
   { id: "glow", label: "Glow meter" },
   { id: "tariff", label: "Tariff" },
   { id: "smart", label: "SmartCharge" },
   { id: "storm", label: "StormSafe" },
+  { id: "warmup", label: "Warmup" },
   { id: "control", label: "Control" },
 ];
 
@@ -245,6 +247,7 @@ const GLOW_DOCS_URL = "https://docs.glowmarkt.com/GlowmarktAPIDataRetrievalDocum
 const GLOW_MQTT_INTEGRATION_URL = "https://github.com/megakid/ha_hildebrand_glow_ihd_mqtt";
 const SOLCAST_ACCOUNT_LOCATIONS_URL = "https://toolkit.solcast.com.au/account/locations";
 const OCTOPUS_API_DOCS_URL = "https://octopus.energy/dashboard/new/accounts/personal-access-token/";
+const FOX_CLOUD_API_DOCS_URL = "https://www.foxesscloud.com/i18n/en/OpenApiDocument.html";
 const SOLCAST_COORD_DECIMALS = 4;
 
 /** Fox hub-and-spoke flow (viewBox 0 0 1024 1017). Anchors sync with tools/compose_flow_layers.py */
@@ -3081,7 +3084,7 @@ function renderOctopusEnergyAnalysisPage(payload, { loading = false, greenerView
     return `<div data-octopus-analysis-main="1"><header class="header"><h1>Octopus Energy Analysis</h1><p class="chart-loading">Loading Octopus data…</p></header></div>`;
   }
   if (!payload) {
-    return `<div data-octopus-analysis-main="1"><header class="header"><h1>Octopus Energy Analysis</h1></header><p class="placeholder">Enable Octopus as your dynamic tariff provider in Settings → Tariff to use this report.</p></div>`;
+    return `<div data-octopus-analysis-main="1"><header class="header"><h1>Octopus Energy Analysis</h1></header><p class="placeholder">Enable Octopus as your dynamic tariff provider in Settings → API &amp; accounts to use this report.</p></div>`;
   }
   const err = payload.errors?.auth || payload.errors?.consumption || payload.errors?.carbon;
   const errHtml = err ? `<p class="octopus-greener-error">${esc(String(err))}</p>` : "";
@@ -12722,6 +12725,43 @@ const STYLES = `
 }
 .field-link { color: var(--fp-accent); text-decoration: none; }
 .field-link:hover { text-decoration: underline; }
+.warmup-hero {
+  position: relative; margin-bottom: 16px; padding: 28px 20px 24px; border-radius: 16px; text-align: center;
+  background: linear-gradient(180deg, rgba(255, 152, 80, 0.28) 0%, rgba(255, 120, 60, 0.08) 55%, rgba(0,0,0,0) 100%);
+  border: 1px solid rgba(255, 152, 80, 0.22);
+}
+.warmup-hero.is-on { background: linear-gradient(180deg, rgba(255, 120, 40, 0.35) 0%, rgba(255, 90, 30, 0.12) 55%, rgba(0,0,0,0) 100%); }
+.warmup-hero-badge {
+  display: inline-block; margin-bottom: 12px; padding: 4px 12px; border-radius: 999px;
+  background: rgba(255, 120, 40, 0.85); color: #fff; font-size: 12px; font-weight: 600; text-transform: lowercase;
+}
+.warmup-hero-temp {
+  font-size: 48px; font-weight: 700; line-height: 1; margin: 8px 0 18px;
+  color: var(--primary-text-color); text-shadow: 0 0 32px rgba(255, 100, 60, 0.35);
+}
+.warmup-power-btn {
+  width: 64px; height: 64px; border-radius: 50%; border: none; cursor: pointer;
+  background: rgba(255,255,255,0.12); color: var(--secondary-text-color);
+  display: inline-flex; align-items: center; justify-content: center;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+}
+.warmup-power-btn.is-on { background: linear-gradient(180deg, #ff9a4d 0%, #ff6a1a 100%); color: #fff; }
+.warmup-power-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.warmup-slot-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.warmup-slot-card {
+  border: 1px solid rgba(80, 140, 255, 0.35); border-radius: 12px; padding: 12px 14px;
+  background: rgba(0,0,0,0.15);
+}
+.warmup-slot-card.is-on { border-color: rgba(80, 160, 255, 0.65); }
+.warmup-slot-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.warmup-slot-time { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.warmup-slot-times { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.warmup-slot-times label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--secondary-text-color); }
+.warmup-slot-times input[type="time"] {
+  padding: 8px 10px; border-radius: 8px; border: 1px solid var(--divider-color, rgba(255,255,255,0.12));
+  background: var(--card-background-color, #1c1c1e); color: var(--primary-text-color);
+}
+.warmup-slot-toggle input { accent-color: var(--fp-accent); }
 .pv-range-row { display: flex; align-items: center; gap: 12px; }
 .pv-range-row input[type="range"] { flex: 1; min-width: 0; accent-color: var(--fp-accent); }
 .pv-range-value { min-width: 56px; font-size: 14px; font-variant-numeric: tabular-nums; text-align: right; color: var(--primary-text-color); }
@@ -13315,6 +13355,9 @@ class FoxessPlantPanel extends HTMLElement {
     this._solcastDraft = null;
     this._tariffDraft = null;
     this._octopusDraft = null;
+    this._foxCloudDraft = null;
+    this._warmupDraft = null;
+    this._warmupLoading = false;
     this._octopusPickerMountGen = 0;
     this._smartChargeDraft = null;
     this._tariffPickerMountGen = 0;
@@ -13605,11 +13648,11 @@ Reloading panel registration…
       if (this._settingsView !== "quick") this._socDraft = null;
       if (this._settingsView !== "workmode") this._workModeDraft = null;
       if (this._settingsView !== "storm") this._stormDraft = null;
-      if (this._settingsView !== "tariff") this._tariffDraft = null;
+      if (this._settingsView !== "tariff" && this._settingsView !== "api") this._tariffDraft = null;
       if (this._settingsView !== "smart") this._smartChargeDraft = null;
       if (this._settingsView !== "glow") this._glowDraft = null;
       if (
-        this._settingsView === "solcast" &&
+        (this._settingsView === "solcast" || this._settingsView === "api") &&
         this._solcastDraft &&
         !this._settingsFieldFocused &&
         !this._rangeDrag
@@ -13620,7 +13663,7 @@ Reloading panel registration…
         this._solcastDraft.api_key_set = Boolean(sc.api_key_set);
       }
       if (
-        this._settingsView === "tariff" &&
+        (this._settingsView === "tariff" || this._settingsView === "api") &&
         this._octopusDraft &&
         !this._settingsFieldFocused &&
         !this._rangeDrag
@@ -13629,6 +13672,16 @@ Reloading panel registration…
         const prevKey = this._octopusDraft.api_key || "";
         this._octopusDraft.api_key_set = Boolean(dyn.api_key_set);
         if (prevKey) this._octopusDraft.api_key = prevKey;
+      }
+      if (
+        this._settingsView === "api" &&
+        this._foxCloudDraft &&
+        !this._settingsFieldFocused &&
+        !this._rangeDrag
+      ) {
+        const fc = this._plantState?.fox_cloud ?? {};
+        this._foxCloudDraft.enabled = Boolean(fc.enabled);
+        this._foxCloudDraft.api_key_set = Boolean(fc.api_key_set);
       }
       this._panelStale = this._panelIsStale();
       const forecastPart = this._forecastStatisticsSlotPart?.();
@@ -14405,8 +14458,222 @@ Reloading panel registration…
   _enterTariffSettings() {
     this._initTariffDraft();
     this._tariffPickerMountGen += 1;
-    this._octopusPickerMountGen += 1;
   }
+
+  _enterApiSettings() {
+    this._initOctopusDraft();
+    this._octopusPickerMountGen += 1;
+    if (!this._solcastDraft) this._initSolcastDraft();
+    if (!this._glowDraft) {
+      this._glowFormDirty = false;
+      this._initGlowDraft();
+    }
+    if (!this._foxCloudDraft) this._initFoxCloudDraft();
+  }
+
+  _initFoxCloudDraft() {
+    const raw = this._plantState?.fox_cloud ?? {};
+    this._foxCloudDraft = {
+      enabled: Boolean(raw.enabled),
+      api_key: "",
+      api_key_set: Boolean(raw.api_key_set),
+      device_sn: raw.device_sn || "",
+    };
+  }
+
+  _initWarmupDraftFromLive(live) {
+    const base = live && typeof live === "object" ? live : {};
+    const slots = Array.isArray(base.slots) ? base.slots : [];
+    this._warmupDraft = {
+      enabled: Boolean(base.enabled),
+      start_temperature: Number(base.start_temperature ?? 1),
+      end_temperature: Number(base.end_temperature ?? 10),
+      state: base.state || null,
+      ranges: {
+        start_min: Number(base.ranges?.start_min ?? 1),
+        start_max: Number(base.ranges?.start_max ?? 9),
+        end_min: Number(base.ranges?.end_min ?? 5),
+        end_max: Number(base.ranges?.end_max ?? 15),
+      },
+      slots: [0, 1, 2].map((i) => ({
+        enabled: Boolean(slots[i]?.enabled),
+        start: String(slots[i]?.start || "00:00"),
+        end: String(slots[i]?.end || "00:00"),
+      })),
+    };
+  }
+
+  async _enterWarmupSettings() {
+    this._warmupDraft = null;
+    this._initWarmupDraftFromLive(this._plantState?.battery_warmup);
+    const ready = Boolean(this._plantState?.battery_warmup?.fox_api_ready);
+    if (ready && !this._warmupLoading) {
+      this._warmupLoading = true;
+      this._render();
+      try {
+        await this._fetchBatteryWarmup(false);
+      } catch {
+        /* keep draft from plant state */
+      } finally {
+        this._warmupLoading = false;
+        this._render();
+      }
+    }
+  }
+
+  async _saveFoxCloudSettings() {
+    const plant = this._getPlant();
+    if (!plant || !this._foxCloudDraft) return;
+    this._syncFoxCloudDraftFromDom();
+    this._busy = true;
+    this._render();
+    try {
+      const draft = this._foxCloudDraft;
+      const payload = {
+        enabled: Boolean(draft.enabled),
+        device_sn: String(draft.device_sn || "").trim() || null,
+      };
+      const key = String(draft.api_key || "").trim();
+      if (key) payload.api_key = key;
+      const state = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/update_fox_cloud",
+        plant_id: plant.entry_id,
+        fox_cloud: payload,
+      });
+      if (state) this._plantState = state;
+      this._initFoxCloudDraft();
+      this._showToast("Fox Cloud API saved");
+    } catch (err) {
+      this._showToast(String(err?.message || err), "err");
+    } finally {
+      this._busy = false;
+      this._render();
+    }
+  }
+
+  async _testFoxCloudConnection() {
+    const plant = this._getPlant();
+    if (!plant || !this._foxCloudDraft) return;
+    this._syncFoxCloudDraftFromDom();
+    this._busy = true;
+    this._render();
+    try {
+      const key = String(this._foxCloudDraft.api_key || "").trim();
+      const msg = {
+        type: "foxess_plant/test_fox_cloud",
+        plant_id: plant.entry_id,
+      };
+      if (key) msg.api_key = key;
+      const res = await this._hass.connection.sendMessagePromise(msg);
+      if (res?.plant_state) this._plantState = res.plant_state;
+      const sn = res?.device_sn ? ` · ${res.device_sn}` : "";
+      this._showToast(`Fox Cloud connected${sn}`);
+    } catch (err) {
+      this._showToast(String(err?.message || err), "err");
+    } finally {
+      this._busy = false;
+      this._render();
+    }
+  }
+
+  _syncFoxCloudDraftFromDom() {
+    if (!this._foxCloudDraft) return;
+    const root = this._root;
+    const enabledEl = root.querySelector('[data-field="fox:enabled"]');
+    if (enabledEl) this._foxCloudDraft.enabled = enabledEl.checked;
+    const keyEl = root.querySelector('[data-field="fox:api_key"]');
+    if (keyEl?.value) this._foxCloudDraft.api_key = keyEl.value;
+    const snEl = root.querySelector('[data-field="fox:device_sn"]');
+    if (snEl) this._foxCloudDraft.device_sn = snEl.value || "";
+  }
+
+  _syncWarmupDraftFromDom() {
+    if (!this._warmupDraft) return;
+    const root = this._root;
+    const enabledEl = root.querySelector('[data-field="warmup:enabled"]');
+    if (enabledEl) this._warmupDraft.enabled = enabledEl.checked;
+    const startEl = root.querySelector('[data-field="warmup:start_temperature"]');
+    if (startEl) this._warmupDraft.start_temperature = parseInt(startEl.value, 10) || 1;
+    const endEl = root.querySelector('[data-field="warmup:end_temperature"]');
+    if (endEl) this._warmupDraft.end_temperature = parseInt(endEl.value, 10) || 10;
+    for (let i = 0; i < 3; i += 1) {
+      const slot = this._warmupDraft.slots[i];
+      if (!slot) continue;
+      const enEl = root.querySelector(`[data-field="warmup:slot:${i}:enabled"]`);
+      if (enEl) slot.enabled = enEl.checked;
+      const startTimeEl = root.querySelector(`[data-field="warmup:slot:${i}:start"]`);
+      if (startTimeEl) slot.start = startTimeEl.value || "00:00";
+      const endTimeEl = root.querySelector(`[data-field="warmup:slot:${i}:end"]`);
+      if (endTimeEl) slot.end = endTimeEl.value || "00:00";
+    }
+  }
+
+  async _fetchBatteryWarmup(showToast = true) {
+    const plant = this._getPlant();
+    if (!plant) return;
+    this._busy = true;
+    this._render();
+    try {
+      const res = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/fetch_battery_warmup",
+        plant_id: plant.entry_id,
+      });
+      if (res?.plant_state) this._plantState = res.plant_state;
+      if (res?.warmup) this._initWarmupDraftFromLive(res.warmup);
+      if (showToast) this._showToast("Battery warmup refreshed from Fox Cloud");
+    } catch (err) {
+      if (showToast) this._showToast(String(err?.message || err), "err");
+      throw err;
+    } finally {
+      this._busy = false;
+      this._render();
+    }
+  }
+
+  async _saveBatteryWarmupSettings() {
+    const plant = this._getPlant();
+    if (!plant || !this._warmupDraft) return;
+    this._syncWarmupDraftFromDom();
+    this._busy = true;
+    this._render();
+    try {
+      const d = this._warmupDraft;
+      const res = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/update_battery_warmup",
+        plant_id: plant.entry_id,
+        warmup: {
+          enabled: Boolean(d.enabled),
+          start_temperature: Number(d.start_temperature),
+          end_temperature: Number(d.end_temperature),
+          slots: d.slots.map((s) => ({
+            enabled: Boolean(s.enabled),
+            start: String(s.start || "00:00"),
+            end: String(s.end || "00:00"),
+          })),
+        },
+      });
+      if (res?.plant_state) this._plantState = res.plant_state;
+      if (res?.warmup) this._initWarmupDraftFromLive(res.warmup);
+      this._showToast("Battery warmup saved to inverter");
+    } catch (err) {
+      this._showToast(String(err?.message || err), "err");
+    } finally {
+      this._busy = false;
+      this._render();
+    }
+  }
+
+  _warmupStatusLabel(state) {
+    const text = String(state || "").toLowerCase();
+    if (!text) return "Unknown";
+    if (text.includes("warm up state") && !text.includes("stopped") && !text.includes("ready")) return "warming up";
+    if (text.includes("ready warm up") && !text.includes("stopped")) return "warmup ready";
+    if (text.includes("self warm")) return "self warming";
+    if (text.includes("stopped")) return "warmup standby";
+    if (text.includes("ready stopped")) return "standby ready";
+    return String(state).replace(/^The battery is in (a )?/i, "").replace(/ state$/i, "");
+  }
+
 
   _syncTariffDraftFromPickers() {
     if (!this._tariffDraft) return;
@@ -14495,7 +14762,6 @@ Reloading panel registration…
   async _saveTariffSettings() {
     const plant = this._getPlant();
     if (!plant || !this._tariffDraft) return;
-    this._syncOctopusIntoTariffDraft();
     this._syncTariffDraftFromPickers();
     this._syncTariffScheduleFromDom();
     const draft = buildTariffSavePayload(this._tariffDraft);
@@ -14713,7 +14979,7 @@ Reloading panel registration…
   }
 
   async _syncOctopusEntityPickers() {
-    if (this._settingsView !== "tariff" || !this._octopusDraft || this._octopusDraft.source !== "entity" || !this._hass) {
+    if (this._settingsView !== "api" || !this._octopusDraft || this._octopusDraft.source !== "entity" || !this._hass) {
       return;
     }
     const gen = ++this._octopusPickerMountGen;
@@ -14950,8 +15216,8 @@ Reloading panel registration…
 
   _solcastSettingsSubtitle() {
     const sc = this._plantState?.solcast;
-    if (!solcastEnabledFromLive(sc)) return "Off — enable for native PV forecast on charts";
-    if (!sc.api_key_set) return "API key required";
+    if (!solcastEnabledFromLive(sc)) return "Off — enable under Settings → API";
+    if (!sc.api_key_set) return "API key required — Settings → API";
     if (!sc.coordinates_configured) return "Solcast site latitude/longitude required";
     if (!sc.hobbyist_sites_resolved) return "Linking to Solcast Home PV site(s)… save settings";
     const rem = sc.api_remaining ?? "—";
@@ -15464,19 +15730,23 @@ Reloading panel registration…
     }
     if (action === "settings-sub") {
       this._view = "settings";
-      if (btn.dataset.sub !== "solcast") this._solcastDraft = null;
-      if (btn.dataset.sub !== "tariff") {
+      if (btn.dataset.sub !== "solcast" && btn.dataset.sub !== "api") this._solcastDraft = null;
+      if (btn.dataset.sub !== "tariff" && btn.dataset.sub !== "api") {
         this._tariffDraft = null;
         this._tariffPickerMountGen += 1;
       }
       if (btn.dataset.sub !== "smart") this._smartChargeDraft = null;
-      if (btn.dataset.sub !== "glow") this._glowDraft = null;
+      if (btn.dataset.sub !== "glow" && btn.dataset.sub !== "api") this._glowDraft = null;
+      if (btn.dataset.sub !== "api") this._foxCloudDraft = null;
+      if (btn.dataset.sub !== "warmup") this._warmupDraft = null;
       this._settingsView = btn.dataset.sub;
       if (btn.dataset.sub === "schedules") this._initChargeDraft();
       if (btn.dataset.sub === "quick") this._initSocDraft();
       if (btn.dataset.sub === "workmode") this._initWorkModeDraft();
       if (btn.dataset.sub === "storm") this._enterStormSettings();
       if (btn.dataset.sub === "pv") this._enterPvSettings();
+      if (btn.dataset.sub === "api") this._enterApiSettings();
+      if (btn.dataset.sub === "warmup") void this._enterWarmupSettings();
       if (btn.dataset.sub === "solcast") this._enterSolcastSettings();
       if (btn.dataset.sub === "glow") this._enterGlowSettings();
       if (btn.dataset.sub === "tariff") this._enterTariffSettings();
@@ -15496,19 +15766,23 @@ Reloading panel registration…
     }
     if (action === "settings-tab") {
       this._view = "settings";
-      if (btn.dataset.sub !== "solcast") this._solcastDraft = null;
-      if (btn.dataset.sub !== "tariff") {
+      if (btn.dataset.sub !== "solcast" && btn.dataset.sub !== "api") this._solcastDraft = null;
+      if (btn.dataset.sub !== "tariff" && btn.dataset.sub !== "api") {
         this._tariffDraft = null;
         this._tariffPickerMountGen += 1;
       }
       if (btn.dataset.sub !== "smart") this._smartChargeDraft = null;
-      if (btn.dataset.sub !== "glow") this._glowDraft = null;
+      if (btn.dataset.sub !== "glow" && btn.dataset.sub !== "api") this._glowDraft = null;
+      if (btn.dataset.sub !== "api") this._foxCloudDraft = null;
+      if (btn.dataset.sub !== "warmup") this._warmupDraft = null;
       this._settingsView = btn.dataset.sub;
       if (btn.dataset.sub === "schedules") this._initChargeDraft();
       if (btn.dataset.sub === "quick") this._initSocDraft();
       if (btn.dataset.sub === "workmode") this._initWorkModeDraft();
       if (btn.dataset.sub === "storm") this._enterStormSettings();
       if (btn.dataset.sub === "pv") this._enterPvSettings();
+      if (btn.dataset.sub === "api") this._enterApiSettings();
+      if (btn.dataset.sub === "warmup") void this._enterWarmupSettings();
       if (btn.dataset.sub === "solcast") this._enterSolcastSettings();
       if (btn.dataset.sub === "glow") this._enterGlowSettings();
       if (btn.dataset.sub === "tariff") this._enterTariffSettings();
@@ -15573,6 +15847,28 @@ Reloading panel registration…
     }
     if (action === "test-glow") {
       await this._testGlowConnection();
+      return;
+    }
+    if (action === "save-fox-cloud") {
+      await this._saveFoxCloudSettings();
+      return;
+    }
+    if (action === "test-fox-cloud") {
+      await this._testFoxCloudConnection();
+      return;
+    }
+    if (action === "save-battery-warmup") {
+      await this._saveBatteryWarmupSettings();
+      return;
+    }
+    if (action === "fetch-battery-warmup") {
+      await this._fetchBatteryWarmup(true);
+      return;
+    }
+    if (action === "warmup-toggle-enabled") {
+      if (!this._warmupDraft) return;
+      this._warmupDraft.enabled = !this._warmupDraft.enabled;
+      this._scheduleRender();
       return;
     }
     if (action === "test-solcast") {
@@ -15772,11 +16068,46 @@ Reloading panel registration…
           return;
         }
       }
+      if (parts[0] === "fox" && this._foxCloudDraft) {
+        if (parts[1] === "enabled") {
+          this._foxCloudDraft.enabled = el.checked;
+          this._scheduleRender();
+          return;
+        }
+      }
+      if (parts[0] === "warmup" && this._warmupDraft) {
+        if (parts[1] === "enabled") {
+          this._warmupDraft.enabled = el.checked;
+          this._scheduleRender();
+          return;
+        }
+        if (parts[1] === "start_temperature" || parts[1] === "end_temperature") {
+          this._warmupDraft[parts[1]] = parseInt(el.value, 10) || 0;
+          this._scheduleRender();
+          return;
+        }
+        if (parts[1] === "slot" && parts.length >= 4) {
+          const idx = parseInt(parts[2], 10);
+          const field = parts[3];
+          if (Number.isNaN(idx) || idx < 0 || idx > 2 || !this._warmupDraft.slots[idx]) return;
+          if (field === "enabled") {
+            this._warmupDraft.slots[idx].enabled = el.checked;
+            this._scheduleRender();
+            return;
+          }
+          if (field === "start" || field === "end") {
+            this._warmupDraft.slots[idx][field] = el.value || "00:00";
+            this._scheduleRender();
+            return;
+          }
+        }
+      }
       if (parts[0] === "glow" && this._glowDraft) {
         const field = parts[1];
         if (field === "enabled" || field === "mqtt_enabled" || field === "api_enabled") {
           this._glowDraft[field] = el.checked;
           this._glowFormDirty = true;
+          if (field === "api_enabled") this._scheduleRender();
           return;
         }
       }
@@ -16120,6 +16451,33 @@ Reloading panel registration…
       }
       if (field === "peak_import_penalty_p_per_kwh") {
         this._smartChargeDraft.peak_import_penalty_p_per_kwh = Math.max(0, parseFloat(el.value) || 5);
+        return;
+      }
+    }
+    if (kind === "fox" && this._foxCloudDraft) {
+      const field = parts[1];
+      if (field === "api_key") {
+        this._foxCloudDraft.api_key = el.value;
+        return;
+      }
+      if (field === "device_sn") {
+        this._foxCloudDraft.device_sn = el.value;
+        return;
+      }
+    }
+    if (kind === "warmup" && this._warmupDraft) {
+      const field = parts[1];
+      if (field === "start_temperature" || field === "end_temperature") {
+        this._warmupDraft[field] = parseInt(el.value, 10) || 0;
+        return;
+      }
+      if (field === "slot" && parts.length >= 4) {
+        const idx = parseInt(parts[2], 10);
+        const sub = parts[3];
+        if (Number.isNaN(idx) || idx < 0 || idx > 2 || !this._warmupDraft.slots[idx]) return;
+        if (sub === "start" || sub === "end") {
+          this._warmupDraft.slots[idx][sub] = el.value || "00:00";
+        }
         return;
       }
     }
@@ -19534,7 +19892,7 @@ ${enableHint}${detail}</div>`;
       ? `<p class="storm-solcast-precheck-metrics">${metrics}</p>`
       : "";
     const solcastHint = !solcastConfigured
-      ? `<p class="storm-hint" style="margin:12px 0 0">Solcast is not set up yet — configure it under <strong>Settings → Solcast</strong> (API key and PV strings) before turning this on.</p>`
+      ? `<p class="storm-hint" style="margin:12px 0 0">Solcast is not set up yet — add your API key under <strong>Settings → API &amp; accounts</strong> and configure PV strings under <strong>Settings → Solcast</strong> before turning this on.</p>`
       : "";
     const precheckTitle =
       action === "pv_only"
@@ -19802,17 +20160,39 @@ ${note}${via}${forecastHint}${activeBadge}
     return decision || "Enabled";
   }
 
+  _apiSettingsSubtitle() {
+    const bits = [];
+    const dyn = this._plantState?.tariff?.dynamic;
+    if (dyn?.enabled && String(dyn?.provider || "").toLowerCase() === "octopus") bits.push("Octopus");
+    const sc = this._plantState?.solcast;
+    if (solcastEnabledFromLive(sc)) bits.push("Solcast");
+    const g = this._plantState?.glow ?? {};
+    if (g.api_enabled && (g.username_set || g.password_set)) bits.push("Glow");
+    const fox = this._plantState?.fox_cloud ?? {};
+    if (fox.enabled && fox.api_key_set) bits.push("Fox Cloud");
+    return bits.length ? bits.join(" · ") : "No APIs configured";
+  }
+
+  _warmupSettingsSubtitle() {
+    const w = this._plantState?.battery_warmup ?? {};
+    if (!w.fox_api_ready) return "Fox Cloud API required";
+    if (!w.enabled) return "Off";
+    return this._warmupStatusLabel(w.state) || "Enabled";
+  }
+
   _settingsMainSubtitles() {
     const s = this._plantState?.settings ?? {};
     return {
       quick: `Max ${s.max_soc ?? "—"}% · Min ${s.min_soc ?? "—"}% · Off-grid ${s.min_soc_on_grid ?? "—"}%`,
       workmode: String(s.work_mode ?? "—"),
       pv: pvConfigSummary(this._plantState?.pv_config),
+      api: this._apiSettingsSubtitle(),
       solcast: this._solcastSettingsSubtitle(),
       glow: this._glowSettingsSubtitle(),
       tariff: tariffSettingsSummary(this._plantState?.tariff),
       smart: this._smartChargeSettingsSubtitle(),
       storm: this._settingsStormSubtitle(),
+      warmup: this._warmupSettingsSubtitle(),
       control: this._plantState?.control_active ? "Fox Plant manages periods" : "Released to manual",
     };
   }
@@ -19875,11 +20255,13 @@ ${renderListButton({ action: "settings-sub", sub: "quick" }, "Quick Settings", s
 ${renderListButton({ action: "settings-sub", sub: "schedules" }, "Charge schedule", "Two charge windows (baseline)")}
 ${renderListButton({ action: "settings-sub", sub: "workmode" }, "Work mode", subs.workmode)}
 ${renderListButton({ action: "settings-sub", sub: "pv" }, "PV Configuration", subs.pv)}
+${renderListButton({ action: "settings-sub", sub: "api" }, "API & accounts", subs.api)}
 ${renderListButton({ action: "settings-sub", sub: "solcast" }, "Solcast", subs.solcast)}
 ${renderListButton({ action: "settings-sub", sub: "glow" }, "Glow smart meter", subs.glow)}
 ${renderListButton({ action: "settings-sub", sub: "tariff" }, "Tariff", subs.tariff)}
 ${renderListButton({ action: "settings-sub", sub: "smart" }, "SmartCharge", subs.smart)}
 ${renderListButton({ action: "settings-sub", sub: "storm" }, "StormSafe", subs.storm)}
+${renderListButton({ action: "settings-sub", sub: "warmup" }, "Battery Warmup", subs.warmup)}
 ${renderListButton({ action: "settings-sub", sub: "control" }, "Plant control", subs.control)}
 </div></div>`;
   }
@@ -20591,8 +20973,160 @@ ${this._renderTariffRateBlock("standing", {
 <p style="margin:0 0 8px;font-size:14px">${live.configured ? "Tariff configured — ready for cost analysis." : "Not configured yet — save at least one rate above."}</p>
 ${effectiveBits.length ? `<p class="field-hint" style="margin:0 0 8px">Effective rates now: ${esc(effectiveBits.join(" · "))}${bandLabel ? ` · ${esc(bandLabel)} (hour ${scheduleStatus.hour ?? "—"})` : ""}</p>` : ""}
 <p class="field-hint" style="margin:0">Last saved: ${lastUpdated}${historyCount ? ` · ${esc(String(historyCount))} rate snapshot(s) recorded` : ""}</p>
+</div>`;
+  }
+
+  _renderSettingsApi() {
+    return `<header class="header"><h1>API &amp; accounts</h1><p>API keys and account credentials for Fox Cloud, Octopus Energy, Solcast PV forecast, and Glow Bright API. Enable each integration to configure it.</p></header>
+${this._renderFoxApiCredentials()}
+${this._renderOctopusSettings()}
+${this._renderSolcastApiCredentials()}
+${this._renderGlowApiCredentials()}`;
+  }
+
+  _renderFoxApiCredentials() {
+    if (!this._foxCloudDraft) this._initFoxCloudDraft();
+    const draft = this._foxCloudDraft;
+    const live = this._plantState?.fox_cloud ?? {};
+    const keyPlaceholder = draft.api_key_set ? "••••••••  (leave blank to keep)" : "Paste Fox Cloud API key";
+    const sn = live.device_sn || this._plantState?.battery_warmup?.device_sn || this._plantState?.identity?.pcs_serial_number || "";
+    const detailBlock = draft.enabled
+      ? `<div class="field"><label>API key</label>
+<input type="password" autocomplete="off" data-field="fox:api_key" value="${esc(String(draft.api_key || ""))}" placeholder="${esc(keyPlaceholder)}" ${this._busy ? "disabled" : ""}>
+<p class="field-hint">Create a key in the <a class="field-link" href="${esc(FOX_CLOUD_API_DOCS_URL)}" target="_blank" rel="noopener noreferrer">FoxESS Cloud Open API</a> portal (API management).</p>
 </div>
-${this._renderOctopusSettings()}`;
+<div class="field"><label>Device serial (optional)</label>
+<input type="text" data-field="fox:device_sn" value="${esc(String(draft.device_sn || ""))}" placeholder="${esc(sn ? `Auto: ${sn}` : "PCS serial from Modbus")}" ${this._busy ? "disabled" : ""}>
+<p class="field-hint">Leave blank to use the PCS serial from your linked foxess_modbus device.</p>
+</div>
+<div class="btn-row">
+<button type="button" class="btn btn-primary" data-action="save-fox-cloud" ${this._busy ? "disabled" : ""}>Save Fox Cloud</button>
+<button type="button" class="btn btn-secondary" data-action="test-fox-cloud" ${this._busy ? "disabled" : ""}>Test connection</button>
+</div>
+${live.last_error ? `<p class="field-hint" style="margin-top:8px;color:var(--fp-amber)">Last error: ${esc(String(live.last_error))}</p>` : ""}`
+      : "";
+    return `<div class="card">
+<p class="card-title">Fox Cloud API</p>
+<p class="field-hint">FoxESS Open API for battery warmup and other cloud-only inverter settings (not available over Modbus).</p>
+<div class="toggle-row"><span><strong>Enable Fox Cloud API</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Required for <strong>Settings → Battery Warmup</strong></span></span>
+<input type="checkbox" data-field="fox:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+${detailBlock}
+</div>`;
+  }
+
+  _renderSettingsWarmup() {
+    const live = this._plantState?.battery_warmup ?? {};
+    if (!this._warmupDraft) this._initWarmupDraftFromLive(live);
+    const draft = this._warmupDraft;
+    const ready = Boolean(live.fox_api_ready);
+    const loading = this._warmupLoading || (this._busy && this._settingsView === "warmup");
+    if (!ready) {
+      return `<header class="header"><h1>Battery Warmup</h1><p>Pre-heat the battery pack in cold weather using grid power during cheap-rate windows — matches the Fox app <strong>Battery warmup</strong> screen.</p></header>
+<div class="card"><p class="field-hint" style="margin:0">Enable the <strong>Fox Cloud API</strong> under <strong>Settings → API &amp; accounts</strong> and save your API key first. Warmup is controlled via Fox Cloud (not Modbus).</p></div>`;
+    }
+    const ranges = draft.ranges || { start_min: 1, start_max: 9, end_min: 5, end_max: 15 };
+    const tempC = live.battery_temperature_c;
+    const tempDisplay = Number.isFinite(tempC) ? `${Number(tempC).toFixed(1)}°C` : "—";
+    const statusLabel = this._warmupStatusLabel(draft.state || live.state);
+    const slotCards = [0, 1, 2]
+      .map((i) => {
+        const slot = draft.slots[i] || { enabled: false, start: "00:00", end: "00:00" };
+        return `<div class="warmup-slot-card${slot.enabled ? " is-on" : ""}">
+<div class="warmup-slot-head">
+<span class="warmup-slot-time">${esc(slot.start)}–${esc(slot.end)}</span>
+<label class="warmup-slot-toggle"><input type="checkbox" data-field="warmup:slot:${i}:enabled" ${slot.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}><span></span></label>
+</div>
+<div class="warmup-slot-times">
+<label>Start<input type="time" data-field="warmup:slot:${i}:start" value="${esc(slot.start)}" ${this._busy ? "disabled" : ""}></label>
+<label>End<input type="time" data-field="warmup:slot:${i}:end" value="${esc(slot.end)}" ${this._busy ? "disabled" : ""}></label>
+</div>
+</div>`;
+      })
+      .join("");
+    return `<header class="header"><h1>Battery Warmup</h1><p>Grid-assisted battery heating during low-price periods. Settings sync with your inverter via Fox Cloud.</p></header>
+<div class="warmup-hero${draft.enabled ? " is-on" : ""}">
+<div class="warmup-hero-badge">${esc(statusLabel)}</div>
+<div class="warmup-hero-temp">${esc(tempDisplay)}</div>
+<button type="button" class="warmup-power-btn${draft.enabled ? " is-on" : ""}" data-action="warmup-toggle-enabled" aria-label="${draft.enabled ? "Disable battery warmup" : "Enable battery warmup"}" ${this._busy ? "disabled" : ""}>
+<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path fill="currentColor" d="M12 2a1 1 0 0 1 1 1v8.17a3 3 0 1 1-2 0V3a1 1 0 0 1 1-1zm-7.07 4.93a1 1 0 0 1 1.41 0 8 8 0 1 0 11.32 0 1 1 0 1 1 1.41-1.41 10 10 0 1 1-14.14 0 1 1 0 0 1 1.41 0z"/></svg>
+</button>
+<input type="checkbox" data-field="warmup:enabled" ${draft.enabled ? "checked" : ""} hidden>
+</div>
+<div class="card">
+<p class="card-title">Start temperature</p>
+<div class="pv-range-row">
+<input type="range" min="${esc(String(ranges.start_min))}" max="${esc(String(ranges.start_max))}" step="1" data-field="warmup:start_temperature" value="${esc(String(draft.start_temperature))}" ${this._busy ? "disabled" : ""}>
+<span class="pv-range-value" data-warmup-live="start">${esc(String(draft.start_temperature))}°C</span>
+</div>
+<p class="field-hint">Warmup starts when battery temperature falls below this value (${esc(String(ranges.start_min))}–${esc(String(ranges.start_max))}°C).</p>
+</div>
+<div class="card">
+<p class="card-title">End temperature</p>
+<div class="pv-range-row">
+<input type="range" min="${esc(String(ranges.end_min))}" max="${esc(String(ranges.end_max))}" step="1" data-field="warmup:end_temperature" value="${esc(String(draft.end_temperature))}" ${this._busy ? "disabled" : ""}>
+<span class="pv-range-value" data-warmup-live="end">${esc(String(draft.end_temperature))}°C</span>
+</div>
+<p class="field-hint">Warmup stops once the pack reaches this target (${esc(String(ranges.end_min))}–${esc(String(ranges.end_max))}°C).</p>
+</div>
+<div class="card">
+<p class="card-title">Warmup slots in low price</p>
+<p class="field-hint">During these windows, grid power is allowed to warm the battery (up to three slots, like the Fox app).</p>
+<div class="warmup-slot-list">${slotCards}</div>
+</div>
+<div class="btn-row">
+<button type="button" class="btn btn-primary" data-action="save-battery-warmup" ${this._busy ? "disabled" : ""}>Save warmup</button>
+<button type="button" class="btn btn-secondary" data-action="fetch-battery-warmup" ${this._busy ? "disabled" : ""}>${loading ? "Refreshing…" : "Refresh from inverter"}</button>
+</div>
+<p class="field-hint" style="margin-top:8px">Device: ${esc(String(live.device_sn || "—"))}${live.state ? ` · ${esc(String(live.state))}` : ""}</p>`;
+  }
+
+  _renderSolcastApiCredentials() {
+    if (!this._solcastDraft) this._initSolcastDraft();
+    const draft = this._solcastDraft;
+    const keyPlaceholder = draft.api_key_set ? "••••••••  (leave blank to keep)" : "Paste Solcast API key";
+    const detailBlock = draft.enabled
+      ? `<div class="field"><label>API key</label>
+<input type="password" autocomplete="off" data-field="solcast:api_key" value="${esc(String(draft.api_key || ""))}" placeholder="${esc(keyPlaceholder)}" ${this._busy ? "disabled" : ""}></div>
+<div class="field"><label>API limit (requests per day)</label>
+<p class="field-hint">Hobbyist plans are typically 10/day — used to spread automatic polling.</p>
+<input type="number" min="1" max="50" step="1" data-field="solcast:api_limit" value="${esc(String(draft.api_limit))}" ${this._busy ? "disabled" : ""}></div>
+<div class="btn-row">
+<button type="button" class="btn btn-primary" data-action="save-solcast-settings" ${this._busy ? "disabled" : ""}>Save Solcast API</button>
+<button type="button" class="btn btn-secondary" data-action="test-solcast" ${this._busy ? "disabled" : ""}>Test connection</button>
+</div>
+<p class="field-hint" style="margin-top:8px">Site location, schedule, and PV strings are under <strong>Settings → Solcast</strong>. Test lists your Home PV systems (does not use daily forecast quota).</p>`
+      : "";
+    return `<div class="card">
+<p class="card-title">Solcast</p>
+<p class="field-hint">Register a free <a class="field-link" href="${esc(SOLCAST_HOBBYIST_URL)}" target="_blank" rel="noopener noreferrer">Home PV System</a> account (10 API requests/day). All quota goes to PV forecasts — no weather calls.</p>
+<div class="toggle-row"><span><strong>Enable Solcast PV forecast</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Replaces a third-party Solcast integration for chart PV lines</span></span>
+<input type="checkbox" data-field="solcast:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+${detailBlock}
+</div>`;
+  }
+
+  _renderGlowApiCredentials() {
+    if (!this._glowDraft) this._initGlowDraft();
+    const draft = this._glowDraft;
+    const pwPlaceholder = draft.password_set ? "••••••••  (leave blank to keep)" : "Bright app password";
+    const apiOn = Boolean(draft.api_enabled);
+    const detailBlock = apiOn
+      ? `<div class="field"><label>Bright username</label>
+<input type="text" autocomplete="username" data-field="glow:username" value="${esc(String(draft.username || ""))}" ${this._busy ? "disabled" : ""}></div>
+<div class="field"><label>Bright password</label>
+<input type="password" autocomplete="current-password" data-field="glow:password" value="${esc(String(draft.password || ""))}" placeholder="${esc(pwPlaceholder)}" ${this._busy ? "disabled" : ""}></div>
+<div class="field"><label>Import resource ID</label>
+<input type="text" data-field="glow:import_resource_id" value="${esc(String(draft.import_resource_id || ""))}" placeholder="Auto-discovered on test" ${this._busy ? "disabled" : ""}></div>
+<div class="btn-row">
+<button type="button" class="btn btn-primary" data-action="save-glow-settings" ${this._busy ? "disabled" : ""}>Save Glow API</button>
+<button type="button" class="btn btn-secondary" data-action="test-glow" ${this._busy ? "disabled" : ""}>Test Bright API</button>
+</div>`
+      : `<p class="field-hint" style="margin:8px 0 0">Turn on <strong>API access</strong> under <strong>Settings → Glow smart meter</strong> to configure Bright credentials here.</p>`;
+    return `<div class="card">
+<p class="card-title">Glow Bright API</p>
+<p class="field-hint">Cloud fallback for resource discovery and historical readings. Same credentials as the Bright mobile app.</p>
+${detailBlock}
+</div>`;
   }
 
   _renderOctopusSettings() {
@@ -20663,12 +21197,8 @@ ${exportMeters.length > 1 ? `<div class="field"><label>Export MPAN (SEG)</label>
       native && draft.enabled && connected && !agile
         ? "Fixed tariffs update the daily schedule automatically when rates are fetched."
         : "";
-    return `<div class="card">
-<p class="card-title">Octopus Energy</p>
-<p class="field-hint" style="margin:0 0 12px">Native Octopus polling for Go, Economy 7, flat SVT, and Agile. ${scheduleAutoHint || "Fixed tariffs sync the 24-hour schedule on fetch; Agile updates plugin import/export sensors every 30 minutes (including negative rates)."}</p>
-<div class="toggle-row"><span><strong>Enable Octopus tariff link</strong></span>
-<input type="checkbox" data-field="octopus:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
-<div class="field"><label>Rate source</label>
+    const detailBlock = draft.enabled
+      ? `<div class="field"><label>Rate source</label>
 <select data-field="octopus:source" ${this._busy ? "disabled" : ""}>
 <option value="native" ${native ? "selected" : ""}>Native API (recommended)</option>
 <option value="entity" ${!native ? "selected" : ""}>External Home Assistant sensors</option>
@@ -20677,10 +21207,17 @@ ${exportMeters.length > 1 ? `<div class="field"><label>Export MPAN (SEG)</label>
 ${entityBlock}
 <div class="btn-row">
 <button type="button" class="btn btn-secondary" data-action="test-octopus" ${this._busy || !native ? "disabled" : ""}>Test connection</button>
-<button type="button" class="btn btn-secondary" data-action="fetch-octopus" ${this._busy || !draft.enabled || !native ? "disabled" : ""}>Fetch rates now</button>
+<button type="button" class="btn btn-secondary" data-action="fetch-octopus" ${this._busy || !native ? "disabled" : ""}>Fetch rates now</button>
 <button type="button" class="btn btn-primary" data-action="save-octopus-settings" ${this._busy ? "disabled" : ""}>Save Octopus</button>
 </div>
-${statusLines.length ? `<p class="field-hint" style="margin:12px 0 0">${statusLines.map((l) => esc(l)).join("<br>")}</p>` : ""}
+${statusLines.length ? `<p class="field-hint" style="margin:12px 0 0">${statusLines.map((l) => esc(l)).join("<br>")}</p>` : ""}`
+      : "";
+    return `<div class="card">
+<p class="card-title">Octopus Energy</p>
+<p class="field-hint" style="margin:0 0 12px">Native Octopus polling for Go, Economy 7, flat SVT, and Agile. ${scheduleAutoHint || "Fixed tariffs sync the 24-hour schedule on fetch; Agile updates plugin import/export sensors every 30 minutes (including negative rates)."}</p>
+<div class="toggle-row"><span><strong>Enable Octopus tariff link</strong></span>
+<input type="checkbox" data-field="octopus:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+${detailBlock}
 </div>`;
   }
 
@@ -20688,7 +21225,6 @@ ${statusLines.length ? `<p class="field-hint" style="margin:12px 0 0">${statusLi
     if (!this._solcastDraft) this._initSolcastDraft();
     const draft = this._solcastDraft;
     const live = this._plantState?.solcast ?? {};
-    const keyPlaceholder = draft.api_key_set ? "••••••••  (leave blank to keep)" : "Paste Solcast API key";
     const coordConfigured = Boolean(live.coordinates_configured);
     const coordDisplay =
       live.coordinates?.latitude != null && live.coordinates?.longitude != null
@@ -20729,18 +21265,7 @@ ${statusLines.length ? `<p class="field-hint" style="margin:12px 0 0">${statusLi
     } else if (sched && draft.auto_update === "all_day") {
       scheduleHint = `<p class="field-hint">24 h mode: about <strong>${esc(String(sched.interval_minutes ?? "—"))}</strong> min between refreshes.</p>`;
     }
-    return `<header class="header"><h1>Solcast</h1><p><a class="field-link" href="${esc(SOLCAST_API_DOCS_URL)}" target="_blank" rel="noopener noreferrer">Solcast hobbyist API</a> for <strong>rooftop PV forecast</strong> only — overview weather and StormSafe stay on Google Weather.</p></header>
-<div class="card">
-<p class="card-title">Account</p>
-<p class="field-hint">Register a free <a class="field-link" href="${esc(SOLCAST_HOBBYIST_URL)}" target="_blank" rel="noopener noreferrer">Home PV System</a> account (10 API requests/day). All quota goes to PV forecasts — no weather calls.</p>
-<div class="toggle-row"><span><strong>Enable Solcast PV forecast</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Replaces a third-party Solcast integration for chart PV lines</span></span>
-<input type="checkbox" data-field="solcast:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
-<div class="field"><label>API key</label>
-<input type="password" autocomplete="off" data-field="solcast:api_key" value="${esc(String(draft.api_key || ""))}" placeholder="${esc(keyPlaceholder)}" ${this._busy ? "disabled" : ""}></div>
-<div class="field"><label>API limit (requests per day)</label>
-<p class="field-hint">Hobbyist plans are typically 10/day — used to spread automatic polling.</p>
-<input type="number" min="1" max="50" step="1" data-field="solcast:api_limit" value="${esc(String(draft.api_limit))}" ${this._busy ? "disabled" : ""}></div>
-</div>
+    return `<header class="header"><h1>Solcast</h1><p><a class="field-link" href="${esc(SOLCAST_API_DOCS_URL)}" target="_blank" rel="noopener noreferrer">Solcast hobbyist API</a> for <strong>rooftop PV forecast</strong> only — overview weather and StormSafe stay on Google Weather. API key and account settings are under <strong>Settings → API &amp; accounts</strong>.</p></header>
 <div class="card">
 <p class="card-title">Auto update</p>
 <div class="field"><label>Schedule</label>
@@ -20806,7 +21331,6 @@ ${this._renderPvTiltAzimuthFields("pv2", { allowWhenDisabled: true })}
   _renderSettingsGlow() {
     if (!this._glowDraft) this._initGlowDraft();
     const draft = this._glowDraft;
-    const pwPlaceholder = draft.password_set ? "••••••••" : "Bright app password";
     return `<header class="header"><h1>Glow smart meter</h1><p>Optional Hildebrand Glow IHD for <strong>live grid import</strong> from your SMETS2 meter. PV production always comes from the Fox plant — Glow replaces only grid-side readings.</p></header>
 <div class="card">
 <p class="card-title">Enable</p>
@@ -20830,12 +21354,7 @@ ${this._renderPvTiltAzimuthFields("pv2", { allowWhenDisabled: true })}
 <p class="field-hint">Cloud fallback for resource discovery and historical readings. Same credentials as the Bright mobile app.</p>
 <div class="toggle-row"><span><strong>API access</strong></span>
 <input type="checkbox" data-field="glow:api_enabled" ${draft.api_enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
-<div class="field"><label>Bright username</label>
-<input type="text" autocomplete="username" data-field="glow:username" value="${esc(String(draft.username || ""))}" ${this._busy ? "disabled" : ""}></div>
-<div class="field"><label>Bright password</label>
-<input type="password" autocomplete="current-password" data-field="glow:password" value="${esc(String(draft.password || ""))}" placeholder="${esc(pwPlaceholder)}" ${this._busy ? "disabled" : ""}></div>
-<div class="field"><label>Import resource ID</label>
-<input type="text" data-field="glow:import_resource_id" value="${esc(String(draft.import_resource_id || ""))}" placeholder="Auto-discovered on test" ${this._busy ? "disabled" : ""}></div>
+<p class="field-hint" style="margin:8px 0 0">Bright username, password, and resource ID are under <strong>Settings → API &amp; accounts</strong>.</p>
 </div>
 <div class="card">
 <p class="card-title">Status</p>
@@ -20870,6 +21389,8 @@ ${active
         return this._renderSettingsWorkMode();
       case "pv":
         return this._renderSettingsPv();
+      case "api":
+        return this._renderSettingsApi();
       case "tariff":
         return this._renderSettingsTariff();
       case "smart":
@@ -20880,6 +21401,8 @@ ${active
         return this._renderSettingsGlow();
       case "storm":
         return this._renderSettingsStorm();
+      case "warmup":
+        return this._renderSettingsWarmup();
       case "control":
         return this._renderSettingsControl();
       default:
@@ -20998,6 +21521,8 @@ ${active
     }
     if (this._view === "settings" && this._settingsView === "tariff" && this._tariffDraft) {
       void this._syncTariffEntityPickers();
+    }
+    if (this._view === "settings" && this._settingsView === "api" && this._octopusDraft) {
       void this._syncOctopusEntityPickers();
     }
     if (this._view === "settings" && this._settingsView === "smart") {

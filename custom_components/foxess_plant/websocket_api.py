@@ -42,6 +42,10 @@ WS_TYPE_UPDATE_SOLCAST = "foxess_plant/update_solcast"
 WS_TYPE_TEST_SOLCAST = "foxess_plant/test_solcast"
 WS_TYPE_UPDATE_GLOW = "foxess_plant/update_glow"
 WS_TYPE_TEST_GLOW = "foxess_plant/test_glow"
+WS_TYPE_UPDATE_FOX_CLOUD = "foxess_plant/update_fox_cloud"
+WS_TYPE_TEST_FOX_CLOUD = "foxess_plant/test_fox_cloud"
+WS_TYPE_FETCH_BATTERY_WARMUP = "foxess_plant/fetch_battery_warmup"
+WS_TYPE_UPDATE_BATTERY_WARMUP = "foxess_plant/update_battery_warmup"
 WS_TYPE_FETCH_HISTORY = "foxess_plant/fetch_history"
 WS_TYPE_FETCH_STATISTICS = "foxess_plant/fetch_statistics"
 WS_TYPE_SOLCAST_FORECAST_INTRADAY = "foxess_plant/solcast_forecast_intraday"
@@ -108,6 +112,31 @@ GLOW_SCHEMA = vol.Schema(
         vol.Optional("import_resource_id"): vol.Any(str, None),
         vol.Optional("export_resource_id"): vol.Any(str, None),
         vol.Optional("fetch_now", default=True): cv.boolean,
+    }
+)
+
+FOX_CLOUD_SCHEMA = vol.Schema(
+    {
+        vol.Required("enabled"): cv.boolean,
+        vol.Optional("api_key"): vol.Any(str, None),
+        vol.Optional("device_sn"): vol.Any(str, None),
+    }
+)
+
+BATTERY_WARMUP_SLOT_SCHEMA = vol.Schema(
+    {
+        vol.Required("enabled"): cv.boolean,
+        vol.Required("start"): cv.string,
+        vol.Required("end"): cv.string,
+    }
+)
+
+BATTERY_WARMUP_SCHEMA = vol.Schema(
+    {
+        vol.Required("enabled"): cv.boolean,
+        vol.Required("start_temperature"): vol.All(vol.Coerce(int), vol.Range(min=1, max=15)),
+        vol.Required("end_temperature"): vol.All(vol.Coerce(int), vol.Range(min=1, max=20)),
+        vol.Required("slots"): vol.All(cv.ensure_list, [BATTERY_WARMUP_SLOT_SCHEMA]),
     }
 )
 
@@ -1001,6 +1030,105 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
 
     @websocket_api.websocket_command(
         {
+            vol.Required("type"): WS_TYPE_UPDATE_FOX_CLOUD,
+            vol.Optional("plant_id"): str,
+            vol.Required("fox_cloud"): FOX_CLOUD_SCHEMA,
+        }
+    )
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def ws_update_fox_cloud(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        try:
+            await coordinator.async_save_fox_cloud(fox_cloud=dict(msg["fox_cloud"]))
+        except HomeAssistantError as err:
+            connection.send_error(msg["id"], "fox_cloud_save_failed", str(err))
+            return
+        connection.send_result(msg["id"], coordinator.get_plant_state())
+
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): WS_TYPE_TEST_FOX_CLOUD,
+            vol.Optional("plant_id"): str,
+            vol.Optional("api_key"): str,
+        }
+    )
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def ws_test_fox_cloud(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        try:
+            result = await coordinator.async_test_fox_cloud(api_key=msg.get("api_key"))
+        except HomeAssistantError as err:
+            connection.send_error(msg["id"], "fox_cloud_test_failed", str(err))
+            return
+        connection.send_result(msg["id"], {**result, "plant_state": coordinator.get_plant_state()})
+
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): WS_TYPE_FETCH_BATTERY_WARMUP,
+            vol.Optional("plant_id"): str,
+        }
+    )
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def ws_fetch_battery_warmup(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        try:
+            warmup = await coordinator.async_fetch_battery_warmup()
+        except HomeAssistantError as err:
+            connection.send_error(msg["id"], "battery_warmup_fetch_failed", str(err))
+            return
+        connection.send_result(msg["id"], {"warmup": warmup, "plant_state": coordinator.get_plant_state()})
+
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): WS_TYPE_UPDATE_BATTERY_WARMUP,
+            vol.Optional("plant_id"): str,
+            vol.Required("warmup"): BATTERY_WARMUP_SCHEMA,
+        }
+    )
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def ws_update_battery_warmup(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        try:
+            warmup = await coordinator.async_save_battery_warmup(warmup=dict(msg["warmup"]))
+        except HomeAssistantError as err:
+            connection.send_error(msg["id"], "battery_warmup_save_failed", str(err))
+            return
+        connection.send_result(msg["id"], {"warmup": warmup, "plant_state": coordinator.get_plant_state()})
+
+    @websocket_api.websocket_command(
+        {
             vol.Required("type"): WS_TYPE_FETCH_HISTORY,
             vol.Required("start_time"): str,
             vol.Optional("end_time"): str,
@@ -1268,6 +1396,10 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_test_solcast)
     websocket_api.async_register_command(hass, ws_update_glow)
     websocket_api.async_register_command(hass, ws_test_glow)
+    websocket_api.async_register_command(hass, ws_update_fox_cloud)
+    websocket_api.async_register_command(hass, ws_test_fox_cloud)
+    websocket_api.async_register_command(hass, ws_fetch_battery_warmup)
+    websocket_api.async_register_command(hass, ws_update_battery_warmup)
     websocket_api.async_register_command(hass, ws_fetch_history)
     websocket_api.async_register_command(hass, ws_fetch_statistics)
     websocket_api.async_register_command(hass, ws_solcast_forecast_intraday)

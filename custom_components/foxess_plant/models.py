@@ -716,6 +716,64 @@ def merge_glow_config(
 
 
 @dataclass
+class FoxCloudConfig:
+    """FoxESS Cloud Open API credentials."""
+
+    enabled: bool = False
+    api_key: str | None = None
+    device_sn: str | None = None
+    last_error: str | None = None
+    last_fetch_at: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> FoxCloudConfig:
+        from .const import DEFAULT_FOX_CLOUD
+
+        raw = {**DEFAULT_FOX_CLOUD, **(data if isinstance(data, dict) else {})}
+        device_sn = raw.get("device_sn")
+        return cls(
+            enabled=bool(raw.get("enabled", False)),
+            api_key=str(raw["api_key"]) if raw.get("api_key") else None,
+            device_sn=str(device_sn).strip() if device_sn else None,
+            last_error=str(raw["last_error"]) if raw.get("last_error") else None,
+            last_fetch_at=str(raw["last_fetch_at"]) if raw.get("last_fetch_at") else None,
+        )
+
+    def api_key_configured(self) -> bool:
+        return bool(self.api_key and str(self.api_key).strip())
+
+    def to_dict(self, *, include_api_key: bool = True) -> dict[str, Any]:
+        out: dict[str, Any] = {
+            "enabled": self.enabled,
+            "device_sn": self.device_sn,
+            "last_error": self.last_error,
+            "last_fetch_at": self.last_fetch_at,
+        }
+        if include_api_key:
+            out["api_key"] = self.api_key
+        else:
+            out["api_key_set"] = self.api_key_configured()
+        return out
+
+
+def merge_fox_cloud_config(
+    current: dict[str, Any],
+    incoming: dict[str, Any],
+) -> dict[str, Any]:
+    """Merge panel Fox Cloud settings without clearing a stored API key."""
+    merged = {**current, **incoming}
+    if "api_key" in incoming:
+        raw_key = incoming.get("api_key")
+        if raw_key and str(raw_key).strip() and str(raw_key) not in ("********", "••••••••"):
+            merged["api_key"] = str(raw_key).strip()
+        else:
+            merged["api_key"] = current.get("api_key")
+    if "device_sn" in incoming and not str(incoming.get("device_sn") or "").strip():
+        merged["device_sn"] = current.get("device_sn")
+    return merged
+
+
+@dataclass
 class TariffDynamicConfig:
     """Octopus API or external entity-backed dynamic tariffs (e.g. Agile)."""
 
@@ -1041,6 +1099,7 @@ class PlantConfig:
     pv_config: PvSystemConfig = field(default_factory=PvSystemConfig)
     solcast: SolcastConfig = field(default_factory=SolcastConfig)
     glow: GlowConfig = field(default_factory=GlowConfig)
+    fox_cloud: FoxCloudConfig = field(default_factory=FoxCloudConfig)
     tariff: TariffConfig = field(default_factory=TariffConfig)
     tariff_modes: dict[str, list[ChargePeriodConfig]] = field(default_factory=dict)
 
@@ -1057,6 +1116,7 @@ class PlantConfig:
             DEFAULT_STORM_PREP,
             DEFAULT_TARIFF,
             DEFAULT_GLOW,
+            DEFAULT_FOX_CLOUD,
         )
 
         baseline = [ChargePeriodConfig.from_dict(p) for p in data.get("baseline_periods", DEFAULT_BASELINE_PERIODS)]
@@ -1086,6 +1146,7 @@ class PlantConfig:
             pv_config=PvSystemConfig.from_dict(data.get("pv_config", DEFAULT_PV_CONFIG)),
             solcast=SolcastConfig.from_dict(data.get("solcast", DEFAULT_SOLCAST)),
             glow=GlowConfig.from_dict(data.get("glow", DEFAULT_GLOW)),
+            fox_cloud=FoxCloudConfig.from_dict(data.get("fox_cloud", DEFAULT_FOX_CLOUD)),
             tariff=TariffConfig.from_dict(data.get("tariff", DEFAULT_TARIFF)),
             tariff_modes=tariff_modes,
         )
@@ -1107,6 +1168,7 @@ class PlantConfig:
             "pv_config": self.pv_config.to_dict(),
             "solcast": self.solcast.to_dict(),
             "glow": self.glow.to_dict(),
+            "fox_cloud": self.fox_cloud.to_dict(include_secrets=True),
             "tariff": self.tariff.to_dict(include_secrets=True),
             "tariff_modes": {
                 name: [p.to_dict() for p in periods] for name, periods in self.tariff_modes.items()

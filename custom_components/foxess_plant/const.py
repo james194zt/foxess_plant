@@ -19,6 +19,7 @@ CONF_PANEL_DISPLAY = "panel_display"
 CONF_PV_CONFIG = "pv_config"
 CONF_SOLCAST = "solcast"
 CONF_GLOW = "glow"
+CONF_FOX_CLOUD = "fox_cloud"
 CONF_TARIFF = "tariff"
 CONF_TARIFF_MODES = "tariff_modes"
 
@@ -439,6 +440,14 @@ DEFAULT_PV_STRING = {
     "tilt": 25,
     "azimuth": 180,
     "installation_cost_minor": 0,
+}
+
+DEFAULT_FOX_CLOUD = {
+    "enabled": False,
+    "api_key": None,
+    "device_sn": None,
+    "last_error": None,
+    "last_fetch_at": None,
 }
 
 DEFAULT_GLOW = {

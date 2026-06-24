@@ -37,6 +37,7 @@ from .const import (
     CONF_SMART_CHARGE,
     CONF_SOLCAST,
     CONF_GLOW,
+    CONF_FOX_CLOUD,
     CONF_STORM_PREP,
     CONF_TARIFF,
     CHARGE_PERIOD_KEYS,
@@ -74,6 +75,7 @@ from .models import (
     TariffConfig,
     TariffDynamicConfig,
     GlowConfig,
+    FoxCloudConfig,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -145,6 +147,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._glow_live: dict[str, Any] = {}
         self._glow_unsub_mqtt: callable | None = None
         self._glow_sensors: dict[str, Any] = {}
+        self._battery_warmup_live: dict[str, Any] = {}
         super().__init__(
             hass,
             _LOGGER,
@@ -2029,6 +2032,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "pv_config": self.plant.pv_config.to_dict(),
             "solcast": self._solcast_state(),
             "glow": self._glow_state(),
+            "fox_cloud": self._fox_cloud_state(),
+            "battery_warmup": self._battery_warmup_state(),
             "tariff": self._tariff_state(),
             "panel_runtime": get_panel_disk_info(self.hass),
             "settings": {
@@ -2243,6 +2248,143 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ],
         }
 
+
+    def _fox_cloud_state(self) -> dict[str, Any]:
+        out = self.plant.fox_cloud.to_dict(include_api_key=False)
+        out["device_sn"] = self.resolve_fox_device_sn()
+        return out
+
+    def _battery_warmup_state(self) -> dict[str, Any]:
+        from .battery_warmup import default_battery_warmup_config
+
+        live = self._battery_warmup_live if isinstance(self._battery_warmup_live, dict) else {}
+        base = default_battery_warmup_config()
+        merged = {**base, **{k: v for k, v in live.items() if v is not None}}
+        if isinstance(live.get("slots"), list) and live["slots"]:
+            merged["slots"] = live["slots"]
+        if isinstance(live.get("ranges"), dict) and live["ranges"]:
+            merged["ranges"] = {**base["ranges"], **live["ranges"]}
+        temp = self._entity_float("bms_temp_low")
+        if temp is None:
+            temp = self._entity_float("battery_temp")
+        merged["battery_temperature_c"] = temp
+        merged["device_sn"] = self.resolve_fox_device_sn()
+        merged["fox_api_ready"] = bool(
+            self.plant.fox_cloud.enabled and self.plant.fox_cloud.api_key_configured() and merged["device_sn"]
+        )
+        return merged
+
+    def resolve_fox_device_sn(self) -> str | None:
+        configured = self.plant.fox_cloud.device_sn
+        if configured and str(configured).strip():
+            return str(configured).strip()
+        identity = self._read_identity()
+        serial = identity.get("pcs_serial_number")
+        if serial and str(serial).strip() not in ("", "unknown", "unavailable"):
+            return str(serial).strip()
+        return None
+
+    def _fox_cloud_client(self):
+        from .fox_cloud_api import FoxCloudClient
+
+        return FoxCloudClient(self.hass, api_key=str(self.plant.fox_cloud.api_key or ""))
+
+    async def async_save_fox_cloud(self, *, fox_cloud: dict[str, Any]) -> None:
+        from .models import merge_fox_cloud_config
+
+        current = self.plant.fox_cloud.to_dict()
+        merged = merge_fox_cloud_config(current, fox_cloud)
+        cfg = FoxCloudConfig.from_dict(merged)
+        if cfg.enabled and not cfg.api_key_configured():
+            raise HomeAssistantError("Fox Cloud API key is required when enabled")
+        data = dict(self.config_entry.data)
+        data[CONF_FOX_CLOUD] = cfg.to_dict()
+        self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+        self.update_plant_config(PlantConfig.from_entry_data(data))
+        await self.async_request_refresh()
+
+    async def async_test_fox_cloud(self, *, api_key: str | None = None) -> dict[str, Any]:
+        from .fox_cloud_api import FoxCloudApiError, FoxCloudClient
+
+        fox = self.plant.fox_cloud
+        key = (api_key or fox.api_key or "").strip()
+        if not key:
+            raise HomeAssistantError("Fox Cloud API key required")
+        sn = self.resolve_fox_device_sn()
+        if not sn:
+            raise HomeAssistantError("Inverter serial number required — set device SN or link PCS serial from Modbus")
+        client = FoxCloudClient(self.hass, api_key=key)
+        try:
+            result = await client.get_battery_heating(sn)
+            from .battery_warmup import parse_battery_heating_result
+
+            parsed = parse_battery_heating_result(result)
+            return {"device_sn": sn, "warmup": parsed}
+        except FoxCloudApiError as err:
+            raise HomeAssistantError(str(err)) from err
+
+    async def async_fetch_battery_warmup(self) -> dict[str, Any]:
+        from .battery_warmup import parse_battery_heating_result
+        from .fox_cloud_api import FoxCloudApiError
+        from homeassistant.util import dt as dt_util
+
+        fox = self.plant.fox_cloud
+        if not fox.enabled or not fox.api_key_configured():
+            raise HomeAssistantError("Enable Fox Cloud API under Settings → API & accounts")
+        sn = self.resolve_fox_device_sn()
+        if not sn:
+            raise HomeAssistantError("Inverter serial number required for battery warmup")
+        client = self._fox_cloud_client()
+        try:
+            result = await client.get_battery_heating(sn)
+            parsed = parse_battery_heating_result(result)
+            self._battery_warmup_live = parsed
+            fox.last_error = None
+            fox.last_fetch_at = dt_util.utcnow().isoformat()
+            data = dict(self.config_entry.data)
+            data[CONF_FOX_CLOUD] = fox.to_dict()
+            self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+            await self.async_request_refresh()
+            return parsed
+        except FoxCloudApiError as err:
+            fox.last_error = str(err)
+            raise HomeAssistantError(str(err)) from err
+
+    async def async_save_battery_warmup(self, *, warmup: dict[str, Any]) -> dict[str, Any]:
+        from .battery_warmup import (
+            build_battery_heating_set_payload,
+            parse_battery_heating_result,
+            validate_battery_warmup_config,
+        )
+        from .fox_cloud_api import FoxCloudApiError
+        from homeassistant.util import dt as dt_util
+
+        fox = self.plant.fox_cloud
+        if not fox.enabled or not fox.api_key_configured():
+            raise HomeAssistantError("Enable Fox Cloud API under Settings → API & accounts")
+        sn = self.resolve_fox_device_sn()
+        if not sn:
+            raise HomeAssistantError("Inverter serial number required for battery warmup")
+        err = validate_battery_warmup_config(warmup)
+        if err:
+            raise HomeAssistantError(err)
+        payload = build_battery_heating_set_payload(warmup)
+        client = self._fox_cloud_client()
+        try:
+            await client.set_battery_heating(sn, payload)
+            result = await client.get_battery_heating(sn)
+            parsed = parse_battery_heating_result(result)
+            self._battery_warmup_live = parsed
+            fox.last_error = None
+            fox.last_fetch_at = dt_util.utcnow().isoformat()
+            data = dict(self.config_entry.data)
+            data[CONF_FOX_CLOUD] = fox.to_dict()
+            self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+            await self.async_request_refresh()
+            return parsed
+        except FoxCloudApiError as api_err:
+            fox.last_error = str(api_err)
+            raise HomeAssistantError(str(api_err)) from api_err
 
     def _read_impact(self) -> dict[str, Any]:
         states = {key: self._entity_state(key) for key in IMPACT_ENTITY_SUFFIXES}
