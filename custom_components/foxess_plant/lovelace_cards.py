@@ -16,7 +16,6 @@ from .const import PANEL_STATIC_URL
 _LOGGER = logging.getLogger(__name__)
 
 _FLOW_SCENE_CARD_FILE = "fox-flow-scene-card.js"
-_FLOW_SCENE_REGISTER_FILE = "fox-flow-scene-card-register.js"
 _LOVELACE_REGISTER_KEY = "_foxess_plant_lovelace_cards_registered"
 _MAX_LOVELACE_RETRIES = 24
 
@@ -27,18 +26,8 @@ def _integration_version() -> str:
         return json.load(handle).get("version", "0")
 
 
-def flow_scene_card_resource_urls() -> list[str]:
-    """Card implementation first, picker registration second."""
-    version = _integration_version()
-    base = PANEL_STATIC_URL
-    return [
-        f"{base}/{_FLOW_SCENE_CARD_FILE}?v={version}",
-        f"{base}/{_FLOW_SCENE_REGISTER_FILE}?v={version}",
-    ]
-
-
 def flow_scene_card_resource_url() -> str:
-    return flow_scene_card_resource_urls()[0]
+    return f"{PANEL_STATIC_URL}/{_FLOW_SCENE_CARD_FILE}?v={_integration_version()}"
 
 
 def _resource_path(url: str) -> str:
@@ -84,12 +73,11 @@ def _get_storage_resources(hass: HomeAssistant) -> Any | None:
 
 
 async def async_register_lovelace_cards(hass: HomeAssistant, *, _retry: int = 0) -> None:
-    """Add or update the Fox Flow Scene card modules in Lovelace resources."""
+    """Add or update the Fox Flow Scene card module in Lovelace resources."""
     version = _integration_version()
-    urls = flow_scene_card_resource_urls()
+    url = flow_scene_card_resource_url()
 
-    for url in urls:
-        _register_frontend_module(hass, url)
+    _register_frontend_module(hass, url)
 
     if hass.data.get(_LOVELACE_REGISTER_KEY) == version:
         return
@@ -106,16 +94,16 @@ async def async_register_lovelace_cards(hass: HomeAssistant, *, _retry: int = 0)
 
         hass.data[_LOVELACE_REGISTER_KEY] = version
         _LOGGER.info(
-            "Fox Flow Scene card registered as frontend modules — "
-            "hard-refresh the browser, then Add card → By card → search Fox Flow Scene"
+            "Fox Flow Scene card registered as frontend module %s — "
+            "hard-refresh the browser, then Add card → By card → search Fox Flow Scene",
+            url,
         )
         return
 
     try:
         if not getattr(resources, "loaded", False):
             await resources.async_load()
-        for url in urls:
-            await _async_upsert_flow_scene_resource(hass, resources, url, version)
+        await _async_upsert_flow_scene_resource(hass, resources, url, version)
         hass.data[_LOVELACE_REGISTER_KEY] = version
         _LOGGER.info(
             "Fox Flow Scene Lovelace card v%s registered — "
@@ -126,8 +114,9 @@ async def async_register_lovelace_cards(hass: HomeAssistant, *, _retry: int = 0)
         if _retry >= _MAX_LOVELACE_RETRIES:
             _LOGGER.exception(
                 "Fox Flow Scene Lovelace storage resource failed after %s attempts; "
-                "frontend module URLs are still active",
+                "frontend module URL %s is still active",
                 _MAX_LOVELACE_RETRIES,
+                url,
             )
             hass.data[_LOVELACE_REGISTER_KEY] = version
             return
@@ -155,10 +144,10 @@ async def _async_upsert_flow_scene_resource(
     if existing:
         current = existing[0]
         if _resource_version(current.get("url", "")) != version:
-            _LOGGER.info("Updating Fox Flow Scene Lovelace resource to v%s (%s)", version, path)
+            _LOGGER.info("Updating Fox Flow Scene Lovelace card to v%s", version)
             await resources.async_update_item(current["id"], payload)
     else:
-        _LOGGER.info("Registering Fox Flow Scene Lovelace resource v%s (%s)", version, path)
+        _LOGGER.info("Registering Fox Flow Scene Lovelace card v%s", version)
         await resources.async_create_item(payload)
 
 

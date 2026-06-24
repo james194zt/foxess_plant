@@ -1,8 +1,152 @@
 /**
- * Lovelace card: Fox ESS live energy flow house scene (matches Fox Plant overview).
+ * Lovelace card: Fox ESS live energy flow house scene (Fox Plant overview).
  * Resource: /foxess_plant_panel/fox-flow-scene-card.js (type: module)
- * Picker: /foxess_plant_panel/fox-flow-scene-card-register.js (loads after this file)
+ *
+ * Bootstrap (define + picker) runs first so the Add-card dialog never waits on
+ * a 600-line module still parsing. Full scene logic attaches at file end.
  */
+const FoxFlowScene = {
+  ready: false,
+
+  getStubConfig() {
+    return { show_weather: true };
+  },
+
+  getConfigForm() {
+    return {
+      schema: [
+        { name: "plant_id", selector: { text: {} } },
+        { name: "weather_entity", selector: { entity: { domain: ["weather"] } } },
+        { name: "show_weather", default: true, selector: { boolean: {} } },
+      ],
+      computeLabel: (schema) => {
+        if (schema.name === "plant_id") return "FoxESS Plant entry ID (optional)";
+        if (schema.name === "weather_entity") return "Weather entity (optional)";
+        if (schema.name === "show_weather") return "Show weather on scene";
+        return undefined;
+      },
+      computeHelper: (schema) => {
+        if (schema.name === "plant_id") {
+          return "Leave blank to auto-discover FoxESS entities from your installation.";
+        }
+        return undefined;
+      },
+    };
+  },
+
+  setConfig(el, config) {
+    if (!config) throw new Error("Invalid configuration");
+    el._config = config;
+    el._plantState = null;
+    el._plantMap = null;
+    el._flowKey = null;
+    if (FoxFlowScene.ready) FoxFlowScene.schedulePlantPoll(el);
+    FoxFlowScene.render(el);
+  },
+
+  setHass(el, hass) {
+    el._hass = hass;
+    FoxFlowScene.render(el);
+  },
+
+  connectedCallback(el) {
+    if (FoxFlowScene.ready) FoxFlowScene.schedulePlantPoll(el);
+  },
+
+  disconnectedCallback(el) {
+    if (el._plantPollTimer) {
+      clearInterval(el._plantPollTimer);
+      el._plantPollTimer = null;
+    }
+  },
+
+  render(el) {
+    if (!el.shadowRoot) return;
+    if (!FoxFlowScene.ready || !el._hass) {
+      el.shadowRoot.innerHTML =
+        '<style>:host{display:block}.p{padding:24px 16px;text-align:center;color:var(--secondary-text-color,#888);font-size:14px}</style><div class="p">Fox Flow Scene</div>';
+      return;
+    }
+    FoxFlowScene.renderFull(el);
+  },
+};
+
+class FoxFlowSceneCard extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+    this._config = {};
+    this._hass = null;
+    this._plantState = null;
+    this._plantMap = null;
+    this._flowKey = null;
+    this._plantPollTimer = null;
+  }
+
+  static getStubConfig(hass, entities, entitiesFallback) {
+    return FoxFlowScene.getStubConfig(hass, entities, entitiesFallback);
+  }
+
+  static getConfigForm() {
+    return FoxFlowScene.getConfigForm();
+  }
+
+  getCardSize() {
+    return 4;
+  }
+
+  getGridOptions() {
+    return {
+      rows: 4,
+      columns: 12,
+      min_rows: 3,
+      min_columns: 6,
+    };
+  }
+
+  setConfig(config) {
+    FoxFlowScene.setConfig(this, config);
+  }
+
+  set hass(hass) {
+    FoxFlowScene.setHass(this, hass);
+  }
+
+  connectedCallback() {
+    FoxFlowScene.connectedCallback(this);
+  }
+
+  disconnectedCallback() {
+    FoxFlowScene.disconnectedCallback(this);
+  }
+}
+
+if (!customElements.get("fox-flow-scene-card")) {
+  customElements.define("fox-flow-scene-card", FoxFlowSceneCard);
+}
+
+window.customCards = window.customCards || [];
+if (!window.customCards.some((card) => card.type === "fox-flow-scene-card")) {
+  window.customCards.push({
+    type: "fox-flow-scene-card",
+    name: "Fox Flow Scene",
+    description: "Live Fox ESS house energy flow scene (Fox Plant overview)",
+    preview: false,
+    documentationURL: "https://github.com/james194zt/foxess_plant",
+    getEntitySuggestion: (hass, entityId) => {
+      const domain = entityId.split(".")[0];
+      if (domain !== "weather") return null;
+      return {
+        config: {
+          type: "custom:fox-flow-scene-card",
+          weather_entity: entityId,
+          show_weather: true,
+        },
+      };
+    },
+  });
+}
+
 const FLOW_SCENE_ASSET_VER = 48;
 const STATIC_BASE = "/foxess_plant_panel";
 const FLOW_PATHS_VER = "flow-comet-v3";
@@ -396,184 +540,91 @@ const CARD_STYLES = `
 }
 `;
 
-class FoxFlowSceneCard extends HTMLElement {
-  constructor() {
-    super();
-    this.attachShadow({ mode: "open" });
-    this._config = {};
-    this._hass = null;
-    this._plantState = null;
-    this._plantMap = null;
-    this._flowKey = null;
-    this._plantPollTimer = null;
+FoxFlowScene.schedulePlantPoll = function schedulePlantPoll(el) {
+  if (el._plantPollTimer) {
+    clearInterval(el._plantPollTimer);
+    el._plantPollTimer = null;
   }
+  if (!el._config?.plant_id) return;
+  void FoxFlowScene.refreshPlantState(el);
+  el._plantPollTimer = setInterval(() => void FoxFlowScene.refreshPlantState(el), 60000);
+};
 
-  static getStubConfig(hass, _entities, _entitiesFallback) {
-    const weatherEntity =
-      hass && hass.states
-        ? Object.keys(hass.states).find((id) => id.startsWith("weather."))
-        : undefined;
-    return {
-      show_weather: true,
-      ...(weatherEntity ? { weather_entity: weatherEntity } : {}),
-    };
-  }
-
-  static getConfigForm() {
-    return {
-      schema: [
-        {
-          name: "plant_id",
-          selector: { text: {} },
-        },
-        {
-          name: "weather_entity",
-          selector: { entity: { domain: ["weather"] } },
-        },
-        {
-          name: "show_weather",
-          default: true,
-          selector: { boolean: {} },
-        },
-      ],
-      computeLabel: (schema) => {
-        if (schema.name === "plant_id") return "FoxESS Plant entry ID (optional)";
-        if (schema.name === "weather_entity") return "Weather entity (optional)";
-        if (schema.name === "show_weather") return "Show weather on scene";
-        return undefined;
-      },
-      computeHelper: (schema) => {
-        if (schema.name === "plant_id") {
-          return "Leave blank to auto-discover FoxESS entities from your installation.";
-        }
-        return undefined;
-      },
-    };
-  }
-
-  getCardSize() {
-    return 4;
-  }
-
-  getGridOptions() {
-    return {
-      rows: 4,
-      columns: 12,
-      min_rows: 3,
-      min_columns: 6,
-    };
-  }
-
-  setConfig(config) {
-    if (!config) throw new Error("Invalid configuration");
-    this._config = config;
-    this._plantState = null;
-    this._plantMap = null;
-    this._flowKey = null;
-    this._schedulePlantPoll();
-    this._render();
-  }
-
-  set hass(hass) {
-    this._hass = hass;
-    this._render();
-  }
-
-  connectedCallback() {
-    this._schedulePlantPoll();
-  }
-
-  disconnectedCallback() {
-    if (this._plantPollTimer) {
-      clearInterval(this._plantPollTimer);
-      this._plantPollTimer = null;
-    }
-  }
-
-  _schedulePlantPoll() {
-    if (this._plantPollTimer) {
-      clearInterval(this._plantPollTimer);
-      this._plantPollTimer = null;
-    }
-    if (!this._config?.plant_id) return;
-    void this._refreshPlantState();
-    this._plantPollTimer = setInterval(() => void this._refreshPlantState(), 60000);
-  }
-
-  async _refreshPlantState() {
-    if (!this._hass?.connection || !this._config?.plant_id) return;
-    try {
-      const state = await this._hass.connection.sendMessagePromise({
-        type: "foxess_plant/plant_state",
-        plant_id: this._config.plant_id,
-      });
-      this._plantState = state;
-      this._plantMap = state?.entity_map || null;
-      this._render();
-    } catch (err) {
-      console.warn("Fox flow scene card: plant_state failed", err);
-    }
-  }
-
-  _flowContext() {
-    const hass = this._hass;
-    const entityMap = resolveEntityMap(hass, this._config.entities, this._plantMap || {});
-    const flows = readEnergyFlows(hass, entityMap);
-    const lines = computeFlowLines(flows);
-    const activeIds = new Set(lines.map((l) => l.id));
-    const bgTheme = resolveFlowSceneBgTheme(hass, this._plantState);
-    const haUiDark = resolveHaUiDark(hass);
-    const isNight = !bgTheme.startsWith("day_");
-    const soc = Math.min(100, Math.max(0, flows.batterySoc));
-    const gridExporting =
-      flows.gridExportW > flows.gridImportW && flows.gridExportW > FLOW_SCENE_PV_THRESHOLD_W;
-    return {
-      flows,
-      lines,
-      activeIds,
-      bgTheme,
-      haUiDark,
-      isNight,
-      soc,
-      gridExporting,
-      gridLabel: gridExporting ? "To Grid" : "On Grid",
-      gridPower: gridExporting ? flows.gridExportW : flows.gridImportW,
-      batteryStatus: String(flows.batteryStatus || "Idle").toUpperCase(),
-      batteryPower: Math.abs(flows.batteryW),
-      hubActive: lines.some((l) => l.id.includes("hub")),
-      key: flowSceneStructureKey(lines, gridExporting, isNight, bgTheme, haUiDark),
-    };
-  }
-
-  _patchBadges(stage, ctx) {
-    const set = (sel, text) => {
-      const el = stage.querySelector(sel);
-      if (el) el.textContent = text;
-    };
-    set(".fox-flow-badge-solar .fox-flow-badge-value", formatFoxPower(ctx.flows.pvW));
-    set(".fox-flow-badge-grid .fox-flow-badge-label", ctx.gridLabel);
-    set(".fox-flow-badge-grid .fox-flow-badge-value", formatFoxPower(ctx.gridPower));
-    set(".fox-flow-badge-battery .fox-flow-badge-label", ctx.batteryStatus);
-    set(
-      ".fox-flow-badge-battery .fox-flow-badge-value",
-      `${formatFoxPower(ctx.batteryPower)} | ${formatPercent(ctx.soc)}`
-    );
-    set(".fox-flow-badge-home .fox-flow-badge-value", formatFoxPower(ctx.flows.loadW));
-  }
-
-  _renderSceneHtml(ctx) {
-    const pathsHtml = renderFlowScenePaths({
-      lines: ctx.lines,
-      activeIds: ctx.activeIds,
-      gridExporting: ctx.gridExporting,
-      isNight: ctx.isNight,
+FoxFlowScene.refreshPlantState = async function refreshPlantState(el) {
+  if (!el._hass?.connection || !el._config?.plant_id) return;
+  try {
+    const state = await el._hass.connection.sendMessagePromise({
+      type: "foxess_plant/plant_state",
+      plant_id: el._config.plant_id,
     });
-    const haClass = ctx.haUiDark ? "fox-flow-scene--ha-dark" : "fox-flow-scene--ha-light";
-    const weather = this._config.show_weather === false
+    el._plantState = state;
+    el._plantMap = state?.entity_map || null;
+    FoxFlowScene.renderFull(el);
+  } catch (err) {
+    console.warn("Fox flow scene card: plant_state failed", err);
+  }
+};
+
+FoxFlowScene.flowContext = function flowContext(el) {
+  const hass = el._hass;
+  const entityMap = resolveEntityMap(hass, el._config.entities, el._plantMap || {});
+  const flows = readEnergyFlows(hass, entityMap);
+  const lines = computeFlowLines(flows);
+  const activeIds = new Set(lines.map((l) => l.id));
+  const bgTheme = resolveFlowSceneBgTheme(hass, el._plantState);
+  const haUiDark = resolveHaUiDark(hass);
+  const isNight = !bgTheme.startsWith("day_");
+  const soc = Math.min(100, Math.max(0, flows.batterySoc));
+  const gridExporting =
+    flows.gridExportW > flows.gridImportW && flows.gridExportW > FLOW_SCENE_PV_THRESHOLD_W;
+  return {
+    flows,
+    lines,
+    activeIds,
+    bgTheme,
+    haUiDark,
+    isNight,
+    soc,
+    gridExporting,
+    gridLabel: gridExporting ? "To Grid" : "On Grid",
+    gridPower: gridExporting ? flows.gridExportW : flows.gridImportW,
+    batteryStatus: String(flows.batteryStatus || "Idle").toUpperCase(),
+    batteryPower: Math.abs(flows.batteryW),
+    hubActive: lines.some((l) => l.id.includes("hub")),
+    key: flowSceneStructureKey(lines, gridExporting, isNight, bgTheme, haUiDark),
+  };
+};
+
+FoxFlowScene.patchBadges = function patchBadges(stage, ctx) {
+  const set = (sel, text) => {
+    const badge = stage.querySelector(sel);
+    if (badge) badge.textContent = text;
+  };
+  set(".fox-flow-badge-solar .fox-flow-badge-value", formatFoxPower(ctx.flows.pvW));
+  set(".fox-flow-badge-grid .fox-flow-badge-label", ctx.gridLabel);
+  set(".fox-flow-badge-grid .fox-flow-badge-value", formatFoxPower(ctx.gridPower));
+  set(".fox-flow-badge-battery .fox-flow-badge-label", ctx.batteryStatus);
+  set(
+    ".fox-flow-badge-battery .fox-flow-badge-value",
+    `${formatFoxPower(ctx.batteryPower)} | ${formatPercent(ctx.soc)}`
+  );
+  set(".fox-flow-badge-home .fox-flow-badge-value", formatFoxPower(ctx.flows.loadW));
+};
+
+FoxFlowScene.renderSceneHtml = function renderSceneHtml(el, ctx) {
+  const pathsHtml = renderFlowScenePaths({
+    lines: ctx.lines,
+    activeIds: ctx.activeIds,
+    gridExporting: ctx.gridExporting,
+    isNight: ctx.isNight,
+  });
+  const haClass = ctx.haUiDark ? "fox-flow-scene--ha-dark" : "fox-flow-scene--ha-light";
+  const weather =
+    el._config.show_weather === false
       ? ""
-      : weatherOverlayHtml(this._hass, this._plantState, this._config.weather_entity);
-    const hubFill = ctx.hubActive ? FLOW_ACTIVE_STROKE.battery : flowPipeStroke(ctx.isNight);
-    return `
+      : weatherOverlayHtml(el._hass, el._plantState, el._config.weather_entity);
+  const hubFill = ctx.hubActive ? FLOW_ACTIVE_STROKE.battery : flowPipeStroke(ctx.isNight);
+  return `
 <div class="scene-card--fox-flow">
 <div class="fox-flow-scene ${ctx.isNight ? "fox-flow-scene--night" : "fox-flow-scene--day"} ${haClass}">
 <div class="fox-flow-stage">
@@ -604,37 +655,45 @@ ${weather}
 </div>
 </div>
 </div>`;
-  }
+};
 
-  _render() {
-    if (!this.shadowRoot) return;
-    if (!this._hass) {
-      this.shadowRoot.innerHTML = `<style>${CARD_STYLES}</style><div class="card"><p class="placeholder">Loading…</p></div>`;
-      return;
-    }
-    const ctx = this._flowContext();
-    const stage = this.shadowRoot.querySelector(".fox-flow-stage");
-    const canPatch =
-      stage &&
-      this._flowKey === ctx.key &&
-      stage.querySelector(".fox-flow-layer-backdrop")?.src?.includes(ctx.bgTheme);
-    if (canPatch) {
-      this._patchBadges(stage, ctx);
-      const svg = stage.querySelector(".fox-flow-svg");
-      if (svg) {
-        const hub = svg.querySelector(".flow-hub-dot");
-        if (hub) {
-          hub.classList.toggle("active", ctx.hubActive);
-          hub.setAttribute("fill", ctx.hubActive ? FLOW_ACTIVE_STROKE.battery : flowPipeStroke(ctx.isNight));
-        }
+FoxFlowScene.renderFull = function renderFull(el) {
+  if (!el.shadowRoot) return;
+  if (!el._hass) {
+    el.shadowRoot.innerHTML = `<style>${CARD_STYLES}</style><div class="card"><p class="placeholder">Loading…</p></div>`;
+    return;
+  }
+  const ctx = FoxFlowScene.flowContext(el);
+  const stage = el.shadowRoot.querySelector(".fox-flow-stage");
+  const canPatch =
+    stage &&
+    el._flowKey === ctx.key &&
+    stage.querySelector(".fox-flow-layer-backdrop")?.src?.includes(ctx.bgTheme);
+  if (canPatch) {
+    FoxFlowScene.patchBadges(stage, ctx);
+    const svg = stage.querySelector(".fox-flow-svg");
+    if (svg) {
+      const hub = svg.querySelector(".flow-hub-dot");
+      if (hub) {
+        hub.classList.toggle("active", ctx.hubActive);
+        hub.setAttribute("fill", ctx.hubActive ? FLOW_ACTIVE_STROKE.battery : flowPipeStroke(ctx.isNight));
       }
-      return;
     }
-    this._flowKey = ctx.key;
-    this.shadowRoot.innerHTML = `<style>${CARD_STYLES}</style><div class="card">${this._renderSceneHtml(ctx)}</div>`;
+    return;
   }
-}
+  el._flowKey = ctx.key;
+  el.shadowRoot.innerHTML = `<style>${CARD_STYLES}</style><div class="card">${FoxFlowScene.renderSceneHtml(el, ctx)}</div>`;
+};
 
-if (!customElements.get("fox-flow-scene-card")) {
-  customElements.define("fox-flow-scene-card", FoxFlowSceneCard);
-}
+FoxFlowScene.getStubConfig = function getStubConfig(hass) {
+  const weatherEntity =
+    hass && hass.states
+      ? Object.keys(hass.states).find((id) => id.startsWith("weather."))
+      : undefined;
+  return {
+    show_weather: true,
+    ...(weatherEntity ? { weather_entity: weatherEntity } : {}),
+  };
+};
+
+FoxFlowScene.ready = true;
