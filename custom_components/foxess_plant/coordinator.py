@@ -39,6 +39,7 @@ from .const import (
     CONF_GLOW,
     CONF_STORM_PREP,
     CONF_TARIFF,
+    CHARGE_PERIOD_KEYS,
     IDENTITY_ENTITY_SUFFIXES,
     SOLCAST_FORECAST_HISTORY_MAX,
     EVENT_BASELINE_RESTORED,
@@ -2370,8 +2371,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return {
             "enable_force_charge": force in ("on", "true", "1"),
             "enable_charge_from_grid": grid in ("on", "true", "1"),
-            "start": start,
-            "end": end,
+            "start": self._normalize_period_time(start),
+            "end": self._normalize_period_time(end),
         }
 
     def _read_actual_periods(self) -> list[dict[str, Any]]:
@@ -2391,16 +2392,34 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return True
             if bool(want.get("enable_charge_from_grid")) != bool(got.get("enable_charge_from_grid")):
                 return True
-            if want.get("enable_force_charge"):
-                want_start = want.get("start", "00:00")
-                want_end = want.get("end", "00:00")
-                if len(want_start) == 5:
-                    want_start = f"{want_start}:00"
-                if len(want_end) == 5:
-                    want_end = f"{want_end}:00"
-                if got.get("start") != want_start or got.get("end") != want_end:
+            if bool(want.get("enable_force_charge")) or bool(got.get("enable_force_charge")):
+                if self._normalize_period_time(want.get("start")) != self._normalize_period_time(
+                    got.get("start")
+                ):
+                    return True
+                if self._normalize_period_time(want.get("end")) != self._normalize_period_time(
+                    got.get("end")
+                ):
                     return True
         return False
+
+    async def _refresh_charge_period_entities(self) -> None:
+        """Poll foxess_modbus charge-period entities before comparing or syncing schedules."""
+        tasks = []
+        for key in CHARGE_PERIOD_KEYS:
+            entity_id = self.plant.entity_map.get(key)
+            if entity_id:
+                tasks.append(
+                    self.hass.services.async_call(
+                        "homeassistant",
+                        "update_entity",
+                        {"entity_id": entity_id},
+                        blocking=True,
+                    )
+                )
+        if tasks:
+            await asyncio.gather(*tasks)
+            await asyncio.sleep(0.35)
 
     def _fire(self, event_type: str, data: dict[str, Any] | None = None) -> None:
         payload = {"plant_id": self.config_entry.entry_id, **(data or {})}
@@ -2521,8 +2540,13 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_sync_schedule_from_inverter(self) -> None:
         """Copy the inverter's live charge windows into Fox Plant baseline settings."""
+        await self._refresh_charge_period_entities()
         periods = self._charge_periods_from_inverter()
         self.plant.baseline_periods = periods
+        if self.plant.override.active:
+            self.plant.override.periods = [
+                ChargePeriodConfig.from_dict(p.to_dict()) for p in periods
+            ]
         await self._persist()
         await self.async_request_refresh()
         _LOGGER.info("Synced baseline charge periods from inverter: %s", [p.to_dict() for p in periods])
@@ -2533,6 +2557,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.plant.control_active = True
             await self._persist()
         await self.async_apply_desired(force=True)
+        await self._refresh_charge_period_entities()
+        await self.async_request_refresh()
 
     async def async_set_charge_period(
         self,
