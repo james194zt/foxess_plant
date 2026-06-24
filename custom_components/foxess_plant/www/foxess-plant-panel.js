@@ -16445,7 +16445,7 @@ ${thumbsHtml}
 </div>
 <div class="soc-numeric">${numericHtml}</div>
 ${renderSocFeedbackHtml(validateSocLimits(clamped, live), this._socSaveError, this._socSaveResults)}
-<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. The inverter may reject limits that conflict with the current battery level — Save will show the error if it does.</p>
+<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. On <strong>EVO</strong>, if system max fails while the mins save, disable <strong>Fox Mode Scheduler</strong> in the Fox <strong>web portal</strong> (Work mode → Mode scheduler) and retry — register 46610 is often locked until that is off and firmware is current.</p>
 </div>`;
   }
 

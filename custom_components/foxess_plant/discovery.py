@@ -111,6 +111,38 @@ def resolve_uses_h3_pro_soc_block(
     return False
 
 
+def device_is_evo(
+    hass: HomeAssistant,
+    device_id: str | None,
+    entity_map: dict[str, str] | None = None,
+) -> bool:
+    """True when the linked inverter is an EVO (not H3 Pro/Smart)."""
+    if device_id:
+        device = dr.async_get(hass).async_get(device_id)
+        if device is not None:
+            for identifier in device.identifiers:
+                if identifier[0] == MODBUS_DOMAIN and len(identifier) >= 2:
+                    model = str(identifier[1])
+                    if _EVO_FULL_MODEL.match(model.strip()) or model.upper().startswith("EVO"):
+                        return True
+    if entity_map:
+        entity_reg = er.async_get(hass)
+        for key in ("min_soc", "max_soc", "min_soc_on_grid", "work_mode"):
+            entity_id = entity_map.get(key)
+            if not entity_id:
+                continue
+            entry = entity_reg.async_get(entity_id)
+            if entry and entry.device_id:
+                device = dr.async_get(hass).async_get(entry.device_id)
+                if device is not None and _device_entry_uses_h3_pro_soc_block(device):
+                    for identifier in device.identifiers:
+                        if identifier[0] == MODBUS_DOMAIN and len(identifier) >= 2:
+                            model = str(identifier[1])
+                            if _EVO_FULL_MODEL.match(model.strip()) or model.upper().startswith("EVO"):
+                                return True
+    return False
+
+
 def _match_suffix(entry: er.RegistryEntry, suffix: str) -> bool:
     return entry.entity_id.endswith(f"_{suffix}") or entry.unique_id.endswith(f"_{suffix}")
 

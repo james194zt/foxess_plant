@@ -12,7 +12,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
-from .discovery import resolve_uses_h3_pro_soc_block
+from .discovery import device_is_evo, resolve_uses_h3_pro_soc_block
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -45,9 +45,17 @@ class SocWriteResult:
 
 _ILLEGAL_VALUE_HINT = (
     "Modbus rejected an SOC limit write (EVO/H3 Pro: 46609 off-grid min, 46610 max, 46611 system min). "
-    "On EVO all three limits must be written as single registers in order: off-grid min, system min, then max. "
-    "The inverter also requires off-grid min ≤ system min ≤ max, and max cannot be below the "
-    "current battery SOC. Disable FoxESS Modbus Remote Control and close the Fox app before saving."
+    "On EVO write all three limits as single registers in order: off-grid min, system min, then max. "
+    "The inverter also requires off-grid min ≤ system min ≤ max. "
+    "Disable FoxESS Modbus Remote Control and close the Fox app before saving."
+)
+
+_EVO_MAX_SOC_BLOCKED_HINT = (
+    "System max (register 46610) was rejected by the EVO inverter. Off-grid min and system min were saved. "
+    "This is not caused by the target being below battery SOC — on many EVO units register 46610 stays "
+    "read-only until Fox Mode Scheduler is disabled in the Fox web portal (not just the app), firmware is "
+    "updated, and Fox support has enabled installer SOC writes. "
+    "Until then, cap charging with FoxESS Modbus charge periods or max charge current instead of system max."
 )
 
 _VERIFY_FAIL_HINT = (
@@ -253,8 +261,11 @@ def _format_soc_error(
     key: str | None = None,
     target_max: int | None = None,
     live_battery_soc: float | None = None,
+    evo_max_blocked: bool = False,
 ) -> str:
     message = str(err)
+    if evo_max_blocked and key == "max_soc":
+        return f"{_EVO_MAX_SOC_BLOCKED_HINT} Details: {message}"
     if key == "max_soc" and "IllegalValue" in message:
         battery_hint = _max_soc_battery_hint(live_battery_soc, target_max or 0)
         if battery_hint:
@@ -376,6 +387,34 @@ async def _maybe_disable_remote_control_for_soc(
         return False
 
 
+async def _maybe_clear_evo_remote_work_mode(hass: HomeAssistant, entity_map: dict[str, str]) -> bool:
+    """Leave EVO remote-control work mode (49203=255) so SOC registers accept writes."""
+    entity_id = entity_map.get("work_mode")
+    if not entity_id:
+        return False
+    state = hass.states.get(entity_id)
+    current = state.state if state else None
+    if current not in ("Remote Control", "Force Charge", "Force Discharge"):
+        return False
+    try:
+        await hass.services.async_call(
+            "select",
+            "select_option",
+            {"entity_id": entity_id, "option": "Self Use"},
+            blocking=True,
+        )
+        await asyncio.sleep(0.5)
+        return True
+    except HomeAssistantError as err:
+        _LOGGER.debug("Work mode Self Use before SOC write skipped: %s", err)
+        return False
+
+
+async def _prepare_inverter_for_soc_writes(hass: HomeAssistant, entity_map: dict[str, str]) -> None:
+    await _maybe_disable_remote_control_for_soc(hass, entity_map)
+    await _maybe_clear_evo_remote_work_mode(hass, entity_map)
+
+
 def _soc_targets_match(target: dict[str, int], current: dict[str, int]) -> bool:
     return all(current.get(key) == target[key] for key in SOC_KEYS)
 
@@ -387,9 +426,11 @@ async def _apply_contiguous_soc_writes(
     *,
     live_battery_soc: float | None,
     verify: bool,
+    device_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """EVO/H3 Pro: FC6 writes for 46609, 46611, 46610 — always in min → system min → max order."""
-    await _maybe_disable_remote_control_for_soc(hass, entity_map)
+    is_evo = device_is_evo(hass, device_id, entity_map)
+    await _prepare_inverter_for_soc_writes(hass, entity_map)
     outcomes: dict[str, SocWriteResult] = {}
     write_failed = False
 
@@ -401,6 +442,16 @@ async def _apply_contiguous_soc_writes(
                 value,
                 success=False,
                 message="Not written (a previous step failed)",
+            )
+            continue
+        current = _read_soc_key(hass, entity_map, key)
+        if current == value:
+            outcomes[key] = _soc_result(
+                key,
+                value,
+                success=True,
+                message="Already set",
+                skipped=True,
             )
             continue
         try:
@@ -421,6 +472,7 @@ async def _apply_contiguous_soc_writes(
                 key=key,
                 target_max=target["max_soc"] if key == "max_soc" else None,
                 live_battery_soc=live_battery_soc,
+                evo_max_blocked=is_evo and key == "max_soc" and "IllegalValue" in str(err),
             )
             outcomes[key] = _soc_result(key, value, success=False, message=msg)
             write_failed = True
@@ -497,6 +549,7 @@ async def apply_soc_limits(
             target,
             live_battery_soc=live_battery_soc,
             verify=verify,
+            device_id=device_id,
         )
 
     sequence = compute_soc_write_sequence(target, live_current)
@@ -514,7 +567,7 @@ async def apply_soc_limits(
         return _build_soc_results(target, outcomes)
 
     # H1 / legacy inverters — ordered per-register writes.
-    await _maybe_disable_remote_control_for_soc(hass, entity_map)
+    await _prepare_inverter_for_soc_writes(hass, entity_map)
     outcomes: dict[str, SocWriteResult] = {}
     errors: dict[str, str] = {}
     write_failed = False
