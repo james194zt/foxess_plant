@@ -1690,20 +1690,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         EVENT_SMART_CHARGE_ARMED,
                     )
 
-    async def _evaluate_smart_charge_daily_plan(self) -> None:
+    async def _rebuild_smart_charge_daily_plan(self) -> None:
         from .smart_charge import build_daily_plan
 
         cfg = self.plant.smart_charge
-        if not cfg.enabled or not self.plant.control_active:
-            return
-        if self.plant.outage_prep.enabled and self._active_outage_triggers:
-            return
-        if self.plant.storm_prep.enabled and self._active_storm_triggers:
-            return
-
-        if self._octopus_native_active():
-            await self._async_refresh_octopus(force=True)
-
         tariff_type = self._smart_charge_tariff_type()
 
         forecast_rows = self._solcast_detailed_forecast_rows()
@@ -1729,9 +1719,23 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             greener_nights=greener_nights,
             tariff_type=tariff_type,
         )
-        await self._evaluate_smart_charge()
 
-    async def _evaluate_smart_charge(self) -> None:
+    async def _evaluate_smart_charge_daily_plan(self) -> None:
+        cfg = self.plant.smart_charge
+        if not cfg.enabled or not self.plant.control_active:
+            return
+        if self.plant.outage_prep.enabled and self._active_outage_triggers:
+            return
+        if self.plant.storm_prep.enabled and self._active_storm_triggers:
+            return
+
+        if self._octopus_native_active():
+            await self._async_refresh_octopus(force=True)
+
+        await self._rebuild_smart_charge_daily_plan()
+        await self._evaluate_smart_charge(skip_plan_rebuild=True)
+
+    async def _evaluate_smart_charge(self, *, skip_plan_rebuild: bool = False) -> None:
         from .smart_charge import current_plan_slot, evaluate_smart_charge
 
         cfg = self.plant.smart_charge
@@ -1743,6 +1747,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self.plant.storm_prep.enabled and self._active_storm_triggers:
             await self._disarm_smart_charge_export()
             return
+
+        if not skip_plan_rebuild:
+            await self._rebuild_smart_charge_daily_plan()
 
         forecast_rows = self._solcast_detailed_forecast_rows()
         if not forecast_rows and self._solcast_cache.get("detailed_forecast"):

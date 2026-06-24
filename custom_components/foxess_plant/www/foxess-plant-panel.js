@@ -6720,7 +6720,14 @@ function smartChargePlanActionTone(action) {
 function renderSmartChargePlanTimeline(dailyPlan, currentSlot) {
   const slots = (dailyPlan || []).filter((s) => s.start && s.end && s.reason !== "no_slots").slice(0, 24);
   if (!slots.length) {
-    return `<p class="sc-empty-hint">Plan appears after the daily Octopus refresh (default 16:00 UK).</p>`;
+    const horizon = dailyPlan?.[0]?.plan_horizon;
+    const hint =
+      horizon === "rest_of_today"
+        ? "Rest-of-today plan from current Agile rates — no charge or export slots in the window. Full 24h plan (incl. tomorrow) refreshes at 16:00 UK when Octopus publishes new rates."
+        : horizon === "24h"
+          ? "24h plan from current Agile rates — no charge or export slots in the window."
+          : "Building plan from current Agile rates and Solcast forecast…";
+    return `<p class="sc-empty-hint">${esc(hint)}</p>`;
   }
   const nowKey =
     currentSlot?.start && currentSlot?.end ? `${currentSlot.start}-${currentSlot.end}` : null;
@@ -19978,7 +19985,8 @@ ${body}
     const spreadPairs =
       (decision.spread_pairs?.length ? decision.spread_pairs : null) ??
       (dailyPlan[0]?.spread_pairs?.length ? dailyPlan[0].spread_pairs : []);
-    const planHorizon = dailyPlan[0]?.plan_horizon === "24h" ? "24h plan" : "rest-of-today plan";
+    const isFullHorizon = dailyPlan[0]?.plan_horizon === "24h";
+    const planHorizon = isFullHorizon ? "24h plan" : "rest-of-today plan";
     const exportCount = planSlots.filter((s) => s.action === "export" || s.action === "spread_export").length;
     const chargeCount = planSlots.filter(
       (s) =>
@@ -19988,19 +19996,24 @@ ${body}
         s.action === "winter_fill"
     ).length;
     const spreadLabel = spreadPairs.length ? ` · ${spreadPairs.length} spread pair${spreadPairs.length === 1 ? "" : "s"}` : "";
+    const tomorrowRefresh = isFullHorizon ? "" : " · full 24h at 16:00 UK";
     const planSummary =
       planSlots.length > 0
-        ? `${planHorizon}: ${exportCount} export · ${chargeCount} charge · ${planSlots.length} slots${spreadLabel}`
-        : "No daily plan yet (built at daily plan time after Octopus refresh)";
-    return { live, decision, planSlots, spreadPairs, planSummary };
+        ? `${planHorizon}: ${exportCount} export · ${chargeCount} charge · ${planSlots.length} slots${spreadLabel}${tomorrowRefresh}`
+        : dailyPlan.length
+          ? isFullHorizon
+            ? "24h plan: no charge or export slots in current rate window"
+            : "Rest-of-today plan: no slots in current rate window · full 24h at 16:00 UK"
+          : "Building plan from current Agile rates and Solcast forecast…";
+    return { live, decision, dailyPlan, planSlots, spreadPairs, planSummary };
   }
 
   _patchSettingsSmartChargeLiveIfNeeded() {
     if (this._view !== "settings" || this._settingsView !== "smart" || !this._hass) return false;
     const liveEl = this._root.querySelector("[data-smart-charge-live]");
     if (!liveEl || !this._smartChargeDraft?.enabled) return false;
-    const { live, decision, planSlots, spreadPairs, planSummary } = this._smartChargeLivePlanContext();
-    liveEl.innerHTML = this._renderSmartChargeStatusCard(live, decision, planSlots, spreadPairs, planSummary);
+    const { live, decision, dailyPlan, spreadPairs, planSummary } = this._smartChargeLivePlanContext();
+    liveEl.innerHTML = this._renderSmartChargeStatusCard(live, decision, dailyPlan, spreadPairs, planSummary);
     return true;
   }
 
@@ -20073,10 +20086,10 @@ ${spreadHtml}
   _renderSettingsSmartCharge() {
     if (!this._smartChargeDraft) this._initSmartChargeDraft();
     const draft = this._smartChargeDraft;
-    const { live, decision, planSlots, spreadPairs, planSummary } = this._smartChargeLivePlanContext();
+    const { live, decision, dailyPlan, spreadPairs, planSummary } = this._smartChargeLivePlanContext();
     const busy = this._busy ? "disabled" : "";
     const statusCard = draft.enabled
-      ? this._renderSmartChargeStatusCard(live, decision, planSlots, spreadPairs, planSummary)
+      ? this._renderSmartChargeStatusCard(live, decision, dailyPlan, spreadPairs, planSummary)
       : "";
     return `<div data-smart-charge-settings="1">${this._renderSmartChargeHero()}
 <header class="header smart-charge-settings-header"><h1>SmartCharge</h1><p>Combines Solcast PV forecast with Octopus Agile rates. Targets house-load sufficiency (not 100% SOC), with an outage reserve floor. StormSafe always overrides.</p></header>
@@ -20121,7 +20134,8 @@ ${draft.enabled ? `<details class="sc-section-details" data-sc-section="energy"$
 <div class="toggle-row"><span><strong>Negative import interrupt</strong></span>
 <input type="checkbox" data-field="smart-charge:negative_import_interrupt" ${draft.negative_import_interrupt ? "checked" : ""} ${busy}></div>
 <div class="field"><label>Daily plan time (UK local)</label>
-<input type="time" data-field="smart-charge:daily_plan_time" value="${esc(String(draft.daily_plan_time ?? "16:00"))}" ${busy}></div>
+<input type="time" data-field="smart-charge:daily_plan_time" value="${esc(String(draft.daily_plan_time ?? "16:00"))}" ${busy}>
+<p class="field-hint">Before this time the plan uses current Agile rates for rest-of-today. At this time Octopus publishes tomorrow&rsquo;s rates and the plan extends to the full horizon.</p></div>
 <div class="field"><label>Daily plan horizon (hours)</label>
 <input type="number" min="1" max="48" step="1" data-field="smart-charge:daily_plan_horizon_hours" value="${esc(String(draft.daily_plan_horizon_hours ?? 24))}" ${busy}></div>
 <div class="field"><label>Price-drop replan threshold (p/kWh)</label>

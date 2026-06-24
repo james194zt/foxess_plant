@@ -56,7 +56,7 @@ def build_daily_plan(
     greener_nights: list[dict[str, Any]] | None = None,
     tariff_type: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Build next 24h plan (or rest-of-today before daily plan time)."""
+    """Build plan from current Agile rates and Solcast (rest-of-today before daily plan time)."""
     ctx = build_context(
         config=config,
         soc_pct=soc_pct,
