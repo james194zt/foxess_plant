@@ -408,11 +408,45 @@ class FoxFlowSceneCard extends HTMLElement {
   }
 
   static getStubConfig() {
-    return { type: "custom:fox-flow-scene-card", show_weather: true };
+    return { show_weather: true };
+  }
+
+  static getConfigForm() {
+    return {
+      schema: [
+        {
+          name: "weather_entity",
+          selector: { entity: { domain: ["weather"] } },
+        },
+        {
+          name: "show_weather",
+          default: true,
+          selector: { boolean: {} },
+        },
+      ],
+      computeLabel: (schema) => {
+        if (schema.name === "weather_entity") return "Weather entity (optional)";
+        if (schema.name === "show_weather") return "Show weather on scene";
+        return undefined;
+      },
+    };
   }
 
   static getConfigElement() {
     return document.createElement("fox-flow-scene-card-editor");
+  }
+
+  getCardSize() {
+    return 4;
+  }
+
+  getGridOptions() {
+    return {
+      rows: 4,
+      columns: 12,
+      min_rows: 3,
+      min_columns: 6,
+    };
   }
 
   setConfig(config) {
@@ -716,15 +750,21 @@ class FoxFlowSceneCardEditor extends HTMLElement {
   }
 }
 
-customElements.define("fox-flow-scene-card-editor", FoxFlowSceneCardEditor);
+if (!customElements.get("fox-flow-scene-card-editor")) {
+  customElements.define("fox-flow-scene-card-editor", FoxFlowSceneCardEditor);
+}
 
-customElements.define("fox-flow-scene-card", FoxFlowSceneCard);
+if (!customElements.get("fox-flow-scene-card")) {
+  customElements.define("fox-flow-scene-card", FoxFlowSceneCard);
+}
 
 window.customCards = window.customCards || [];
-window.customCards.push({
-  type: "fox-flow-scene-card",
-  name: "Fox Flow Scene",
-  description: "Live Fox ESS house energy flow scene (Fox Plant overview)",
-  preview: true,
-  documentationURL: "https://github.com/james194zt/foxess_plant",
-});
+if (!window.customCards.some((card) => card.type === "fox-flow-scene-card")) {
+  window.customCards.push({
+    type: "fox-flow-scene-card",
+    name: "Fox Flow Scene",
+    description: "Live Fox ESS house energy flow scene (Fox Plant overview)",
+    preview: false,
+    documentationURL: "https://github.com/james194zt/foxess_plant",
+  });
+}

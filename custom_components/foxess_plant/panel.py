@@ -216,6 +216,14 @@ async def _async_ensure_static_paths(hass: HomeAssistant) -> bool:
         ]
     )
     hass.data[_STATIC_DATA_KEY] = True
+
+    try:
+        from .lovelace_cards import async_register_lovelace_cards
+
+        await async_register_lovelace_cards(hass)
+    except Exception:
+        _LOGGER.exception("Fox Flow Scene Lovelace card registration failed after static paths")
+
     return True
 
 
