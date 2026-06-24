@@ -2,6 +2,28 @@
  * Lovelace card: Fox ESS live energy flow house scene (matches Fox Plant overview).
  * Resource: /foxess_plant_panel/fox-flow-scene-card.js (type: module)
  */
+window.customCards = window.customCards || [];
+if (!window.customCards.some((card) => card.type === "fox-flow-scene-card")) {
+  window.customCards.push({
+    type: "fox-flow-scene-card",
+    name: "Fox Flow Scene",
+    description: "Live Fox ESS house energy flow scene (Fox Plant overview)",
+    preview: false,
+    documentationURL: "https://github.com/james194zt/foxess_plant",
+    getEntitySuggestion: (hass, entityId) => {
+      const domain = entityId.split(".")[0];
+      if (domain !== "weather") return null;
+      return {
+        config: {
+          type: "custom:fox-flow-scene-card",
+          weather_entity: entityId,
+          show_weather: true,
+        },
+      };
+    },
+  });
+}
+
 const FLOW_SCENE_ASSET_VER = 48;
 const STATIC_BASE = "/foxess_plant_panel";
 const FLOW_PATHS_VER = "flow-comet-v3";
@@ -407,13 +429,24 @@ class FoxFlowSceneCard extends HTMLElement {
     this._plantPollTimer = null;
   }
 
-  static getStubConfig() {
-    return { show_weather: true };
+  static getStubConfig(hass) {
+    const weatherEntity =
+      hass && hass.states
+        ? Object.keys(hass.states).find((id) => id.startsWith("weather."))
+        : undefined;
+    return {
+      show_weather: true,
+      ...(weatherEntity ? { weather_entity: weatherEntity } : {}),
+    };
   }
 
   static getConfigForm() {
     return {
       schema: [
+        {
+          name: "plant_id",
+          selector: { text: {} },
+        },
         {
           name: "weather_entity",
           selector: { entity: { domain: ["weather"] } },
@@ -425,15 +458,18 @@ class FoxFlowSceneCard extends HTMLElement {
         },
       ],
       computeLabel: (schema) => {
+        if (schema.name === "plant_id") return "FoxESS Plant entry ID (optional)";
         if (schema.name === "weather_entity") return "Weather entity (optional)";
         if (schema.name === "show_weather") return "Show weather on scene";
         return undefined;
       },
+      computeHelper: (schema) => {
+        if (schema.name === "plant_id") {
+          return "Leave blank to auto-discover FoxESS entities from your installation.";
+        }
+        return undefined;
+      },
     };
-  }
-
-  static getConfigElement() {
-    return document.createElement("fox-flow-scene-card-editor");
   }
 
   getCardSize() {
@@ -620,151 +656,6 @@ ${weather}
   }
 }
 
-const EDITOR_STYLES = `
-.editor { display: block; padding: 4px 0 8px; }
-.editor-hint {
-  margin: 0 0 12px; font-size: 12px; line-height: 1.45;
-  color: var(--secondary-text-color, #888);
-}
-`;
-
-class FoxFlowSceneCardEditor extends HTMLElement {
-  constructor() {
-    super();
-    this._config = { show_weather: true };
-    this._hass = null;
-    this._plants = null;
-    this._plantsLoading = false;
-    this._autoPlantApplied = false;
-  }
-
-  setConfig(config) {
-    this._config = { show_weather: true, ...(config || {}) };
-    void this._ensurePlants();
-    this._render();
-  }
-
-  set hass(hass) {
-    this._hass = hass;
-    void this._ensurePlants();
-    this._render();
-  }
-
-  async _ensurePlants() {
-    if (this._plants !== null || this._plantsLoading || !this._hass?.connection) return;
-    this._plantsLoading = true;
-    try {
-      const res = await this._hass.connection.sendMessagePromise({
-        type: "foxess_plant/plant_list",
-      });
-      this._plants = Array.isArray(res?.plants) ? res.plants : [];
-      if (
-        !this._autoPlantApplied &&
-        !this._config.plant_id &&
-        this._plants.length === 1
-      ) {
-        this._autoPlantApplied = true;
-        this._emitConfig({ ...this._config, plant_id: this._plants[0].entry_id });
-        return;
-      }
-    } catch (err) {
-      console.warn("Fox flow scene card editor: plant_list failed", err);
-      this._plants = [];
-    } finally {
-      this._plantsLoading = false;
-      this._render();
-    }
-  }
-
-  _schema() {
-    const plantOptions = [
-      { value: "", label: "Auto-discover FoxESS entities" },
-      ...(this._plants || []).map((plant) => ({
-        value: plant.entry_id,
-        label: plant.title || plant.entry_id,
-      })),
-    ];
-    return [
-      {
-        name: "plant_id",
-        label: "FoxESS Plant",
-        selector: { select: { options: plantOptions, mode: "dropdown" } },
-      },
-      {
-        name: "weather_entity",
-        label: "Weather entity (optional)",
-        selector: { entity: { domain: ["weather"] } },
-      },
-      {
-        name: "show_weather",
-        label: "Show weather on scene",
-        selector: { boolean: {} },
-      },
-    ];
-  }
-
-  _emitConfig(next) {
-    const config = {
-      type: "custom:fox-flow-scene-card",
-      show_weather: true,
-      ...next,
-    };
-    if (!config.plant_id) delete config.plant_id;
-    if (!config.weather_entity) delete config.weather_entity;
-    if (config.show_weather !== false) delete config.show_weather;
-    this._config = config;
-    this.dispatchEvent(
-      new CustomEvent("config-changed", {
-        bubbles: true,
-        composed: true,
-        detail: { config },
-      })
-    );
-  }
-
-  _render() {
-    if (!this._hass) {
-      this.innerHTML = "<p>Loading editor…</p>";
-      return;
-    }
-    this.innerHTML = `<style>${EDITOR_STYLES}</style><div class="editor"><p class="editor-hint">Search for <strong>Fox Flow Scene</strong> in Add card, or pick your plant below. Entity discovery works without a plant ID.</p></div>`;
-    const host = this.querySelector(".editor");
-    const form = document.createElement("ha-form");
-    form.hass = this._hass;
-    form.data = {
-      plant_id: this._config.plant_id || "",
-      weather_entity: this._config.weather_entity || "",
-      show_weather: this._config.show_weather !== false,
-    };
-    form.schema = this._schema();
-    form.computeLabel = (entry) => entry.label || entry.name;
-    form.addEventListener("value-changed", (ev) => {
-      const value = ev.detail?.value || {};
-      this._emitConfig({
-        plant_id: value.plant_id || undefined,
-        weather_entity: value.weather_entity || undefined,
-        show_weather: value.show_weather !== false,
-      });
-    });
-    host.appendChild(form);
-  }
-}
-
-if (!customElements.get("fox-flow-scene-card-editor")) {
-  customElements.define("fox-flow-scene-card-editor", FoxFlowSceneCardEditor);
-}
-
 if (!customElements.get("fox-flow-scene-card")) {
   customElements.define("fox-flow-scene-card", FoxFlowSceneCard);
-}
-
-window.customCards = window.customCards || [];
-if (!window.customCards.some((card) => card.type === "fox-flow-scene-card")) {
-  window.customCards.push({
-    type: "fox-flow-scene-card",
-    name: "Fox Flow Scene",
-    description: "Live Fox ESS house energy flow scene (Fox Plant overview)",
-    preview: false,
-    documentationURL: "https://github.com/james194zt/foxess_plant",
-  });
 }

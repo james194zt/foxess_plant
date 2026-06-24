@@ -16,9 +16,11 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up global handlers for foxess_plant."""
+    from .lovelace_cards import async_listen_lovelace_loaded
     from .websocket_api import async_register_ws_handlers
 
     async_register_ws_handlers(hass)
+    async_listen_lovelace_loaded(hass)
 
     async def _register_panel_on_start(_event: Event) -> None:
         if not hass.config_entries.async_entries(DOMAIN):
