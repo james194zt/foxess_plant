@@ -1,29 +1,8 @@
 /**
  * Lovelace card: Fox ESS live energy flow house scene (matches Fox Plant overview).
  * Resource: /foxess_plant_panel/fox-flow-scene-card.js (type: module)
+ * Picker: /foxess_plant_panel/fox-flow-scene-card-register.js (loads after this file)
  */
-window.customCards = window.customCards || [];
-if (!window.customCards.some((card) => card.type === "fox-flow-scene-card")) {
-  window.customCards.push({
-    type: "fox-flow-scene-card",
-    name: "Fox Flow Scene",
-    description: "Live Fox ESS house energy flow scene (Fox Plant overview)",
-    preview: false,
-    documentationURL: "https://github.com/james194zt/foxess_plant",
-    getEntitySuggestion: (hass, entityId) => {
-      const domain = entityId.split(".")[0];
-      if (domain !== "weather") return null;
-      return {
-        config: {
-          type: "custom:fox-flow-scene-card",
-          weather_entity: entityId,
-          show_weather: true,
-        },
-      };
-    },
-  });
-}
-
 const FLOW_SCENE_ASSET_VER = 48;
 const STATIC_BASE = "/foxess_plant_panel";
 const FLOW_PATHS_VER = "flow-comet-v3";
@@ -429,7 +408,7 @@ class FoxFlowSceneCard extends HTMLElement {
     this._plantPollTimer = null;
   }
 
-  static getStubConfig(hass) {
+  static getStubConfig(hass, _entities, _entitiesFallback) {
     const weatherEntity =
       hass && hass.states
         ? Object.keys(hass.states).find((id) => id.startsWith("weather."))
