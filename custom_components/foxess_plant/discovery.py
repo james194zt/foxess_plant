@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
@@ -36,6 +37,41 @@ def inverter_target_from_device(device: dr.DeviceEntry) -> str:
 
 # H3 Pro / Smart / EVO expose min/max/on-grid SOC at contiguous holding 46609–46611.
 _H3_PRO_SOC_MODELS = frozenset({"EVO", "H3_PRO", "H3_SMART"})
+# foxess_modbus device identifiers store INVERTER_MODEL (full PCS string), not INVERTER_BASE.
+_EVO_FULL_MODEL = re.compile(r"^EVO \d+-[\d\.]+-H$", re.IGNORECASE)
+_H3_PRO_FULL_MODEL = re.compile(r"^[HP]3-Pro-[\d\.]+", re.IGNORECASE)
+_H3_SMART_FULL_MODEL = re.compile(r"^H3-[\d\.]+-(?:Smart|M)\b", re.IGNORECASE)
+
+
+def _model_uses_h3_pro_soc_block(model: str) -> bool:
+    """Match inverter base enum or full model string from foxess_modbus device identifiers."""
+    text = str(model).strip()
+    upper = text.upper()
+    if upper in _H3_PRO_SOC_MODELS:
+        return True
+    if _EVO_FULL_MODEL.match(text):
+        return True
+    if _H3_PRO_FULL_MODEL.match(text):
+        return True
+    if _H3_SMART_FULL_MODEL.match(text):
+        return True
+    if upper.startswith("EVO "):
+        return True
+    return False
+
+
+def _device_entry_uses_h3_pro_soc_block(device: dr.DeviceEntry) -> bool:
+    if not is_foxess_modbus_device(device):
+        return False
+    for identifier in device.identifiers:
+        if identifier[0] == MODBUS_DOMAIN and len(identifier) >= 2:
+            if _model_uses_h3_pro_soc_block(str(identifier[1])):
+                return True
+    if device.model:
+        model_part = str(device.model).split(" - ", 1)[0]
+        if _model_uses_h3_pro_soc_block(model_part):
+            return True
+    return False
 
 
 def device_uses_h3_pro_soc_block(hass: HomeAssistant, device_id: str) -> bool:
@@ -43,11 +79,35 @@ def device_uses_h3_pro_soc_block(hass: HomeAssistant, device_id: str) -> bool:
     device = dr.async_get(hass).async_get(device_id)
     if device is None:
         return False
-    for identifier in device.identifiers:
-        if identifier[0] == MODBUS_DOMAIN and len(identifier) >= 2:
-            model = str(identifier[1]).upper()
-            if model in _H3_PRO_SOC_MODELS:
-                return True
+    return _device_entry_uses_h3_pro_soc_block(device)
+
+
+def resolve_uses_h3_pro_soc_block(
+    hass: HomeAssistant,
+    device_id: str | None,
+    entity_map: dict[str, str] | None = None,
+) -> bool:
+    """Resolve H3 Pro / EVO SOC block from plant device_id and/or linked number entities."""
+    if device_id and device_uses_h3_pro_soc_block(hass, device_id):
+        return True
+    if not entity_map:
+        return False
+    entity_reg = er.async_get(hass)
+    device_reg = dr.async_get(hass)
+    seen: set[str] = set()
+    if device_id:
+        seen.add(device_id)
+    for key in ("min_soc", "max_soc", "min_soc_on_grid"):
+        entity_id = entity_map.get(key)
+        if not entity_id:
+            continue
+        entry = entity_reg.async_get(entity_id)
+        if entry is None or not entry.device_id or entry.device_id in seen:
+            continue
+        seen.add(entry.device_id)
+        device = device_reg.async_get(entry.device_id)
+        if device is not None and _device_entry_uses_h3_pro_soc_block(device):
+            return True
     return False
 
 

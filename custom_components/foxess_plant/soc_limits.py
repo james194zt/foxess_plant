@@ -13,7 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import MODBUS_DOMAIN
-from .discovery import device_uses_h3_pro_soc_block
+from .discovery import resolve_uses_h3_pro_soc_block
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -472,8 +472,22 @@ async def apply_soc_limits(
         }
 
     uses_h3_block = bool(
-        device_id and inverter_target and device_uses_h3_pro_soc_block(hass, device_id)
+        inverter_target
+        and resolve_uses_h3_pro_soc_block(hass, device_id, entity_map)
     )
+    if uses_h3_block:
+        _LOGGER.info(
+            "SOC write path: atomic block 46609-46611 (min=%s max=%s on-grid=%s)",
+            target["min_soc"],
+            target["max_soc"],
+            target["min_soc_on_grid"],
+        )
+    else:
+        _LOGGER.debug(
+            "SOC write path: per-register number entities (device_id=%s, inverter=%s)",
+            device_id,
+            inverter_target,
+        )
 
     if verify and _soc_targets_match(target, live_current):
         outcomes = {
@@ -513,6 +527,7 @@ async def apply_soc_limits(
         return _build_soc_results(target, outcomes)
 
     # H1 / legacy inverters — ordered per-register writes.
+    await _maybe_disable_remote_control_for_soc(hass, entity_map)
     outcomes: dict[str, SocWriteResult] = {}
     errors: dict[str, str] = {}
     write_failed = False
@@ -550,6 +565,25 @@ async def apply_soc_limits(
             else:
                 outcomes[key] = _soc_result(key, value, success=True, message="Operation successful")
         except Exception as err:
+            err_text = str(err)
+            if (
+                key == "max_soc"
+                and inverter_target
+                and "IllegalValue" in err_text
+                and ("46610" in err_text or "46609" in err_text or "46611" in err_text)
+            ):
+                _LOGGER.warning(
+                    "max SOC single-register write failed on EVO/H3 Pro register; "
+                    "retrying atomic block 46609-46611"
+                )
+                return await _apply_h3_pro_soc_block(
+                    hass,
+                    entity_map,
+                    target,
+                    inverter_target=inverter_target,
+                    live_battery_soc=live_battery_soc,
+                    verify=verify,
+                )
             msg = _format_soc_error(
                 err,
                 key=key,
