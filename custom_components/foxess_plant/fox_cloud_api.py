@@ -34,13 +34,19 @@ class FoxCloudClient:
 
     def _headers(self, path: str) -> dict[str, str]:
         ts = str(int(time.time() * 1000))
-        signature = hashlib.md5(f"{path}\r\n{self._api_key}\r\n{ts}".encode()).hexdigest()
+        # Fox API expects literal \r\n characters in the MD5 input, not CRLF bytes.
+        signature = hashlib.md5(
+            fr"{path}\r\n{self._api_key}\r\n{ts}".encode("utf-8")
+        ).hexdigest()
+        tz = getattr(self._hass.config, "time_zone", None) or "UTC"
         return {
-            "Content-Type": "application/json",
-            "token": self._api_key,
-            "signature": signature,
-            "timestamp": ts,
-            "lang": "en",
+            "Content-Type": "application/json;charset=UTF-8",
+            "Token": self._api_key,
+            "Signature": signature,
+            "Timestamp": ts,
+            "Lang": "en",
+            "Timezone": tz,
+            "User-Agent": "FoxESS-Plant/1.0",
         }
 
     async def _post(self, path: str, body: dict[str, Any] | None = None) -> Any:
@@ -85,3 +91,13 @@ class FoxCloudClient:
     async def set_battery_heating(self, sn: str, payload: dict[str, Any]) -> None:
         body = {"sn": sn.strip(), **payload}
         await self._post("/op/v0/device/batteryHeating/set", body)
+
+    async def get_scheduler_flag(self, device_sn: str) -> dict[str, Any]:
+        body = {"deviceSN": device_sn.strip()}
+        result = await self._post("/op/v1/device/scheduler/get/flag", body)
+        return result if isinstance(result, dict) else {}
+
+    async def set_scheduler_flag(self, device_sn: str, *, enable: bool) -> dict[str, Any]:
+        body = {"deviceSN": device_sn.strip(), "enable": 1 if enable else 0}
+        result = await self._post("/op/v1/device/scheduler/set/flag", body)
+        return result if isinstance(result, dict) else {}

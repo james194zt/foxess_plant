@@ -148,6 +148,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._glow_unsub_mqtt: callable | None = None
         self._glow_sensors: dict[str, Any] = {}
         self._battery_warmup_live: dict[str, Any] = {}
+        self._fox_scheduler_live: dict[str, Any] = {}
         super().__init__(
             hass,
             _LOGGER,
@@ -1866,6 +1867,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._set_work_mode(saved_work_mode)
 
     async def _set_max_soc(self, value: float) -> None:
+        await self.async_ensure_fox_scheduler_disabled()
         current = {
             "min_soc": self._entity_float("min_soc"),
             "min_soc_on_grid": self._entity_float("min_soc_on_grid"),
@@ -1895,6 +1897,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         max_soc: int,
     ) -> list[dict[str, Any]]:
         """Write all three SOC limits in an inverter-safe order."""
+        await self.async_ensure_fox_scheduler_disabled()
         return await apply_soc_limits(
             self.hass,
             self.plant.entity_map,
@@ -2033,6 +2036,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "solcast": self._solcast_state(),
             "glow": self._glow_state(),
             "fox_cloud": self._fox_cloud_state(),
+            "fox_scheduler": self._fox_scheduler_state(),
             "battery_warmup": self._battery_warmup_state(),
             "tariff": self._tariff_state(),
             "panel_runtime": get_panel_disk_info(self.hass),
@@ -2385,6 +2389,104 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except FoxCloudApiError as api_err:
             fox.last_error = str(api_err)
             raise HomeAssistantError(str(api_err)) from api_err
+
+    def _fox_scheduler_state(self) -> dict[str, Any]:
+        from .fox_cloud_scheduler import scheduler_status_label
+
+        fox = self.plant.fox_cloud
+        live = self._fox_scheduler_live if isinstance(self._fox_scheduler_live, dict) else {}
+        api_ready = bool(fox.enabled and fox.api_key_configured() and self.resolve_fox_device_sn())
+        return {
+            "fox_api_ready": api_ready,
+            "supported": live.get("supported"),
+            "enabled": live.get("enabled"),
+            "status": scheduler_status_label(live) if live else ("Fox API not configured" if not api_ready else "Not fetched"),
+            "last_error": fox.last_error,
+            "device_sn": self.resolve_fox_device_sn(),
+        }
+
+    async def async_fetch_fox_scheduler_flag(self) -> dict[str, Any]:
+        from .fox_cloud_scheduler import normalize_scheduler_flag
+        from .fox_cloud_api import FoxCloudApiError
+        from homeassistant.util import dt as dt_util
+
+        fox = self.plant.fox_cloud
+        if not fox.enabled or not fox.api_key_configured():
+            raise HomeAssistantError("Enable Fox Cloud API under Settings → API & accounts")
+        sn = self.resolve_fox_device_sn()
+        if not sn:
+            raise HomeAssistantError("Inverter serial number required for Fox Cloud scheduler")
+        client = self._fox_cloud_client()
+        try:
+            result = await client.get_scheduler_flag(sn)
+            parsed = normalize_scheduler_flag(result)
+            self._fox_scheduler_live = parsed
+            fox.last_error = None
+            fox.last_fetch_at = dt_util.utcnow().isoformat()
+            data = dict(self.config_entry.data)
+            data[CONF_FOX_CLOUD] = fox.to_dict()
+            self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+            await self.async_request_refresh()
+            return parsed
+        except FoxCloudApiError as err:
+            fox.last_error = str(err)
+            raise HomeAssistantError(str(err)) from err
+
+    async def async_disable_fox_scheduler(self) -> dict[str, Any]:
+        from .fox_cloud_scheduler import normalize_scheduler_flag, scheduler_flag_enabled
+        from .fox_cloud_api import FoxCloudApiError
+        from homeassistant.util import dt as dt_util
+
+        fox = self.plant.fox_cloud
+        if not fox.enabled or not fox.api_key_configured():
+            raise HomeAssistantError("Enable Fox Cloud API under Settings → API & accounts")
+        sn = self.resolve_fox_device_sn()
+        if not sn:
+            raise HomeAssistantError("Inverter serial number required for Fox Cloud scheduler")
+        client = self._fox_cloud_client()
+        try:
+            current = normalize_scheduler_flag(await client.get_scheduler_flag(sn))
+            self._fox_scheduler_live = current
+            if not scheduler_flag_enabled(current):
+                fox.last_error = None
+                await self.async_request_refresh()
+                return {"disabled": False, "already_disabled": True, "flag": current}
+            await client.set_scheduler_flag(sn, enable=False)
+            updated = normalize_scheduler_flag(await client.get_scheduler_flag(sn))
+            self._fox_scheduler_live = updated
+            fox.last_error = None
+            fox.last_fetch_at = dt_util.utcnow().isoformat()
+            data = dict(self.config_entry.data)
+            data[CONF_FOX_CLOUD] = fox.to_dict()
+            self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+            _LOGGER.info("Fox Cloud mode scheduler disabled for device %s", sn)
+            await self.async_request_refresh()
+            return {"disabled": True, "flag": updated}
+        except FoxCloudApiError as err:
+            fox.last_error = str(err)
+            raise HomeAssistantError(str(err)) from err
+
+    async def async_ensure_fox_scheduler_disabled(self) -> dict[str, Any] | None:
+        """Disable Fox Cloud mode scheduler when enabled, before Modbus SOC writes."""
+        from .fox_cloud_scheduler import scheduler_flag_enabled
+
+        fox = self.plant.fox_cloud
+        if not fox.enabled or not fox.api_key_configured():
+            return None
+        if not self.resolve_fox_device_sn():
+            _LOGGER.debug("Skipping Fox scheduler disable: no device serial")
+            return None
+        try:
+            if not self._fox_scheduler_live:
+                await self.async_fetch_fox_scheduler_flag()
+            if not scheduler_flag_enabled(self._fox_scheduler_live):
+                return {"already_disabled": True}
+            result = await self.async_disable_fox_scheduler()
+            _LOGGER.info("Disabled Fox Cloud scheduler before SOC Modbus write")
+            return result
+        except HomeAssistantError as err:
+            _LOGGER.warning("Could not disable Fox Cloud scheduler before SOC write: %s", err)
+            raise
 
     def _read_impact(self) -> dict[str, Any]:
         states = {key: self._entity_state(key) for key in IMPACT_ENTITY_SUFFIXES}

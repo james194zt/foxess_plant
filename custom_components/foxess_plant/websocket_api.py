@@ -46,6 +46,8 @@ WS_TYPE_UPDATE_FOX_CLOUD = "foxess_plant/update_fox_cloud"
 WS_TYPE_TEST_FOX_CLOUD = "foxess_plant/test_fox_cloud"
 WS_TYPE_FETCH_BATTERY_WARMUP = "foxess_plant/fetch_battery_warmup"
 WS_TYPE_UPDATE_BATTERY_WARMUP = "foxess_plant/update_battery_warmup"
+WS_TYPE_FETCH_FOX_SCHEDULER = "foxess_plant/fetch_fox_scheduler"
+WS_TYPE_DISABLE_FOX_SCHEDULER = "foxess_plant/disable_fox_scheduler"
 WS_TYPE_FETCH_HISTORY = "foxess_plant/fetch_history"
 WS_TYPE_FETCH_STATISTICS = "foxess_plant/fetch_statistics"
 WS_TYPE_SOLCAST_FORECAST_INTRADAY = "foxess_plant/solcast_forecast_intraday"
@@ -1129,6 +1131,54 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
 
     @websocket_api.websocket_command(
         {
+            vol.Required("type"): WS_TYPE_FETCH_FOX_SCHEDULER,
+            vol.Optional("plant_id"): str,
+        }
+    )
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def ws_fetch_fox_scheduler(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        try:
+            flag = await coordinator.async_fetch_fox_scheduler_flag()
+        except HomeAssistantError as err:
+            connection.send_error(msg["id"], "fox_scheduler_fetch_failed", str(err))
+            return
+        connection.send_result(msg["id"], {"scheduler": flag, "plant_state": coordinator.get_plant_state()})
+
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): WS_TYPE_DISABLE_FOX_SCHEDULER,
+            vol.Optional("plant_id"): str,
+        }
+    )
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def ws_disable_fox_scheduler(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        try:
+            result = await coordinator.async_disable_fox_scheduler()
+        except HomeAssistantError as err:
+            connection.send_error(msg["id"], "fox_scheduler_disable_failed", str(err))
+            return
+        connection.send_result(msg["id"], {**result, "plant_state": coordinator.get_plant_state()})
+
+    @websocket_api.websocket_command(
+        {
             vol.Required("type"): WS_TYPE_FETCH_HISTORY,
             vol.Required("start_time"): str,
             vol.Optional("end_time"): str,
@@ -1400,6 +1450,8 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_test_fox_cloud)
     websocket_api.async_register_command(hass, ws_fetch_battery_warmup)
     websocket_api.async_register_command(hass, ws_update_battery_warmup)
+    websocket_api.async_register_command(hass, ws_fetch_fox_scheduler)
+    websocket_api.async_register_command(hass, ws_disable_fox_scheduler)
     websocket_api.async_register_command(hass, ws_fetch_history)
     websocket_api.async_register_command(hass, ws_fetch_statistics)
     websocket_api.async_register_command(hass, ws_solcast_forecast_intraday)

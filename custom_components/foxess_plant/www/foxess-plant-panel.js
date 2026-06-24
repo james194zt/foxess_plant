@@ -14674,6 +14674,58 @@ Reloading panel registration…
     return String(state).replace(/^The battery is in (a )?/i, "").replace(/ state$/i, "");
   }
 
+  async _enterControlSettings() {
+    const ready = Boolean(this._plantState?.fox_scheduler?.fox_api_ready);
+    if (!ready || this._busy) return;
+    try {
+      await this._fetchFoxScheduler(false);
+    } catch {
+      /* show last known / error from plant state */
+    }
+  }
+
+  async _fetchFoxScheduler(showToast = true) {
+    const plant = this._getPlant();
+    if (!plant) return;
+    this._busy = true;
+    this._render();
+    try {
+      const res = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/fetch_fox_scheduler",
+        plant_id: plant.entry_id,
+      });
+      if (res?.plant_state) this._plantState = res.plant_state;
+      if (showToast) this._showToast("Fox Cloud scheduler status refreshed");
+    } catch (err) {
+      if (showToast) this._showToast(String(err?.message || err), "err");
+      throw err;
+    } finally {
+      this._busy = false;
+      this._render();
+    }
+  }
+
+  async _disableFoxScheduler() {
+    const plant = this._getPlant();
+    if (!plant) return;
+    this._busy = true;
+    this._render();
+    try {
+      const res = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/disable_fox_scheduler",
+        plant_id: plant.entry_id,
+      });
+      if (res?.plant_state) this._plantState = res.plant_state;
+      if (res?.already_disabled) this._showToast("Fox Cloud scheduler already disabled");
+      else this._showToast("Fox Cloud scheduler disabled");
+    } catch (err) {
+      this._showToast(String(err?.message || err), "err");
+    } finally {
+      this._busy = false;
+      this._render();
+    }
+  }
+
 
   _syncTariffDraftFromPickers() {
     if (!this._tariffDraft) return;
@@ -15747,6 +15799,7 @@ Reloading panel registration…
       if (btn.dataset.sub === "pv") this._enterPvSettings();
       if (btn.dataset.sub === "api") this._enterApiSettings();
       if (btn.dataset.sub === "warmup") void this._enterWarmupSettings();
+      if (btn.dataset.sub === "control") void this._enterControlSettings();
       if (btn.dataset.sub === "solcast") this._enterSolcastSettings();
       if (btn.dataset.sub === "glow") this._enterGlowSettings();
       if (btn.dataset.sub === "tariff") this._enterTariffSettings();
@@ -15783,6 +15836,7 @@ Reloading panel registration…
       if (btn.dataset.sub === "pv") this._enterPvSettings();
       if (btn.dataset.sub === "api") this._enterApiSettings();
       if (btn.dataset.sub === "warmup") void this._enterWarmupSettings();
+      if (btn.dataset.sub === "control") void this._enterControlSettings();
       if (btn.dataset.sub === "solcast") this._enterSolcastSettings();
       if (btn.dataset.sub === "glow") this._enterGlowSettings();
       if (btn.dataset.sub === "tariff") this._enterTariffSettings();
@@ -15938,6 +15992,14 @@ Reloading panel registration…
     }
     if (action === "release-control") {
       await this._runPlantService("release_control");
+      return;
+    }
+    if (action === "disable-fox-scheduler") {
+      await this._disableFoxScheduler();
+      return;
+    }
+    if (action === "refresh-fox-scheduler") {
+      await this._fetchFoxScheduler(true);
       return;
     }
     if (action === "arm-storm") {
@@ -16843,7 +16905,7 @@ ${thumbsHtml}
 </div>
 <div class="soc-numeric">${numericHtml}</div>
 ${renderSocFeedbackHtml(validateSocLimits(clamped, live), this._socSaveError, this._socSaveResults)}
-<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. On <strong>EVO</strong>, if system max fails while the mins save, disable <strong>Fox Mode Scheduler</strong> in the Fox <strong>web portal</strong> (Work mode → Mode scheduler) and retry — register 46610 is often locked until that is off and firmware is current.</p>
+<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. When saving, Fox Plant disables the <strong>Fox Cloud mode scheduler</strong> first if it is on — that scheduler can block EVO max SOC (register 46610) Modbus writes. You can also disable it manually under <strong>Settings → Control</strong>.</p>
 </div>`;
   }
 
@@ -20180,6 +20242,16 @@ ${note}${via}${forecastHint}${activeBadge}
     return this._warmupStatusLabel(w.state) || "Enabled";
   }
 
+  _controlSettingsSubtitle() {
+    const control = this._plantState?.control_active
+      ? "Fox Plant manages periods"
+      : "Released to manual";
+    const sched = this._plantState?.fox_scheduler;
+    if (!sched?.fox_api_ready) return control;
+    if (sched.enabled) return `${control} · Fox scheduler ON`;
+    return `${control} · Fox scheduler off`;
+  }
+
   _settingsMainSubtitles() {
     const s = this._plantState?.settings ?? {};
     return {
@@ -20193,7 +20265,7 @@ ${note}${via}${forecastHint}${activeBadge}
       smart: this._smartChargeSettingsSubtitle(),
       storm: this._settingsStormSubtitle(),
       warmup: this._warmupSettingsSubtitle(),
-      control: this._plantState?.control_active ? "Fox Plant manages periods" : "Released to manual",
+      control: this._controlSettingsSubtitle(),
     };
   }
 
@@ -21368,6 +21440,27 @@ ${this._renderPvTiltAzimuthFields("pv2", { allowWhenDisabled: true })}
 
   _renderSettingsControl() {
     const active = this._plantState?.control_active;
+    const sched = this._plantState?.fox_scheduler ?? {};
+    const apiReady = Boolean(sched.fox_api_ready);
+    const schedEnabled = sched.enabled === true;
+    const schedSupported = sched.supported !== false;
+    const schedStatus = esc(String(sched.status || (apiReady ? "Not fetched yet" : "Configure Fox Cloud API first")));
+    const schedErr = sched.last_error && apiReady ? `<p class="field-hint" style="margin:8px 0 0;color:var(--fp-amber)">Last Fox API error: ${esc(String(sched.last_error))}</p>` : "";
+    const schedulerCard = apiReady
+      ? `<div class="card">
+<p class="card-title">Fox Cloud mode scheduler</p>
+<p class="field-hint" style="margin:0 0 12px">The Fox app <strong>Mode scheduler</strong> (cloud API) can override Modbus SOC limits — especially system max on EVO. Disable it here before manual SOC changes if saves fail.</p>
+<div class="entity-row"><span class="entity-name">Status</span><span class="entity-value">${schedStatus}</span></div>
+<div class="btn-row" style="margin-top:12px">
+${schedEnabled && schedSupported ? `<button type="button" class="btn btn-danger" data-action="disable-fox-scheduler" ${this._busy ? "disabled" : ""}>Disable Fox Cloud scheduler</button>` : ""}
+<button type="button" class="btn btn-secondary" data-action="refresh-fox-scheduler" ${this._busy ? "disabled" : ""}>Refresh status</button>
+</div>
+${schedErr}
+</div>`
+      : `<div class="card">
+<p class="card-title">Fox Cloud mode scheduler</p>
+<p class="field-hint" style="margin:0">Enable the <strong>Fox Cloud API</strong> under <strong>Settings → API &amp; accounts</strong> to check or disable the cloud mode scheduler from here.</p>
+</div>`;
     return `<header class="header"><h1>Plant control</h1></header>
 <div class="card">
 <p style="margin:0 0 12px;line-height:1.5;font-size:14px">When <strong>active</strong>, Fox Plant is the only writer for charge periods (via <code>foxess_modbus</code>). Release control if you need to edit schedules in the Fox app temporarily.</p>
@@ -21376,7 +21469,8 @@ ${active
       ? `<button type="button" class="btn btn-danger" data-action="release-control" ${this._busy ? "disabled" : ""}>Release control</button>`
       : `<button type="button" class="btn btn-primary" data-action="take-control" ${this._busy ? "disabled" : ""}>Take control</button>`}
 <button type="button" class="btn btn-secondary" data-action="apply-baseline" ${this._busy ? "disabled" : ""}>Apply baseline now</button>
-</div></div>`;
+</div></div>
+${schedulerCard}`;
   }
 
   _renderSettings(plant) {
