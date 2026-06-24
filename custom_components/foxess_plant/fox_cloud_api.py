@@ -52,6 +52,53 @@ def match_fox_device_sn(devices: list[dict[str, Any]], sn: str) -> str | None:
     return None
 
 
+def fox_device_row(devices: list[dict[str, Any]], sn: str) -> dict[str, Any] | None:
+    needle = str(sn or "").strip().upper()
+    if not needle:
+        return None
+    for row in devices:
+        if not isinstance(row, dict):
+            continue
+        device_sn = str(row.get("deviceSN") or "").strip()
+        module_sn = str(row.get("moduleSN") or "").strip()
+        if needle in {device_sn.upper(), module_sn.upper()}:
+            return row
+    return None
+
+
+def fox_device_sn_candidates(
+    devices: list[dict[str, Any]],
+    *,
+    primary_sn: str | None = None,
+    configured_sn: str | None = None,
+) -> list[str]:
+    """Serial numbers to try for device-scoped Fox API calls (deviceSN, moduleSN, PCS)."""
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def add(value: Any) -> None:
+        text = str(value or "").strip()
+        key = text.upper()
+        if text and key not in seen:
+            seen.add(key)
+            candidates.append(text)
+
+    add(primary_sn)
+    add(configured_sn)
+    row = fox_device_row(devices, str(primary_sn or configured_sn or ""))
+    if row:
+        add(row.get("deviceSN"))
+        add(row.get("moduleSN"))
+    return candidates
+
+
+def fox_device_product_label(row: dict[str, Any] | None) -> str | None:
+    if not row:
+        return None
+    product = str(row.get("productType") or row.get("deviceType") or "").strip()
+    return product or None
+
+
 class FoxCloudClient:
     """Minimal FoxESS Cloud Open API client."""
 
@@ -146,13 +193,74 @@ class FoxCloudClient:
             raise last
         return {}
 
-    async def get_battery_heating(self, sn: str) -> dict[str, Any]:
-        result = await self._post("/op/v0/device/batteryHeating/get", {"sn": sn.strip()})
-        return result if isinstance(result, dict) else {"dataList": []}
+    async def get_battery_heating(
+        self,
+        sn: str,
+        *,
+        alt_sns: tuple[str, ...] = (),
+    ) -> dict[str, Any]:
+        """Fox docs: POST /op/v0/device/batteryHeating/get with body {sn}. No V3 endpoint exists."""
+        bodies: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for candidate in (sn, *alt_sns):
+            text = str(candidate or "").strip()
+            key = text.upper()
+            if not text or key in seen:
+                continue
+            seen.add(key)
+            bodies.append({"sn": text})
+        if not bodies:
+            raise FoxCloudApiError("Device serial number required for battery warmup")
 
-    async def set_battery_heating(self, sn: str, payload: dict[str, Any]) -> None:
-        body = {"sn": sn.strip(), **payload}
-        await self._post("/op/v0/device/batteryHeating/set", body)
+        last: FoxCloudApiError | None = None
+        for index, body in enumerate(bodies):
+            try:
+                result = await self._post("/op/v0/device/batteryHeating/get", body)
+                return result if isinstance(result, dict) else {"dataList": []}
+            except FoxCloudApiError as err:
+                last = err
+                if index + 1 < len(bodies) and err.errno in (41200, 41203, 41811, 41931, 41932):
+                    _LOGGER.debug(
+                        "batteryHeating/get sn=%s failed (%s), trying next serial",
+                        body.get("sn"),
+                        err,
+                    )
+                    continue
+                raise
+        if last:
+            raise last
+        return {"dataList": []}
+
+    async def set_battery_heating(
+        self,
+        sn: str,
+        payload: dict[str, Any],
+        *,
+        alt_sns: tuple[str, ...] = (),
+    ) -> None:
+        candidates: list[str] = []
+        seen: set[str] = set()
+        for candidate in (sn, *alt_sns):
+            text = str(candidate or "").strip()
+            key = text.upper()
+            if text and key not in seen:
+                seen.add(key)
+                candidates.append(text)
+        if not candidates:
+            raise FoxCloudApiError("Device serial number required for battery warmup")
+
+        last: FoxCloudApiError | None = None
+        for index, candidate in enumerate(candidates):
+            try:
+                await self._post("/op/v0/device/batteryHeating/set", {"sn": candidate, **payload})
+                return
+            except FoxCloudApiError as err:
+                last = err
+                if index + 1 < len(candidates) and err.errno in (41200, 41203, 41811, 41931, 41932):
+                    continue
+                raise
+        if last:
+            raise last
 
     async def _post_scheduler_paths(
         self,

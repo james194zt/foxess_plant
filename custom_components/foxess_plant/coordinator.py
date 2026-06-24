@@ -2310,6 +2310,25 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         canonical = match_fox_device_sn(devices, sn)
         return (canonical or sn), devices
 
+    def _fox_cloud_warmup_sns(
+        self,
+        devices: list[dict[str, Any]],
+        *,
+        primary_sn: str,
+        configured_sn: str | None = None,
+    ) -> tuple[str, tuple[str, ...], dict[str, Any] | None]:
+        from .fox_cloud_api import fox_device_row, fox_device_sn_candidates
+
+        candidates = fox_device_sn_candidates(
+            devices,
+            primary_sn=primary_sn,
+            configured_sn=configured_sn or self.resolve_fox_device_sn(),
+        )
+        primary = candidates[0] if candidates else primary_sn
+        alts = tuple(candidates[1:])
+        row = fox_device_row(devices, primary)
+        return primary, alts, row
+
     def _persist_fox_cloud_runtime(self) -> None:
         fox = self.plant.fox_cloud
         data = dict(self.config_entry.data)
@@ -2414,8 +2433,17 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
             try:
                 from .battery_warmup import parse_battery_heating_result
+                from .fox_cloud_api import fox_device_product_label
 
-                heating = await client.get_battery_heating(canonical_sn)
+                warmup_sn, warmup_alts, device_row = self._fox_cloud_warmup_sns(
+                    devices,
+                    primary_sn=canonical_sn,
+                    configured_sn=configured_sn,
+                )
+                product = fox_device_product_label(device_row)
+                if product:
+                    out["device_product"] = product
+                heating = await client.get_battery_heating(warmup_sn, alt_sns=warmup_alts)
                 out["warmup"] = parse_battery_heating_result(heating)
                 out["warmup_available"] = True
             except FoxCloudApiError as warmup_err:
@@ -2423,6 +2451,15 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     out["warmup_available"] = False
                     out["warmup_note"] = (
                         "Battery warmup is not permitted for this Fox account or device."
+                    )
+                elif warmup_err.errno == 41200:
+                    out["warmup_available"] = False
+                    product = out.get("device_product") or ""
+                    evo_hint = " EVO" if "EVO" in str(product).upper() else ""
+                    out["warmup_note"] = (
+                        f"Battery warmup is not available via Fox Open API for this{evo_hint} device "
+                        f"(41200). Scheduler uses V3; warmup still uses the V0 batteryHeating endpoint per "
+                        "Fox docs — control warmup in the Fox app until Fox enable API access."
                     )
                 else:
                     out["warmup_probe_error"] = format_fox_cloud_error(warmup_err)
@@ -2450,8 +2487,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise HomeAssistantError("Inverter serial number required for battery warmup")
         client = self._fox_cloud_client()
         try:
-            sn, _devices = await self._fox_cloud_device_sn(client)
-            result = await client.get_battery_heating(sn)
+            sn, devices = await self._fox_cloud_device_sn(client)
+            warmup_sn, warmup_alts, _row = self._fox_cloud_warmup_sns(devices, primary_sn=sn)
+            result = await client.get_battery_heating(warmup_sn, alt_sns=warmup_alts)
             parsed = parse_battery_heating_result(result)
             self._battery_warmup_live = parsed
             fox.last_error = None
@@ -2485,9 +2523,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         payload = build_battery_heating_set_payload(warmup)
         client = self._fox_cloud_client()
         try:
-            sn, _devices = await self._fox_cloud_device_sn(client)
-            await client.set_battery_heating(sn, payload)
-            result = await client.get_battery_heating(sn)
+            sn, devices = await self._fox_cloud_device_sn(client)
+            warmup_sn, warmup_alts, _row = self._fox_cloud_warmup_sns(devices, primary_sn=sn)
+            await client.set_battery_heating(warmup_sn, payload, alt_sns=warmup_alts)
+            result = await client.get_battery_heating(warmup_sn, alt_sns=warmup_alts)
             parsed = parse_battery_heating_result(result)
             self._battery_warmup_live = parsed
             fox.last_error = None

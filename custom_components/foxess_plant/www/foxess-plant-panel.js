@@ -14577,9 +14577,12 @@ Reloading panel registration…
         res?.warmup_probe_error ? `Warmup: ${res.warmup_probe_error}` : null,
       ].filter(Boolean);
       const suffix = notes.length ? `. ${notes.join(" ")}` : "";
-      const warn = notes.some((n) => /not permitted|41200|41811/i.test(String(n)));
+      const schedFailed = Boolean(res?.scheduler_error && !res?.scheduler_status);
+      const warmupUnavailable = Boolean(res?.warmup_note || (res?.warmup_probe_error && !res?.warmup_available));
       if (!connected) this._showToast(`Fox Cloud test failed${suffix}`, "err");
-      else if (warn) this._showToast(`Fox Cloud connected${sn}${sched}${suffix}`, "err");
+      else if (warmupUnavailable && !schedFailed) {
+        this._showToast(`Fox Cloud connected${sn}${sched}${suffix}`);
+      } else if (schedFailed) this._showToast(`Fox Cloud connected${sn}${sched}${suffix}`, "err");
       else this._showToast(`Fox Cloud connected${sn}${sched}${suffix}`);
     } catch (err) {
       this._showToast(String(err?.message || err), "err");
