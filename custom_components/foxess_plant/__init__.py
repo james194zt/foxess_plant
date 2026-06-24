@@ -23,12 +23,17 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     async def _register_panel_on_start(_event: Event) -> None:
         if not hass.config_entries.async_entries(DOMAIN):
             return
+        from .lovelace_cards import async_register_lovelace_cards
         from .panel import async_register_panel
 
         try:
             await async_register_panel(hass)
         except Exception:
             _LOGGER.exception("Fox Plant panel registration failed on HA start")
+        try:
+            await async_register_lovelace_cards(hass)
+        except Exception:
+            _LOGGER.exception("Fox Flow Scene Lovelace card registration failed on HA start")
 
     hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _register_panel_on_start)
 
@@ -39,6 +44,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .coordinator import FoxessPlantCoordinator
     from .discovery import discover_entity_map
     from .entity import inverter_via_device
+    from .lovelace_cards import async_register_lovelace_cards
     from .panel import async_register_panel
     from .services import register_services
 
@@ -93,6 +99,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await async_register_panel(hass)
     except Exception:
         _LOGGER.exception("Fox Plant panel registration failed")
+
+    try:
+        await async_register_lovelace_cards(hass)
+    except Exception:
+        _LOGGER.exception("Fox Flow Scene Lovelace card registration failed")
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     return True
