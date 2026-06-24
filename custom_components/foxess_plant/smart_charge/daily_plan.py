@@ -128,7 +128,9 @@ def current_plan_slot(
                 second=0,
                 microsecond=0,
             )
-            if end <= start:
+            if start_s == end_s:
+                end = start + timedelta(minutes=30)
+            elif end <= start:
                 end += timedelta(days=1)
             if start <= local_now < end:
                 return entry

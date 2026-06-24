@@ -6738,9 +6738,49 @@ function smartChargeModeIconHtml(mode) {
 
 function smartChargePlanActionTone(action) {
   if (action === "export" || action === "spread_export") return "export";
-  if (action === "charge" || action === "spread_charge" || action === "winter_fill") return "charge";
+  if (action === "charge" || action === "spread_charge" || action === "winter_fill" || action === "solar_gap_fill")
+    return "charge";
   if (action === "charge_candidate" || action === "arbitrage") return "candidate";
   return "idle";
+}
+
+function smartChargeLiveStatusPresentation(live, decision) {
+  const action = decision?.action;
+  const reason = decision?.reason;
+  if (live?.discharge_armed) {
+    return {
+      pill: "Exporting",
+      linePrefix: "Exporting",
+      tone: "export",
+      cardClass: "sc-status-card sc-status-card--exporting",
+    };
+  }
+  if (
+    live?.armed &&
+    (action === "grid_charge" || action === "arbitrage" || action === "spread_plan")
+  ) {
+    return {
+      pill: "Armed",
+      linePrefix: "Armed",
+      tone: "armed",
+      cardClass: "sc-status-card sc-status-card--armed",
+      hint: "Charge windows set on the inverter — not necessarily importing right now.",
+    };
+  }
+  if (action === "skip" || action === "idle") {
+    return {
+      pill: "Ready",
+      linePrefix: "Ready",
+      tone: "idle",
+      cardClass: "sc-status-card",
+    };
+  }
+  return {
+    pill: "Ready",
+    linePrefix: reason ? "Ready" : "Waiting",
+    tone: "idle",
+    cardClass: "sc-status-card",
+  };
 }
 
 function renderSmartChargePlanTimeline(dailyPlan, currentSlot) {
@@ -20027,7 +20067,10 @@ ${body}
         s.action === "charge" ||
         s.action === "charge_candidate" ||
         s.action === "spread_charge" ||
-        s.action === "winter_fill"
+        s.action === "winter_fill" ||
+        s.action === "solar_gap_fill" ||
+        s.reason === "winter_fill" ||
+        s.reason === "solar_gap_fill"
     ).length;
     const spreadLabel = spreadPairs.length ? ` · ${spreadPairs.length} spread pair${spreadPairs.length === 1 ? "" : "s"}` : "";
     const tomorrowRefresh = isFullHorizon ? "" : " · full 24h at 16:00 UK";
@@ -20060,7 +20103,7 @@ ${body}
 <summary>Spread optimizer</summary>
 <div class="toggle-row"><span><strong>Enable spread pairing</strong></span>
 <input type="checkbox" data-field="smart-charge:spread_optimizer_enabled" ${draft.spread_optimizer_enabled ? "checked" : ""} ${busy}></div>
-<div class="toggle-row"><span><strong>Winter cheap-fill</strong></span>
+<div class="toggle-row"><span><strong>Solar gap fill</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Extra cheap import slots when forecast PV won&rsquo;t cover house load</span></span>
 <input type="checkbox" data-field="smart-charge:winter_fill_enabled" ${draft.winter_fill_enabled ? "checked" : ""} ${busy}></div>
 ${greenOnly ? "" : `<div class="field"><label>Min spread profit (p/kWh)</label>
 <input type="number" min="0" max="50" step="0.5" data-field="smart-charge:min_spread_profit_p_per_kwh" value="${esc(String(draft.min_spread_profit_p_per_kwh ?? 3))}" ${busy}></div>`}
@@ -20076,26 +20119,20 @@ ${greenOnly ? "" : `<div class="field"><label>Min spread profit (p/kWh)</label>
   }
 
   _renderSmartChargeStatusCard(live, decision, dailyPlan, spreadPairs, planSummary) {
-    const armed = Boolean(live.armed);
-    const dischargeArmed = Boolean(live.discharge_armed);
+    const status = smartChargeLiveStatusPresentation(live, decision);
     const statusLine = decision.reason
-      ? `${dischargeArmed ? "Exporting" : armed ? "Charging" : "Idle"} — ${decision.reason}`
-      : dischargeArmed
+      ? `${status.linePrefix} — ${decision.reason}`
+      : live.discharge_armed
         ? "Exporting to grid"
-        : armed
-          ? "Grid charge armed"
+        : live.armed
+          ? "Grid charge armed on inverter"
           : "Waiting for first evaluation";
-    const pillClass = dischargeArmed
-      ? "sc-status-pill sc-status-pill--export"
-      : armed
-        ? "sc-status-pill sc-status-pill--armed"
-        : "sc-status-pill sc-status-pill--idle";
-    const pillLabel = dischargeArmed ? "Exporting" : armed ? "Charging" : "Ready";
-    const cardClass = dischargeArmed
-      ? "sc-status-card sc-status-card--exporting"
-      : armed
-        ? "sc-status-card sc-status-card--armed"
-        : "sc-status-card";
+    const pillClass =
+      status.tone === "export"
+        ? "sc-status-pill sc-status-pill--export"
+        : status.tone === "armed"
+          ? "sc-status-pill sc-status-pill--armed"
+          : "sc-status-pill sc-status-pill--idle";
     const spreadHtml = spreadPairs.length
       ? `<div class="sc-spread-pairs">${spreadPairs
           .slice(0, 4)
@@ -20105,10 +20142,10 @@ ${greenOnly ? "" : `<div class="field"><label>Min spread profit (p/kWh)</label>
           )
           .join("")}</div>`
       : "";
-    return `<div class="${cardClass}">
+    return `<div class="${status.cardClass}">
 <div class="sc-status-head">
-<div><p class="sc-status-title">Live status</p><p class="sc-status-reason">${esc(statusLine)}</p></div>
-<span class="${pillClass}">${esc(pillLabel)}</span>
+<div><p class="sc-status-title">Live status</p><p class="sc-status-reason">${esc(statusLine)}</p>${status.hint ? `<p class="field-hint" style="margin:4px 0 0">${esc(status.hint)}</p>` : ""}</div>
+<span class="${pillClass}">${esc(status.pill)}</span>
 </div>
 ${renderSmartChargeStatTiles(decision)}
 ${renderSmartChargePlanTimeline(dailyPlan, decision.current_plan_slot)}

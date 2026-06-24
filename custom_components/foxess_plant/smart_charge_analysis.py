@@ -12,7 +12,7 @@ from homeassistant.util import dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
 
-CHARGE_PLAN_ACTIONS = frozenset({"charge", "spread_charge", "winter_fill"})
+CHARGE_PLAN_ACTIONS = frozenset({"charge", "spread_charge", "winter_fill", "solar_gap_fill"})
 EXPORT_PLAN_ACTIONS = frozenset({"export", "spread_export"})
 
 

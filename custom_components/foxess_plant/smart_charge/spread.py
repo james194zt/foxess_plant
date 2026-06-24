@@ -213,7 +213,7 @@ def optimize_spread_plan(
             candidates.sort(key=lambda row: row[2].import_p_per_kwh)
             for i, entry, _slot in candidates[:fill_count]:
                 entry["action"] = "charge"
-                entry["reason"] = "winter_fill"
-                entry["winter_fill"] = True
+                entry["reason"] = "solar_gap_fill"
+                entry["solar_gap_fill"] = True
 
     return plan, pairs_meta

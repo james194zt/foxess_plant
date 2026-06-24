@@ -22,6 +22,7 @@ from .types import RateSlot, SmartChargeDecision
 
 CHARGE_PLAN_ACTIONS = frozenset({"charge", "spread_charge", "winter_fill", "charge_candidate", "arbitrage"})
 EXPORT_PLAN_ACTIONS = frozenset({"export", "spread_export"})
+SOLAR_GAP_FILL_REASONS = frozenset({"winter_fill", "solar_gap_fill"})
 
 
 def _spread_meta_from_plan(daily_plan: list[dict[str, Any]] | None) -> tuple[list[dict[str, Any]], float | None]:
@@ -51,6 +52,37 @@ def _config_bool(config: Any, key: str, default: bool) -> bool:
 
 def _fmt_hhmm_local(when: datetime) -> str:
     return dt_util.as_local(when).strftime("%H:%M")
+
+
+def _plan_slot_window_label(
+    plan_slot: dict[str, Any],
+    charge_slot: RateSlot | None,
+) -> str:
+    if charge_slot is not None:
+        start = _fmt_hhmm_local(charge_slot.start)
+        end = _fmt_hhmm_local(charge_slot.end)
+        if start != end:
+            return f"{start}-{end}"
+        if charge_slot.duration_hours > 0:
+            return start
+    start_s = str(plan_slot.get("start") or "?")
+    end_s = str(plan_slot.get("end") or "?")
+    if start_s != end_s:
+        return f"{start_s}-{end_s}"
+    return start_s
+
+
+def _daily_plan_charge_reason(
+    plan_slot: dict[str, Any],
+    charge_slot: RateSlot | None,
+) -> str:
+    window = _plan_slot_window_label(plan_slot, charge_slot)
+    plan_reason = plan_slot.get("reason") or "daily_plan"
+    if plan_reason in SOLAR_GAP_FILL_REASONS:
+        return f"Solar gap fill {window}"
+    if plan_reason == "spread_pair":
+        return f"Spread charge {window}"
+    return f"Daily plan {window}"
 
 
 def _slot_from_plan_entry(
@@ -262,11 +294,7 @@ def evaluate_smart_charge(
             if len(templates) < 2:
                 templates = templates + [ChargePeriodConfig()] * (2 - len(templates))
             periods = _periods_from_block([charge_slot], templates)
-            reason = plan_slot.get("reason") or "daily_plan"
-            if reason == "spread_pair":
-                reason = f"Spread charge {plan_slot.get('start')}-{plan_slot.get('end')}"
-            elif reason == "winter_fill":
-                reason = f"Winter fill {plan_slot.get('start')}-{plan_slot.get('end')}"
+            reason = _daily_plan_charge_reason(plan_slot, charge_slot)
             decision = evaluate_grid_charge(
                 config=config,
                 soc_pct=soc_pct,
@@ -289,35 +317,10 @@ def evaluate_smart_charge(
                 decision.charge_periods = periods
                 decision.eval_tier = "daily_plan"
                 return _attach_spread_meta(decision, daily_plan)
-            if plan_slot.get("action") in ("charge", "spread_charge", "winter_fill"):
-                action = "spread_plan" if reason.startswith("Spread") else "grid_charge"
-                return _attach_spread_meta(
-                    SmartChargeDecision(
-                        action=action,
-                        reason=reason,
-                        charge_periods=periods,
-                        target_max_soc=decision.target_max_soc,
-                        deficit_kwh=decision.deficit_kwh,
-                        forecast_kwh=decision.forecast_kwh,
-                        windows=[
-                            {
-                                "start": _fmt_hhmm_local(charge_slot.start),
-                                "end": _fmt_hhmm_local(charge_slot.end),
-                                "import_p_per_kwh": round(charge_slot.import_p_per_kwh, 4),
-                            }
-                        ],
-                        operating_mode=ctx["operating_mode"],
-                        reserve_kwh=ctx["reserve_kwh"],
-                        exportable_kwh=ctx["exportable_kwh"],
-                        target_soc_effective=ctx["target_soc_pct"],
-                        grid_gap_kwh=ctx["grid_gap_kwh"],
-                        dark_hours_kwh=ctx["dark_hours_kwh"],
-                        daily_plan=daily_plan or [],
-                        eval_tier="daily_plan",
-                        spread_pairs=pairs,
-                    ),
-                    daily_plan,
-                )
+            if decision.action in ("skip", "idle"):
+                decision.reason = f"{reason} — not charging: {decision.reason}"
+                decision.eval_tier = "daily_plan"
+                return _attach_spread_meta(decision, daily_plan)
 
     export_decision = _try_export_decision(
         config=config,

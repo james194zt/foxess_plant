@@ -1665,11 +1665,15 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         should_arm = decision.action in ("grid_charge", "arbitrage", "spread_plan") and decision.charge_periods
         new_sig = charge_periods_signature(decision.charge_periods) if decision.charge_periods else ""
+        if (
+            should_arm
+            and self.plant.override.active
+            and self.plant.override.mode not in AUTOMATION_MODES
+        ):
+            should_arm = False
         if should_arm and not self._smart_charge_armed:
             self._smart_charge_armed = True
             self._smart_charge_periods_sig = new_sig
-            if self.plant.override.active and self.plant.override.mode not in AUTOMATION_MODES:
-                return
             await self._arm_policy(
                 MODE_SMART_CHARGE,
                 decision.charge_periods,
