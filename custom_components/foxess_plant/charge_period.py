@@ -18,9 +18,10 @@ _EVO_CHARGE_PERIOD_HINT = (
     "This error comes from the **FoxESS Modbus** integration (not Fox Plant). "
     "Charge-period entities are **read-only sensors** — changing them in Developer Tools → Set state "
     "does not write to the inverter. Use `foxess_modbus.update_all_charge_periods` instead. "
-    "On EVO 10-H, writes use registers **48010–48012** (48000/48013 may not exist on your firmware). "
-    "If IllegalAddress persists after disabling Mode Scheduler, your EVO firmware may not expose "
-    "writable charge-period registers (mode @48013 unreadable is a common sign)."
+    "On EVO 10-H, period 1 uses holding registers **48010–48013** and period 2 uses **48020–48023** "
+    "(not the H1/H3 41xxx block). Each period must be written as one FC16 block including the mode "
+    "register (6 = charge from grid, 1 = no charge). IllegalAddress usually means an old modbus profile "
+    "or writing beyond the two supported slots — the Fox app Scheduler uses a different register block."
 )
 
 

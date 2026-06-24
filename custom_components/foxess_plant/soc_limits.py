@@ -46,10 +46,9 @@ class SocWriteResult:
 
 _ILLEGAL_VALUE_HINT = (
     "Modbus IllegalValue on an SOC register (EVO/H3 Pro: 46609 min, 46610 max, 46611 on-grid). "
-    "The inverter requires off-grid min ≤ system min ≤ max. "
-    "Try the same values on the FoxESS Modbus **number** entities in Developer Tools. "
-    "If those fail too, confirm the inverter model in FoxESS Modbus is EVO and that the "
-    "Fox app is not locking settings."
+    "On EVO/H3 Pro all three limits must be written together — single-register writes to 46610 fail. "
+    "The inverter also requires off-grid min ≤ system min ≤ max, and max cannot be below the "
+    "current battery SOC. Disable FoxESS Modbus Remote Control and close the Fox app before saving."
 )
 
 _VERIFY_FAIL_HINT = (
@@ -97,6 +96,7 @@ def validate_soc_limits_for_write(
     max_soc: int,
     *,
     soc_min_pct: int = 10,
+    live_battery_soc: float | None = None,
 ) -> dict[str, int]:
     """Validate user SOC limits before Modbus writes; return clamped target or raise."""
     target = clamp_soc_values(min_soc, min_soc_on_grid, max_soc, soc_min_pct=soc_min_pct)
@@ -121,6 +121,10 @@ def validate_soc_limits_for_write(
         errors.append(
             f"System min ({raw_mid}%) must be less than or equal to system max ({raw_max}%)."
         )
+
+    battery_hint = _max_soc_battery_hint(live_battery_soc, raw_max)
+    if battery_hint:
+        errors.append(battery_hint)
 
     if errors:
         raise HomeAssistantError(" ".join(errors))
@@ -344,43 +348,95 @@ async def _atomic_h3_pro_soc_write(
     )
 
 
-async def _apply_atomic_soc_block(
+async def _maybe_disable_remote_control_for_soc(
+    hass: HomeAssistant,
+    entity_map: dict[str, str],
+) -> bool:
+    """Disable active remote control so SOC block writes are not rejected."""
+    from .remote_control import is_remote_control_active, set_remote_control_mode
+
+    entity_id = entity_map.get("remote_control")
+    if not entity_id:
+        return False
+    state = hass.states.get(entity_id)
+    current = state.state if state else None
+    if not is_remote_control_active(current):
+        return False
+    try:
+        await set_remote_control_mode(hass, entity_map, "Disable")
+        await asyncio.sleep(0.4)
+        return True
+    except HomeAssistantError as err:
+        _LOGGER.debug("Remote Control disable before SOC write skipped: %s", err)
+        return False
+
+
+def _soc_targets_match(target: dict[str, int], current: dict[str, int]) -> bool:
+    return all(current.get(key) == target[key] for key in SOC_KEYS)
+
+
+async def _verify_h3_pro_soc_block(
     hass: HomeAssistant,
     entity_map: dict[str, str],
     target: dict[str, int],
     *,
-    inverter_target: str,
     live_battery_soc: float | None,
-) -> list[dict[str, Any]] | None:
-    """Try a single contiguous SOC block write; return results or None to fall back."""
-    try:
-        await _atomic_h3_pro_soc_write(hass, inverter_target, target)
-    except Exception as err:
-        _LOGGER.info(
-            "Atomic SOC block write failed (%s); falling back to per-register writes",
-            err,
-        )
-        return None
-
+) -> list[dict[str, Any]]:
     outcomes: dict[str, SocWriteResult] = {}
     for key in SOC_DISPLAY_ORDER:
         outcomes[key] = await _verify_soc_key(hass, entity_map, key, target[key])
         if not outcomes[key].success and key == "max_soc":
             battery_hint = _max_soc_battery_hint(live_battery_soc, target["max_soc"])
             if battery_hint:
-                outcomes[key] = _soc_result(
-                    key,
-                    target[key],
-                    success=False,
-                    message=battery_hint,
-                )
+                outcomes[key] = _soc_result(key, target[key], success=False, message=battery_hint)
+    return _build_soc_results(target, outcomes)
 
-    results = _build_soc_results(target, outcomes)
-    if all(row["success"] for row in results):
-        return results
 
-    _LOGGER.info("Atomic SOC block read-back incomplete; falling back to per-register writes")
-    return None
+async def _apply_h3_pro_soc_block(
+    hass: HomeAssistant,
+    entity_map: dict[str, str],
+    target: dict[str, int],
+    *,
+    inverter_target: str,
+    live_battery_soc: float | None,
+    verify: bool,
+) -> list[dict[str, Any]]:
+    """EVO/H3 Pro: one FC16 write to 46609–46611 — per-register 46610 writes fail."""
+    await _maybe_disable_remote_control_for_soc(hass, entity_map)
+    try:
+        await _atomic_h3_pro_soc_write(hass, inverter_target, target)
+    except Exception as err:
+        msg = _format_soc_error(
+            err,
+            key="max_soc",
+            target_max=target["max_soc"],
+            live_battery_soc=live_battery_soc,
+        )
+        outcomes = {
+            key: _soc_result(
+                key,
+                target[key],
+                success=False,
+                message=msg if key == "max_soc" else "Not written (SOC block write failed)",
+            )
+            for key in SOC_DISPLAY_ORDER
+        }
+        return _build_soc_results(target, outcomes)
+
+    if verify:
+        return await _verify_h3_pro_soc_block(
+            hass,
+            entity_map,
+            target,
+            live_battery_soc=live_battery_soc,
+        )
+
+    await _refresh_soc_entities(hass, entity_map)
+    outcomes = {
+        key: _soc_result(key, target[key], success=True, message="Operation successful")
+        for key in SOC_DISPLAY_ORDER
+    }
+    return _build_soc_results(target, outcomes)
 
 
 async def apply_soc_limits(
@@ -398,7 +454,12 @@ async def apply_soc_limits(
     live_battery_soc: float | None = None,
 ) -> list[dict[str, Any]]:
     """Write min / on-grid / max SOC through foxess_modbus number entities."""
-    target = validate_soc_limits_for_write(min_soc, min_soc_on_grid, max_soc)
+    target = validate_soc_limits_for_write(
+        min_soc,
+        min_soc_on_grid,
+        max_soc,
+        live_battery_soc=live_battery_soc,
+    )
 
     if force_write or current is None:
         await _refresh_soc_entities(hass, entity_map)
@@ -409,6 +470,33 @@ async def apply_soc_limits(
             for key in SOC_KEYS
             if (parsed := _coerce_soc(current.get(key))) is not None
         }
+
+    uses_h3_block = bool(
+        device_id and inverter_target and device_uses_h3_pro_soc_block(hass, device_id)
+    )
+
+    if verify and _soc_targets_match(target, live_current):
+        outcomes = {
+            key: _soc_result(
+                key,
+                target[key],
+                success=True,
+                message="Already set",
+                skipped=True,
+            )
+            for key in SOC_DISPLAY_ORDER
+        }
+        return _build_soc_results(target, outcomes)
+
+    if uses_h3_block:
+        return await _apply_h3_pro_soc_block(
+            hass,
+            entity_map,
+            target,
+            inverter_target=inverter_target,
+            live_battery_soc=live_battery_soc,
+            verify=verify,
+        )
 
     sequence = compute_soc_write_sequence(target, live_current)
     if not sequence and verify:
@@ -424,27 +512,7 @@ async def apply_soc_limits(
         }
         return _build_soc_results(target, outcomes)
 
-    if (
-        verify
-        and inverter_target
-        and device_id
-        and device_uses_h3_pro_soc_block(hass, device_id)
-        and sequence
-    ):
-        atomic_results = await _apply_atomic_soc_block(
-            hass,
-            entity_map,
-            target,
-            inverter_target=inverter_target,
-            live_battery_soc=live_battery_soc,
-        )
-        if atomic_results is not None:
-            return atomic_results
-        await _refresh_soc_entities(hass, entity_map)
-        live_current = read_soc_current(hass, entity_map)
-        sequence = compute_soc_write_sequence(target, live_current)
-
-    # Ordered transitions (e.g. lower mid before max) — never blind max-first writes.
+    # H1 / legacy inverters — ordered per-register writes.
     outcomes: dict[str, SocWriteResult] = {}
     errors: dict[str, str] = {}
     write_failed = False

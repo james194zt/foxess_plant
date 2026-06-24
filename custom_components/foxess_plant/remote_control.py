@@ -11,6 +11,13 @@ from .models import ChargePeriodConfig
 
 _LOGGER = logging.getLogger(__name__)
 
+REMOTE_CONTROL_IDLE = frozenset({"Disable", "unknown", "unavailable", None, ""})
+
+
+def is_remote_control_active(state: str | None) -> bool:
+    """True when the dedicated Remote Control select is commanding force charge/discharge."""
+    return bool(state) and state not in REMOTE_CONTROL_IDLE
+
 
 def is_charge_period_modbus_blocked(err: BaseException) -> bool:
     message = str(err)

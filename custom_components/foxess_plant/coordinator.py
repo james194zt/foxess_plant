@@ -23,6 +23,7 @@ from .impact import compute_impact
 from .charge_period import apply_charge_periods
 from .discovery import missing_charge_period_entities
 from .remote_control import is_charge_period_modbus_blocked
+from .remote_control import is_remote_control_active
 from .remote_control import periods_want_grid_force_charge
 from .remote_control import set_remote_control_mode
 from .flow_scene import resolve_flow_scene_theme
@@ -1579,12 +1580,17 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._smart_charge_discharge_sig = ""
 
     async def _enable_force_discharge(self) -> None:
+        if self.plant.entity_map.get("remote_control"):
+            await set_remote_control_mode(self.hass, self.plant.entity_map, "Force Discharge")
+            return
         entity_id = self.plant.entity_map.get("work_mode")
         options = self._entity_options("work_mode")
         if entity_id and options and "Force Discharge" in options:
             await self._set_work_mode("Force Discharge")
             return
-        await set_remote_control_mode(self.hass, self.plant.entity_map, "Force Discharge")
+        raise HomeAssistantError(
+            "Force Discharge is not available — no Remote Control or work mode entity found."
+        )
 
     async def _disarm_smart_charge_export(self) -> None:
         if not self._smart_charge_discharge_armed:
@@ -1810,15 +1816,13 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.plant.override.saved_work_mode = current
 
     async def _clear_remote_control_for_restore(self) -> None:
-        current = self._entity_state("work_mode")
-        if current not in ("Force Charge", "Force Discharge"):
-            return
         if not self.plant.entity_map.get("remote_control"):
             return
-        try:
-            await set_remote_control_mode(self.hass, self.plant.entity_map, "Disable")
-        except HomeAssistantError as err:
-            _LOGGER.debug("Remote Control disable before restore skipped: %s", err)
+        if is_remote_control_active(self._entity_state("remote_control")):
+            try:
+                await set_remote_control_mode(self.hass, self.plant.entity_map, "Disable")
+            except HomeAssistantError as err:
+                _LOGGER.debug("Remote Control disable before restore skipped: %s", err)
 
     async def _set_work_mode(self, option: str) -> None:
         entity_id = self.plant.entity_map.get("work_mode")
@@ -2028,6 +2032,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "min_soc_on_grid": self._entity_float("min_soc_on_grid"),
                 "work_mode": self._entity_state("work_mode"),
                 "work_mode_options": self._entity_options("work_mode"),
+                "remote_control": self._entity_state("remote_control"),
+                "remote_control_options": self._entity_options("remote_control"),
             },
             "identity": self._read_identity(),
         }
