@@ -43,7 +43,6 @@ def _lovelace_mode(lovelace: Any) -> str | None:
     mode = getattr(lovelace, "mode", None)
     if mode is not None:
         return mode
-    # Modern HA storage dashboards omit mode; treat as storage unless yaml.
     if getattr(lovelace, "yaml_mode", False):
         return "yaml"
     return "storage"
@@ -67,21 +66,35 @@ async def _async_ensure_resources_loaded(resources: Any) -> None:
             resources.loaded = True
 
 
+def _register_frontend_module(hass: HomeAssistant, url: str) -> None:
+    """Load card JS globally (required for YAML dashboards and the card picker)."""
+    from homeassistant.components.frontend import add_extra_js_url
+
+    add_extra_js_url(hass, url)
+    _LOGGER.info("Fox Flow Scene card module registered for frontend: %s", url)
+
+
 async def async_register_lovelace_cards(hass: HomeAssistant, *, _retry: int = 0) -> None:
     """Add or update the Fox Flow Scene card module in Lovelace resources."""
     version = _integration_version()
+    url = flow_scene_card_resource_url()
+
+    # Always inject as a frontend module so YAML dashboards and the card picker
+    # can load customCards even when lovelace resource_mode is yaml.
+    _register_frontend_module(hass, url)
+
     if hass.data.get(_LOVELACE_REGISTER_KEY) == version:
         return
 
-    url = flow_scene_card_resource_url()
     lovelace = hass.data.get("lovelace")
     if lovelace is None:
         if _retry >= _MAX_LOVELACE_RETRIES:
             _LOGGER.warning(
-                "Lovelace component not ready; Fox Flow Scene card not registered. "
-                "Add %s manually under Settings → Dashboards → Resources.",
+                "Lovelace component not ready; storage resource not updated. "
+                "The card should still load via the frontend module URL %s",
                 url,
             )
+            hass.data[_LOVELACE_REGISTER_KEY] = version
             return
 
         async def _retry_later(_now: Any) -> None:
@@ -90,28 +103,8 @@ async def async_register_lovelace_cards(hass: HomeAssistant, *, _retry: int = 0)
         async_call_later(hass, 5, _retry_later)
         return
 
-    mode = _lovelace_mode(lovelace)
-    if mode == "yaml":
-        from homeassistant.components.frontend import add_extra_js_url
-
-        _LOGGER.info("Lovelace YAML mode: registering Fox Flow Scene via extra JS URL")
-        add_extra_js_url(hass, url)
-        hass.data[_LOVELACE_REGISTER_KEY] = version
-        return
-
     if not _can_register_storage_resources(lovelace):
-        if _retry >= _MAX_LOVELACE_RETRIES:
-            _LOGGER.warning(
-                "Lovelace resources API unavailable; Fox Flow Scene card not registered. "
-                "Add %s manually under Settings → Dashboards → Resources.",
-                url,
-            )
-            return
-
-        async def _retry_resources(_now: Any) -> None:
-            await async_register_lovelace_cards(hass, _retry=_retry + 1)
-
-        async_call_later(hass, 5, _retry_resources)
+        hass.data[_LOVELACE_REGISTER_KEY] = version
         return
 
     resources = lovelace.resources
@@ -121,11 +114,14 @@ async def async_register_lovelace_cards(hass: HomeAssistant, *, _retry: int = 0)
     except Exception:
         if _retry >= _MAX_LOVELACE_RETRIES:
             _LOGGER.exception(
-                "Fox Flow Scene Lovelace card registration failed after %s attempts",
+                "Fox Flow Scene Lovelace storage resource failed after %s attempts; "
+                "frontend module URL %s is still active",
                 _MAX_LOVELACE_RETRIES,
+                url,
             )
+            hass.data[_LOVELACE_REGISTER_KEY] = version
             return
-        _LOGGER.debug("Fox Flow Scene registration retry %s", _retry + 1, exc_info=True)
+        _LOGGER.debug("Fox Flow Scene storage registration retry %s", _retry + 1, exc_info=True)
 
         async def _retry_after_error(_now: Any) -> None:
             await async_register_lovelace_cards(hass, _retry=_retry + 1)
