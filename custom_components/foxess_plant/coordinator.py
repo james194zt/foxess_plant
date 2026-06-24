@@ -1985,7 +1985,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         desired = [p.to_dict() for p in self.plant.desired_periods()]
         actual = self._read_actual_periods()
-        drift = self._compute_drift(desired, actual)
+        drift = self._schedule_drift_visible(actual)
         analytics = self._read_analytics()
         impact = self._read_impact()
         return {
@@ -2421,6 +2421,13 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await asyncio.gather(*tasks)
             await asyncio.sleep(0.35)
 
+    def _schedule_drift_visible(self, actual: list[dict[str, Any]]) -> bool:
+        """UI drift banner: compare saved schedule to inverter, not transient automation windows."""
+        if self.plant.override.active and self.plant.override.mode in AUTOMATION_MODES:
+            return False
+        reference = [p.to_dict() for p in self.plant.desired_periods()]
+        return self._compute_drift(reference, actual)
+
     def _fire(self, event_type: str, data: dict[str, Any] | None = None) -> None:
         payload = {"plant_id": self.config_entry.entry_id, **(data or {})}
         self.hass.bus.async_fire(event_type, payload)
@@ -2549,6 +2556,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ]
         await self._persist()
         await self.async_request_refresh()
+        if self.plant.smart_charge.enabled:
+            await self._evaluate_smart_charge()
         _LOGGER.info("Synced baseline charge periods from inverter: %s", [p.to_dict() for p in periods])
 
     async def async_reapply_schedule(self) -> None:
@@ -3326,6 +3335,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self.plant.control.exclusive or not self.plant.control_active:
             return
         if self._applying:
+            return
+        if self.plant.override.active and self.plant.override.mode in AUTOMATION_MODES:
             return
 
         state = self.get_plant_state()
