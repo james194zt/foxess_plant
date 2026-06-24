@@ -20,6 +20,15 @@ FOX_API_DOCS_URL = "https://www.foxesscloud.com/i18n/en/OpenApiDocument.html"
 class FoxCloudApiError(Exception):
     """FoxESS Cloud API request failed."""
 
+    def __init__(self, message: str, *, errno: int | None = None) -> None:
+        super().__init__(message)
+        self.errno = errno
+
+
+def fox_cloud_permission_denied(message: str) -> bool:
+    text = str(message or "").lower()
+    return "permission" in text and "allow" in text
+
 
 class FoxCloudClient:
     """Minimal FoxESS Cloud Open API client."""
@@ -67,7 +76,12 @@ class FoxCloudClient:
                     raise FoxCloudApiError("Fox Cloud returned invalid JSON")
                 errno = data.get("errno", 0)
                 if errno not in (0, None):
-                    raise FoxCloudApiError(str(data.get("msg") or f"Fox Cloud error {errno}"))
+                    msg = str(data.get("msg") or f"Fox Cloud error {errno}")
+                    try:
+                        errno_int = int(errno)
+                    except (TypeError, ValueError):
+                        errno_int = None
+                    raise FoxCloudApiError(msg, errno=errno_int)
                 return data.get("result")
         except FoxCloudApiError:
             raise

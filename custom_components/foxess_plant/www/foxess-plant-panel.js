@@ -14567,7 +14567,9 @@ Reloading panel registration…
       const res = await this._hass.connection.sendMessagePromise(msg);
       if (res?.plant_state) this._plantState = res.plant_state;
       const sn = res?.device_sn ? ` · ${res.device_sn}` : "";
-      this._showToast(`Fox Cloud connected${sn}`);
+      const sched = res?.scheduler_status ? ` · ${res.scheduler_status}` : "";
+      if (res?.warmup_note) this._showToast(`Fox Cloud connected${sn}${sched}. ${res.warmup_note}`, "err");
+      else this._showToast(`Fox Cloud connected${sn}${sched}`);
     } catch (err) {
       this._showToast(String(err?.message || err), "err");
     } finally {
@@ -21079,7 +21081,7 @@ ${live.last_error ? `<p class="field-hint" style="margin-top:8px;color:var(--fp-
       : "";
     return `<div class="card">
 <p class="card-title">Fox Cloud API</p>
-<p class="field-hint">FoxESS Open API for battery warmup and other cloud-only inverter settings (not available over Modbus).</p>
+<p class="field-hint">FoxESS Open API for mode scheduler control, battery warmup, and other cloud-only settings (not available over Modbus). A falling API quota on the Fox portal means authentication is working — some endpoints may still return &ldquo;permissions&rdquo; errors for owner accounts.</p>
 <div class="toggle-row"><span><strong>Enable Fox Cloud API</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Required for <strong>Settings → Battery Warmup</strong></span></span>
 <input type="checkbox" data-field="fox:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 ${detailBlock}

@@ -2308,7 +2308,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.async_request_refresh()
 
     async def async_test_fox_cloud(self, *, api_key: str | None = None) -> dict[str, Any]:
-        from .fox_cloud_api import FoxCloudApiError, FoxCloudClient
+        from .fox_cloud_scheduler import normalize_scheduler_flag, scheduler_status_label
+        from .fox_cloud_api import FoxCloudApiError, FoxCloudClient, fox_cloud_permission_denied
+        from homeassistant.util import dt as dt_util
 
         fox = self.plant.fox_cloud
         key = (api_key or fox.api_key or "").strip()
@@ -2319,12 +2321,38 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise HomeAssistantError("Inverter serial number required — set device SN or link PCS serial from Modbus")
         client = FoxCloudClient(self.hass, api_key=key)
         try:
-            result = await client.get_battery_heating(sn)
-            from .battery_warmup import parse_battery_heating_result
+            scheduler = normalize_scheduler_flag(await client.get_scheduler_flag(sn))
+            self._fox_scheduler_live = scheduler
+            fox.last_error = None
+            fox.last_fetch_at = dt_util.utcnow().isoformat()
+            out: dict[str, Any] = {
+                "device_sn": sn,
+                "scheduler": scheduler,
+                "scheduler_status": scheduler_status_label(scheduler),
+            }
+            try:
+                from .battery_warmup import parse_battery_heating_result
 
-            parsed = parse_battery_heating_result(result)
-            return {"device_sn": sn, "warmup": parsed}
+                heating = await client.get_battery_heating(sn)
+                out["warmup"] = parse_battery_heating_result(heating)
+                out["warmup_available"] = True
+            except FoxCloudApiError as warmup_err:
+                if fox_cloud_permission_denied(str(warmup_err)):
+                    out["warmup_available"] = False
+                    out["warmup_note"] = (
+                        "Battery warmup is not permitted for this Fox account or device — "
+                        "scheduler access still works for SOC control."
+                    )
+                else:
+                    out["warmup_probe_error"] = str(warmup_err)
+            return out
         except FoxCloudApiError as err:
+            fox.last_error = str(err)
+            if fox_cloud_permission_denied(str(err)):
+                raise HomeAssistantError(
+                    f"{err} — your API key authenticated but this device or account cannot use "
+                    "mode scheduler via the Open API. Try disabling the scheduler in the Fox app instead."
+                ) from err
             raise HomeAssistantError(str(err)) from err
 
     async def async_fetch_battery_warmup(self) -> dict[str, Any]:
