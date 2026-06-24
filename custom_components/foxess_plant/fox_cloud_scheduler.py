@@ -149,6 +149,62 @@ def build_disable_schedule_body(device_sn: str, schedule: dict[str, Any] | None)
     return {"deviceSN": str(device_sn).strip(), "groups": groups_out}
 
 
+def build_max_soc_schedule_body(
+    device_sn: str,
+    max_soc: int,
+    schedule: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Build scheduler/enable body with maxSoc set on each segment (EVO cloud path)."""
+    max_v = max(10, min(100, int(max_soc)))
+    groups_in = schedule.get("groups") if isinstance(schedule, dict) else None
+    groups_out: list[dict[str, Any]] = []
+    if isinstance(groups_in, list):
+        for group in groups_in:
+            if not isinstance(group, dict):
+                continue
+            extra = dict(group.get("extraParam") or {})
+            for key in ("minSocOnGrid", "fdSoc", "fdPwr"):
+                if key in group and key not in extra:
+                    extra[key] = group[key]
+            extra["maxSoc"] = max_v
+            item: dict[str, Any] = {
+                "enable": int(group.get("enable", 1) or 0),
+                "startHour": int(group.get("startHour", 0) or 0),
+                "startMinute": int(group.get("startMinute", 0) or 0),
+                "endHour": int(group.get("endHour", 23) or 23),
+                "endMinute": int(group.get("endMinute", 59) or 59),
+                "workMode": str(group.get("workMode") or "SelfUse"),
+                "minSocOnGrid": int(extra.get("minSocOnGrid", 10) or 10),
+                "fdSoc": int(extra.get("fdSoc", max(max_v, 10)) or max(max_v, 10)),
+                "fdPwr": int(extra.get("fdPwr", 6000) or 6000),
+                "maxSoc": max_v,
+                "extraParam": extra,
+            }
+            groups_out.append(item)
+    if not groups_out:
+        groups_out = [
+            {
+                "enable": 1,
+                "startHour": 0,
+                "startMinute": 0,
+                "endHour": 23,
+                "endMinute": 59,
+                "workMode": "SelfUse",
+                "minSocOnGrid": 10,
+                "fdSoc": max(max_v, 10),
+                "fdPwr": 6000,
+                "maxSoc": max_v,
+                "extraParam": {
+                    "minSocOnGrid": 10,
+                    "fdSoc": max(max_v, 10),
+                    "fdPwr": 6000,
+                    "maxSoc": max_v,
+                },
+            }
+        ]
+    return {"deviceSN": str(device_sn).strip(), "groups": groups_out}
+
+
 def scheduler_status_label(flag: dict[str, Any] | None) -> str:
     if not flag:
         return "Unknown"

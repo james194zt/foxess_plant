@@ -1924,11 +1924,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 max_row["success"] = True
                 max_row["message"] = cloud_msg
             elif cloud_msg:
-                max_row["message"] = f"{max_row.get('message', '')} {cloud_msg}".strip()
+                max_row["message"] = cloud_msg
         return results
 
     async def _async_try_fox_cloud_max_soc(self, max_soc: int) -> tuple[bool, str]:
-        from .fox_cloud_api import FoxCloudApiError, format_fox_cloud_error
+        from .fox_cloud_api import FoxCloudApiError, format_fox_cloud_error, fox_cloud_feature_unsupported
+        from .soc_limits import _EVO_MAX_SOC_UNSUPPORTED
 
         fox = self.plant.fox_cloud
         if not fox.enabled or not fox.api_key_configured():
@@ -1938,21 +1939,42 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         client = self._fox_cloud_client()
         try:
             sn, _devices = await self._fox_cloud_device_sn(client)
-            await client.set_device_setting(sn, "MaxSoc", max_soc)
-            read_back = await client.get_device_setting(sn, "MaxSoc")
-            value = read_back.get("value")
-            if value is not None and int(float(value)) == int(max_soc):
+            schedule = self._fox_scheduler_schedule_live
+            if not schedule:
+                try:
+                    schedule = await client.get_scheduler_schedule(sn)
+                except FoxCloudApiError:
+                    schedule = {}
+            try:
+                await client.get_device_setting(sn, "MaxSoc")
+                await client.set_device_setting(sn, "MaxSoc", max_soc)
+                read_back = await client.get_device_setting(sn, "MaxSoc")
+                value = read_back.get("value")
+                if value is not None and int(float(value)) == int(max_soc):
+                    await self.async_request_refresh()
+                    return True, (
+                        f"System max set to {max_soc}% via Fox Cloud (Modbus register 46610 is locked on this EVO)."
+                    )
+                return True, (
+                    f"Fox Cloud MaxSoc write accepted ({max_soc}%). "
+                    "Confirm in the Fox app — Modbus 46610 remains read-only on this EVO."
+                )
+            except FoxCloudApiError as setting_err:
+                if not fox_cloud_feature_unsupported(setting_err):
+                    raise
+                _LOGGER.info("Fox Cloud MaxSoc setting unsupported (42015), trying scheduler maxSoc")
+                await client.set_scheduler_max_soc(sn, max_soc, schedule if isinstance(schedule, dict) else None)
+                await self._async_refresh_fox_scheduler_state(client, sn)
                 await self.async_request_refresh()
                 return True, (
-                    f"System max set to {max_soc}% via Fox Cloud (Modbus register 46610 is locked on this EVO)."
+                    f"System max set to {max_soc}% via Fox Cloud scheduler maxSoc "
+                    "(EVO does not support the MaxSoc settings API)."
                 )
-            return True, (
-                f"Fox Cloud MaxSoc write accepted ({max_soc}%). "
-                "Confirm in the Fox app — Modbus 46610 remains read-only on this EVO."
-            )
         except FoxCloudApiError as err:
-            _LOGGER.warning("Fox Cloud MaxSoc fallback failed: %s", err)
-            return False, f"Fox Cloud MaxSoc fallback also failed: {format_fox_cloud_error(err)}"
+            _LOGGER.warning("Fox Cloud max SOC fallback failed: %s", err)
+            if fox_cloud_feature_unsupported(err):
+                return False, _EVO_MAX_SOC_UNSUPPORTED
+            return False, f"Fox Cloud max SOC fallback failed: {format_fox_cloud_error(err)}"
         except (TypeError, ValueError) as err:
             _LOGGER.warning("Fox Cloud MaxSoc read-back parse failed: %s", err)
             return True, f"Fox Cloud MaxSoc write sent ({max_soc}%). Modbus 46610 remains read-only on EVO."

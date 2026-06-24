@@ -16921,7 +16921,7 @@ ${thumbsHtml}
 </div>
 <div class="soc-numeric">${numericHtml}</div>
 ${renderSocFeedbackHtml(validateSocLimits(clamped, live), this._socSaveError, this._socSaveResults)}
-<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. When saving, Fox Plant disables the <strong>Fox Cloud mode scheduler</strong> first if it is on — that scheduler can block EVO max SOC (register 46610) Modbus writes. You can also disable it manually under <strong>Settings → Control</strong>.</p>
+<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. On <strong>EVO</strong>, system max (Modbus 46610) is often read-only — Fox Cloud may return <strong>API 42015</strong>. Min limits usually still save; use the Fox web portal installer settings or charge-period / max-current workarounds for max SOC.</p>
 </div>`;
   }
 

@@ -37,6 +37,10 @@ def format_fox_cloud_error(err: FoxCloudApiError) -> str:
     return message
 
 
+def fox_cloud_feature_unsupported(err: FoxCloudApiError) -> bool:
+    return err.errno == 42015 or "does not currently support this feature" in str(err).lower()
+
+
 def match_fox_device_sn(devices: list[dict[str, Any]], sn: str) -> str | None:
     """Map PCS/module/configured SN to the Fox Cloud inverter deviceSN."""
     needle = str(sn or "").strip().upper()
@@ -383,3 +387,55 @@ class FoxCloudClient:
             {"sn": sn.strip(), "key": key, "value": str(value)},
         )
         return result if isinstance(result, dict) else {}
+
+    async def set_scheduler_max_soc(
+        self,
+        device_sn: str,
+        max_soc: int,
+        schedule: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Set max SOC via V3/V2/V1 scheduler enable (EVO often blocks setting/get MaxSoc)."""
+        from .fox_cloud_scheduler import build_max_soc_schedule_body
+
+        body = build_max_soc_schedule_body(device_sn, max_soc, schedule)
+        paths = (
+            "/op/v3/device/scheduler/enable",
+            "/op/v2/device/scheduler/enable",
+            "/op/v1/device/scheduler/enable",
+            "/op/v0/device/scheduler/enable",
+        )
+        last: FoxCloudApiError | None = None
+        for index, path in enumerate(paths):
+            try:
+                post_body = dict(body)
+                if path.startswith("/op/v3/"):
+                    post_body = {
+                        "deviceSN": body["deviceSN"],
+                        "groups": [
+                            {
+                                "startHour": group["startHour"],
+                                "startMinute": group["startMinute"],
+                                "endHour": group["endHour"],
+                                "endMinute": group["endMinute"],
+                                "workMode": group["workMode"],
+                                "extraParam": group.get("extraParam") or {},
+                            }
+                            for group in body.get("groups", [])
+                            if isinstance(group, dict)
+                        ],
+                    }
+                result = await self._post(path, post_body)
+                return result if isinstance(result, dict) else {}
+            except FoxCloudApiError as err:
+                last = err
+                if index + 1 < len(paths) and err.errno in (41200, 41203, 40256, 41811, 42015):
+                    _LOGGER.debug(
+                        "Fox scheduler maxSoc %s failed (%s), trying fallback",
+                        path,
+                        err,
+                    )
+                    continue
+                raise
+        if last:
+            raise last
+        return {}

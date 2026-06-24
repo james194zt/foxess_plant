@@ -50,12 +50,18 @@ _ILLEGAL_VALUE_HINT = (
     "Disable FoxESS Modbus Remote Control and close the Fox app before saving."
 )
 
+_EVO_MAX_SOC_UNSUPPORTED = (
+    "System max SOC cannot be changed on this EVO — Modbus register 46610 is read-only and "
+    "Fox Cloud returns API 42015 (feature not supported). Off-grid min and system min were saved. "
+    "Set system max in the Fox web portal installer settings, or cap charging using "
+    "FoxESS Modbus charge periods / max charge current automations instead."
+)
+
 _EVO_MAX_SOC_BLOCKED_HINT = (
     "System max (register 46610) was rejected by the EVO inverter. Off-grid min and system min were saved. "
-    "The Fox Cloud scheduler flag can show Disabled while V3 schedule segments or cloud max SOC still block "
-    "Modbus writes — use Settings → Control → Disable Fox Cloud scheduler, then save again. "
-    "If it still fails, Fox Plant will try Fox Cloud MaxSoc as a fallback when the API is configured. "
-    "Some EVO units keep 46610 read-only until Fox enable installer SOC writes in the web portal."
+    "Fox Plant tries Fox Cloud MaxSoc and scheduler maxSoc when Modbus fails. "
+    "If you see API 42015, this EVO does not expose system max via the Open API — use the Fox web portal "
+    "(installer settings) or charge-period / max-current workarounds instead."
 )
 
 _VERIFY_FAIL_HINT = (
