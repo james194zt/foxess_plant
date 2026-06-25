@@ -480,6 +480,14 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
         except HomeAssistantError as err:
             connection.send_error(msg["id"], "soc_save_failed", str(err))
             return
+        except Exception as err:
+            _LOGGER.exception("set_soc_limits websocket failed")
+            connection.send_error(
+                msg["id"],
+                "soc_save_failed",
+                str(err) or err.__class__.__name__,
+            )
+            return
         connection.send_result(
             msg["id"],
             {

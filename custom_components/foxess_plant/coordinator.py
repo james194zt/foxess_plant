@@ -2833,6 +2833,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return None
             _LOGGER.warning("Could not disable Fox Cloud scheduler before SOC write: %s", err)
             raise
+        except Exception as err:
+            _LOGGER.warning(
+                "Fox Cloud scheduler check failed before SOC write (continuing): %s",
+                err,
+            )
+            return None
 
     def _read_impact(self) -> dict[str, Any]:
         states = {key: self._entity_state(key) for key in IMPACT_ENTITY_SUFFIXES}

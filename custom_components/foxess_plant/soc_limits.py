@@ -448,12 +448,18 @@ async def _apply_contiguous_soc_writes(
     await _prepare_inverter_for_soc_writes(hass, entity_map)
     outcomes: dict[str, SocWriteResult] = {}
     write_failed = False
-    write_order = (
-        ("min_soc", "min_soc_on_grid") if emulate_max_soc else EVO_SOC_WRITE_ORDER
-    )
+    if emulate_max_soc:
+        seq_current = dict(read_soc_current(hass, entity_map))
+        seq_current["max_soc"] = target["max_soc"]
+        write_steps = [
+            (key, value)
+            for key, value in compute_soc_write_sequence(target, seq_current)
+            if key != "max_soc"
+        ]
+    else:
+        write_steps = [(key, target[key]) for key in EVO_SOC_WRITE_ORDER]
 
-    for key in write_order:
-        value = target[key]
+    for key, value in write_steps:
         if write_failed:
             outcomes[key] = _soc_result(
                 key,
@@ -601,6 +607,16 @@ async def apply_soc_limits(
             )
             for key in SOC_DISPLAY_ORDER
         }
+        if emulate_max_soc:
+            from .virtual_max_soc import virtual_max_soc_message
+
+            outcomes["max_soc"] = _soc_result(
+                "max_soc",
+                target["max_soc"],
+                success=True,
+                message=virtual_max_soc_message(target["max_soc"]),
+                skipped=True,
+            )
         return _build_soc_results(target, outcomes)
 
     # H1 / legacy inverters — ordered per-register writes.

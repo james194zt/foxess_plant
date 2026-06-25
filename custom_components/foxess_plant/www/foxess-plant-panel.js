@@ -1287,6 +1287,18 @@ const FORECAST_ACCURACY_COLORS = {
   cloudFill: "rgba(168,178,198,0.24)",
 };
 
+function formatWebsocketError(err, fallback = "Request failed") {
+  const bits = [
+    err?.message,
+    err?.code,
+    err?.error?.message,
+    err?.error?.code,
+    err?.body?.message,
+    typeof err === "string" ? err : "",
+  ].filter((b) => b && b !== "Unknown error");
+  return bits[0] || fallback;
+}
+
 async function fetchPlantList(hass) {
   if (!hass?.connection) return [];
   try {
@@ -14390,7 +14402,7 @@ Reloading panel registration…
       if (this._smartChargeDraft?.enabled) this._initSmartChargeSocDraft();
       this._showToast("SmartCharge settings saved");
     } catch (err) {
-      this._showToast(err?.message || "Save failed", "err");
+      this._showToast(formatWebsocketError(err, "Save failed"), "err");
     } finally {
       this._busy = false;
       this._render();
@@ -17219,7 +17231,8 @@ ${note}
       }
     } catch (err) {
       this._socSaveResults = null;
-      this._socSaveError = err?.message || "SOC save failed";
+      this._socSaveError = formatWebsocketError(err, "SOC save failed");
+      this._showToast(this._socSaveError, "err");
       this._render();
     } finally {
       this._busy = false;
