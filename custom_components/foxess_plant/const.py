@@ -254,6 +254,12 @@ DEFAULT_OVERRIDE = {
     "saved_max_soc": None,
 }
 
+DEFAULT_VIRTUAL_SOC = {
+    "max_soc": None,
+    "cap_buffer_pct": 1.0,
+    "hardware_max_supported": None,
+}
+
 AUTOMATION_MODES = frozenset({MODE_STORM, MODE_OUTAGE, MODE_FORECAST, MODE_SMART_CHARGE})
 
 GOOGLE_WEATHER_DOMAIN = "google_weather"

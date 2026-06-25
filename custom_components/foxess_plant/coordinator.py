@@ -27,7 +27,11 @@ from .remote_control import is_remote_control_active
 from .remote_control import periods_want_grid_force_charge
 from .remote_control import set_remote_control_mode
 from .flow_scene import resolve_flow_scene_theme
-from .soc_limits import apply_soc_limits, clamp_soc_values
+from .virtual_max_soc import (
+    pick_feed_in_work_mode,
+    resolve_virtual_max_soc_cap,
+    virtual_soc_state,
+)
 from .const import (
     ANALYTICS_ENTITY_SUFFIXES,
     IMPACT_ENTITY_SUFFIXES,
@@ -150,6 +154,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._battery_warmup_live: dict[str, Any] = {}
         self._fox_scheduler_live: dict[str, Any] = {}
         self._fox_scheduler_schedule_live: dict[str, Any] = {}
+        self._virtual_cap_active = False
+        self._virtual_cap_saved_work_mode: str | None = None
         super().__init__(
             hass,
             _LOGGER,
@@ -1476,7 +1482,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._save_max_soc_if_needed(target_max_soc)
         self._save_work_mode_if_needed()
         await self.async_set_override_periods(periods, mode, reason)
-        if target_max_soc is not None:
+        if target_max_soc is not None and self._hardware_max_soc_supported():
             await self._set_max_soc(target_max_soc)
         self._fire(event_name, {"reason": reason, "mode": mode})
 
@@ -1862,12 +1868,21 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> None:
         await self._clear_remote_control_for_restore()
         await self.async_apply_desired()
-        if saved_max_soc is not None:
+        if saved_max_soc is not None and self._hardware_max_soc_supported():
             await self._set_max_soc(saved_max_soc)
         if saved_work_mode:
             await self._set_work_mode(saved_work_mode)
 
+    def _hardware_max_soc_supported(self) -> bool:
+        return self.plant.virtual_soc.hardware_max_supported is not False
+
     async def _set_max_soc(self, value: float) -> None:
+        if not self._hardware_max_soc_supported():
+            _LOGGER.debug(
+                "Skipping hardware max SOC write (%s%%); emulated cap enforced by Fox Plant",
+                value,
+            )
+            return
         await self.async_ensure_fox_scheduler_disabled()
         current = {
             "min_soc": self._entity_float("min_soc"),
@@ -1914,6 +1929,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             live_battery_soc=self._entity_float("battery_soc"),
         )
         max_row = next((row for row in results if row.get("key") == "max_soc"), None)
+        sc_owns_max = self.plant.smart_charge.enabled and self.plant.control_active
         if (
             max_row
             and not max_row.get("success")
@@ -1923,9 +1939,75 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if cloud_ok:
                 max_row["success"] = True
                 max_row["message"] = cloud_msg
+                self.plant.virtual_soc.hardware_max_supported = True
             elif cloud_msg:
                 max_row["message"] = cloud_msg
+        if max_row:
+            if max_row.get("success"):
+                self.plant.virtual_soc.hardware_max_supported = True
+                if not sc_owns_max:
+                    self.plant.virtual_soc.max_soc = max_soc
+            elif not sc_owns_max:
+                self.plant.virtual_soc.hardware_max_supported = False
+                self.plant.virtual_soc.max_soc = max_soc
+                max_row["success"] = True
+                max_row["message"] = (
+                    f"System max saved as a Fox Plant cap ({max_soc}%). "
+                    "This inverter cannot change register 46610 — Fox Plant stops charging at this level."
+                )
+            await self._persist()
         return results
+
+    async def _enforce_virtual_max_soc(self) -> None:
+        if not self.plant.control_active:
+            await self._release_virtual_max_cap()
+            return
+
+        cap, _source = resolve_virtual_max_soc_cap(self)
+        if cap is None or cap >= 100:
+            await self._release_virtual_max_cap()
+            return
+
+        soc = self._entity_float("battery_soc")
+        if soc is None:
+            return
+
+        buffer = max(0.5, float(self.plant.virtual_soc.cap_buffer_pct or 1.0))
+        if soc >= cap:
+            await self._apply_virtual_max_cap(cap)
+        elif soc <= cap - buffer:
+            await self._release_virtual_max_cap()
+
+    async def _apply_virtual_max_cap(self, cap: float) -> None:
+        if self._virtual_cap_active:
+            return
+        feed_in = pick_feed_in_work_mode(self._entity_options("work_mode"))
+        if not feed_in:
+            _LOGGER.debug("Virtual max SOC cap %.1f%% but no feed-in work mode available", cap)
+            return
+        current = self._entity_state("work_mode")
+        if current == feed_in:
+            self._virtual_cap_active = True
+            return
+        if current and current not in TRANSIENT_WORK_MODE_OPTIONS:
+            self._virtual_cap_saved_work_mode = current
+        await self._clear_remote_control_for_restore()
+        await self._set_work_mode(feed_in)
+        self._virtual_cap_active = True
+        _LOGGER.info("Virtual max SOC cap active at %.1f%% (work mode %s)", cap, feed_in)
+
+    async def _release_virtual_max_cap(self) -> None:
+        if not self._virtual_cap_active:
+            return
+        saved = self._virtual_cap_saved_work_mode
+        self._virtual_cap_active = False
+        self._virtual_cap_saved_work_mode = None
+        if saved:
+            await self._clear_remote_control_for_restore()
+            await self._set_work_mode(saved)
+            _LOGGER.info("Released virtual max SOC cap; restored work mode %s", saved)
+        else:
+            _LOGGER.info("Released virtual max SOC cap")
 
     async def _async_try_fox_cloud_max_soc(self, max_soc: int) -> tuple[bool, str]:
         from .fox_cloud_api import FoxCloudApiError, format_fox_cloud_error, fox_cloud_feature_unsupported
@@ -2131,6 +2213,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "remote_control": self._entity_state("remote_control"),
                 "remote_control_options": self._entity_options("remote_control"),
             },
+            "virtual_soc": virtual_soc_state(self, cap_active=self._virtual_cap_active),
             "identity": self._read_identity(),
         }
 
@@ -2762,6 +2845,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._evaluate_forecast_prep()
         except Exception as err:
             _LOGGER.warning("Forecast prep evaluation failed: %s", err)
+        try:
+            await self._enforce_virtual_max_soc()
+        except Exception as err:
+            _LOGGER.warning("Virtual max SOC enforcement failed: %s", err)
         return self.get_plant_state()
 
     def _entity_state(self, key: str) -> str | None:

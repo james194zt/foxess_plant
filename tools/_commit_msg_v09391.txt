@@ -1,0 +1,5 @@
+Add virtual max SOC enforcement and unify Quick Settings page v0.9.391.
+
+StormSafe overrides SmartCharge overrides Quick for caps; emulate system max
+on EVO when register 46610 is read-only. Merge SOC, work mode, and schedule
+onto one Quick Settings page and lock it when SmartCharge owns plant control.

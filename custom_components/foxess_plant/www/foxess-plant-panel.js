@@ -105,9 +105,7 @@ function normalizePanelView(view) {
 
 const SETTINGS_NAV = [
   { id: "main", label: "All" },
-  { id: "quick", label: "Quick" },
-  { id: "schedules", label: "Schedule" },
-  { id: "workmode", label: "Work mode" },
+  { id: "quick", label: "Quick Settings" },
   { id: "pv", label: "PV" },
   { id: "api", label: "API" },
   { id: "solcast", label: "Solcast" },
@@ -118,6 +116,12 @@ const SETTINGS_NAV = [
   { id: "warmup", label: "Warmup" },
   { id: "control", label: "Control" },
 ];
+
+const SETTINGS_LOCKED_BY_SMART_CHARGE = new Set(["quick"]);
+
+function smartChargeOwnsPlantControls(plantState) {
+  return Boolean(plantState?.smart_charge?.enabled && plantState?.control_active);
+}
 
 const DEFAULT_PV_STRING = {
   enabled: true,
@@ -549,13 +553,15 @@ function esc(s) {
 }
 
 /** Sidebar-style row: title + subtitle stacked (not inline). */
-function renderListButton(attrs, title, subtitle) {
-  const parts = ['type="button"', 'class="list-btn"'];
+function renderListButton(attrs, title, subtitle, locked = false) {
+  const parts = ['type="button"', locked ? 'class="list-btn list-btn--locked"' : 'class="list-btn"'];
+  if (locked) parts.push("disabled", 'aria-disabled="true"');
   for (const [key, value] of Object.entries(attrs || {})) {
     if (value != null && value !== "") parts.push(`data-${esc(key)}="${esc(String(value))}"`);
   }
+  const lockHint = locked ? `<span class="list-btn-lock">Managed by SmartCharge</span>` : "";
   return `<button ${parts.join(" ")}>
-<span class="list-btn-body"><span class="list-btn-title">${esc(title)}</span><span class="list-btn-sub">${esc(subtitle)}</span></span>
+<span class="list-btn-body"><span class="list-btn-title">${esc(title)}</span><span class="list-btn-sub">${esc(subtitle)}</span>${lockHint}</span>
 <span class="chev" aria-hidden="true">›</span></button>`;
 }
 
@@ -10190,6 +10196,12 @@ const STYLES = `
   font-weight: 600;
   border-bottom-color: var(--primary-text-color);
 }
+.tab.disabled,
+.tab:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
 .tab-bar.sub { padding: 0 16px; border-top: 1px solid var(--divider-color); background: var(--secondary-background-color, transparent); }
 .tab-bar.sub .tab { padding: 10px 16px 8px; font-size: 13px; }
 .main {
@@ -11929,6 +11941,11 @@ const STYLES = `
 .list-btn-body { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; flex: 1; min-width: 0; }
 .list-btn-title { display: block; font-size: 15px; font-weight: 600; line-height: 1.3; color: var(--primary-text-color); }
 .list-btn-sub { display: block; font-size: 13px; font-weight: 400; line-height: 1.35; color: var(--secondary-text-color); }
+.list-btn--locked { opacity: 0.55; cursor: not-allowed; }
+.list-btn-lock { display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--fp-accent); }
+.settings-locked-card { opacity: 0.92; }
+.settings-locked-card .triple-soc { pointer-events: none; opacity: 0.55; }
+.quick-settings-card + .quick-settings-card { margin-top: 16px; }
 .list-btn .chev { opacity: 0.45; font-size: 20px; flex-shrink: 0; line-height: 1; }
 .list-btn .sub { font-size: 13px; color: var(--secondary-text-color); }
 .placeholder { padding: 28px; text-align: center; color: var(--secondary-text-color); background: var(--card-background-color); border-radius: var(--fp-radius); border: 1px dashed var(--divider-color); }
@@ -13262,6 +13279,9 @@ class FoxessPlantPanel extends HTMLElement {
     this._toastTimer = undefined;
     this._chargeDraft = null;
     this._socDraft = null;
+    this._smartChargeSocDraft = null;
+    this._smartChargeSocSaveError = null;
+    this._smartChargeSocSaveResults = null;
     this._socSaveError = null;
     this._socSaveResults = null;
     this._workModeDraft = null;
@@ -13644,9 +13664,11 @@ Reloading panel registration…
     if (!plant || !this._hass) return;
     try {
       this._plantState = await fetchPlantState(this._hass, plant.entry_id);
-      if (this._settingsView !== "schedules") this._chargeDraft = null;
-      if (this._settingsView !== "quick") this._socDraft = null;
-      if (this._settingsView !== "workmode") this._workModeDraft = null;
+      if (this._settingsView !== "quick") {
+        this._chargeDraft = null;
+        this._socDraft = null;
+        this._workModeDraft = null;
+      }
       if (this._settingsView !== "storm") this._stormDraft = null;
       if (this._settingsView !== "tariff" && this._settingsView !== "api") this._tariffDraft = null;
       if (this._settingsView !== "smart") this._smartChargeDraft = null;
@@ -14130,12 +14152,16 @@ Reloading panel registration…
         : this._view === "device_new"
           ? "device-new-tab"
           : "reports-tab";
+    const scLocks =
+      this._view === "settings" && smartChargeOwnsPlantControls(this._plantState)
+        ? SETTINGS_LOCKED_BY_SMART_CHARGE
+        : null;
     headerEl.innerHTML =
       this._renderPanelBrand() +
       this._renderPlantSelect() +
       this._renderTabBar(NAV, this._view, "nav", "view") +
       (showSubTabs
-        ? this._renderTabBar(subNav, subActive, subAction, "sub", true)
+        ? this._renderTabBar(subNav, subActive, subAction, "sub", true, scLocks)
         : "");
     this._bindPanelBrandIcon(headerEl);
     this._headerHasSubTabs = showSubTabs;
@@ -14219,6 +14245,57 @@ Reloading panel registration…
 
   _enterSmartChargeSettings() {
     this._initSmartChargeDraft();
+    this._initSmartChargeSocDraft();
+  }
+
+  _initSmartChargeSocDraft() {
+    const settings = this._plantState?.settings ?? {};
+    const sc = this._smartChargeDraft ?? this._plantState?.smart_charge ?? {};
+    const maxCap = sc.target_max_soc ?? sc.max_target_soc ?? settings.max_soc ?? 100;
+    this._smartChargeSocDraft = clampSocDraft({
+      min_soc: settings.min_soc ?? 10,
+      min_soc_on_grid: settings.min_soc_on_grid ?? 10,
+      max_soc: maxCap,
+    });
+    this._smartChargeSocSaveError = null;
+    this._smartChargeSocSaveResults = null;
+  }
+
+  _syncSmartChargeSocValidationUi() {
+    if (!this._smartChargeSocDraft) return;
+    const validation = validateSocLimits(this._smartChargeSocDraft, this._liveBatterySoc(this._getPlant()));
+    const wrap = this._root.querySelector('[data-triple-soc-context="smart"]');
+    if (!wrap) return;
+    const html = renderSocFeedbackHtml(validation, this._smartChargeSocSaveError, this._smartChargeSocSaveResults);
+    wrap.querySelectorAll(".soc-validation, .soc-result-panel").forEach((el) => el.remove());
+    if (html) wrap.querySelector(".soc-numeric")?.insertAdjacentHTML("afterend", html);
+  }
+
+  _ensureSettingsViewAllowed() {
+    if (this._settingsView === "schedules" || this._settingsView === "workmode") {
+      this._settingsView = "quick";
+    }
+    if (
+      smartChargeOwnsPlantControls(this._plantState) &&
+      SETTINGS_LOCKED_BY_SMART_CHARGE.has(this._settingsView)
+    ) {
+      this._settingsView = "smart";
+      this._initSmartChargeDraft();
+      this._initSmartChargeSocDraft();
+    }
+  }
+
+  _enterQuickSettings() {
+    this._initSocDraft();
+    this._initChargeDraft();
+    this._initWorkModeDraft();
+  }
+
+  _renderSettingsLockedPanel(panelId, title, detail) {
+    return `<header class="header"><h1>${esc(title)}</h1></header>
+<div class="card settings-locked-card">
+<div class="banner info"><strong>Managed by SmartCharge</strong>${esc(detail)} Open <strong>SmartCharge</strong> to change SOC limits, charge windows, and work mode while automation is on.</div>
+</div>`;
   }
 
   async _saveSmartChargeSettings() {
@@ -14227,7 +14304,32 @@ Reloading panel registration…
     this._busy = true;
     this._render();
     try {
-      const d = this._smartChargeDraft;
+      const d = { ...this._smartChargeDraft };
+      if (d.enabled && this._smartChargeSocDraft) {
+        const soc = clampSocDraft({ ...this._smartChargeSocDraft });
+        const validation = validateSocLimits(soc, this._liveBatterySoc(plant));
+        if (validation.errors.length) {
+          this._showToast(validation.errors[0], "err");
+          this._busy = false;
+          this._render();
+          return;
+        }
+        d.max_target_soc = soc.max_soc;
+        d.target_max_soc = null;
+        const socResponse = await this._hass.connection.sendMessagePromise({
+          type: "foxess_plant/set_soc_limits",
+          plant_id: plant.entry_id,
+          min_soc: soc.min_soc,
+          min_soc_on_grid: soc.min_soc_on_grid,
+          max_soc: soc.max_soc,
+        });
+        if (socResponse) {
+          const { soc_write_results: socResults, ...plantState } = socResponse;
+          this._plantState = plantState;
+          this._smartChargeSocSaveResults = Array.isArray(socResults) ? socResults : null;
+        }
+        this._smartChargeSocDraft = soc;
+      }
       const target = d.target_max_soc;
       const state = await this._hass.connection.sendMessagePromise({
         type: "foxess_plant/update_smart_charge",
@@ -14278,6 +14380,7 @@ Reloading panel registration…
       });
       if (state) this._plantState = state;
       this._initSmartChargeDraft();
+      if (this._smartChargeDraft?.enabled) this._initSmartChargeSocDraft();
       this._showToast("SmartCharge settings saved");
     } catch (err) {
       this._showToast(err?.message || "Save failed", "err");
@@ -15797,6 +15900,15 @@ Reloading panel registration…
       return;
     }
     if (action === "settings-sub") {
+      const sub =
+        btn.dataset.sub === "schedules" || btn.dataset.sub === "workmode" ? "quick" : btn.dataset.sub;
+      if (
+        smartChargeOwnsPlantControls(this._plantState) &&
+        SETTINGS_LOCKED_BY_SMART_CHARGE.has(sub)
+      ) {
+        this._showToast("Quick Settings are managed in SmartCharge while it is enabled.", "info");
+        return;
+      }
       this._view = "settings";
       if (btn.dataset.sub !== "solcast" && btn.dataset.sub !== "api") this._solcastDraft = null;
       if (btn.dataset.sub !== "tariff" && btn.dataset.sub !== "api") {
@@ -15807,10 +15919,8 @@ Reloading panel registration…
       if (btn.dataset.sub !== "glow" && btn.dataset.sub !== "api") this._glowDraft = null;
       if (btn.dataset.sub !== "api") this._foxCloudDraft = null;
       if (btn.dataset.sub !== "warmup") this._warmupDraft = null;
-      this._settingsView = btn.dataset.sub;
-      if (btn.dataset.sub === "schedules") this._initChargeDraft();
-      if (btn.dataset.sub === "quick") this._initSocDraft();
-      if (btn.dataset.sub === "workmode") this._initWorkModeDraft();
+      this._settingsView = sub;
+      if (sub === "quick") this._enterQuickSettings();
       if (btn.dataset.sub === "storm") this._enterStormSettings();
       if (btn.dataset.sub === "pv") this._enterPvSettings();
       if (btn.dataset.sub === "api") this._enterApiSettings();
@@ -15834,6 +15944,15 @@ Reloading panel registration…
       return;
     }
     if (action === "settings-tab") {
+      const sub =
+        btn.dataset.sub === "schedules" || btn.dataset.sub === "workmode" ? "quick" : btn.dataset.sub;
+      if (
+        smartChargeOwnsPlantControls(this._plantState) &&
+        SETTINGS_LOCKED_BY_SMART_CHARGE.has(sub)
+      ) {
+        this._showToast("Quick Settings are managed in SmartCharge while it is enabled.", "info");
+        return;
+      }
       this._view = "settings";
       if (btn.dataset.sub !== "solcast" && btn.dataset.sub !== "api") this._solcastDraft = null;
       if (btn.dataset.sub !== "tariff" && btn.dataset.sub !== "api") {
@@ -15844,10 +15963,8 @@ Reloading panel registration…
       if (btn.dataset.sub !== "glow" && btn.dataset.sub !== "api") this._glowDraft = null;
       if (btn.dataset.sub !== "api") this._foxCloudDraft = null;
       if (btn.dataset.sub !== "warmup") this._warmupDraft = null;
-      this._settingsView = btn.dataset.sub;
-      if (btn.dataset.sub === "schedules") this._initChargeDraft();
-      if (btn.dataset.sub === "quick") this._initSocDraft();
-      if (btn.dataset.sub === "workmode") this._initWorkModeDraft();
+      this._settingsView = sub;
+      if (sub === "quick") this._enterQuickSettings();
       if (btn.dataset.sub === "storm") this._enterStormSettings();
       if (btn.dataset.sub === "pv") this._enterPvSettings();
       if (btn.dataset.sub === "api") this._enterApiSettings();
@@ -16367,6 +16484,8 @@ Reloading panel registration…
       const field = parts[1];
       if (field === "enabled") {
         this._smartChargeDraft.enabled = el.checked;
+        if (el.checked) this._initSmartChargeSocDraft();
+        else this._smartChargeSocDraft = null;
         this._scheduleRender();
         return;
       }
@@ -16751,7 +16870,20 @@ Reloading panel registration…
         this._socSaveError = null;
         this._socSaveResults = null;
         applySocDrag(this._socDraft, field, v);
-        this._updateTripleSocDom();
+        this._updateTripleSocDom(el.closest(".triple-soc"));
+      }
+    }
+    if (kind === "sc-soc-num" && this._smartChargeSocDraft) {
+      const field = parts[1];
+      const raw = String(el.value).trim();
+      if (raw === "") return;
+      const v = parseFloat(raw);
+      if (Number.isNaN(v)) return;
+      if (e.type === "change" || (v >= SOC_MIN_PCT && v <= 100)) {
+        this._smartChargeSocSaveError = null;
+        this._smartChargeSocSaveResults = null;
+        applySocDrag(this._smartChargeSocDraft, field, v);
+        this._updateTripleSocDom(el.closest(".triple-soc"));
       }
     }
   }
@@ -16765,13 +16897,18 @@ Reloading panel registration…
   }
 
   _onSocMove(e) {
-    if (!this._socDrag || !this._socDraft) return;
-    this._socSaveError = null;
-    this._socSaveResults = null;
+    if (!this._socDrag?.draft) return;
+    if (this._socDrag.wrap?.dataset?.tripleSocContext === "smart") {
+      this._smartChargeSocSaveError = null;
+      this._smartChargeSocSaveResults = null;
+    } else {
+      this._socSaveError = null;
+      this._socSaveResults = null;
+    }
     const rect = this._socDrag.track.getBoundingClientRect();
     const pct = socPctFromTrackPointer(e.clientX, rect, this._socDrag.grabOffset ?? 0);
-    applySocDrag(this._socDraft, this._socDrag.thumb, pct);
-    this._updateTripleSocDom();
+    applySocDrag(this._socDrag.draft, this._socDrag.thumb, pct);
+    this._updateTripleSocDom(this._socDrag.wrap);
   }
 
   _onSocEnd() {
@@ -16801,39 +16938,61 @@ Reloading panel registration…
     if (saveBtn) saveBtn.disabled = Boolean(this._busy || validation.errors.length);
   }
 
+  _tripleSocDraftForWrap(wrap) {
+    if (wrap?.dataset?.tripleSocContext === "smart") return this._smartChargeSocDraft;
+    return this._socDraft;
+  }
+
+  _tripleSocFieldPrefix(wrap) {
+    return wrap?.dataset?.tripleSocContext === "smart" ? "sc-soc-num" : "soc-num";
+  }
+
   _bindTripleSoc() {
-    const track = this._root.querySelector(".triple-soc-track");
-    if (!track) return;
-    track.querySelectorAll("[data-soc-thumb]").forEach((thumb) => {
-      thumb.addEventListener("pointerdown", (e) => {
-        if (this._busy) return;
-        e.preventDefault();
-        this._socSaveError = null;
-        this._socSaveResults = null;
-        track.querySelectorAll(".triple-soc-thumb").forEach((t) => t.classList.remove("is-dragging"));
-        thumb.classList.add("is-dragging");
-        thumb.setPointerCapture(e.pointerId);
-        const rect = track.getBoundingClientRect();
-        const thumbKey = thumb.dataset.socThumb;
-        const currentVal = clampSocDraft(this._socDraft)[thumbKey];
-        const pointerPct = rect.width ? ((e.clientX - rect.left) / rect.width) * 100 : currentVal;
-        this._socDrag = {
-          thumb: thumbKey,
-          thumbEl: thumb,
-          track,
-          grabOffset: currentVal - pointerPct,
-        };
-        window.addEventListener("pointermove", this._onSocMove);
-        window.addEventListener("pointerup", this._onSocEnd);
-        window.addEventListener("pointercancel", this._onSocEnd);
+    this._root.querySelectorAll(".triple-soc-track").forEach((track) => {
+      const wrap = track.closest(".triple-soc");
+      track.querySelectorAll("[data-soc-thumb]").forEach((thumb) => {
+        thumb.addEventListener("pointerdown", (e) => {
+          if (this._busy) return;
+          const draft = this._tripleSocDraftForWrap(wrap);
+          if (!draft) return;
+          e.preventDefault();
+          if (wrap?.dataset?.tripleSocContext === "smart") {
+            this._smartChargeSocSaveError = null;
+            this._smartChargeSocSaveResults = null;
+          } else {
+            this._socSaveError = null;
+            this._socSaveResults = null;
+          }
+          track.querySelectorAll(".triple-soc-thumb").forEach((t) => t.classList.remove("is-dragging"));
+          thumb.classList.add("is-dragging");
+          thumb.setPointerCapture(e.pointerId);
+          const rect = track.getBoundingClientRect();
+          const thumbKey = thumb.dataset.socThumb;
+          const currentVal = clampSocDraft(draft)[thumbKey];
+          const pointerPct = rect.width ? ((e.clientX - rect.left) / rect.width) * 100 : currentVal;
+          this._socDrag = {
+            thumb: thumbKey,
+            thumbEl: thumb,
+            track,
+            wrap,
+            draft,
+            grabOffset: currentVal - pointerPct,
+          };
+          window.addEventListener("pointermove", this._onSocMove);
+          window.addEventListener("pointerup", this._onSocEnd);
+          window.addEventListener("pointercancel", this._onSocEnd);
+        });
       });
     });
   }
 
-  _updateTripleSocDom() {
-    const wrap = this._root.querySelector(".triple-soc");
-    if (!wrap || !this._socDraft) return;
-    const d = clampSocDraft(this._socDraft);
+  _updateTripleSocDom(wrapArg) {
+    const wrap = wrapArg || this._socDrag?.wrap || this._root.querySelector(".triple-soc");
+    if (!wrap) return;
+    const draft = this._tripleSocDraftForWrap(wrap);
+    if (!draft) return;
+    const fieldPrefix = this._tripleSocFieldPrefix(wrap);
+    const d = clampSocDraft(draft);
     const min = d.min_soc;
     const mid = d.min_soc_on_grid;
     const max = d.max_soc;
@@ -16853,7 +17012,7 @@ Reloading panel registration…
         thumb.style.background = t.color;
         thumb.title = `${t.label}: ${val}%`;
       }
-      const num = wrap.querySelector(`[data-field="soc-num:${t.key}"]`);
+      const num = wrap.querySelector(`[data-field="${fieldPrefix}:${t.key}"]`);
       if (num && document.activeElement !== num) num.value = String(val);
     });
     const summary = wrap.querySelector(".triple-soc-summary");
@@ -16864,16 +17023,29 @@ Reloading panel registration…
           ? `<strong>Reserve from</strong> ${min}%<br><strong>Usable to</strong> ${max}% · <strong>Now</strong> ${live}%`
           : `<strong>Reserve band</strong> ${min}% – ${mid}%<br><strong>Usable to</strong> ${max}% · <strong>Now</strong> ${live}%`;
     }
-    this._syncSocValidationUi();
+    if (wrap.dataset.tripleSocContext === "smart") this._syncSmartChargeSocValidationUi();
+    else this._syncSocValidationUi();
   }
 
-  _renderTripleSoc(plant, d, liveSoc) {
+  _renderTripleSoc(plant, d, liveSoc, opts = {}) {
+    const context = opts.context || "quick";
     const clamped = clampSocDraft({ ...d });
     const min = clamped.min_soc;
     const mid = clamped.min_soc_on_grid;
     const max = clamped.max_soc;
     const live = Math.max(0, Math.min(100, Math.round(liveSoc ?? 0)));
     const fillMarkup = tripleSocBatteryFillMarkup(live);
+    const fieldPrefix = context === "smart" ? "sc-soc-num" : "soc-num";
+    const virtual = this._plantState?.virtual_soc;
+    const capHint =
+      context === "smart" && virtual?.cap_source === "smart_charge" && virtual?.cap_active
+        ? `<p class="field-hint" style="margin-top:8px">Fox Plant is holding charge at the SmartCharge cap (${virtual.effective_cap}%).</p>`
+        : context === "quick" && virtual?.cap_source === "quick" && virtual?.hardware_max_supported === false
+          ? `<p class="field-hint" style="margin-top:8px">System max is emulated on this inverter — Fox Plant stops charging at ${virtual.effective_cap ?? max}%.</p>`
+          : "";
+    const note =
+      opts.note ||
+      `<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. On <strong>EVO</strong>, system max (Modbus 46610) is often read-only — Fox Plant emulates the cap when hardware writes fail.</p>`;
 
     const thumbsHtml = SOC_THUMBS.map(
       (t) =>
@@ -16882,10 +17054,19 @@ Reloading panel registration…
 
     const numericHtml = SOC_THUMBS.map(
       (t) =>
-        `<div><label>${esc(t.label)}</label><input type="number" min="${SOC_MIN_PCT}" max="100" step="1" data-field="soc-num:${t.key}" value="${clamped[t.key]}"></div>`
+        `<div><label>${esc(t.label)}</label><input type="number" min="${SOC_MIN_PCT}" max="100" step="1" data-field="${fieldPrefix}:${t.key}" value="${clamped[t.key]}"></div>`
     ).join("");
 
-    return `<div class="triple-soc">
+    const feedback =
+      context === "smart"
+        ? renderSocFeedbackHtml(
+            validateSocLimits(clamped, live),
+            this._smartChargeSocSaveError,
+            this._smartChargeSocSaveResults
+          )
+        : renderSocFeedbackHtml(validateSocLimits(clamped, live), this._socSaveError, this._socSaveResults);
+
+    return `<div class="triple-soc" data-triple-soc-context="${esc(context)}">
 <div class="triple-soc-head">
 <div class="triple-soc-battery" aria-hidden="true">
 <div class="triple-soc-battery-cap"></div>
@@ -16920,8 +17101,9 @@ ${thumbsHtml}
 <span><i style="background:var(--fp-accent)"></i> Charge headroom</span>
 </div>
 <div class="soc-numeric">${numericHtml}</div>
-${renderSocFeedbackHtml(validateSocLimits(clamped, live), this._socSaveError, this._socSaveResults)}
-<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. On <strong>EVO</strong>, system max (Modbus 46610) is often read-only — Fox Cloud may return <strong>API 42015</strong>. Min limits usually still save; use the Fox web portal installer settings or charge-period / max-current workarounds for max SOC.</p>
+${feedback}
+${capHint}
+${note}
 </div>`;
   }
 
@@ -17058,13 +17240,14 @@ ${renderSocFeedbackHtml(validateSocLimits(clamped, live), this._socSaveError, th
     }
   }
 
-  _renderTabBar(items, activeId, actionName, dataAttr = "view", sub = false) {
+  _renderTabBar(items, activeId, actionName, dataAttr = "view", sub = false, disabledIds = null) {
     const barClass = sub ? "tab-bar sub" : "tab-bar";
     return `<nav class="${barClass}" role="tablist">${items
-      .map(
-        (item) =>
-          `<button type="button" class="tab ${activeId === item.id ? "active" : ""}" role="tab" aria-selected="${activeId === item.id}" data-action="${actionName}" data-${dataAttr}="${item.id}">${esc(item.label)}</button>`
-      )
+      .map((item) => {
+        const locked = disabledIds?.has(item.id);
+        const active = activeId === item.id;
+        return `<button type="button" class="tab ${active ? "active" : ""}${locked ? " disabled" : ""}" role="tab" aria-selected="${active}" aria-disabled="${locked ? "true" : "false"}" data-action="${actionName}" data-${dataAttr}="${item.id}"${locked ? " disabled" : ""}>${esc(item.label)}</button>`;
+      })
       .join("")}</nav>`;
   }
 
@@ -20271,8 +20454,7 @@ ${note}${via}${forecastHint}${activeBadge}
   _settingsMainSubtitles() {
     const s = this._plantState?.settings ?? {};
     return {
-      quick: `Max ${s.max_soc ?? "—"}% · Min ${s.min_soc ?? "—"}% · Off-grid ${s.min_soc_on_grid ?? "—"}%`,
-      workmode: String(s.work_mode ?? "—"),
+      quick: `${String(s.work_mode ?? "—")} · Max ${s.max_soc ?? "—"}% · 2 charge windows`,
       pv: pvConfigSummary(this._plantState?.pv_config),
       api: this._apiSettingsSubtitle(),
       solcast: this._solcastSettingsSubtitle(),
@@ -20336,12 +20518,12 @@ ${note}${via}${forecastHint}${activeBadge}
 
   _renderSettingsMain(plant) {
     const subs = this._settingsMainSubtitles();
-    return `<div data-settings-main="1"><header class="header"><h1>Settings</h1><p>Quick controls for your plant</p></header>
+    const scLock = smartChargeOwnsPlantControls(this._plantState);
+    return `<div data-settings-main="1"><header class="header"><h1>Settings</h1><p>Configure your plant, automations, and integrations</p></header>
+${scLock ? `<div class="banner info" style="margin-bottom:12px"><strong>SmartCharge is active</strong> Quick Settings are managed under SmartCharge.</div>` : ""}
 <div data-settings-live>${this._renderSettingsMainLiveHtml()}</div>
 <div data-settings-nav>
-${renderListButton({ action: "settings-sub", sub: "quick" }, "Quick Settings", subs.quick)}
-${renderListButton({ action: "settings-sub", sub: "schedules" }, "Charge schedule", "Two charge windows (baseline)")}
-${renderListButton({ action: "settings-sub", sub: "workmode" }, "Work mode", subs.workmode)}
+${renderListButton({ action: "settings-sub", sub: "quick" }, "Quick Settings", subs.quick, scLock)}
 ${renderListButton({ action: "settings-sub", sub: "pv" }, "PV Configuration", subs.pv)}
 ${renderListButton({ action: "settings-sub", sub: "api" }, "API & accounts", subs.api)}
 ${renderListButton({ action: "settings-sub", sub: "solcast" }, "Solcast", subs.solcast)}
@@ -20354,49 +20536,21 @@ ${renderListButton({ action: "settings-sub", sub: "control" }, "Plant control", 
 </div></div>`;
   }
 
-  _renderSettingsQuick() {
-    if (!this._socDraft) this._initSocDraft();
-    const plant = this._getPlant();
-    const liveSoc = this._liveBatterySoc(plant) ?? 0;
-    const validation = validateSocLimits(this._socDraft, liveSoc);
-    return `<header class="header"><h1>Quick Settings</h1><p>Drag the three handles — off-grid min, system min, system max</p></header>
-<div class="card">
-<p class="card-title">SOC limits</p>
-${this._renderTripleSoc(plant, this._socDraft, liveSoc)}
-<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-soc" ${this._busy || validation.errors.length ? "disabled" : ""}>Save to inverter</button></div>
-</div>`;
-  }
-
-  _renderSettingsSchedules() {
-    if (!this._chargeDraft) this._initChargeDraft();
-    const driftHint = this._plantState?.drift
-      ? `<div class="banner warn" style="margin-bottom:12px"><strong>Schedule drift</strong> Inverter and app schedules differ.${this._scheduleSyncButtons()}</div>`
-      : "";
-    return `<header class="header"><h1>Charge schedule</h1><p>Two charge-period slots (EVO: Modbus 480xx). This is not the Fox app&rsquo;s 8-segment Scheduler — StormSafe and SmartCharge arm these windows via FoxESS Modbus.</p></header>
-${driftHint}
-${this._renderPeriodCard(0, this._chargeDraft[0])}
-${this._renderPeriodCard(1, this._chargeDraft[1])}
-<div class="btn-row">
-<button type="button" class="btn btn-primary" data-action="save-schedules" ${this._busy ? "disabled" : ""}>Save & apply</button>
-<button type="button" class="btn btn-secondary" data-action="sync-schedule" ${this._busy ? "disabled" : ""}>Sync from inverter</button>
-<button type="button" class="btn btn-secondary" data-action="reapply-schedule" ${this._busy ? "disabled" : ""}>Re-apply to inverter</button>
-<button type="button" class="btn btn-secondary" data-action="copy-period" data-from="0" data-to="1" ${this._busy ? "disabled" : ""}>Copy period 1 → 2</button>
-<button type="button" class="btn btn-secondary" data-action="swap-periods" ${this._busy ? "disabled" : ""}>Swap 1 ↔ 2</button>
-</div>`;
-  }
-
-  _renderSettingsWorkMode() {
-    if (!this._workModeDraft) this._initWorkModeDraft();
+  _renderQuickSettingsWorkModeCard() {
     const options = selectableWorkModeOptions(this._plantState?.settings?.work_mode_options ?? []);
     if (!options.length) {
-      return `<header class="header"><h1>Work mode</h1></header><p class="placeholder">Work mode entity not found. Reload the integration.</p>`;
+      return `<div class="card quick-settings-card">
+<p class="card-title">Work mode</p>
+<p class="placeholder" style="margin:0">Work mode entity not found. Reload the integration.</p>
+</div>`;
     }
     const rc = this._plantState?.settings?.remote_control;
     const rcHint =
       rc && rc !== "Disable" && rc !== "unknown" && rc !== "unavailable"
-        ? `<p class="field-hint" style="margin-bottom:12px">Remote control active: <strong>${esc(rc)}</strong> (use FoxESS Modbus Remote Control to change; not a work mode).</p>`
-        : "";
-    return `<header class="header"><h1>Work mode</h1><p>Ordinary inverter strategy — force charge/discharge is separate on EVO.</p></header>
+        ? `<p class="field-hint" style="margin:0 0 12px">Remote control active: <strong>${esc(rc)}</strong> (use FoxESS Modbus Remote Control to change; not a work mode).</p>`
+        : `<p class="field-hint" style="margin:0 0 12px">Ordinary inverter strategy — force charge/discharge is separate on EVO.</p>`;
+    return `<div class="card quick-settings-card">
+<p class="card-title">Work mode</p>
 ${rcHint}
 <div class="mode-grid">${options
       .map((opt) => {
@@ -20406,7 +20560,53 @@ ${rcHint}
 ${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">${esc(meta.title)}</span>${meta.hint ? `<span class="hint">${esc(meta.hint)}</span>` : ""}</span></button>`;
       })
       .join("")}</div>
-<div class="btn-row" style="margin-top:16px"><button type="button" class="btn btn-primary" data-action="save-work-mode" ${this._busy ? "disabled" : ""}>Apply work mode</button></div>`;
+<div class="btn-row" style="margin-top:16px"><button type="button" class="btn btn-primary" data-action="save-work-mode" ${this._busy ? "disabled" : ""}>Apply work mode</button></div>
+</div>`;
+  }
+
+  _renderQuickSettingsScheduleSection() {
+    const driftHint = this._plantState?.drift
+      ? `<div class="banner warn" style="margin-bottom:12px"><strong>Schedule drift</strong> Inverter and app schedules differ.${this._scheduleSyncButtons()}</div>`
+      : "";
+    return `${driftHint}
+<div class="card quick-settings-card">
+<p class="card-title">Charge schedule</p>
+<p class="field-hint" style="margin:0 0 12px">Two charge-period slots (EVO: Modbus 480xx). This is not the Fox app&rsquo;s 8-segment Scheduler — StormSafe and SmartCharge arm these windows via FoxESS Modbus.</p>
+${this._renderPeriodCard(0, this._chargeDraft[0])}
+${this._renderPeriodCard(1, this._chargeDraft[1])}
+<div class="btn-row" style="margin-top:16px">
+<button type="button" class="btn btn-primary" data-action="save-schedules" ${this._busy ? "disabled" : ""}>Save & apply</button>
+<button type="button" class="btn btn-secondary" data-action="sync-schedule" ${this._busy ? "disabled" : ""}>Sync from inverter</button>
+<button type="button" class="btn btn-secondary" data-action="reapply-schedule" ${this._busy ? "disabled" : ""}>Re-apply to inverter</button>
+<button type="button" class="btn btn-secondary" data-action="copy-period" data-from="0" data-to="1" ${this._busy ? "disabled" : ""}>Copy period 1 → 2</button>
+<button type="button" class="btn btn-secondary" data-action="swap-periods" ${this._busy ? "disabled" : ""}>Swap 1 ↔ 2</button>
+</div>
+</div>`;
+  }
+
+  _renderSettingsQuick() {
+    if (smartChargeOwnsPlantControls(this._plantState)) {
+      return this._renderSettingsLockedPanel(
+        "quick",
+        "Quick Settings",
+        " SOC limits, work mode, and charge windows are managed by SmartCharge while automation is on."
+      );
+    }
+    if (!this._socDraft) this._initSocDraft();
+    if (!this._chargeDraft) this._initChargeDraft();
+    if (!this._workModeDraft) this._initWorkModeDraft();
+    const plant = this._getPlant();
+    const liveSoc = this._liveBatterySoc(plant) ?? 0;
+    const validation = validateSocLimits(this._socDraft, liveSoc);
+    return `<header class="header"><h1>Quick Settings</h1><p>Day-to-day inverter controls — battery SOC limits, work mode, and baseline charge windows.</p></header>
+<div class="card quick-settings-card">
+<p class="card-title">SOC limits</p>
+<p class="field-hint" style="margin:0 0 12px">Quick controls for your plant. Drag the three handles — off-grid min, system min, system max</p>
+${this._renderTripleSoc(plant, this._socDraft, liveSoc)}
+<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-soc" ${this._busy || validation.errors.length ? "disabled" : ""}>Save to inverter</button></div>
+</div>
+${this._renderQuickSettingsWorkModeCard()}
+${this._renderQuickSettingsScheduleSection()}`;
   }
 
   _renderSmartChargeModePicker(draft) {
@@ -20627,14 +20827,32 @@ ${spreadHtml}
   _renderSettingsSmartCharge() {
     if (!this._smartChargeDraft) this._initSmartChargeDraft();
     const draft = this._smartChargeDraft;
+    if (draft.enabled && !this._smartChargeSocDraft) this._initSmartChargeSocDraft();
     const { live, decision, dailyPlan, spreadPairs, planSummary } = this._smartChargeLivePlanContext();
     const busy = this._busy ? "disabled" : "";
     const statusCard = draft.enabled
       ? this._renderSmartChargeStatusCard(live, decision, dailyPlan, spreadPairs, planSummary)
       : "";
+    const plant = this._getPlant();
+    const liveSoc = this._liveBatterySoc(plant) ?? 0;
+    const socValidation = this._smartChargeSocDraft
+      ? validateSocLimits(this._smartChargeSocDraft, liveSoc)
+      : { errors: [] };
+    const socSection =
+      draft.enabled && this._smartChargeSocDraft
+        ? `<div class="card" data-smart-charge-soc="1">
+<p class="card-title">SOC limits</p>
+<p class="field-hint" style="margin:0 0 12px">Same controls as Quick Settings — these values are used by SmartCharge (and override Quick Settings while automation is on). StormSafe can still charge above this cap when armed.</p>
+${this._renderTripleSoc(plant, this._smartChargeSocDraft, liveSoc, {
+  context: "smart",
+  note: `<p class="soc-limit-note">Off-grid min and system min are written to the inverter. System max is enforced by Fox Plant when register 46610 is locked on EVO.</p>`,
+})}
+</div>`
+        : "";
     return `<div data-smart-charge-settings="1">${this._renderSmartChargeHero()}
 <header class="header smart-charge-settings-header"><h1>SmartCharge</h1><p>Combines Solcast PV forecast with Octopus Agile rates. Targets house-load sufficiency (not 100% SOC), with an outage reserve floor. StormSafe always overrides.</p></header>
 ${draft.enabled ? `<div data-smart-charge-live>${statusCard}</div>` : statusCard}
+${socSection}
 <div class="card">
 <p class="card-title">Automation</p>
 <div class="toggle-row"><span><strong>Enable SmartCharge</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Requires Fox Plant control, Solcast PV forecast, and tariff rates</span></span>
@@ -20643,11 +20861,6 @@ ${draft.enabled ? this._renderSmartChargeModePicker(draft) : ""}
 ${draft.enabled ? this._renderSmartChargeModePanel(draft) : ""}
 ${draft.enabled ? `<details class="sc-section-details" data-sc-section="energy"${this._smartChargeSectionOpenAttr("energy", draft)}>
 <summary>Energy budget</summary>
-<div class="field"><label>Max target SOC ceiling (%)</label>
-<input type="number" min="10" max="100" step="1" data-field="smart-charge:max_target_soc" value="${esc(String(draft.max_target_soc ?? 100))}" ${busy}>
-<p class="field-hint">House-load budget sets the effective target — this is the upper limit only.</p></div>
-<div class="field"><label>Max SOC when charging (optional)</label>
-<input type="number" min="10" max="100" step="1" data-field="smart-charge:target_max_soc" value="${draft.target_max_soc != null ? esc(String(draft.target_max_soc)) : ""}" placeholder="Same as ceiling" ${busy}></div>
 <div class="field"><label>Solar safety margin</label>
 <input type="number" min="1" max="3" step="0.05" data-field="smart-charge:solar_safety_margin" value="${esc(String(draft.solar_safety_margin ?? 1.15))}" ${busy}></div>
 <div class="field"><label>Minimum deficit (kWh)</label>
@@ -20689,7 +20902,7 @@ ${this._renderSmartChargeSpreadPanel(draft)}
 ${this._renderPeriodCard(0, draft.charge_periods[0], "smart-period", "Charge template")}
 ${this._renderPeriodCard(1, draft.charge_periods[1], "smart-period", "Reserve period")}
 </details>` : ""}
-<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-smart-charge" ${busy}>Save SmartCharge</button></div>
+<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-smart-charge" ${busy || (draft.enabled && socValidation.errors.length) ? "disabled" : ""}>Save SmartCharge</button></div>
 </div></div>`;
   }
 
@@ -21494,13 +21707,12 @@ ${schedulerCard}`;
   }
 
   _renderSettings(plant) {
+    this._ensureSettingsViewAllowed();
     switch (this._settingsView) {
       case "quick":
-        return this._renderSettingsQuick();
       case "schedules":
-        return this._renderSettingsSchedules();
       case "workmode":
-        return this._renderSettingsWorkMode();
+        return this._renderSettingsQuick();
       case "pv":
         return this._renderSettingsPv();
       case "api":

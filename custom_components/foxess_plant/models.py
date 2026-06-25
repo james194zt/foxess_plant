@@ -91,6 +91,32 @@ class ControlConfig:
 
 
 @dataclass
+class VirtualSocConfig:
+    """User-intent max SOC when inverter register 46610 / Fox Cloud MaxSoc are unavailable."""
+
+    max_soc: int | None = None
+    cap_buffer_pct: float = 1.0
+    hardware_max_supported: bool | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> VirtualSocConfig:
+        raw_max = data.get("max_soc")
+        raw_hw = data.get("hardware_max_supported")
+        return cls(
+            max_soc=int(raw_max) if raw_max is not None else None,
+            cap_buffer_pct=float(data.get("cap_buffer_pct", 1.0) or 1.0),
+            hardware_max_supported=bool(raw_hw) if raw_hw is not None else None,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "max_soc": self.max_soc,
+            "cap_buffer_pct": round(self.cap_buffer_pct, 1),
+            "hardware_max_supported": self.hardware_max_supported,
+        }
+
+
+@dataclass
 class OverrideState:
     active: bool = False
     mode: str = "baseline"
@@ -1102,6 +1128,7 @@ class PlantConfig:
     fox_cloud: FoxCloudConfig = field(default_factory=FoxCloudConfig)
     tariff: TariffConfig = field(default_factory=TariffConfig)
     tariff_modes: dict[str, list[ChargePeriodConfig]] = field(default_factory=dict)
+    virtual_soc: VirtualSocConfig = field(default_factory=VirtualSocConfig)
 
     @classmethod
     def from_entry_data(cls, data: dict[str, Any]) -> PlantConfig:
@@ -1117,6 +1144,7 @@ class PlantConfig:
             DEFAULT_TARIFF,
             DEFAULT_GLOW,
             DEFAULT_FOX_CLOUD,
+            DEFAULT_VIRTUAL_SOC,
         )
 
         baseline = [ChargePeriodConfig.from_dict(p) for p in data.get("baseline_periods", DEFAULT_BASELINE_PERIODS)]
@@ -1149,6 +1177,7 @@ class PlantConfig:
             fox_cloud=FoxCloudConfig.from_dict(data.get("fox_cloud", DEFAULT_FOX_CLOUD)),
             tariff=TariffConfig.from_dict(data.get("tariff", DEFAULT_TARIFF)),
             tariff_modes=tariff_modes,
+            virtual_soc=VirtualSocConfig.from_dict(data.get("virtual_soc", DEFAULT_VIRTUAL_SOC)),
         )
 
     def to_entry_data(self) -> dict[str, Any]:
@@ -1173,6 +1202,7 @@ class PlantConfig:
             "tariff_modes": {
                 name: [p.to_dict() for p in periods] for name, periods in self.tariff_modes.items()
             },
+            "virtual_soc": self.virtual_soc.to_dict(),
         }
 
     def desired_periods(self) -> list[ChargePeriodConfig]:
