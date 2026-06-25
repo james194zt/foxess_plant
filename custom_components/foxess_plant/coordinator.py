@@ -27,6 +27,7 @@ from .remote_control import is_remote_control_active
 from .remote_control import periods_want_grid_force_charge
 from .remote_control import set_remote_control_mode
 from .flow_scene import resolve_flow_scene_theme
+from .soc_limits import apply_soc_limits, clamp_soc_values
 from .virtual_max_soc import (
     emulate_max_soc,
     pick_feed_in_work_mode,
