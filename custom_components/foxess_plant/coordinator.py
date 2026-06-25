@@ -1886,7 +1886,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 value,
             )
             return
-        await self.async_ensure_fox_scheduler_disabled()
+        from .discovery import device_is_evo
+
+        if not device_is_evo(self.hass, self.plant.device_id, self.plant.entity_map):
+            await self.async_ensure_fox_scheduler_disabled()
         current = {
             "min_soc": self._entity_float("min_soc"),
             "min_soc_on_grid": self._entity_float("min_soc_on_grid"),
@@ -1918,8 +1921,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Write all three SOC limits in an inverter-safe order."""
         from .discovery import device_is_evo
 
-        await self.async_ensure_fox_scheduler_disabled()
-        emulate_max = emulate_max_soc(self)
+        is_evo = device_is_evo(self.hass, self.plant.device_id, self.plant.entity_map)
+        if not is_evo:
+            await self.async_ensure_fox_scheduler_disabled()
+        emulate_max = True if is_evo else emulate_max_soc(self)
         results = await apply_soc_limits(
             self.hass,
             self.plant.entity_map,
@@ -1947,7 +1952,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             max_row
             and not max_row.get("success")
             and not emulate_max
-            and device_is_evo(self.hass, self.plant.device_id, self.plant.entity_map)
+            and not is_evo
         ):
             cloud_ok, cloud_msg = await self._async_try_fox_cloud_max_soc(max_soc)
             if cloud_ok:

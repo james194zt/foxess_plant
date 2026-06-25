@@ -1197,7 +1197,7 @@ class PlantConfig:
             "pv_config": self.pv_config.to_dict(),
             "solcast": self.solcast.to_dict(),
             "glow": self.glow.to_dict(),
-            "fox_cloud": self.fox_cloud.to_dict(include_secrets=True),
+            "fox_cloud": self.fox_cloud.to_dict(include_api_key=True),
             "tariff": self.tariff.to_dict(include_secrets=True),
             "tariff_modes": {
                 name: [p.to_dict() for p in periods] for name, periods in self.tariff_modes.items()
