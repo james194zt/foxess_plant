@@ -13300,6 +13300,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._selectedPlantId = undefined;
     this._timer = undefined;
     this._busy = false;
+    this._foxSchedulerBusy = false;
     this._toastTimer = undefined;
     this._chargeDraft = null;
     this._socDraft = null;
@@ -14305,7 +14306,6 @@ Reloading panel registration…
     this._initSocDraft();
     this._initChargeDraft();
     this._initWorkModeDraft();
-    void this._enterControlSettings();
   }
 
   _renderSettingsLockedPanel(panelId, title, detail, opts = {}) {
@@ -14812,20 +14812,10 @@ Reloading panel registration…
     return String(state).replace(/^The battery is in (a )?/i, "").replace(/ state$/i, "");
   }
 
-  async _enterControlSettings() {
-    const ready = Boolean(this._plantState?.fox_scheduler?.fox_api_ready);
-    if (!ready || this._busy) return;
-    try {
-      await this._fetchFoxScheduler(false);
-    } catch {
-      /* show last known / error from plant state */
-    }
-  }
-
   async _fetchFoxScheduler(showToast = true) {
     const plant = this._getPlant();
     if (!plant) return;
-    this._busy = true;
+    this._foxSchedulerBusy = true;
     this._render();
     try {
       const res = await this._hass.connection.sendMessagePromise({
@@ -14838,7 +14828,7 @@ Reloading panel registration…
       if (showToast) this._showToast(String(err?.message || err), "err");
       throw err;
     } finally {
-      this._busy = false;
+      this._foxSchedulerBusy = false;
       this._render();
     }
   }
@@ -14846,7 +14836,7 @@ Reloading panel registration…
   async _disableFoxScheduler() {
     const plant = this._getPlant();
     if (!plant) return;
-    this._busy = true;
+    this._foxSchedulerBusy = true;
     this._render();
     try {
       const res = await this._hass.connection.sendMessagePromise({
@@ -14859,7 +14849,7 @@ Reloading panel registration…
     } catch (err) {
       this._showToast(String(err?.message || err), "err");
     } finally {
-      this._busy = false;
+      this._foxSchedulerBusy = false;
       this._render();
     }
   }
@@ -20624,8 +20614,8 @@ ${this._renderPeriodCard(1, this._chargeDraft[1])}
 <div class="entity-row"><span class="entity-name">Status</span><span class="entity-value">${schedStatus}</span></div>
 ${segHint}
 <div class="btn-row" style="margin-top:12px">
-${schedEnabled && schedSupported ? `<button type="button" class="btn btn-danger" data-action="disable-fox-scheduler" ${this._busy ? "disabled" : ""}>Disable Fox Cloud scheduler</button>` : ""}
-<button type="button" class="btn btn-secondary" data-action="refresh-fox-scheduler" ${this._busy ? "disabled" : ""}>Refresh status</button>
+${schedEnabled && schedSupported ? `<button type="button" class="btn btn-danger" data-action="disable-fox-scheduler" ${this._foxSchedulerBusy ? "disabled" : ""}>Disable Fox Cloud scheduler</button>` : ""}
+<button type="button" class="btn btn-secondary" data-action="refresh-fox-scheduler" ${this._foxSchedulerBusy ? "disabled" : ""}>${this._foxSchedulerBusy ? "Refreshing…" : "Refresh status"}</button>
 </div>
 ${schedErr}
 </div>`
