@@ -20,7 +20,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .analytics import compute_analytics
 from .impact import compute_impact
-from .charge_period import apply_charge_periods
+from .charge_period import apply_charge_periods, assert_charge_period_entities
 from .discovery import missing_charge_period_entities
 from .remote_control import is_charge_period_modbus_blocked
 from .remote_control import is_remote_control_active
@@ -3042,7 +3042,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         payload = {"plant_id": self.config_entry.entry_id, **(data or {})}
         self.hass.bus.async_fire(event_type, payload)
 
-    async def async_apply_desired(self, force: bool = False) -> None:
+    async def async_apply_desired(self, force: bool = False, *, strict: bool = False) -> None:
         if not self.plant.control_active and not force:
             raise HomeAssistantError("Plant control is released; enable control before applying")
 
@@ -3060,32 +3060,38 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     entity_map=self.plant.entity_map,
                 )
             except HomeAssistantError as err:
-                if is_charge_period_modbus_blocked(err) and periods_want_grid_force_charge(periods):
-                    _LOGGER.warning(
-                        "Charge-period Modbus write blocked; using Remote Control Force Charge instead"
-                    )
-                    await set_remote_control_mode(
-                        self.hass, self.plant.entity_map, "Force Charge"
-                    )
-                    self._fire(
-                        EVENT_PERIOD_APPLIED,
-                        {
-                            "mode": self.plant.plant_mode(),
-                            "periods": [p.to_dict() for p in periods],
-                            "fallback": "remote_control_force_charge",
-                        },
-                    )
-                    return
                 if is_charge_period_modbus_blocked(err):
-                    if not periods_want_grid_force_charge(periods):
-                        try:
-                            await set_remote_control_mode(
-                                self.hass, self.plant.entity_map, "Disable"
-                            )
-                        except HomeAssistantError as rc_err:
-                            _LOGGER.debug("Remote Control disable skipped: %s", rc_err)
+                    if strict:
+                        raise HomeAssistantError(
+                            "Could not write charge windows to the inverter via FoxESS Modbus. "
+                            "On EVO these are holding registers 48011–48013 (period 1) and "
+                            "48021–48023 (period 2) — not the Fox app 8-segment scheduler. "
+                            f"Details: {err}"
+                        ) from err
+                    if periods_want_grid_force_charge(periods):
+                        _LOGGER.warning(
+                            "Charge-period Modbus write blocked; using Remote Control Force Charge instead"
+                        )
+                        await set_remote_control_mode(
+                            self.hass, self.plant.entity_map, "Force Charge"
+                        )
+                        self._fire(
+                            EVENT_PERIOD_APPLIED,
+                            {
+                                "mode": self.plant.plant_mode(),
+                                "periods": [p.to_dict() for p in periods],
+                                "fallback": "remote_control_force_charge",
+                            },
+                        )
+                        return
+                    try:
+                        await set_remote_control_mode(
+                            self.hass, self.plant.entity_map, "Disable"
+                        )
+                    except HomeAssistantError as rc_err:
+                        _LOGGER.debug("Remote Control disable skipped: %s", rc_err)
                     _LOGGER.warning(
-                        "Charge-period Modbus write blocked on this EVO firmware (registers read-only): %s",
+                        "Charge-period Modbus write blocked on this EVO firmware: %s",
                         err,
                     )
                     self._fire(
@@ -3110,6 +3116,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise HomeAssistantError(f"Failed to apply charge periods: {err}") from err
         finally:
             self._applying = False
+            try:
+                await self._refresh_charge_period_entities()
+            except Exception as err:
+                _LOGGER.debug("Charge period refresh after apply: %s", err)
             await self.async_request_refresh()
 
     async def async_apply_baseline(self) -> None:
@@ -3124,11 +3134,33 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self._fire(EVENT_BASELINE_RESTORED, {})
 
-    async def async_set_baseline_periods(self, periods: list[ChargePeriodConfig]) -> None:
+    async def async_set_baseline_periods(
+        self,
+        periods: list[ChargePeriodConfig],
+        *,
+        apply_now: bool = True,
+    ) -> None:
         self.plant.baseline_periods = periods
-        if not self.plant.override.active:
+        if apply_now and not self.plant.override.active:
             await self.async_apply_desired()
         await self._persist()
+
+    async def async_save_charge_schedule(self, periods: list[ChargePeriodConfig]) -> None:
+        """Persist baseline schedule, take control, write via foxess_modbus, verify read-back."""
+        assert_charge_period_entities(self.plant.entity_map)
+        self.plant.baseline_periods = periods
+        if not self.plant.control_active:
+            self.plant.control_active = True
+        await self._persist()
+        await self.async_apply_desired(force=True, strict=True)
+        desired = [p.to_dict() for p in periods]
+        actual = self._read_actual_periods()
+        if self._compute_drift(desired, actual):
+            raise HomeAssistantError(
+                "Fox Plant saved the schedule but the inverter still reports different charge windows. "
+                "Check the FoxESS Modbus log — on EVO, period 1 uses registers 48011–48013 and "
+                f"period 2 uses 48021–48023. Expected: {desired}. Inverter reports: {actual}."
+            )
 
     @staticmethod
     def _normalize_period_time(state: str | None) -> str:
@@ -3175,7 +3207,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self.plant.control_active:
             self.plant.control_active = True
             await self._persist()
-        await self.async_apply_desired(force=True)
+        await self.async_apply_desired(force=True, strict=True)
         await self._refresh_charge_period_entities()
         await self.async_request_refresh()
 

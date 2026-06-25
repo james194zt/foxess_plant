@@ -17163,18 +17163,15 @@ ${note}
     this._busy = true;
     this._render();
     try {
-      await callService(this._hass, "foxess_plant", "set_charge_periods", {
+      await callService(this._hass, "foxess_plant", "save_charge_schedule", {
         plant_id: plant.entry_id,
         charge_periods: this._chargeDraft,
-        as_override: false,
-      });
-      await callService(this._hass, "foxess_plant", "apply_desired", {
-        plant_id: plant.entry_id,
       });
       await this._refreshPlantState();
-      this._showToast("Charge schedule saved & applied");
+      this._initChargeDraft();
+      this._showToast("Charge schedule saved to inverter");
     } catch (err) {
-      this._showToast(err?.message || "Save failed", "err");
+      this._showToast(formatWebsocketError(err, "Schedule save failed"), "err");
     } finally {
       this._busy = false;
       this._render();
@@ -20006,7 +20003,10 @@ ${this._renderEnergyAnalysisCharts()}
     const drift =
       actual &&
       (Boolean(p.enable_force_charge) !== Boolean(actual.enable_force_charge) ||
-        Boolean(p.enable_charge_from_grid) !== Boolean(actual.enable_charge_from_grid));
+        Boolean(p.enable_charge_from_grid) !== Boolean(actual.enable_charge_from_grid) ||
+        (Boolean(p.enable_force_charge) &&
+          (timeForInput(p.start) !== timeForInput(actual.start) ||
+            timeForInput(p.end) !== timeForInput(actual.end))));
     return `<div class="period-card">
 <h4>${titlePrefix} ${idx + 1} ${drift ? '<span style="color:var(--fp-amber);font-size:12px">≠ inverter</span>' : ""}</h4>
 <div class="toggle-row"><span>Force charge</span><input type="checkbox" data-field="${fieldPrefix}:${idx}:enable_force_charge" ${p.enable_force_charge ? "checked" : ""}></div>

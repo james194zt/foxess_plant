@@ -97,7 +97,15 @@ def register_services(hass: HomeAssistant) -> None:
                 call.data.get("reason", "service"),
             )
         else:
-            await coord.async_set_baseline_periods(periods)
+            await coord.async_set_baseline_periods(
+                periods,
+                apply_now=call.data.get("apply_now", True),
+            )
+
+    async def save_charge_schedule(call: ServiceCall) -> None:
+        coord = _get_coordinator(hass, call)
+        periods = _periods_from_service(call.data["charge_periods"])
+        await coord.async_save_charge_schedule(periods)
 
     async def arm_storm_prep(call: ServiceCall) -> None:
         coord = _get_coordinator(hass, call)
@@ -185,6 +193,18 @@ def register_services(hass: HomeAssistant) -> None:
                 vol.Optional("as_override", default=False): cv.boolean,
                 vol.Optional("mode", default="override"): cv.string,
                 vol.Optional("reason", default="service"): cv.string,
+                vol.Optional("apply_now", default=True): cv.boolean,
+            }
+        ),
+    )
+    hass.services.async_register(
+        DOMAIN,
+        "save_charge_schedule",
+        save_charge_schedule,
+        schema=vol.Schema(
+            {
+                plant_id: cv.string,
+                vol.Required("charge_periods"): [vol.Schema(PERIOD_SCHEMA)],
             }
         ),
     )

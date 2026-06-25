@@ -122,6 +122,21 @@ set_charge_periods:
       selector:
         text:
 
+save_charge_schedule:
+  name: Save charge schedule
+  description: Save baseline charge windows, take plant control, write via FoxESS Modbus, and verify inverter read-back.
+  fields:
+    plant_id:
+      name: Plant
+      required: false
+      selector:
+        text:
+    charge_periods:
+      name: Charge periods
+      required: true
+      selector:
+        object:
+
 arm_storm_prep:
   name: Arm storm prep
   description: Apply storm prep charge periods as a temporary override.
