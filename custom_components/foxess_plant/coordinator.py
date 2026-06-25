@@ -2660,6 +2660,15 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 ) from err
             raise HomeAssistantError(format_fox_cloud_error(err)) from err
 
+    async def async_run_modbus_debug_probe(self) -> dict[str, Any]:
+        """TEMPORARY — run Modbus write/read-back probes (see modbus_debug_probe.py)."""
+        from .const import DEBUG_MODBUS_PROBE
+        from .modbus_debug_probe import run_modbus_debug_probe
+
+        if not DEBUG_MODBUS_PROBE:
+            raise HomeAssistantError("Modbus debug probe is disabled")
+        return await run_modbus_debug_probe(self)
+
     async def async_fetch_battery_warmup(self) -> dict[str, Any]:
         from .battery_warmup import parse_battery_heating_result
         from .fox_cloud_api import FoxCloudApiError

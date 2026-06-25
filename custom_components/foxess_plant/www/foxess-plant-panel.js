@@ -17,6 +17,9 @@ const NAV = [
   { id: "settings", label: "Settings" },
 ];
 
+/** TEMP — search DEBUG_MODBUS_PROBE to remove modbus debug UI + backend. */
+const DEBUG_MODBUS_PROBE = true;
+
 const DEVICE_NEW_NAV = [
   { id: "analysis", label: "Analysis" },
   { id: "realtime", label: "Realtime" },
@@ -11970,6 +11973,15 @@ const STYLES = `
 .settings-locked-card { opacity: 0.92; }
 .settings-locked-card .triple-soc { pointer-events: none; opacity: 0.55; }
 .quick-settings-card + .quick-settings-card { margin-top: 16px; }
+.modbus-probe-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 12px; }
+.modbus-probe-table th, .modbus-probe-table td { text-align: left; vertical-align: top; padding: 8px 6px; border-bottom: 1px solid var(--divider-color); }
+.modbus-probe-table th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--secondary-text-color); }
+.modbus-probe-status { display: inline-block; font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; padding: 2px 6px; border-radius: 4px; }
+.modbus-probe-status.pass { color: #389e0d; background: rgba(82,196,26,0.12); }
+.modbus-probe-status.fail { color: #cf1322; background: rgba(255,77,79,0.12); }
+.modbus-probe-status.skip { color: var(--secondary-text-color); background: rgba(128,128,128,0.12); }
+.modbus-probe-status.warn { color: #d48806; background: rgba(250,173,20,0.14); }
+.modbus-probe-detail { font-family: ui-monospace, monospace; font-size: 11px; white-space: pre-wrap; word-break: break-word; color: var(--secondary-text-color); margin: 4px 0 0; }
 .list-btn .chev { opacity: 0.45; font-size: 20px; flex-shrink: 0; line-height: 1; }
 .list-btn .sub { font-size: 13px; color: var(--secondary-text-color); }
 .placeholder { padding: 28px; text-align: center; color: var(--secondary-text-color); background: var(--card-background-color); border-radius: var(--fp-radius); border: 1px dashed var(--divider-color); }
@@ -13300,6 +13312,8 @@ class FoxessPlantPanel extends HTMLElement {
     this._selectedPlantId = undefined;
     this._timer = undefined;
     this._busy = false;
+    this._modbusProbeResults = null;
+    this._modbusProbeRunning = false;
     this._foxSchedulerBusy = false;
     this._toastTimer = undefined;
     this._chargeDraft = null;
@@ -14673,6 +14687,38 @@ Reloading panel registration…
     }
   }
 
+  async _runModbusDebugProbe() {
+    const plant = this._getPlant();
+    if (!plant || !this._hass) return;
+    this._modbusProbeRunning = true;
+    this._render();
+    try {
+      const res = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/run_modbus_debug_probe",
+        plant_id: plant.entry_id,
+      });
+      if (res?.plant_state) this._plantState = res.plant_state;
+      this._modbusProbeResults = {
+        summary: res?.summary,
+        tests: res?.tests,
+        inverter_ref: res?.inverter_ref,
+      };
+      const failed = Number(res?.summary?.failed || 0);
+      const passed = Number(res?.summary?.passed || 0);
+      this._showToast(
+        failed
+          ? `Modbus probe finished — ${passed} passed, ${failed} failed`
+          : `Modbus probe finished — ${passed} passed`,
+        failed ? "err" : undefined,
+      );
+    } catch (err) {
+      this._showToast(String(err?.message || err), "err");
+    } finally {
+      this._modbusProbeRunning = false;
+      this._render();
+    }
+  }
+
   async _testFoxCloudConnection() {
     const plant = this._getPlant();
     if (!plant || !this._foxCloudDraft) return;
@@ -16039,6 +16085,10 @@ Reloading panel registration…
     }
     if (action === "test-fox-cloud") {
       await this._testFoxCloudConnection();
+      return;
+    }
+    if (action === "run-modbus-probe") {
+      await this._runModbusDebugProbe();
       return;
     }
     if (action === "save-battery-warmup") {
@@ -20529,6 +20579,7 @@ ${note}${via}${forecastHint}${activeBadge}
   _renderSettingsMain(plant) {
     const subs = this._settingsMainSubtitles();
     const scLock = smartChargeOwnsPlantControls(this._plantState);
+    const debugProbe = DEBUG_MODBUS_PROBE ? this._renderModbusDebugProbeCard() : "";
     return `<div data-settings-main="1"><header class="header"><h1>Settings</h1><p>Configure your plant, automations, and integrations</p></header>
 ${scLock ? `<div class="banner info" style="margin-bottom:12px"><strong>SmartCharge is active</strong> SOC limits, work mode, and charge schedule are managed under SmartCharge. Plant control remains available below.</div>` : ""}
 <div data-settings-live>${this._renderSettingsMainLiveHtml()}</div>
@@ -20542,7 +20593,65 @@ ${renderListButton({ action: "settings-sub", sub: "tariff" }, "Tariff", subs.tar
 ${renderListButton({ action: "settings-sub", sub: "smart" }, "SmartCharge", subs.smart)}
 ${renderListButton({ action: "settings-sub", sub: "storm" }, "StormSafe", subs.storm)}
 ${renderListButton({ action: "settings-sub", sub: "warmup" }, "Battery Warmup", subs.warmup)}
-</div></div>`;
+</div>
+${debugProbe}</div>`;
+  }
+
+  _formatModbusProbeValue(value) {
+    if (value == null || value === "") return "—";
+    if (typeof value === "object") {
+      try {
+        return JSON.stringify(value);
+      } catch {
+        return String(value);
+      }
+    }
+    return String(value);
+  }
+
+  _renderModbusDebugProbeCard() {
+    const running = this._modbusProbeRunning;
+    const busy = this._busy || running;
+    const res = this._modbusProbeResults;
+    const summary = res?.summary;
+    const tests = Array.isArray(res?.tests) ? res.tests : [];
+    const summaryLine = summary
+      ? `${summary.passed} passed · ${summary.failed} failed · ${summary.skipped} skipped (${summary.total} tests)`
+      : "Not run yet";
+    const rows = tests
+      .map((row) => {
+        const status = String(row.status || "fail");
+        const write =
+          row.write_ok === true ? "OK" : row.write_ok === false ? "FAIL" : "—";
+        const readBack =
+          row.read_back_ok === true ? "OK" : row.read_back_ok === false ? "FAIL" : "—";
+        const detailBits = [
+          row.before != null ? `before: ${this._formatModbusProbeValue(row.before)}` : null,
+          row.attempted != null ? `set: ${this._formatModbusProbeValue(row.attempted)}` : null,
+          row.after != null ? `after: ${this._formatModbusProbeValue(row.after)}` : null,
+          row.error ? `error: ${row.error}` : null,
+          row.notes ? `note: ${row.notes}` : null,
+        ].filter(Boolean);
+        return `<tr>
+<td><span class="modbus-probe-status ${esc(status)}">${esc(status)}</span><br>${esc(String(row.name || row.id || ""))}</td>
+<td>${esc(write)}</td>
+<td>${esc(readBack)}</td>
+<td>${detailBits.length ? `<pre class="modbus-probe-detail">${esc(detailBits.join("\n"))}</pre>` : "—"}</td>
+</tr>`;
+      })
+      .join("");
+    const table = tests.length
+      ? `<table class="modbus-probe-table"><thead><tr><th>Test</th><th>Write</th><th>Read-back</th><th>Detail</th></tr></thead><tbody>${rows}</tbody></table>`
+      : "";
+    return `<div class="card" data-modbus-probe="1" style="margin-top:16px">
+<p class="card-title">Modbus scheduler probe (debug)</p>
+<p class="field-hint" style="margin-top:0">Temporary tool — writes each scheduler feature, reads it back from the inverter, then restores your settings. Set <strong>Remote Control → Disable</strong> and close the Fox app first. Takes ~30s.</p>
+<p class="field-hint" style="margin:0 0 12px"><strong>${esc(summaryLine)}</strong>${res?.inverter_ref ? ` · inverter ${esc(String(res.inverter_ref))}` : ""}</p>
+<div class="btn-row">
+<button type="button" class="btn btn-secondary" data-action="run-modbus-probe" ${busy ? "disabled" : ""}>${running ? "Running probes…" : "Run Modbus probes"}</button>
+</div>
+${table}
+</div>`;
   }
 
   _renderQuickSettingsWorkModeCard() {

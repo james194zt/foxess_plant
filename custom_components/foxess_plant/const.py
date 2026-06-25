@@ -574,3 +574,6 @@ DEFAULT_TARIFF = {
 }
 
 TRIGGER_ON_STATES = frozenset({"on", "true", "1", "active", "warning", "severe"})
+
+# TEMPORARY — Modbus scheduler debug probe (settings page). Search DEBUG_MODBUS_PROBE to remove.
+DEBUG_MODBUS_PROBE = True
