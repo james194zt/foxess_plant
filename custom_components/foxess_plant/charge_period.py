@@ -35,7 +35,9 @@ def assert_charge_period_entities(entity_map: dict[str, str]) -> None:
 
 def _raise_charge_period_error(err: BaseException) -> None:
     message = str(err)
-    if "IllegalAddress" in message or "48010" in message or "48020" in message:
+    from .remote_control import is_charge_period_modbus_blocked
+
+    if is_charge_period_modbus_blocked(err):
         raise HomeAssistantError(f"{_EVO_CHARGE_PERIOD_HINT} Details: {message}") from err
     if "does not support setting charge periods" in message:
         raise HomeAssistantError(

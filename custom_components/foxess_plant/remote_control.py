@@ -20,12 +20,26 @@ def is_remote_control_active(state: str | None) -> bool:
 
 
 def is_charge_period_modbus_blocked(err: BaseException) -> bool:
+    """True when foxess_modbus could not write EVO/H3 charge-period registers."""
     message = str(err)
-    if "IllegalAddress" not in message:
-        return False
     return any(
-        token in message
-        for token in ("48000", "48010", "48011", "48013", "48020", "48021", "48023", "Charge-period write failed")
+        marker in message
+        for marker in (
+            "IllegalAddress",
+            "Charge-period write failed",
+            "may not allow Modbus writes to 480xx",
+            "EVO time-group enable failed",
+            "could not write EVO charge-period registers",
+            "48000",
+            "48010",
+            "48011",
+            "48012",
+            "48013",
+            "48020",
+            "48021",
+            "48022",
+            "48023",
+        )
     )
 
 
