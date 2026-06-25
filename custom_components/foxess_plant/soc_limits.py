@@ -189,6 +189,38 @@ def compute_soc_write_sequence(
     return seq
 
 
+def compute_evo_min_write_steps(
+    target: dict[str, int],
+    current: dict[str, int],
+) -> list[tuple[str, int]]:
+    """Order EVO min register writes (46609, 46611) when max is emulated in software."""
+    t_min = target["min_soc"]
+    t_mid = target["min_soc_on_grid"]
+    c_min = current.get("min_soc", t_min)
+    c_mid = current.get("min_soc_on_grid", t_mid)
+
+    steps: list[tuple[str, int]] = []
+
+    # Lift system min before off-grid min when the new off-grid floor exceeds it.
+    if t_min > c_mid and t_mid != c_mid:
+        steps.append(("min_soc_on_grid", t_mid))
+        c_mid = t_mid
+
+    # Lower off-grid min before system min when tightening the reserve band.
+    if t_mid < c_min and t_min != c_min:
+        steps.append(("min_soc", t_min))
+        c_min = t_min
+
+    if t_min != c_min:
+        steps.append(("min_soc", t_min))
+        c_min = t_min
+
+    if t_mid != c_mid:
+        steps.append(("min_soc_on_grid", t_mid))
+
+    return steps
+
+
 async def _refresh_soc_entity(hass: HomeAssistant, entity_map: dict[str, str], key: str) -> None:
     entity_id = entity_map.get(key)
     if entity_id:
@@ -316,19 +348,26 @@ async def _verify_soc_key(
     entity_map: dict[str, str],
     key: str,
     want: int,
+    *,
+    retries: int = 1,
 ) -> SocWriteResult:
-    await _refresh_soc_entity(hass, entity_map, key)
-    await asyncio.sleep(0.25)
-    got = _read_soc_key(hass, entity_map, key)
-    if got is None:
+    last_got: int | None = None
+    for attempt in range(max(1, retries)):
+        await _refresh_soc_entity(hass, entity_map, key)
+        await asyncio.sleep(0.35 if attempt == 0 else 0.55)
+        got = _read_soc_key(hass, entity_map, key)
+        last_got = got
+        if got is None:
+            continue
+        if got == want:
+            return _soc_result(key, want, success=True, message="Operation successful")
+    if last_got is None:
         return _soc_result(key, want, success=False, message="No read-back from inverter")
-    if got == want:
-        return _soc_result(key, want, success=True, message="Operation successful")
     return _soc_result(
         key,
         want,
         success=False,
-        message=f"Inverter reports {got}% (expected {want}%)",
+        message=f"Inverter reports {last_got}% (expected {want}%)",
     )
 
 
@@ -347,7 +386,7 @@ def _build_soc_results(
                     key,
                     target[key],
                     success=False,
-                    message="Not written (a previous step failed)",
+                    message="Not written",
                 ).to_dict()
             )
     return rows
@@ -449,17 +488,13 @@ async def _apply_contiguous_soc_writes(
     outcomes: dict[str, SocWriteResult] = {}
     write_failed = False
     if emulate_max_soc:
-        seq_current = dict(read_soc_current(hass, entity_map))
-        seq_current["max_soc"] = target["max_soc"]
-        write_steps = [
-            (key, value)
-            for key, value in compute_soc_write_sequence(target, seq_current)
-            if key != "max_soc"
-        ]
+        seq_current = read_soc_current(hass, entity_map)
+        write_steps = compute_evo_min_write_steps(target, seq_current)
     else:
         write_steps = [(key, target[key]) for key in EVO_SOC_WRITE_ORDER]
 
-    for key, value in write_steps:
+    verify_retries = 3 if emulate_max_soc else 1
+    for index, (key, value) in enumerate(write_steps):
         if write_failed:
             outcomes[key] = _soc_result(
                 key,
@@ -481,7 +516,13 @@ async def _apply_contiguous_soc_writes(
         try:
             await _write_soc_number(hass, entity_map, key, value)
             if verify:
-                outcomes[key] = await _verify_soc_key(hass, entity_map, key, value)
+                outcomes[key] = await _verify_soc_key(
+                    hass,
+                    entity_map,
+                    key,
+                    value,
+                    retries=verify_retries,
+                )
                 if not outcomes[key].success and key == "max_soc":
                     battery_hint = _max_soc_battery_hint(live_battery_soc, value)
                     if battery_hint:
@@ -490,6 +531,8 @@ async def _apply_contiguous_soc_writes(
                     write_failed = True
             else:
                 outcomes[key] = _soc_result(key, value, success=True, message="Operation successful")
+            if not write_failed and index < len(write_steps) - 1:
+                await asyncio.sleep(0.4)
         except Exception as err:
             msg = _format_soc_error(
                 err,
@@ -500,6 +543,19 @@ async def _apply_contiguous_soc_writes(
             )
             outcomes[key] = _soc_result(key, value, success=False, message=msg)
             write_failed = True
+
+    for key in ("min_soc", "min_soc_on_grid"):
+        if key in outcomes:
+            continue
+        got = _read_soc_key(hass, entity_map, key)
+        if got == target[key]:
+            outcomes[key] = _soc_result(
+                key,
+                target[key],
+                success=True,
+                message="Already set",
+                skipped=True,
+            )
 
     if emulate_max_soc:
         from .virtual_max_soc import virtual_max_soc_message
