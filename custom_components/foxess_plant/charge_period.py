@@ -15,13 +15,11 @@ from .models import ChargePeriodConfig
 _LOGGER = logging.getLogger(__name__)
 
 _EVO_CHARGE_PERIOD_HINT = (
-    "This error comes from the **FoxESS Modbus** integration (not Fox Plant). "
-    "Charge-period entities are **read-only sensors** — changing them in Developer Tools → Set state "
-    "does not write to the inverter. Fox Plant calls `foxess_modbus.update_all_charge_periods` for you. "
-    "On EVO 10-H, period 1 uses holding registers **48010–48013** (grid, start, end, mode) and "
-    "period 2 uses **48020–48023**. Ensure **james194zt/foxess_modbus_evo** is installed (not stock "
-    "nathanmarlor with 41xxx registers). IllegalAddress at 48010 usually means the wrong Modbus fork "
-    "or profile — reload FoxESS Modbus after updating."
+    "This error comes from **FoxESS Modbus** (not Fox Plant). "
+    "On EVO, register **48000 must be 1** before any 48010+ period writes — "
+    "disable the Fox app **Mode Scheduler** and clear cloud charge schedules first. "
+    "Period 1: 48010–48016 + 48019; period 2: 48020–48026 + 48029. "
+    "Ensure **james194zt/foxess_modbus_evo** is installed and reloaded after update."
 )
 
 
