@@ -21,7 +21,9 @@ from .soc_limits import apply_soc_limits, read_soc_current
 
 _LOGGER = logging.getLogger(__name__)
 
-_PROBE_SLEEP_S = 0.6
+_PROBE_REFRESH_SLEEP_S = 0.5
+_POLL_INTERVAL_S = 2.0
+_WRITE_SETTLE_POLL_TIMEOUT_S = 30.0
 
 
 @dataclass
@@ -100,7 +102,143 @@ class _ProbeContext:
                 )
         if tasks:
             await asyncio.gather(*tasks)
-            await asyncio.sleep(_PROBE_SLEEP_S)
+            await asyncio.sleep(_PROBE_REFRESH_SLEEP_S)
+
+
+async def _poll_entity_state(
+    ctx: _ProbeContext,
+    entity_id: str,
+    *,
+    expected: str | Callable[[str | None], bool],
+    timeout_s: float,
+    poll_interval_s: float = _POLL_INTERVAL_S,
+) -> tuple[bool, str | None, float, int]:
+    """Poll until entity state matches expected value or timeout."""
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+    attempts = 0
+    final: str | None = None
+    while True:
+        attempts += 1
+        await ctx.hass.services.async_call(
+            "homeassistant",
+            "update_entity",
+            {"entity_id": entity_id},
+            blocking=True,
+        )
+        await asyncio.sleep(_PROBE_REFRESH_SLEEP_S)
+        state = ctx.hass.states.get(entity_id)
+        final = state.state if state else None
+        matched = expected(final) if callable(expected) else final == expected
+        if matched:
+            return True, final, loop.time() - start, attempts
+        if loop.time() - start >= timeout_s:
+            return False, final, loop.time() - start, attempts
+        await asyncio.sleep(poll_interval_s)
+
+
+def _timing_note(elapsed_s: float, attempts: int, *, delayed: bool = False) -> str:
+    prefix = "Delayed read-back after" if delayed else "Read-back after"
+    return f"{prefix} {elapsed_s:.1f}s ({attempts} check(s), up to {_WRITE_SETTLE_POLL_TIMEOUT_S:.0f}s settle)."
+
+
+async def _poll_entity_key(
+    ctx: _ProbeContext,
+    key: str,
+    *,
+    expected: str | Callable[[str | None], bool],
+    timeout_s: float = _WRITE_SETTLE_POLL_TIMEOUT_S,
+) -> tuple[bool, str | None, float, int]:
+    entity_id = ctx.entity_map.get(key)
+    if not entity_id:
+        return False, None, 0.0, 0
+    return await _poll_entity_state(ctx, entity_id, expected=expected, timeout_s=timeout_s)
+
+
+async def _poll_soc_values(
+    ctx: _ProbeContext,
+    target: dict[str, int],
+    *,
+    keys: tuple[str, ...] = ("min_soc", "min_soc_on_grid", "max_soc"),
+    timeout_s: float = _WRITE_SETTLE_POLL_TIMEOUT_S,
+) -> tuple[bool, dict[str, int], float, int]:
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+    attempts = 0
+    final: dict[str, int] = {}
+    while True:
+        attempts += 1
+        await ctx.refresh_keys(keys)
+        final = read_soc_current(ctx.hass, ctx.entity_map)
+        matched = all(final.get(key) == target.get(key) for key in keys if key in target)
+        if matched:
+            return True, final, loop.time() - start, attempts
+        if loop.time() - start >= timeout_s:
+            return False, final, loop.time() - start, attempts
+        await asyncio.sleep(_POLL_INTERVAL_S)
+
+
+async def _poll_holding_register(
+    hass: HomeAssistant,
+    inverter_ref: str,
+    address: int,
+    expected: int,
+    *,
+    timeout_s: float = _WRITE_SETTLE_POLL_TIMEOUT_S,
+) -> tuple[bool, int | None, float, int, str | None]:
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+    attempts = 0
+    final: int | None = None
+    last_err: str | None = None
+    while True:
+        attempts += 1
+        values, err = await _read_holding(hass, inverter_ref, address, 1)
+        last_err = err
+        final = values.get(address) if values else None
+        if err is None and final == expected:
+            return True, final, loop.time() - start, attempts, None
+        if loop.time() - start >= timeout_s:
+            return False, final, loop.time() - start, attempts, last_err
+        await asyncio.sleep(_POLL_INTERVAL_S)
+
+
+async def _settle_then_read_holding(
+    hass: HomeAssistant,
+    inverter_ref: str,
+    address: int,
+) -> tuple[int | None, float, str | None]:
+    """Single read after full settle window (for writes that failed immediately)."""
+    await asyncio.sleep(_WRITE_SETTLE_POLL_TIMEOUT_S)
+    values, err = await _read_holding(hass, inverter_ref, address, 1)
+    return (values.get(address) if values else None), _WRITE_SETTLE_POLL_TIMEOUT_S, err
+
+
+async def _poll_charge_period_1(
+    ctx: _ProbeContext,
+    expected: ChargePeriodConfig,
+    *,
+    timeout_s: float = _WRITE_SETTLE_POLL_TIMEOUT_S,
+) -> tuple[bool, dict[str, Any], float, int]:
+    loop = asyncio.get_running_loop()
+    start = loop.time()
+    attempts = 0
+    after = _read_period(ctx, 1)
+    while True:
+        attempts += 1
+        await ctx.refresh_keys(CHARGE_PERIOD_KEYS)
+        after = _read_period(ctx, 1)
+        read_ok = expected.matches_modbus_state(
+            after["enable_force_charge"],
+            after["enable_charge_from_grid"],
+            after.get("start"),
+            after.get("end"),
+        )
+        if read_ok:
+            return True, after, loop.time() - start, attempts
+        if loop.time() - start >= timeout_s:
+            return False, after, loop.time() - start, attempts
+        await asyncio.sleep(_POLL_INTERVAL_S)
 
 
 def _find_entity_by_suffix(hass: HomeAssistant, device_id: str, suffix: str) -> str | None:
@@ -262,9 +400,17 @@ async def _test_work_mode(ctx: _ProbeContext) -> None:
     except Exception as err:
         write_err = str(err)
 
-    await ctx.refresh_keys(("work_mode",))
-    after = ctx.entity_state("work_mode")
-    read_ok = after == target
+    read_ok = False
+    after: str | None = None
+    poll_s = 0.0
+    poll_attempts = 0
+    if write_err is None:
+        read_ok, after, poll_s, poll_attempts = await _poll_entity_key(
+            ctx,
+            "work_mode",
+            expected=target,
+        )
+    timing_note = _timing_note(poll_s, poll_attempts) if write_err is None else None
     ctx.add_result(
         test_id="work_mode_write",
         name="Work mode write + read-back",
@@ -275,9 +421,10 @@ async def _test_work_mode(ctx: _ProbeContext) -> None:
         attempted=target,
         after=after,
         error=write_err,
+        notes=timing_note,
     )
 
-    if before and before != after:
+    if write_err is None:
         saved = before
 
         async def _restore() -> None:
@@ -287,6 +434,7 @@ async def _test_work_mode(ctx: _ProbeContext) -> None:
                 {"entity_id": entity_id, "option": saved},
                 blocking=True,
             )
+            await _poll_entity_key(ctx, "work_mode", expected=saved)
 
         ctx.restore.append(_RestoreAction("work_mode", _restore))
 
@@ -331,34 +479,43 @@ async def _test_soc_limits(ctx: _ProbeContext) -> None:
             min_soc_on_grid=mid_v,
             max_soc=max_v,
             force_write=True,
-            verify=True,
+            verify=False,
             emulate_max_soc=True,
         )
     except Exception as err:
         write_err = str(err)
 
-    await ctx.refresh_keys(("min_soc", "min_soc_on_grid", "max_soc"))
-    after = read_soc_current(ctx.hass, ctx.entity_map)
-    min_ok = after.get("min_soc") == target_min
+    poll_s = 0.0
+    poll_attempts = 0
+    read_ok = False
+    after = before
+    if write_err is None:
+        read_ok, after, poll_s, poll_attempts = await _poll_soc_values(
+            ctx,
+            {"min_soc": target_min},
+            keys=("min_soc",),
+        )
     max_row = next((row for row in rows if row.get("key") == "max_soc"), None)
-    max_note = None
+    notes: list[str] = []
+    if write_err is None:
+        notes.append(_timing_note(poll_s, poll_attempts))
     if max_row and max_row.get("skipped"):
-        max_note = str(max_row.get("message") or "max_soc skipped (EVO virtual cap path).")
+        notes.append(str(max_row.get("message") or "max_soc skipped (EVO virtual cap path)."))
 
     ctx.add_result(
         test_id="soc_limits_write",
         name="SOC limits write + read-back (min_soc bump)",
-        status="pass" if write_err is None and min_ok else "fail",
+        status="pass" if write_err is None and read_ok else "fail",
         write_ok=write_err is None,
-        read_back_ok=min_ok,
+        read_back_ok=read_ok,
         before=before,
         attempted=target,
         after=after,
         error=write_err,
-        notes=max_note,
+        notes=" ".join(notes) if notes else None,
     )
 
-    if before:
+    if write_err is None:
 
         async def _restore() -> None:
             await apply_soc_limits(
@@ -370,6 +527,14 @@ async def _test_soc_limits(ctx: _ProbeContext) -> None:
                 force_write=True,
                 verify=False,
                 emulate_max_soc=True,
+            )
+            await _poll_soc_values(
+                ctx,
+                {
+                    "min_soc": before.get("min_soc", min_v),
+                    "min_soc_on_grid": before.get("min_soc_on_grid", mid_v),
+                    "max_soc": before.get("max_soc", max_v),
+                },
             )
 
         ctx.restore.append(_RestoreAction("soc_limits", _restore))
@@ -394,9 +559,16 @@ async def _test_remote_control(ctx: _ProbeContext) -> None:
     except Exception as err:
         write_err = str(err)
 
-    await ctx.refresh_keys(("remote_control",))
-    after = ctx.entity_state("remote_control")
-    read_ok = after == "Force Charge"
+    read_ok = False
+    after: str | None = None
+    poll_s = 0.0
+    poll_attempts = 0
+    if write_err is None:
+        read_ok, after, poll_s, poll_attempts = await _poll_entity_key(
+            ctx,
+            "remote_control",
+            expected="Force Charge",
+        )
     ctx.add_result(
         test_id="remote_control_write",
         name="Remote Control Force Charge + read-back",
@@ -407,12 +579,14 @@ async def _test_remote_control(ctx: _ProbeContext) -> None:
         attempted="Force Charge",
         after=after,
         error=write_err,
+        notes=_timing_note(poll_s, poll_attempts) if write_err is None else None,
     )
 
     restore_mode = before if before not in (None, "unknown", "unavailable", "") else "Disable"
 
     async def _restore() -> None:
         await set_remote_control_mode(ctx.hass, ctx.entity_map, restore_mode)
+        await _poll_entity_key(ctx, "remote_control", expected=restore_mode)
 
     ctx.restore.append(_RestoreAction("remote_control", _restore))
 
@@ -440,25 +614,53 @@ async def _test_charge_period(ctx: _ProbeContext) -> None:
     except Exception as err:
         write_err = str(err)
 
-    await ctx.refresh_keys(CHARGE_PERIOD_KEYS)
-    after_p1 = _read_period(ctx, 1)
-    read_ok = test_p1.matches_modbus_state(
-        after_p1["enable_force_charge"],
-        after_p1["enable_charge_from_grid"],
-        after_p1.get("start"),
-        after_p1.get("end"),
-    )
+    poll_s = 0.0
+    poll_attempts = 0
+    read_ok = False
+    after_p1 = before_p1
+    notes = ["Uses foxess_modbus.update_all_charge_periods (480xx path)."]
+    if write_err is None:
+        read_ok, after_p1, poll_s, poll_attempts = await _poll_charge_period_1(ctx, test_p1)
+        notes.append(_timing_note(poll_s, poll_attempts))
+    else:
+        await asyncio.sleep(_WRITE_SETTLE_POLL_TIMEOUT_S)
+        poll_s = _WRITE_SETTLE_POLL_TIMEOUT_S
+        poll_attempts = 1
+        await ctx.refresh_keys(CHARGE_PERIOD_KEYS)
+        after_p1 = _read_period(ctx, 1)
+        read_ok = test_p1.matches_modbus_state(
+            after_p1["enable_force_charge"],
+            after_p1["enable_charge_from_grid"],
+            after_p1.get("start"),
+            after_p1.get("end"),
+        )
+        notes.append(
+            _timing_note(poll_s, poll_attempts, delayed=True)
+            + " Write returned an error; checked entities after settle anyway."
+        )
+        if read_ok:
+            notes.append(
+                "Charge period entities changed despite write error — may be slow Modbus, not IllegalAddress."
+            )
+
+    if read_ok and write_err is None:
+        status = "pass"
+    elif read_ok and write_err:
+        status = "warn"
+    else:
+        status = "fail"
+
     ctx.add_result(
         test_id="charge_period_p1",
         name="Charge period 1 write (23:00–23:50) + entity read-back",
-        status="pass" if write_err is None and read_ok else "fail",
+        status=status,
         write_ok=write_err is None,
         read_back_ok=read_ok,
         before=before_p1,
         attempted=test_p1.to_dict(),
         after=after_p1,
         error=write_err,
-        notes="Uses foxess_modbus.update_all_charge_periods (480xx path).",
+        notes=" ".join(notes),
     )
 
     restore_periods = [_period_to_config(before_p1), _period_to_config(before_p2)]
@@ -471,6 +673,7 @@ async def _test_charge_period(ctx: _ProbeContext) -> None:
                 restore_periods,
                 entity_map=ctx.entity_map,
             )
+            await _poll_charge_period_1(ctx, _period_to_config(before_p1))
         except Exception as err:
             _LOGGER.warning("Charge period restore failed: %s", err)
 
@@ -507,25 +710,45 @@ async def _test_raw_write_48010(ctx: _ProbeContext) -> None:
     except Exception as err:
         write_err = str(err)
 
-    await asyncio.sleep(_PROBE_SLEEP_S)
-    after_vals, after_read_err = await _read_holding(ctx.hass, ctx.inverter_ref, 48010, 1)
-    after = after_vals.get(48010) if after_vals else None
-    read_ok = write_err is None and after == probe_value and after_read_err is None
+    read_ok = False
+    after: int | None = None
+    poll_s = 0.0
+    poll_attempts = 0
+    after_read_err: str | None = None
+    notes = ["Low-level probe — IllegalAddress here means 480xx block is not writable on this path."]
+    if write_err is None:
+        read_ok, after, poll_s, poll_attempts, after_read_err = await _poll_holding_register(
+            ctx.hass,
+            ctx.inverter_ref,
+            48010,
+            probe_value,
+        )
+        notes.append(_timing_note(poll_s, poll_attempts))
+    else:
+        after, poll_s, after_read_err = await _settle_then_read_holding(ctx.hass, ctx.inverter_ref, 48010)
+        poll_attempts = 1
+        read_ok = after == probe_value and after_read_err is None
+        notes.append(
+            _timing_note(poll_s, poll_attempts, delayed=True)
+            + " Write returned an error; re-read register after settle anyway."
+        )
+        if read_ok:
+            notes.append("Register matched after settle despite write error — Modbus may be slow, not blocked.")
 
     ctx.add_result(
         test_id="raw_write_48010",
         name="Raw write holding 48010 + read-back",
-        status="pass" if read_ok else "fail",
+        status="pass" if read_ok and write_err is None else ("warn" if read_ok else "fail"),
         write_ok=write_err is None,
-        read_back_ok=read_ok if write_err is None else False,
+        read_back_ok=read_ok,
         before=before,
         attempted=probe_value,
         after=after,
         error=write_err or after_read_err,
-        notes="Low-level probe — IllegalAddress here means 480xx block is not writable on this path.",
+        notes=" ".join(notes),
     )
 
-    if write_err is None and before is not None and after != before:
+    if before is not None and (write_err is None or after != before):
 
         async def _restore() -> None:
             try:
@@ -538,6 +761,12 @@ async def _test_raw_write_48010(ctx: _ProbeContext) -> None:
                         "values": str(before),
                     },
                     blocking=True,
+                )
+                await _poll_holding_register(
+                    ctx.hass,
+                    ctx.inverter_ref,
+                    48010,
+                    before,
                 )
             except Exception as err:
                 _LOGGER.warning("48010 restore failed: %s", err)
@@ -562,7 +791,7 @@ async def _test_max_charge_current(ctx: _ProbeContext) -> None:
         {"entity_id": entity_id},
         blocking=True,
     )
-    await asyncio.sleep(_PROBE_SLEEP_S)
+    await asyncio.sleep(_PROBE_REFRESH_SLEEP_S)
     state = ctx.hass.states.get(entity_id)
     before_raw = state.state if state else None
     try:
@@ -592,20 +821,29 @@ async def _test_max_charge_current(ctx: _ProbeContext) -> None:
     except Exception as err:
         write_err = str(err)
 
-    await ctx.hass.services.async_call(
-        "homeassistant",
-        "update_entity",
-        {"entity_id": entity_id},
-        blocking=True,
-    )
-    await asyncio.sleep(_PROBE_SLEEP_S)
-    after_state = ctx.hass.states.get(entity_id)
-    after_raw = after_state.state if after_state else None
-    try:
-        after = int(round(float(after_raw)))
-    except (TypeError, ValueError):
-        after = None
-    read_ok = after == target
+    read_ok = False
+    after: int | None = None
+    poll_s = 0.0
+    poll_attempts = 0
+    if write_err is None:
+
+        def _matches(raw: str | None) -> bool:
+            try:
+                return int(round(float(raw))) == target
+            except (TypeError, ValueError):
+                return False
+
+        matched, after_raw, poll_s, poll_attempts = await _poll_entity_state(
+            ctx,
+            entity_id,
+            expected=_matches,
+            timeout_s=_WRITE_SETTLE_POLL_TIMEOUT_S,
+        )
+        read_ok = matched
+        try:
+            after = int(round(float(after_raw))) if after_raw is not None else None
+        except (TypeError, ValueError):
+            after = None
 
     ctx.add_result(
         test_id="max_charge_current",
@@ -617,9 +855,14 @@ async def _test_max_charge_current(ctx: _ProbeContext) -> None:
         attempted=target,
         after=after,
         error=write_err,
+        notes=(
+            _timing_note(poll_s, poll_attempts)
+            if write_err is None
+            else None
+        ),
     )
 
-    if write_err is None and after == target and before != target:
+    if write_err is None:
 
         async def _restore() -> None:
             await ctx.hass.services.async_call(
@@ -627,6 +870,19 @@ async def _test_max_charge_current(ctx: _ProbeContext) -> None:
                 "set_value",
                 {"entity_id": entity_id, "value": float(before)},
                 blocking=True,
+            )
+
+            def _matches_before(raw: str | None) -> bool:
+                try:
+                    return int(round(float(raw))) == before
+                except (TypeError, ValueError):
+                    return False
+
+            await _poll_entity_state(
+                ctx,
+                entity_id,
+                expected=_matches_before,
+                timeout_s=_WRITE_SETTLE_POLL_TIMEOUT_S,
             )
 
         ctx.restore.append(_RestoreAction("max_charge_current", _restore))
@@ -666,12 +922,14 @@ async def run_modbus_debug_probe(coordinator: Any) -> dict[str, Any]:
     passed = sum(1 for row in ctx.results if row["status"] == "pass")
     failed = sum(1 for row in ctx.results if row["status"] == "fail")
     skipped = sum(1 for row in ctx.results if row["status"] == "skip")
+    warned = sum(1 for row in ctx.results if row["status"] == "warn")
     return {
         "summary": {
             "total": len(ctx.results),
             "passed": passed,
             "failed": failed,
             "skipped": skipped,
+            "warned": warned,
         },
         "tests": ctx.results,
         "inverter_ref": ctx.inverter_ref,

@@ -20616,7 +20616,7 @@ ${debugProbe}</div>`;
     const summary = res?.summary;
     const tests = Array.isArray(res?.tests) ? res.tests : [];
     const summaryLine = summary
-      ? `${summary.passed} passed · ${summary.failed} failed · ${summary.skipped} skipped (${summary.total} tests)`
+      ? `${summary.passed} passed · ${summary.failed} failed${summary.warned ? ` · ${summary.warned} warn` : ""} · ${summary.skipped} skipped (${summary.total} tests)`
       : "Not run yet";
     const rows = tests
       .map((row) => {
@@ -20645,7 +20645,7 @@ ${debugProbe}</div>`;
       : "";
     return `<div class="card" data-modbus-probe="1" style="margin-top:16px">
 <p class="card-title">Modbus scheduler probe (debug)</p>
-<p class="field-hint" style="margin-top:0">Temporary tool — writes each scheduler feature, reads it back from the inverter, then restores your settings. Set <strong>Remote Control → Disable</strong> and close the Fox app first. Takes ~30s.</p>
+<p class="field-hint" style="margin-top:0">Temporary tool — writes each scheduler feature, then polls for up to <strong>30 seconds</strong> before read-back (EVO Modbus is slow). Restores your settings afterward with the same settle wait. Set <strong>Remote Control → Disable</strong> and close the Fox app first. Takes several minutes.</p>
 <p class="field-hint" style="margin:0 0 12px"><strong>${esc(summaryLine)}</strong>${res?.inverter_ref ? ` · inverter ${esc(String(res.inverter_ref))}` : ""}</p>
 <div class="btn-row">
 <button type="button" class="btn btn-secondary" data-action="run-modbus-probe" ${busy ? "disabled" : ""}>${running ? "Running probes…" : "Run Modbus probes"}</button>
