@@ -16,7 +16,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.util import dt as dt_util
 
-from .const import DEBUG_MODBUS_PROBE, DOMAIN, STORM_ALERT_PROVIDER_GOOGLE, TARIFF_CURRENCIES
+from .const import DEBUG_MODBUS_PROBE, DEBUG_SCHEDULE_PROBE, DOMAIN, STORM_ALERT_PROVIDER_GOOGLE, TARIFF_CURRENCIES
 from .panel_config import list_forecast_entity_candidates, list_tariff_entity_candidates, list_trigger_candidates
 
 _LOGGER = logging.getLogger(__name__)
@@ -61,6 +61,7 @@ WS_TYPE_TEST_GLOW = "foxess_plant/test_glow"
 WS_TYPE_UPDATE_FOX_CLOUD = "foxess_plant/update_fox_cloud"
 WS_TYPE_TEST_FOX_CLOUD = "foxess_plant/test_fox_cloud"
 WS_TYPE_RUN_MODBUS_DEBUG_PROBE = "foxess_plant/run_modbus_debug_probe"
+WS_TYPE_RUN_SCHEDULE_PROBE = "foxess_plant/run_schedule_probe"
 WS_TYPE_FETCH_BATTERY_WARMUP = "foxess_plant/fetch_battery_warmup"
 WS_TYPE_UPDATE_BATTERY_WARMUP = "foxess_plant/update_battery_warmup"
 WS_TYPE_FETCH_FOX_SCHEDULER = "foxess_plant/fetch_fox_scheduler"
@@ -1171,6 +1172,39 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
                 {**result, "plant_state": coordinator.get_plant_state()},
             )
 
+    if DEBUG_SCHEDULE_PROBE:
+
+        @websocket_api.websocket_command(
+            {
+                vol.Required("type"): WS_TYPE_RUN_SCHEDULE_PROBE,
+                vol.Optional("plant_id"): str,
+            }
+        )
+        @websocket_api.require_admin
+        @websocket_api.async_response
+        async def ws_run_schedule_probe(
+            hass: HomeAssistant,
+            connection: websocket_api.ActiveConnection,
+            msg: dict[str, Any],
+        ) -> None:
+            coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+            if coordinator is None:
+                connection.send_error(msg["id"], err_code, err_msg)
+                return
+            try:
+                result = await coordinator.async_run_schedule_probe()
+            except HomeAssistantError as err:
+                connection.send_error(msg["id"], "schedule_probe_failed", str(err))
+                return
+            except Exception as err:
+                _LOGGER.exception("Schedule probe failed")
+                connection.send_error(msg["id"], "schedule_probe_failed", str(err))
+                return
+            connection.send_result(
+                msg["id"],
+                {**result, "plant_state": coordinator.get_plant_state()},
+            )
+
     @websocket_api.websocket_command(
         {
             vol.Required("type"): WS_TYPE_FETCH_BATTERY_WARMUP,
@@ -1542,6 +1576,8 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_test_fox_cloud)
     if DEBUG_MODBUS_PROBE:
         websocket_api.async_register_command(hass, ws_run_modbus_debug_probe)
+    if DEBUG_SCHEDULE_PROBE:
+        websocket_api.async_register_command(hass, ws_run_schedule_probe)
     websocket_api.async_register_command(hass, ws_fetch_battery_warmup)
     websocket_api.async_register_command(hass, ws_update_battery_warmup)
     websocket_api.async_register_command(hass, ws_fetch_fox_scheduler)

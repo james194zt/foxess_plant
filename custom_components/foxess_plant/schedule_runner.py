@@ -174,17 +174,15 @@ def resolve_desired_bundle(coordinator: FoxESSPlantCoordinator) -> ScheduleApply
     segment = resolve_active_segment(schedule.segments) if schedule.segments else None
     if segment:
         return bundle_from_segment(segment)
-        virtual_max = plant.virtual_soc.max_soc
-        current = read_soc_current(coordinator.hass, plant.entity_map)
-        max_soc = int(virtual_max) if virtual_max is not None else current.get("max_soc", 100)
-        return bundle_from_remaining(
-            schedule.remaining_work_mode,
-            min_soc=current.get("min_soc", 10),
-            min_soc_on_grid=current.get("min_soc_on_grid", 10),
-            max_soc=max_soc,
-        )
-
-    return None
+    virtual_max = plant.virtual_soc.max_soc
+    current = read_soc_current(coordinator.hass, plant.entity_map)
+    max_soc = int(virtual_max) if virtual_max is not None else current.get("max_soc", 100)
+    return bundle_from_remaining(
+        schedule.remaining_work_mode,
+        min_soc=current.get("min_soc", 10),
+        min_soc_on_grid=current.get("min_soc_on_grid", 10),
+        max_soc=max_soc,
+    )
 
 
 async def apply_schedule_bundle(

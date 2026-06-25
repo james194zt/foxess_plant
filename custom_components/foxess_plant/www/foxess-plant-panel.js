@@ -20,6 +20,9 @@ const NAV = [
 /** TEMP — search DEBUG_MODBUS_PROBE to remove modbus debug UI + backend. */
 const DEBUG_MODBUS_PROBE = true;
 
+/** TEMP — search DEBUG_SCHEDULE_PROBE to remove schedule probe UI + backend. */
+const DEBUG_SCHEDULE_PROBE = true;
+
 const DEVICE_NEW_NAV = [
   { id: "analysis", label: "Analysis" },
   { id: "realtime", label: "Realtime" },
@@ -13329,6 +13332,8 @@ class FoxessPlantPanel extends HTMLElement {
     this._busy = false;
     this._modbusProbeResults = null;
     this._modbusProbeRunning = false;
+    this._scheduleProbeResults = null;
+    this._scheduleProbeRunning = false;
     this._foxSchedulerBusy = false;
     this._toastTimer = undefined;
     this._chargeDraft = null;
@@ -14744,6 +14749,37 @@ Reloading panel registration…
     }
   }
 
+  async _runScheduleProbe() {
+    const plant = this._getPlant();
+    if (!plant || !this._hass) return;
+    this._scheduleProbeRunning = true;
+    this._render();
+    try {
+      const res = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/run_schedule_probe",
+        plant_id: plant.entry_id,
+      });
+      if (res?.plant_state) this._plantState = res.plant_state;
+      this._scheduleProbeResults = {
+        summary: res?.summary,
+        tests: res?.tests,
+      };
+      const failed = Number(res?.summary?.failed || 0);
+      const passed = Number(res?.summary?.passed || 0);
+      this._showToast(
+        failed
+          ? `Schedule test finished — ${passed} passed, ${failed} failed (restored)`
+          : `Schedule test finished — ${passed} passed (restored)`,
+        failed ? "err" : undefined
+      );
+    } catch (err) {
+      this._showToast(String(err?.message || err), "err");
+    } finally {
+      this._scheduleProbeRunning = false;
+      this._render();
+    }
+  }
+
   async _runModbusDebugProbe() {
     const plant = this._getPlant();
     if (!plant || !this._hass) return;
@@ -16146,6 +16182,10 @@ Reloading panel registration…
     }
     if (action === "run-modbus-probe") {
       await this._runModbusDebugProbe();
+      return;
+    }
+    if (action === "run-schedule-probe") {
+      await this._runScheduleProbe();
       return;
     }
     if (action === "save-battery-warmup") {
@@ -20720,15 +20760,8 @@ ${debugProbe}</div>`;
     return String(value);
   }
 
-  _renderModbusDebugProbeCard() {
-    const running = this._modbusProbeRunning;
-    const busy = this._busy || running;
-    const res = this._modbusProbeResults;
-    const summary = res?.summary;
+  _renderProbeResultsTable(res) {
     const tests = Array.isArray(res?.tests) ? res.tests : [];
-    const summaryLine = summary
-      ? `${summary.passed} passed · ${summary.failed} failed${summary.warned ? ` · ${summary.warned} warn` : ""} · ${summary.skipped} skipped (${summary.total} tests)`
-      : "Not run yet";
     const rows = tests
       .map((row) => {
         const status = String(row.status || "fail");
@@ -20751,12 +20784,25 @@ ${debugProbe}</div>`;
 </tr>`;
       })
       .join("");
-    const table = tests.length
-      ? `<table class="modbus-probe-table"><thead><tr><th>Test</th><th>Write</th><th>Read-back</th><th>Detail</th></tr></thead><tbody>${rows}</tbody></table>`
+    return tests.length
+      ? `<table class="modbus-probe-table"><thead><tr><th>Test</th><th>Write</th><th>Live read-back</th><th>Detail</th></tr></thead><tbody>${rows}</tbody></table>`
       : "";
+  }
+
+  _probeSummaryLine(summary) {
+    if (!summary) return "Not run yet";
+    return `${summary.passed} passed · ${summary.failed} failed${summary.warned ? ` · ${summary.warned} warn` : ""} · ${summary.skipped} skipped (${summary.total} tests)`;
+  }
+
+  _renderModbusDebugProbeCard() {
+    const running = this._modbusProbeRunning;
+    const busy = this._busy || running;
+    const res = this._modbusProbeResults;
+    const summaryLine = this._probeSummaryLine(res?.summary);
+    const table = this._renderProbeResultsTable(res);
     return `<div class="card" data-modbus-probe="1" style="margin-top:16px">
 <p class="card-title">Modbus scheduler probe (debug)</p>
-<p class="field-hint" style="margin-top:0">Temporary tool — writes each scheduler feature, then polls for up to <strong>30 seconds</strong> before read-back (EVO Modbus is slow). Restores your settings afterward with the same settle wait. Set <strong>Remote Control → Disable</strong> and close the Fox app first. Takes several minutes.</p>
+<p class="field-hint" style="margin-top:0">Temporary tool — writes each scheduler feature, refreshes entities from the inverter, then polls up to <strong>30 seconds</strong> before read-back. Restores your settings afterward. Set <strong>Remote Control → Disable</strong> and close the Fox app first.</p>
 <p class="field-hint" style="margin:0 0 12px"><strong>${esc(summaryLine)}</strong>${res?.inverter_ref ? ` · inverter ${esc(String(res.inverter_ref))}` : ""}</p>
 <div class="btn-row">
 <button type="button" class="btn btn-secondary" data-action="run-modbus-probe" ${busy ? "disabled" : ""}>${running ? "Running probes…" : "Run Modbus probes"}</button>
@@ -20847,6 +20893,17 @@ ${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">
     const segmentCards = segments.length
       ? segments.map((seg, idx) => this._renderSchedulerSegmentCard(idx, seg)).join("")
       : `<p class="placeholder" style="margin:0 0 12px">No custom schedules yet — add one to match the Fox app &ldquo;Add a Schedule&rdquo; screen.</p>`;
+    const probeBusy = this._busy || this._scheduleProbeRunning;
+    const probeSummary = this._probeSummaryLine(this._scheduleProbeResults?.summary);
+    const probeTable = DEBUG_SCHEDULE_PROBE ? this._renderProbeResultsTable(this._scheduleProbeResults) : "";
+    const probeBlock = DEBUG_SCHEDULE_PROBE
+      ? `<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--divider-color)">
+<p class="field-hint" style="margin:0 0 8px"><strong>Schedule write test</strong> — applies a temporary work mode / SOC change via the same path as the live scheduler, reads back from the inverter (not cached HA state), then restores your current schedule.</p>
+<p class="field-hint" style="margin:0 0 8px"><strong>${esc(probeSummary)}</strong></p>
+<button type="button" class="btn btn-secondary" data-action="run-schedule-probe" ${probeBusy ? "disabled" : ""}>${this._scheduleProbeRunning ? "Testing schedule…" : "Test schedule write"}</button>
+${probeTable}
+</div>`
+      : "";
     return `<div class="card quick-settings-card">
 <p class="card-title">Mode scheduler</p>
 <p class="field-hint" style="margin:0 0 12px">Fox Plant owns the clock on Home Assistant. Each segment sets work mode, SOC limits, and optional grid force-charge for its time window. StormSafe and SmartCharge still override temporarily while armed.</p>
@@ -20862,6 +20919,7 @@ ${segmentCards}
 <button type="button" class="btn btn-secondary" data-action="add-schedule-segment" ${this._busy || segments.length >= MAX_SCHEDULE_SEGMENTS ? "disabled" : ""}>Add a schedule</button>
 <button type="button" class="btn btn-secondary" data-action="apply-plant-schedule-now" ${this._busy ? "disabled" : ""}>Apply now</button>
 </div>
+${probeBlock}
 </div>`;
   }
 

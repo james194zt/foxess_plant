@@ -2744,7 +2744,16 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         if not DEBUG_MODBUS_PROBE:
             raise HomeAssistantError("Modbus debug probe is disabled")
-        return await run_modbus_debug_probe(self)
+        return await async_run_modbus_debug_probe(self)
+
+    async def async_run_schedule_probe(self) -> dict[str, Any]:
+        """TEMPORARY — schedule write probe with live inverter read-back."""
+        from .const import DEBUG_SCHEDULE_PROBE
+        from .schedule_probe import run_schedule_write_probe
+
+        if not DEBUG_SCHEDULE_PROBE:
+            raise HomeAssistantError("Schedule probe is disabled")
+        return await run_schedule_write_probe(self)
 
     async def async_fetch_battery_warmup(self) -> dict[str, Any]:
         from .battery_warmup import parse_battery_heating_result
