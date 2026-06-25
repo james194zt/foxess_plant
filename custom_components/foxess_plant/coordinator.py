@@ -28,8 +28,10 @@ from .remote_control import periods_want_grid_force_charge
 from .remote_control import set_remote_control_mode
 from .flow_scene import resolve_flow_scene_theme
 from .virtual_max_soc import (
+    emulate_max_soc,
     pick_feed_in_work_mode,
     resolve_virtual_max_soc_cap,
+    virtual_max_soc_message,
     virtual_soc_state,
 )
 from .const import (
@@ -1916,6 +1918,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         from .discovery import device_is_evo
 
         await self.async_ensure_fox_scheduler_disabled()
+        emulate_max = emulate_max_soc(self)
         results = await apply_soc_limits(
             self.hass,
             self.plant.entity_map,
@@ -1927,12 +1930,22 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             inverter_target=self.plant.inverter_target,
             device_id=self.plant.device_id,
             live_battery_soc=self._entity_float("battery_soc"),
+            emulate_max_soc=emulate_max,
         )
         max_row = next((row for row in results if row.get("key") == "max_soc"), None)
         sc_owns_max = self.plant.smart_charge.enabled and self.plant.control_active
         if (
+            emulate_max
+            and max_row
+            and not max_row.get("success")
+        ):
+            max_row["success"] = True
+            max_row["message"] = virtual_max_soc_message(max_soc)
+            max_row["skipped"] = True
+        if (
             max_row
             and not max_row.get("success")
+            and not emulate_max
             and device_is_evo(self.hass, self.plant.device_id, self.plant.entity_map)
         ):
             cloud_ok, cloud_msg = await self._async_try_fox_cloud_max_soc(max_soc)
@@ -1943,7 +1956,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             elif cloud_msg:
                 max_row["message"] = cloud_msg
         if max_row:
-            if max_row.get("success"):
+            if emulate_max:
+                self.plant.virtual_soc.hardware_max_supported = False
+                if not sc_owns_max:
+                    self.plant.virtual_soc.max_soc = max_soc
+            elif max_row.get("success"):
                 self.plant.virtual_soc.hardware_max_supported = True
                 if not sc_owns_max:
                     self.plant.virtual_soc.max_soc = max_soc
@@ -1951,10 +1968,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.plant.virtual_soc.hardware_max_supported = False
                 self.plant.virtual_soc.max_soc = max_soc
                 max_row["success"] = True
-                max_row["message"] = (
-                    f"System max saved as a Fox Plant cap ({max_soc}%). "
-                    "This inverter cannot change register 46610 — Fox Plant stops charging at this level."
-                )
+                max_row["message"] = virtual_max_soc_message(max_soc)
             await self._persist()
         return results
 

@@ -1,0 +1,5 @@
+Allow emulated max SOC below live battery on EVO v0.9.393.
+
+Skip the hardware max-vs-battery validation when Fox Plant emulates system max:
+write off-grid and system min to Modbus only, persist the virtual cap, and warn
+instead of blocking saves when SOC is above the new limit.

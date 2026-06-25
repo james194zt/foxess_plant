@@ -110,6 +110,7 @@ def validate_soc_limits_for_write(
     *,
     soc_min_pct: int = 10,
     live_battery_soc: float | None = None,
+    emulate_max_soc: bool = False,
 ) -> dict[str, int]:
     """Validate user SOC limits before Modbus writes; return clamped target or raise."""
     target = clamp_soc_values(min_soc, min_soc_on_grid, max_soc, soc_min_pct=soc_min_pct)
@@ -135,9 +136,10 @@ def validate_soc_limits_for_write(
             f"System min ({raw_mid}%) must be less than or equal to system max ({raw_max}%)."
         )
 
-    battery_hint = _max_soc_battery_hint(live_battery_soc, raw_max)
-    if battery_hint:
-        errors.append(battery_hint)
+    if not emulate_max_soc:
+        battery_hint = _max_soc_battery_hint(live_battery_soc, raw_max)
+        if battery_hint:
+            errors.append(battery_hint)
 
     if errors:
         raise HomeAssistantError(" ".join(errors))
@@ -269,7 +271,13 @@ def _format_soc_error(
     live_battery_soc: float | None = None,
     evo_max_blocked: bool = False,
 ) -> str:
-    message = str(err)
+    message = str(err).strip()
+    if not message or message.lower() == "unknown error":
+        label = SOC_LABELS.get(key, key) if key else "SOC limit"
+        message = (
+            f"Failed to write {label}. Disable FoxESS Modbus Remote Control, "
+            "close the Fox app, and try again."
+        )
     if evo_max_blocked and key == "max_soc":
         return f"{_EVO_MAX_SOC_BLOCKED_HINT} Details: {message}"
     if key == "max_soc" and "IllegalValue" in message:
@@ -433,14 +441,18 @@ async def _apply_contiguous_soc_writes(
     live_battery_soc: float | None,
     verify: bool,
     device_id: str | None = None,
+    emulate_max_soc: bool = False,
 ) -> list[dict[str, Any]]:
     """EVO/H3 Pro: FC6 writes for 46609, 46611, 46610 — always in min → system min → max order."""
     is_evo = device_is_evo(hass, device_id, entity_map)
     await _prepare_inverter_for_soc_writes(hass, entity_map)
     outcomes: dict[str, SocWriteResult] = {}
     write_failed = False
+    write_order = (
+        ("min_soc", "min_soc_on_grid") if emulate_max_soc else EVO_SOC_WRITE_ORDER
+    )
 
-    for key in EVO_SOC_WRITE_ORDER:
+    for key in write_order:
         value = target[key]
         if write_failed:
             outcomes[key] = _soc_result(
@@ -483,6 +495,17 @@ async def _apply_contiguous_soc_writes(
             outcomes[key] = _soc_result(key, value, success=False, message=msg)
             write_failed = True
 
+    if emulate_max_soc:
+        from .virtual_max_soc import virtual_max_soc_message
+
+        outcomes["max_soc"] = _soc_result(
+            "max_soc",
+            target["max_soc"],
+            success=True,
+            message=virtual_max_soc_message(target["max_soc"]),
+            skipped=True,
+        )
+
     return _build_soc_results(target, outcomes)
 
 
@@ -499,6 +522,7 @@ async def apply_soc_limits(
     inverter_target: str | None = None,
     device_id: str | None = None,
     live_battery_soc: float | None = None,
+    emulate_max_soc: bool = False,
 ) -> list[dict[str, Any]]:
     """Write min / on-grid / max SOC through foxess_modbus number entities."""
     target = validate_soc_limits_for_write(
@@ -506,6 +530,7 @@ async def apply_soc_limits(
         min_soc_on_grid,
         max_soc,
         live_battery_soc=live_battery_soc,
+        emulate_max_soc=emulate_max_soc,
     )
 
     if force_write or current is None:
@@ -535,7 +560,7 @@ async def apply_soc_limits(
             inverter_target,
         )
 
-    if verify and _soc_targets_match(target, live_current):
+    if verify and _soc_targets_match(target, live_current) and not emulate_max_soc:
         outcomes = {
             key: _soc_result(
                 key,
@@ -556,9 +581,15 @@ async def apply_soc_limits(
             live_battery_soc=live_battery_soc,
             verify=verify,
             device_id=device_id,
+            emulate_max_soc=emulate_max_soc,
         )
 
-    sequence = compute_soc_write_sequence(target, live_current)
+    sequence_current = dict(live_current)
+    if emulate_max_soc and sequence_current:
+        sequence_current["max_soc"] = target["max_soc"]
+    sequence = compute_soc_write_sequence(target, sequence_current)
+    if emulate_max_soc:
+        sequence = [(key, value) for key, value in sequence if key != "max_soc"]
     if not sequence and verify:
         outcomes = {
             key: _soc_result(
@@ -672,6 +703,25 @@ async def apply_soc_limits(
                 )
 
     results = _build_soc_results(target, outcomes)
+    if emulate_max_soc:
+        from .virtual_max_soc import virtual_max_soc_message
+
+        for row in results:
+            if row.get("key") == "max_soc":
+                row["success"] = True
+                row["skipped"] = True
+                row["message"] = virtual_max_soc_message(target["max_soc"])
+                break
+        else:
+            results.append(
+                _soc_result(
+                    "max_soc",
+                    target["max_soc"],
+                    success=True,
+                    message=virtual_max_soc_message(target["max_soc"]),
+                    skipped=True,
+                ).to_dict()
+            )
     _LOGGER.debug(
         "Applied SOC limits %s (%d writes, %d ok)",
         target,

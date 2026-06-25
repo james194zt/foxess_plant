@@ -9962,10 +9962,19 @@ function tripleSocBatteryFillMarkup(liveSoc) {
   return `<div class="triple-soc-battery-fill" style="height:max(4px,calc((100% - 8px) * ${h} / 100))"></div>`;
 }
 
-function validateSocLimits(draft, liveSoc) {
+function emulateMaxSocFromPlant(plantState) {
+  const vs = plantState?.virtual_soc;
+  if (vs?.emulate_max_soc === true) return true;
+  if (vs?.hardware_max_supported === true) return false;
+  if (vs?.hardware_max_supported === false) return true;
+  return false;
+}
+
+function validateSocLimits(draft, liveSoc, opts = {}) {
   const errors = [];
   const warnings = [];
   if (!draft) return { errors: ["SOC limits unavailable."], warnings: [] };
+  const emulateMax = Boolean(opts.emulateMaxSoc);
   const min = Math.round(Number(draft.min_soc));
   const mid = Math.round(Number(draft.min_soc_on_grid));
   const max = Math.round(Number(draft.max_soc));
@@ -9986,9 +9995,15 @@ function validateSocLimits(draft, liveSoc) {
   }
   const live = Math.ceil(Number(liveSoc));
   if (Number.isFinite(live) && live > 0 && max < live) {
-    errors.push(
-      `System max (${max}%) cannot be below the current battery level (${live}%). Discharge or wait for SOC to drop.`
-    );
+    if (emulateMax) {
+      warnings.push(
+        `Battery is at ${live}% — Fox Plant will stop charging at ${max}% until SOC drops (inverter max register is not used on this model).`
+      );
+    } else {
+      errors.push(
+        `System max (${max}%) cannot be below the current battery level (${live}%). Discharge or wait for SOC to drop.`
+      );
+    }
   }
   return { errors, warnings };
 }
@@ -14256,7 +14271,11 @@ Reloading panel registration…
 
   _syncSmartChargeSocValidationUi() {
     if (!this._smartChargeSocDraft) return;
-    const validation = validateSocLimits(this._smartChargeSocDraft, this._liveBatterySoc(this._getPlant()));
+    const validation = validateSocLimits(
+      this._smartChargeSocDraft,
+      this._liveBatterySoc(this._getPlant()),
+      this._socValidateOpts()
+    );
     const wrap = this._root.querySelector('[data-triple-soc-context="smart"]');
     if (!wrap) return;
     const html = renderSocFeedbackHtml(validation, this._smartChargeSocSaveError, this._smartChargeSocSaveResults);
@@ -14295,7 +14314,7 @@ Reloading panel registration…
       const d = { ...this._smartChargeDraft };
       if (d.enabled && this._smartChargeSocDraft) {
         const soc = clampSocDraft({ ...this._smartChargeSocDraft });
-        const validation = validateSocLimits(soc, this._liveBatterySoc(plant));
+        const validation = validateSocLimits(soc, this._liveBatterySoc(plant), this._socValidateOpts());
         if (validation.errors.length) {
           this._showToast(validation.errors[0], "err");
           this._busy = false;
@@ -16899,8 +16918,16 @@ Reloading panel registration…
     return Number.isFinite(v) ? v : null;
   }
 
+  _socValidateOpts() {
+    return { emulateMaxSoc: emulateMaxSocFromPlant(this._plantState) };
+  }
+
   _socValidationIssues() {
-    return validateSocLimits(this._socDraft, this._liveBatterySoc(this._getPlant()));
+    return validateSocLimits(
+      this._socDraft,
+      this._liveBatterySoc(this._getPlant()),
+      this._socValidateOpts()
+    );
   }
 
   _syncSocValidationUi() {
@@ -17016,12 +17043,16 @@ Reloading panel registration…
     const capHint =
       context === "smart" && virtual?.cap_source === "smart_charge" && virtual?.cap_active
         ? `<p class="field-hint" style="margin-top:8px">Fox Plant is holding charge at the SmartCharge cap (${virtual.effective_cap}%).</p>`
-        : context === "quick" && virtual?.cap_source === "quick" && virtual?.hardware_max_supported === false
+        : context === "quick" && emulateMaxSocFromPlant(this._plantState)
+          ? `<p class="field-hint" style="margin-top:8px">System max is emulated on this inverter — you can set it below the current battery level; Fox Plant stops charging at the cap.</p>`
+          : context === "quick" && virtual?.cap_source === "quick" && virtual?.hardware_max_supported === false
           ? `<p class="field-hint" style="margin-top:8px">System max is emulated on this inverter — Fox Plant stops charging at ${virtual.effective_cap ?? max}%.</p>`
           : "";
     const note =
       opts.note ||
-      `<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. On <strong>EVO</strong>, system max (Modbus 46610) is often read-only — Fox Plant emulates the cap when hardware writes fail.</p>`;
+      (emulateMaxSocFromPlant(this._plantState)
+        ? `<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. On this inverter, system max is enforced by Fox Plant — you can save a cap below the current battery level.</p>`
+        : `<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. On <strong>EVO</strong>, system max (Modbus 46610) is often read-only — Fox Plant emulates the cap when hardware writes fail.</p>`);
 
     const thumbsHtml = SOC_THUMBS.map(
       (t) =>
@@ -17033,14 +17064,15 @@ Reloading panel registration…
         `<div><label>${esc(t.label)}</label><input type="number" min="${SOC_MIN_PCT}" max="100" step="1" data-field="${fieldPrefix}:${t.key}" value="${clamped[t.key]}"></div>`
     ).join("");
 
+    const socOpts = this._socValidateOpts();
     const feedback =
       context === "smart"
         ? renderSocFeedbackHtml(
-            validateSocLimits(clamped, live),
+            validateSocLimits(clamped, live, socOpts),
             this._smartChargeSocSaveError,
             this._smartChargeSocSaveResults
           )
-        : renderSocFeedbackHtml(validateSocLimits(clamped, live), this._socSaveError, this._socSaveResults);
+        : renderSocFeedbackHtml(validateSocLimits(clamped, live, socOpts), this._socSaveError, this._socSaveResults);
 
     return `<div class="triple-soc" data-triple-soc-context="${esc(context)}">
 <div class="triple-soc-head">
@@ -17151,7 +17183,7 @@ ${note}
     const plant = this._getPlant();
     if (!plant || !this._socDraft) return;
     const clamped = clampSocDraft({ ...this._socDraft });
-    const validation = validateSocLimits(clamped, this._liveBatterySoc(plant));
+    const validation = validateSocLimits(clamped, this._liveBatterySoc(plant), this._socValidateOpts());
     if (validation.errors.length) {
       this._showToast(validation.errors[0], "err");
       return;
@@ -20619,7 +20651,7 @@ ${controlSection}`;
     if (!this._workModeDraft) this._initWorkModeDraft();
     const plant = this._getPlant();
     const liveSoc = this._liveBatterySoc(plant) ?? 0;
-    const validation = validateSocLimits(this._socDraft, liveSoc);
+    const validation = validateSocLimits(this._socDraft, liveSoc, this._socValidateOpts());
     return `<header class="header"><h1>Quick Settings</h1><p>Day-to-day inverter controls — battery SOC limits, work mode, baseline charge windows, and plant control.</p></header>
 <div class="card quick-settings-card">
 <p class="card-title">SOC limits</p>
@@ -20859,7 +20891,7 @@ ${spreadHtml}
     const plant = this._getPlant();
     const liveSoc = this._liveBatterySoc(plant) ?? 0;
     const socValidation = this._smartChargeSocDraft
-      ? validateSocLimits(this._smartChargeSocDraft, liveSoc)
+      ? validateSocLimits(this._smartChargeSocDraft, liveSoc, this._socValidateOpts())
       : { errors: [] };
     const socSection =
       draft.enabled && this._smartChargeSocDraft

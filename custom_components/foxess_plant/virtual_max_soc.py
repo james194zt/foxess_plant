@@ -55,6 +55,24 @@ def pick_feed_in_work_mode(options: list[str] | None) -> str | None:
     return None
 
 
+def emulate_max_soc(coordinator: FoxESSPlantCoordinator) -> bool:
+    """True when system max is enforced in software (EVO register 46610 / cloud MaxSoc unavailable)."""
+    if coordinator.plant.virtual_soc.hardware_max_supported is True:
+        return False
+    if coordinator.plant.virtual_soc.hardware_max_supported is False:
+        return True
+    from .discovery import device_is_evo
+
+    return device_is_evo(coordinator.hass, coordinator.plant.device_id, coordinator.plant.entity_map)
+
+
+def virtual_max_soc_message(max_soc: int) -> str:
+    return (
+        f"System max saved as a Fox Plant cap ({max_soc}%). "
+        "Fox Plant stops charging at this level — the inverter register is not writable on this model."
+    )
+
+
 def virtual_soc_state(
     coordinator: FoxESSPlantCoordinator,
     *,
@@ -63,6 +81,7 @@ def virtual_soc_state(
     cap, source = resolve_virtual_max_soc_cap(coordinator)
     return {
         **coordinator.plant.virtual_soc.to_dict(),
+        "emulate_max_soc": emulate_max_soc(coordinator),
         "effective_cap": cap,
         "cap_source": source,
         "cap_active": cap_active,
