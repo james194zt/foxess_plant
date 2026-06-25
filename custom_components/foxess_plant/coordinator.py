@@ -98,6 +98,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     _unsub_drift: callable | None = None
     _unsub_triggers: callable | None = None
     _applying: bool = False
+    _period_apply_fallback: str | None = None
     _active_storm_triggers: set[str]
     _active_outage_triggers: set[str]
     _forecast_armed: bool
@@ -3051,6 +3052,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise HomeAssistantError("No charge periods configured")
 
         self._applying = True
+        self._period_apply_fallback = None
         try:
             try:
                 await apply_charge_periods(
@@ -3061,29 +3063,39 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
             except HomeAssistantError as err:
                 if is_charge_period_modbus_blocked(err):
-                    if strict:
-                        raise HomeAssistantError(
-                            "Could not write charge windows to the inverter via FoxESS Modbus. "
-                            "On EVO these are holding registers 48011–48013 (period 1) and "
-                            "48021–48023 (period 2) — not the Fox app 8-segment scheduler. "
-                            f"Details: {err}"
-                        ) from err
                     if periods_want_grid_force_charge(periods):
                         _LOGGER.warning(
                             "Charge-period Modbus write blocked; using Remote Control Force Charge instead"
                         )
-                        await set_remote_control_mode(
-                            self.hass, self.plant.entity_map, "Force Charge"
-                        )
-                        self._fire(
-                            EVENT_PERIOD_APPLIED,
-                            {
-                                "mode": self.plant.plant_mode(),
-                                "periods": [p.to_dict() for p in periods],
-                                "fallback": "remote_control_force_charge",
-                            },
-                        )
-                        return
+                        try:
+                            await set_remote_control_mode(
+                                self.hass, self.plant.entity_map, "Force Charge"
+                            )
+                            self._period_apply_fallback = "remote_control_force_charge"
+                            self._fire(
+                                EVENT_PERIOD_APPLIED,
+                                {
+                                    "mode": self.plant.plant_mode(),
+                                    "periods": [p.to_dict() for p in periods],
+                                    "fallback": "remote_control_force_charge",
+                                },
+                            )
+                            return
+                        except HomeAssistantError as rc_err:
+                            if strict:
+                                raise HomeAssistantError(
+                                    "Could not write charge windows via Modbus and Remote Control "
+                                    f"Force Charge also failed: {rc_err}"
+                                ) from rc_err
+                            raise
+                    if strict:
+                        raise HomeAssistantError(
+                            "Could not write charge windows to the inverter via FoxESS Modbus. "
+                            "On EVO 10-H the 480xx period registers may be read-only on this firmware — "
+                            "enable grid charge on your schedule, or use FoxESS Modbus "
+                            "Remote Control → Force Charge. "
+                            f"Details: {err}"
+                        ) from err
                     try:
                         await set_remote_control_mode(
                             self.hass, self.plant.entity_map, "Disable"
@@ -3153,6 +3165,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.plant.control_active = True
         await self._persist()
         await self.async_apply_desired(force=True, strict=True)
+        if self._period_apply_fallback == "remote_control_force_charge":
+            _LOGGER.info(
+                "Schedule saved; inverter charging via Remote Control Force Charge "
+                "(480xx period registers not writable on this EVO firmware)"
+            )
+            return
         desired = [p.to_dict() for p in periods]
         actual = self._read_actual_periods()
         if self._compute_drift(desired, actual):

@@ -21,7 +21,12 @@ def is_remote_control_active(state: str | None) -> bool:
 
 def is_charge_period_modbus_blocked(err: BaseException) -> bool:
     message = str(err)
-    return "IllegalAddress" in message and ("48010" in message or "48020" in message)
+    if "IllegalAddress" not in message:
+        return False
+    return any(
+        token in message
+        for token in ("48000", "48010", "48011", "48013", "48020", "48021", "48023", "Charge-period write failed")
+    )
 
 
 def periods_want_grid_force_charge(periods: list[ChargePeriodConfig]) -> bool:

@@ -15,11 +15,10 @@ from .models import ChargePeriodConfig
 _LOGGER = logging.getLogger(__name__)
 
 _EVO_CHARGE_PERIOD_HINT = (
-    "This error comes from **FoxESS Modbus** (not Fox Plant). "
-    "On EVO, register **48000 must be 1** before any 48010+ period writes — "
-    "disable the Fox app **Mode Scheduler** and clear cloud charge schedules first. "
-    "Period 1: 48010–48016 + 48019; period 2: 48020–48026 + 48029. "
-    "Ensure **james194zt/foxess_modbus_evo** is installed and reloaded after update."
+    "FoxESS Modbus could not write EVO charge-period registers (480xx). "
+    "EVO 10-H often has no writable register 48000 — that is normal. "
+    "If all 480xx writes fail, Fox Plant will use Remote Control → Force Charge "
+    "when grid charge is enabled on your schedule."
 )
 
 
