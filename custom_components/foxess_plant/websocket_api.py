@@ -21,11 +21,27 @@ from .panel_config import list_forecast_entity_candidates, list_tariff_entity_ca
 
 _LOGGER = logging.getLogger(__name__)
 
+PLANT_SCHEDULE_SEGMENT_SCHEMA = vol.Schema(
+    {
+        vol.Optional("enabled", default=True): bool,
+        vol.Required("start"): str,
+        vol.Required("end"): str,
+        vol.Optional("work_mode", default="Self Use"): str,
+        vol.Optional("min_soc", default=10): vol.All(vol.Coerce(int), vol.Range(min=10, max=100)),
+        vol.Optional("min_soc_on_grid", default=10): vol.All(vol.Coerce(int), vol.Range(min=10, max=100)),
+        vol.Optional("max_soc", default=100): vol.All(vol.Coerce(int), vol.Range(min=10, max=100)),
+        vol.Optional("enable_force_charge", default=False): bool,
+        vol.Optional("enable_charge_from_grid", default=False): bool,
+        vol.Optional("label", default=""): str,
+    }
+)
+
 WS_TYPE_PLANT_STATE = "foxess_plant/plant_state"
 WS_TYPE_PLANT_LIST = "foxess_plant/plant_list"
 WS_TYPE_TRIGGER_CANDIDATES = "foxess_plant/trigger_candidates"
 WS_TYPE_UPDATE_STORM_PREP = "foxess_plant/update_storm_prep"
 WS_TYPE_SET_SOC_LIMITS = "foxess_plant/set_soc_limits"
+WS_TYPE_UPDATE_PLANT_SCHEDULE = "foxess_plant/update_plant_schedule"
 WS_TYPE_FORECAST_ENTITY_CANDIDATES = "foxess_plant/forecast_entity_candidates"
 WS_TYPE_UPDATE_PANEL_DISPLAY = "foxess_plant/update_panel_display"
 WS_TYPE_UPDATE_PV_CONFIG = "foxess_plant/update_pv_config"
@@ -496,6 +512,39 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
                 "soc_write_results": soc_write_results,
             },
         )
+
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): WS_TYPE_UPDATE_PLANT_SCHEDULE,
+            vol.Optional("plant_id"): str,
+            vol.Required("plant_schedule"): {
+                vol.Optional("enabled", default=True): bool,
+                vol.Optional("remaining_work_mode", default="Self Use"): str,
+                vol.Required("segments"): [PLANT_SCHEDULE_SEGMENT_SCHEMA],
+            },
+        }
+    )
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def ws_update_plant_schedule(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        try:
+            await coordinator.async_save_plant_schedule(dict(msg["plant_schedule"]))
+        except HomeAssistantError as err:
+            connection.send_error(msg["id"], "plant_schedule_save_failed", str(err))
+            return
+        except Exception as err:
+            _LOGGER.exception("update_plant_schedule websocket failed")
+            connection.send_error(msg["id"], "plant_schedule_save_failed", str(err))
+            return
+        connection.send_result(msg["id"], coordinator.get_plant_state())
 
     @websocket_api.websocket_command({vol.Required("type"): WS_TYPE_FORECAST_ENTITY_CANDIDATES})
     @websocket_api.async_response
@@ -1472,6 +1521,7 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_trigger_candidates)
     websocket_api.async_register_command(hass, ws_update_storm_prep)
     websocket_api.async_register_command(hass, ws_set_soc_limits)
+    websocket_api.async_register_command(hass, ws_update_plant_schedule)
     websocket_api.async_register_command(hass, ws_forecast_entity_candidates)
     websocket_api.async_register_command(hass, ws_update_panel_display)
     websocket_api.async_register_command(hass, ws_update_pv_config)

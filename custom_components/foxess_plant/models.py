@@ -73,6 +73,97 @@ class ChargePeriodConfig:
 
 
 @dataclass
+class SchedulerSegmentConfig:
+    """Fox-app-style schedule segment (time window + mode + SOC)."""
+
+    enabled: bool = True
+    start: str = "00:00"
+    end: str = "00:00"
+    work_mode: str = "Self Use"
+    min_soc: int = 10
+    min_soc_on_grid: int = 10
+    max_soc: int = 100
+    enable_force_charge: bool = False
+    enable_charge_from_grid: bool = False
+    label: str = ""
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> SchedulerSegmentConfig:
+        return cls(
+            enabled=bool(data.get("enabled", True)),
+            start=str(data.get("start", "00:00")),
+            end=str(data.get("end", "00:00")),
+            work_mode=str(data.get("work_mode", "Self Use")),
+            min_soc=int(data.get("min_soc", data.get("period_min_soc", 10))),
+            min_soc_on_grid=int(data.get("min_soc_on_grid", data.get("min_soc", 10))),
+            max_soc=int(data.get("max_soc", data.get("period_max_soc", 100))),
+            enable_force_charge=bool(data.get("enable_force_charge", False)),
+            enable_charge_from_grid=bool(data.get("enable_charge_from_grid", False)),
+            label=str(data.get("label", "")),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class PlantScheduleConfig:
+    """HA-owned mode scheduler (replaces Fox Cloud / 480xx timed windows on EVO)."""
+
+    enabled: bool = True
+    remaining_work_mode: str = "Self Use"
+    segments: list[SchedulerSegmentConfig] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> PlantScheduleConfig:
+        raw = data if isinstance(data, dict) else {}
+        segments_raw = raw.get("segments") or []
+        return cls(
+            enabled=bool(raw.get("enabled", True)),
+            remaining_work_mode=str(raw.get("remaining_work_mode", "Self Use")),
+            segments=[
+                SchedulerSegmentConfig.from_dict(item)
+                for item in segments_raw
+                if isinstance(item, dict)
+            ],
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "remaining_work_mode": self.remaining_work_mode,
+            "segments": [segment.to_dict() for segment in self.segments],
+        }
+
+
+def plant_schedule_from_baseline_periods(
+    periods: list[ChargePeriodConfig],
+    *,
+    default_work_mode: str = "Self Use",
+) -> PlantScheduleConfig:
+    """Migrate legacy two-slot charge periods into schedule segments."""
+    segments: list[SchedulerSegmentConfig] = []
+    for period in periods:
+        if not period.enable_force_charge:
+            continue
+        segments.append(
+            SchedulerSegmentConfig(
+                enabled=True,
+                start=period.start,
+                end=period.end,
+                work_mode=default_work_mode,
+                enable_force_charge=True,
+                enable_charge_from_grid=period.enable_charge_from_grid,
+            )
+        )
+    return PlantScheduleConfig(
+        enabled=True,
+        remaining_work_mode=default_work_mode,
+        segments=segments,
+    )
+
+
+@dataclass
 class ControlConfig:
     exclusive: bool = True
     drift_check_interval: int = 300
@@ -1129,10 +1220,12 @@ class PlantConfig:
     tariff: TariffConfig = field(default_factory=TariffConfig)
     tariff_modes: dict[str, list[ChargePeriodConfig]] = field(default_factory=dict)
     virtual_soc: VirtualSocConfig = field(default_factory=VirtualSocConfig)
+    plant_schedule: PlantScheduleConfig = field(default_factory=PlantScheduleConfig)
 
     @classmethod
     def from_entry_data(cls, data: dict[str, Any]) -> PlantConfig:
         from .const import (
+            CONF_PLANT_SCHEDULE,
             DEFAULT_BASELINE_PERIODS,
             DEFAULT_FORECAST_PREP,
             DEFAULT_OUTAGE_PREP,
@@ -1148,6 +1241,9 @@ class PlantConfig:
         )
 
         baseline = [ChargePeriodConfig.from_dict(p) for p in data.get("baseline_periods", DEFAULT_BASELINE_PERIODS)]
+        plant_schedule = PlantScheduleConfig.from_dict(data.get(CONF_PLANT_SCHEDULE))
+        if not plant_schedule.segments:
+            plant_schedule = plant_schedule_from_baseline_periods(baseline)
         tariff_raw = data.get("tariff_modes", {})
         tariff_modes = {
             name: [ChargePeriodConfig.from_dict(p) for p in periods]
@@ -1178,6 +1274,7 @@ class PlantConfig:
             tariff=TariffConfig.from_dict(data.get("tariff", DEFAULT_TARIFF)),
             tariff_modes=tariff_modes,
             virtual_soc=VirtualSocConfig.from_dict(data.get("virtual_soc", DEFAULT_VIRTUAL_SOC)),
+            plant_schedule=plant_schedule,
         )
 
     def to_entry_data(self) -> dict[str, Any]:
@@ -1203,6 +1300,7 @@ class PlantConfig:
                 name: [p.to_dict() for p in periods] for name, periods in self.tariff_modes.items()
             },
             "virtual_soc": self.virtual_soc.to_dict(),
+            "plant_schedule": self.plant_schedule.to_dict(),
         }
 
     def desired_periods(self) -> list[ChargePeriodConfig]:

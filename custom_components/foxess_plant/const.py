@@ -22,6 +22,9 @@ CONF_GLOW = "glow"
 CONF_FOX_CLOUD = "fox_cloud"
 CONF_TARIFF = "tariff"
 CONF_TARIFF_MODES = "tariff_modes"
+CONF_PLANT_SCHEDULE = "plant_schedule"
+
+MAX_SCHEDULE_SEGMENTS = 95
 
 CHARGE_PERIOD_KEYS = (
     "time_period_1_start",
@@ -258,6 +261,12 @@ DEFAULT_VIRTUAL_SOC = {
     "max_soc": None,
     "cap_buffer_pct": 1.0,
     "hardware_max_supported": None,
+}
+
+DEFAULT_PLANT_SCHEDULE = {
+    "enabled": True,
+    "remaining_work_mode": "Self Use",
+    "segments": [],
 }
 
 AUTOMATION_MODES = frozenset({MODE_STORM, MODE_OUTAGE, MODE_FORECAST, MODE_SMART_CHARGE})

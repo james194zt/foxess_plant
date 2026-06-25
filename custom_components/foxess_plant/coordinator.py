@@ -14,6 +14,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.event import (
     async_track_point_in_time,
     async_track_state_change_event,
+    async_track_time_change,
     async_track_time_interval,
 )
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
@@ -160,6 +161,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._fox_scheduler_schedule_live: dict[str, Any] = {}
         self._virtual_cap_active = False
         self._virtual_cap_saved_work_mode: str | None = None
+        self._unsub_schedule: callable | None = None
+        self._last_schedule_bundle_sig: str | None = None
         super().__init__(
             hass,
             _LOGGER,
@@ -1158,6 +1161,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.setup_trigger_listeners()
         await super().async_config_entry_first_refresh()
         self._setup_drift_timer()
+        self._setup_schedule_timer()
         self._setup_storm_forecast_timer()
         self._setup_solcast_timer()
         self._setup_tariff_schedule_timer()
@@ -1211,6 +1215,77 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     @callback
     def _drift_timer_callback(self, _now) -> None:
         self.hass.async_create_task(self.async_check_drift())
+
+    def _setup_schedule_timer(self) -> None:
+        if self._unsub_schedule:
+            self._unsub_schedule()
+            self._unsub_schedule = None
+
+        @callback
+        def _schedule_tick(now) -> None:
+            self.hass.async_create_task(self._async_schedule_tick())
+
+        self._unsub_schedule = async_track_time_change(
+            self.hass,
+            _schedule_tick,
+            hour="*",
+            minute="*",
+            second=0,
+        )
+
+    async def _async_schedule_tick(self) -> None:
+        from .schedule_runner import apply_current_schedule_state
+
+        try:
+            await apply_current_schedule_state(self)
+        except Exception as err:
+            _LOGGER.warning("HA schedule tick failed: %s", err)
+
+    def _plant_schedule_state(self) -> dict[str, Any]:
+        from .schedule_runner import resolve_active_segment, resolve_desired_bundle
+
+        schedule = self.plant.plant_schedule
+        active = resolve_active_segment(schedule.segments) if schedule.segments else None
+        bundle = resolve_desired_bundle(self)
+        return {
+            **schedule.to_dict(),
+            "active_segment": active.to_dict() if active else None,
+            "active_label": bundle.label if bundle else None,
+            "active_source": bundle.source if bundle else None,
+            "using_ha_scheduler": bool(schedule.enabled),
+        }
+
+    async def async_save_plant_schedule(self, schedule: dict[str, Any]) -> None:
+        from .const import MAX_SCHEDULE_SEGMENTS
+        from .models import ChargePeriodConfig, PlantScheduleConfig
+        from .schedule_runner import apply_current_schedule_state
+
+        cfg = PlantScheduleConfig.from_dict(schedule)
+        if len(cfg.segments) > MAX_SCHEDULE_SEGMENTS:
+            raise HomeAssistantError(f"At most {MAX_SCHEDULE_SEGMENTS} schedule segments are allowed")
+        self.plant.plant_schedule = cfg
+        self.plant.baseline_periods = self._baseline_periods_from_schedule(cfg)
+        if not self.plant.control_active:
+            self.plant.control_active = True
+        await self._persist()
+        self._last_schedule_bundle_sig = None
+        await apply_current_schedule_state(self, force=True)
+
+    @staticmethod
+    def _baseline_periods_from_schedule(schedule: PlantScheduleConfig) -> list[ChargePeriodConfig]:
+        periods = [ChargePeriodConfig(), ChargePeriodConfig()]
+        slot = 0
+        for segment in schedule.segments:
+            if not segment.enable_force_charge or slot >= 2:
+                continue
+            periods[slot] = ChargePeriodConfig(
+                enable_force_charge=True,
+                enable_charge_from_grid=segment.enable_charge_from_grid,
+                start=segment.start,
+                end=segment.end,
+            )
+            slot += 1
+        return periods
 
     def _setup_storm_forecast_timer(self) -> None:
         if getattr(self, "_unsub_storm_forecast", None):
@@ -1327,6 +1402,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._sync_trigger_membership()
         self.setup_trigger_listeners()
         self._setup_drift_timer()
+        self._setup_schedule_timer()
 
     def setup_trigger_listeners(self) -> None:
         if self._unsub_triggers:
@@ -2235,6 +2311,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "remote_control_options": self._entity_options("remote_control"),
             },
             "virtual_soc": virtual_soc_state(self, cap_active=self._virtual_cap_active),
+            "plant_schedule": self._plant_schedule_state(),
             "identity": self._read_identity(),
         }
 
@@ -3056,6 +3133,29 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self.plant.control_active and not force:
             raise HomeAssistantError("Plant control is released; enable control before applying")
 
+        from .schedule_runner import apply_current_schedule_state, resolve_desired_bundle
+
+        if resolve_desired_bundle(self) is not None:
+            self._applying = True
+            try:
+                await apply_current_schedule_state(self, force=True)
+                periods = self.plant.desired_periods()
+                self._fire(
+                    EVENT_PERIOD_APPLIED,
+                    {
+                        "mode": self.plant.plant_mode(),
+                        "periods": [p.to_dict() for p in periods],
+                        "scheduler": "ha_segments",
+                    },
+                )
+            except Exception as err:
+                self._fire(EVENT_PERIOD_APPLY_FAILED, {"error": str(err)})
+                raise HomeAssistantError(f"Failed to apply schedule: {err}") from err
+            finally:
+                self._applying = False
+                await self.async_request_refresh()
+            return
+
         periods = self.plant.desired_periods()
         if not periods:
             raise HomeAssistantError("No charge periods configured")
@@ -3265,7 +3365,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.plant.override.periods = periods
         self.plant.override.reason = reason
         await self._persist()
-        await self.async_apply_desired()
+        from .schedule_runner import apply_current_schedule_state
+
+        await apply_current_schedule_state(self, force=True)
 
     async def async_disarm_override(self) -> None:
         mode = self.plant.override.mode

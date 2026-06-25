@@ -449,6 +449,21 @@ const DEFAULT_PERIODS = [
   { enable_force_charge: false, enable_charge_from_grid: false, start: "00:00", end: "00:00" },
 ];
 
+const DEFAULT_SCHEDULE_SEGMENT = {
+  enabled: true,
+  start: "23:00",
+  end: "23:50",
+  work_mode: "Self Use",
+  min_soc: 10,
+  min_soc_on_grid: 10,
+  max_soc: 100,
+  enable_force_charge: false,
+  enable_charge_from_grid: false,
+  label: "",
+};
+
+const MAX_SCHEDULE_SEGMENTS = 95;
+
 /** Display title + hint per FoxESS work_mode select option (key = entity option string). */
 const WORK_MODE_META = {
   "Self Use": {
@@ -13317,6 +13332,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._foxSchedulerBusy = false;
     this._toastTimer = undefined;
     this._chargeDraft = null;
+    this._scheduleDraft = null;
     this._socDraft = null;
     this._smartChargeSocDraft = null;
     this._smartChargeSocSaveError = null;
@@ -14211,6 +14227,47 @@ Reloading panel registration…
     while (this._chargeDraft.length < 2) {
       this._chargeDraft.push({ ...DEFAULT_PERIODS[0] });
     }
+  }
+
+  _initScheduleDraft() {
+    const live = this._plantState?.plant_schedule ?? {};
+    const segments = JSON.parse(JSON.stringify(live.segments ?? []));
+    this._scheduleDraft = {
+      enabled: live.enabled !== false,
+      remaining_work_mode: live.remaining_work_mode || "Self Use",
+      segments: segments.length ? segments : [],
+    };
+  }
+
+  _syncScheduleDraftFromDom() {
+    if (!this._scheduleDraft) return;
+    const root = this._root;
+    const enabledEl = root.querySelector('[data-field="schedule:enabled"]');
+    if (enabledEl) this._scheduleDraft.enabled = enabledEl.checked;
+    const remainingEl = root.querySelector('[data-field="schedule:remaining_work_mode"]');
+    if (remainingEl) this._scheduleDraft.remaining_work_mode = remainingEl.value;
+    this._scheduleDraft.segments.forEach((seg, idx) => {
+      const enabled = root.querySelector(`[data-field="schedule:${idx}:enabled"]`);
+      if (enabled) seg.enabled = enabled.checked;
+      const start = root.querySelector(`[data-field="schedule:${idx}:start"]`);
+      if (start?.value) seg.start = start.value.slice(0, 5);
+      const end = root.querySelector(`[data-field="schedule:${idx}:end"]`);
+      if (end?.value) seg.end = end.value.slice(0, 5);
+      const mode = root.querySelector(`[data-field="schedule:${idx}:work_mode"]`);
+      if (mode?.value) seg.work_mode = mode.value;
+      const minSoc = root.querySelector(`[data-field="schedule:${idx}:min_soc"]`);
+      if (minSoc?.value) seg.min_soc = parseInt(minSoc.value, 10);
+      const minGrid = root.querySelector(`[data-field="schedule:${idx}:min_soc_on_grid"]`);
+      if (minGrid?.value) seg.min_soc_on_grid = parseInt(minGrid.value, 10);
+      const maxSoc = root.querySelector(`[data-field="schedule:${idx}:max_soc"]`);
+      if (maxSoc?.value) seg.max_soc = parseInt(maxSoc.value, 10);
+      const force = root.querySelector(`[data-field="schedule:${idx}:enable_force_charge"]`);
+      if (force) seg.enable_force_charge = force.checked;
+      const grid = root.querySelector(`[data-field="schedule:${idx}:enable_charge_from_grid"]`);
+      if (grid) seg.enable_charge_from_grid = grid.checked;
+      const label = root.querySelector(`[data-field="schedule:${idx}:label"]`);
+      if (label) seg.label = label.value || "";
+    });
   }
 
   _initSocDraft() {
@@ -16141,6 +16198,32 @@ Reloading panel registration…
       await this._saveSchedules();
       return;
     }
+    if (action === "save-plant-schedule") {
+      await this._savePlantSchedule();
+      return;
+    }
+    if (action === "apply-plant-schedule-now") {
+      await this._runPlantService("reapply_schedule", {}, "Schedule applied now");
+      return;
+    }
+    if (action === "add-schedule-segment") {
+      if (!this._scheduleDraft) this._initScheduleDraft();
+      this._syncScheduleDraftFromDom();
+      if ((this._scheduleDraft.segments || []).length >= MAX_SCHEDULE_SEGMENTS) return;
+      this._scheduleDraft.segments.push({ ...DEFAULT_SCHEDULE_SEGMENT });
+      this._render();
+      return;
+    }
+    if (action === "remove-schedule-segment") {
+      if (!this._scheduleDraft) return;
+      this._syncScheduleDraftFromDom();
+      const idx = parseInt(btn.dataset.idx, 10);
+      if (Number.isFinite(idx)) {
+        this._scheduleDraft.segments.splice(idx, 1);
+        this._render();
+      }
+      return;
+    }
     if (action === "save-soc") {
       await this._saveSoc();
       return;
@@ -17201,6 +17284,34 @@ ${note}
       this._showToast("Synced schedule from inverter");
     } catch (err) {
       this._showToast(err?.message || "Sync failed", "err");
+    } finally {
+      this._busy = false;
+      this._render();
+    }
+  }
+
+  async _savePlantSchedule() {
+    const plant = this._getPlant();
+    if (!plant || !this._scheduleDraft) return;
+    this._syncScheduleDraftFromDom();
+    this._busy = true;
+    this._render();
+    try {
+      const state = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/update_plant_schedule",
+        plant_id: plant.entry_id,
+        plant_schedule: {
+          enabled: Boolean(this._scheduleDraft.enabled),
+          remaining_work_mode: String(this._scheduleDraft.remaining_work_mode || "Self Use"),
+          segments: this._scheduleDraft.segments || [],
+        },
+      });
+      if (state) this._plantState = state;
+      this._initScheduleDraft();
+      this._initChargeDraft();
+      this._showToast("Mode scheduler saved — Fox Plant will apply segments on the clock");
+    } catch (err) {
+      this._showToast(formatWebsocketError(err, "Scheduler save failed"), "err");
     } finally {
       this._busy = false;
       this._render();
@@ -20682,22 +20793,74 @@ ${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">
 </div>`;
   }
 
+  _renderSchedulerSegmentCard(idx, segment) {
+    const seg = segment || { ...DEFAULT_SCHEDULE_SEGMENT };
+    const options = selectableWorkModeOptions(this._plantState?.settings?.work_mode_options ?? []);
+    const modeOpts = options.length
+      ? options
+          .map(
+            (opt) =>
+              `<option value="${esc(opt)}" ${opt === seg.work_mode ? "selected" : ""}>${esc(workModeMeta(opt).title)}</option>`
+          )
+          .join("")
+      : `<option value="${esc(seg.work_mode || "Self Use")}">${esc(seg.work_mode || "Self Use")}</option>`;
+    return `<div class="period-card" data-schedule-segment="${idx}">
+<h4>Schedule ${idx + 1}${seg.label ? ` · ${esc(seg.label)}` : ""}</h4>
+<div class="toggle-row"><span>Enabled</span><input type="checkbox" data-field="schedule:${idx}:enabled" ${seg.enabled !== false ? "checked" : ""}></div>
+<div class="period-times">
+<div class="field"><label>Start</label><input type="time" data-field="schedule:${idx}:start" value="${esc(timeForInput(seg.start))}"></div>
+<div class="field"><label>End</label><input type="time" data-field="schedule:${idx}:end" value="${esc(timeForInput(seg.end))}"></div>
+</div>
+<div class="field"><label>Work mode</label>
+<select data-field="schedule:${idx}:work_mode">${modeOpts}</select>
+</div>
+<div class="period-times">
+<div class="field"><label>Period min SOC (%)</label><input type="number" min="10" max="100" data-field="schedule:${idx}:min_soc" value="${esc(String(seg.min_soc ?? 10))}"></div>
+<div class="field"><label>System min SOC (%)</label><input type="number" min="10" max="100" data-field="schedule:${idx}:min_soc_on_grid" value="${esc(String(seg.min_soc_on_grid ?? seg.min_soc ?? 10))}"></div>
+<div class="field"><label>Period max SOC (%)</label><input type="number" min="10" max="100" data-field="schedule:${idx}:max_soc" value="${esc(String(seg.max_soc ?? 100))}"></div>
+</div>
+<p class="field-hint" style="margin:0 0 8px">Period max is applied as a Fox Plant cap on EVO (not inverter register 46610).</p>
+<div class="toggle-row"><span>Force charge</span><input type="checkbox" data-field="schedule:${idx}:enable_force_charge" ${seg.enable_force_charge ? "checked" : ""}></div>
+<div class="toggle-row"><span>Charge from grid</span><input type="checkbox" data-field="schedule:${idx}:enable_charge_from_grid" ${seg.enable_charge_from_grid ? "checked" : ""}></div>
+<div class="btn-row" style="margin-top:8px"><button type="button" class="btn btn-secondary" data-action="remove-schedule-segment" data-idx="${idx}">Remove</button></div>
+</div>`;
+  }
+
   _renderQuickSettingsScheduleSection() {
-    const driftHint = this._plantState?.drift
-      ? `<div class="banner warn" style="margin-bottom:12px"><strong>Schedule drift</strong> Inverter and app schedules differ.${this._scheduleSyncButtons()}</div>`
-      : "";
-    return `${driftHint}
-<div class="card quick-settings-card">
-<p class="card-title">Charge schedule</p>
-<p class="field-hint" style="margin:0 0 12px">Two charge-period slots (EVO: Modbus 480xx). This is not the Fox app&rsquo;s 8-segment Scheduler — StormSafe and SmartCharge arm these windows via FoxESS Modbus.</p>
-${this._renderPeriodCard(0, this._chargeDraft[0])}
-${this._renderPeriodCard(1, this._chargeDraft[1])}
+    if (!this._scheduleDraft) this._initScheduleDraft();
+    const draft = this._scheduleDraft;
+    const live = this._plantState?.plant_schedule ?? {};
+    const active = live.active_segment;
+    const activeHint = active
+      ? `<p class="field-hint" style="margin:0 0 12px;color:var(--fp-accent)">Active now: ${esc(active.start)}–${esc(active.end)} · ${esc(active.work_mode || "")}</p>`
+      : live.active_source === "remaining"
+        ? `<p class="field-hint" style="margin:0 0 12px">Active now: remaining time mode (${esc(live.remaining_work_mode || draft.remaining_work_mode)})</p>`
+        : "";
+    const remainingOptions = selectableWorkModeOptions(this._plantState?.settings?.work_mode_options ?? []);
+    const remainingOpts = (remainingOptions.length ? remainingOptions : [draft.remaining_work_mode || "Self Use"])
+      .map(
+        (opt) =>
+          `<option value="${esc(opt)}" ${opt === draft.remaining_work_mode ? "selected" : ""}>${esc(workModeMeta(opt).title)}</option>`
+      )
+      .join("");
+    const segments = draft.segments || [];
+    const segmentCards = segments.length
+      ? segments.map((seg, idx) => this._renderSchedulerSegmentCard(idx, seg)).join("")
+      : `<p class="placeholder" style="margin:0 0 12px">No custom schedules yet — add one to match the Fox app &ldquo;Add a Schedule&rdquo; screen.</p>`;
+    return `<div class="card quick-settings-card">
+<p class="card-title">Mode scheduler</p>
+<p class="field-hint" style="margin:0 0 12px">Fox Plant owns the clock on Home Assistant. Each segment sets work mode, SOC limits, and optional grid force-charge for its time window. StormSafe and SmartCharge still override temporarily while armed.</p>
+<div class="toggle-row"><span><strong>Enable HA scheduler</strong></span><input type="checkbox" data-field="schedule:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+${activeHint}
+<div class="field"><label>Remaining time work mode</label>
+<select data-field="schedule:remaining_work_mode" ${this._busy ? "disabled" : ""}>${remainingOpts}</select>
+<p class="field-hint" style="margin:4px 0 0">Used for any time not covered by a custom segment (Fox app &ldquo;Remaining Time Mode&rdquo;).</p>
+</div>
+${segmentCards}
 <div class="btn-row" style="margin-top:16px">
-<button type="button" class="btn btn-primary" data-action="save-schedules" ${this._busy ? "disabled" : ""}>Save & apply</button>
-<button type="button" class="btn btn-secondary" data-action="sync-schedule" ${this._busy ? "disabled" : ""}>Sync from inverter</button>
-<button type="button" class="btn btn-secondary" data-action="reapply-schedule" ${this._busy ? "disabled" : ""}>Re-apply to inverter</button>
-<button type="button" class="btn btn-secondary" data-action="copy-period" data-from="0" data-to="1" ${this._busy ? "disabled" : ""}>Copy period 1 → 2</button>
-<button type="button" class="btn btn-secondary" data-action="swap-periods" ${this._busy ? "disabled" : ""}>Swap 1 ↔ 2</button>
+<button type="button" class="btn btn-primary" data-action="save-plant-schedule" ${this._busy ? "disabled" : ""}>Save &amp; apply</button>
+<button type="button" class="btn btn-secondary" data-action="add-schedule-segment" ${this._busy || segments.length >= MAX_SCHEDULE_SEGMENTS ? "disabled" : ""}>Add a schedule</button>
+<button type="button" class="btn btn-secondary" data-action="apply-plant-schedule-now" ${this._busy ? "disabled" : ""}>Apply now</button>
 </div>
 </div>`;
   }
@@ -20760,6 +20923,7 @@ ${controlSection}`;
     }
     if (!this._socDraft) this._initSocDraft();
     if (!this._chargeDraft) this._initChargeDraft();
+    if (!this._scheduleDraft) this._initScheduleDraft();
     if (!this._workModeDraft) this._initWorkModeDraft();
     const plant = this._getPlant();
     const liveSoc = this._liveBatterySoc(plant) ?? 0;
