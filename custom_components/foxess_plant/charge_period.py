@@ -17,11 +17,11 @@ _LOGGER = logging.getLogger(__name__)
 _EVO_CHARGE_PERIOD_HINT = (
     "This error comes from the **FoxESS Modbus** integration (not Fox Plant). "
     "Charge-period entities are **read-only sensors** — changing them in Developer Tools → Set state "
-    "does not write to the inverter. Use `foxess_modbus.update_all_charge_periods` instead. "
-    "On EVO 10-H, period 1 uses holding registers **48011–48013** (start, end, grid/mode) and "
-    "period 2 uses **48020–48023**. Each period is written as one FC16 block. "
-    "EVO mode planner requires register **48000=1** before period writes — update your "
-    "foxess_modbus EVO fork if IllegalAddress persists at 48010/48020."
+    "does not write to the inverter. Fox Plant calls `foxess_modbus.update_all_charge_periods` for you. "
+    "On EVO 10-H, period 1 uses holding registers **48010–48013** (grid, start, end, mode) and "
+    "period 2 uses **48020–48023**. Ensure **james194zt/foxess_modbus_evo** is installed (not stock "
+    "nathanmarlor with 41xxx registers). IllegalAddress at 48010 usually means the wrong Modbus fork "
+    "or profile — reload FoxESS Modbus after updating."
 )
 
 
