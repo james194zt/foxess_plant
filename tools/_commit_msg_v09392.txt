@@ -1,0 +1,5 @@
+Move plant control cards onto Quick Settings page v0.9.392.
+
+Plant control and Fox Cloud scheduler now sit below charge schedule on Quick
+Settings; remove the separate Control settings tab while keeping plant control
+available when SmartCharge locks other quick controls.

@@ -114,10 +114,7 @@ const SETTINGS_NAV = [
   { id: "smart", label: "SmartCharge" },
   { id: "storm", label: "StormSafe" },
   { id: "warmup", label: "Warmup" },
-  { id: "control", label: "Control" },
 ];
-
-const SETTINGS_LOCKED_BY_SMART_CHARGE = new Set(["quick"]);
 
 function smartChargeOwnsPlantControls(plantState) {
   return Boolean(plantState?.smart_charge?.enabled && plantState?.control_active);
@@ -14152,16 +14149,12 @@ Reloading panel registration…
         : this._view === "device_new"
           ? "device-new-tab"
           : "reports-tab";
-    const scLocks =
-      this._view === "settings" && smartChargeOwnsPlantControls(this._plantState)
-        ? SETTINGS_LOCKED_BY_SMART_CHARGE
-        : null;
     headerEl.innerHTML =
       this._renderPanelBrand() +
       this._renderPlantSelect() +
       this._renderTabBar(NAV, this._view, "nav", "view") +
       (showSubTabs
-        ? this._renderTabBar(subNav, subActive, subAction, "sub", true, scLocks)
+        ? this._renderTabBar(subNav, subActive, subAction, "sub", true)
         : "");
     this._bindPanelBrandIcon(headerEl);
     this._headerHasSubTabs = showSubTabs;
@@ -14272,16 +14265,8 @@ Reloading panel registration…
   }
 
   _ensureSettingsViewAllowed() {
-    if (this._settingsView === "schedules" || this._settingsView === "workmode") {
+    if (this._settingsView === "schedules" || this._settingsView === "workmode" || this._settingsView === "control") {
       this._settingsView = "quick";
-    }
-    if (
-      smartChargeOwnsPlantControls(this._plantState) &&
-      SETTINGS_LOCKED_BY_SMART_CHARGE.has(this._settingsView)
-    ) {
-      this._settingsView = "smart";
-      this._initSmartChargeDraft();
-      this._initSmartChargeSocDraft();
     }
   }
 
@@ -14289,11 +14274,14 @@ Reloading panel registration…
     this._initSocDraft();
     this._initChargeDraft();
     this._initWorkModeDraft();
+    void this._enterControlSettings();
   }
 
-  _renderSettingsLockedPanel(panelId, title, detail) {
-    return `<header class="header"><h1>${esc(title)}</h1></header>
-<div class="card settings-locked-card">
+  _renderSettingsLockedPanel(panelId, title, detail, opts = {}) {
+    const header = opts.omitHeader
+      ? ""
+      : `<header class="header"><h1>${esc(title)}</h1></header>`;
+    return `${header}<div class="card settings-locked-card quick-settings-card">
 <div class="banner info"><strong>Managed by SmartCharge</strong>${esc(detail)} Open <strong>SmartCharge</strong> to change SOC limits, charge windows, and work mode while automation is on.</div>
 </div>`;
   }
@@ -15901,14 +15889,9 @@ Reloading panel registration…
     }
     if (action === "settings-sub") {
       const sub =
-        btn.dataset.sub === "schedules" || btn.dataset.sub === "workmode" ? "quick" : btn.dataset.sub;
-      if (
-        smartChargeOwnsPlantControls(this._plantState) &&
-        SETTINGS_LOCKED_BY_SMART_CHARGE.has(sub)
-      ) {
-        this._showToast("Quick Settings are managed in SmartCharge while it is enabled.", "info");
-        return;
-      }
+        btn.dataset.sub === "schedules" || btn.dataset.sub === "workmode" || btn.dataset.sub === "control"
+          ? "quick"
+          : btn.dataset.sub;
       this._view = "settings";
       if (btn.dataset.sub !== "solcast" && btn.dataset.sub !== "api") this._solcastDraft = null;
       if (btn.dataset.sub !== "tariff" && btn.dataset.sub !== "api") {
@@ -15925,7 +15908,6 @@ Reloading panel registration…
       if (btn.dataset.sub === "pv") this._enterPvSettings();
       if (btn.dataset.sub === "api") this._enterApiSettings();
       if (btn.dataset.sub === "warmup") void this._enterWarmupSettings();
-      if (btn.dataset.sub === "control") void this._enterControlSettings();
       if (btn.dataset.sub === "solcast") this._enterSolcastSettings();
       if (btn.dataset.sub === "glow") this._enterGlowSettings();
       if (btn.dataset.sub === "tariff") this._enterTariffSettings();
@@ -15945,14 +15927,9 @@ Reloading panel registration…
     }
     if (action === "settings-tab") {
       const sub =
-        btn.dataset.sub === "schedules" || btn.dataset.sub === "workmode" ? "quick" : btn.dataset.sub;
-      if (
-        smartChargeOwnsPlantControls(this._plantState) &&
-        SETTINGS_LOCKED_BY_SMART_CHARGE.has(sub)
-      ) {
-        this._showToast("Quick Settings are managed in SmartCharge while it is enabled.", "info");
-        return;
-      }
+        btn.dataset.sub === "schedules" || btn.dataset.sub === "workmode" || btn.dataset.sub === "control"
+          ? "quick"
+          : btn.dataset.sub;
       this._view = "settings";
       if (btn.dataset.sub !== "solcast" && btn.dataset.sub !== "api") this._solcastDraft = null;
       if (btn.dataset.sub !== "tariff" && btn.dataset.sub !== "api") {
@@ -15969,7 +15946,6 @@ Reloading panel registration…
       if (btn.dataset.sub === "pv") this._enterPvSettings();
       if (btn.dataset.sub === "api") this._enterApiSettings();
       if (btn.dataset.sub === "warmup") void this._enterWarmupSettings();
-      if (btn.dataset.sub === "control") void this._enterControlSettings();
       if (btn.dataset.sub === "solcast") this._enterSolcastSettings();
       if (btn.dataset.sub === "glow") this._enterGlowSettings();
       if (btn.dataset.sub === "tariff") this._enterTariffSettings();
@@ -20454,7 +20430,7 @@ ${note}${via}${forecastHint}${activeBadge}
   _settingsMainSubtitles() {
     const s = this._plantState?.settings ?? {};
     return {
-      quick: `${String(s.work_mode ?? "—")} · Max ${s.max_soc ?? "—"}% · 2 charge windows`,
+      quick: `${String(s.work_mode ?? "—")} · Max ${s.max_soc ?? "—"}% · ${this._controlSettingsSubtitle()}`,
       pv: pvConfigSummary(this._plantState?.pv_config),
       api: this._apiSettingsSubtitle(),
       solcast: this._solcastSettingsSubtitle(),
@@ -20463,7 +20439,6 @@ ${note}${via}${forecastHint}${activeBadge}
       smart: this._smartChargeSettingsSubtitle(),
       storm: this._settingsStormSubtitle(),
       warmup: this._warmupSettingsSubtitle(),
-      control: this._controlSettingsSubtitle(),
     };
   }
 
@@ -20520,7 +20495,7 @@ ${note}${via}${forecastHint}${activeBadge}
     const subs = this._settingsMainSubtitles();
     const scLock = smartChargeOwnsPlantControls(this._plantState);
     return `<div data-settings-main="1"><header class="header"><h1>Settings</h1><p>Configure your plant, automations, and integrations</p></header>
-${scLock ? `<div class="banner info" style="margin-bottom:12px"><strong>SmartCharge is active</strong> Quick Settings are managed under SmartCharge.</div>` : ""}
+${scLock ? `<div class="banner info" style="margin-bottom:12px"><strong>SmartCharge is active</strong> SOC limits, work mode, and charge schedule are managed under SmartCharge. Plant control remains available below.</div>` : ""}
 <div data-settings-live>${this._renderSettingsMainLiveHtml()}</div>
 <div data-settings-nav>
 ${renderListButton({ action: "settings-sub", sub: "quick" }, "Quick Settings", subs.quick, scLock)}
@@ -20532,7 +20507,6 @@ ${renderListButton({ action: "settings-sub", sub: "tariff" }, "Tariff", subs.tar
 ${renderListButton({ action: "settings-sub", sub: "smart" }, "SmartCharge", subs.smart)}
 ${renderListButton({ action: "settings-sub", sub: "storm" }, "StormSafe", subs.storm)}
 ${renderListButton({ action: "settings-sub", sub: "warmup" }, "Battery Warmup", subs.warmup)}
-${renderListButton({ action: "settings-sub", sub: "control" }, "Plant control", subs.control)}
 </div></div>`;
   }
 
@@ -20584,13 +20558,61 @@ ${this._renderPeriodCard(1, this._chargeDraft[1])}
 </div>`;
   }
 
+  _renderQuickSettingsControlSection() {
+    const active = this._plantState?.control_active;
+    const sched = this._plantState?.fox_scheduler ?? {};
+    const apiReady = Boolean(sched.fox_api_ready);
+    const schedEnabled = sched.enabled === true || sched.segments_active === true;
+    const schedSupported = sched.supported !== false;
+    const schedStatus = esc(String(sched.status || (apiReady ? "Not fetched yet" : "Configure Fox Cloud API first")));
+    const segHint = sched.active_groups
+      ? `<p class="field-hint" style="margin:8px 0 0">Active schedule segments: ${esc(String(sched.active_groups))}${sched.cloud_max_soc ? " · cloud max SOC set in schedule" : ""}</p>`
+      : "";
+    const schedErr =
+      sched.last_error && apiReady
+        ? `<p class="field-hint" style="margin:8px 0 0;color:var(--fp-amber)">Last Fox API error: ${esc(String(sched.last_error))}</p>`
+        : "";
+    const schedulerCard = apiReady
+      ? `<div class="card quick-settings-card">
+<p class="card-title">Fox Cloud mode scheduler</p>
+<p class="field-hint" style="margin:0 0 12px">On EVO, the scheduler <strong>master flag</strong> and <strong>V3 schedule segments</strong> are separate. Either can block Modbus max SOC (register 46610). Disable here before saving SOC limits.</p>
+<div class="entity-row"><span class="entity-name">Status</span><span class="entity-value">${schedStatus}</span></div>
+${segHint}
+<div class="btn-row" style="margin-top:12px">
+${schedEnabled && schedSupported ? `<button type="button" class="btn btn-danger" data-action="disable-fox-scheduler" ${this._busy ? "disabled" : ""}>Disable Fox Cloud scheduler</button>` : ""}
+<button type="button" class="btn btn-secondary" data-action="refresh-fox-scheduler" ${this._busy ? "disabled" : ""}>Refresh status</button>
+</div>
+${schedErr}
+</div>`
+      : `<div class="card quick-settings-card">
+<p class="card-title">Fox Cloud mode scheduler</p>
+<p class="field-hint" style="margin:0">Enable the <strong>Fox Cloud API</strong> under <strong>Settings → API &amp; accounts</strong> to check or disable the cloud mode scheduler from here.</p>
+</div>`;
+    return `<div class="card quick-settings-card">
+<p class="card-title">Plant control</p>
+<p class="field-hint" style="margin:0 0 12px">When <strong>active</strong>, Fox Plant is the only writer for charge periods (via <code>foxess_modbus</code>). Release control if you need to edit schedules in the Fox app temporarily.</p>
+<div class="btn-row">
+${active
+      ? `<button type="button" class="btn btn-danger" data-action="release-control" ${this._busy ? "disabled" : ""}>Release control</button>`
+      : `<button type="button" class="btn btn-primary" data-action="take-control" ${this._busy ? "disabled" : ""}>Take control</button>`}
+<button type="button" class="btn btn-secondary" data-action="apply-baseline" ${this._busy ? "disabled" : ""}>Apply baseline now</button>
+</div>
+</div>
+${schedulerCard}`;
+  }
+
   _renderSettingsQuick() {
-    if (smartChargeOwnsPlantControls(this._plantState)) {
-      return this._renderSettingsLockedPanel(
+    const scLock = smartChargeOwnsPlantControls(this._plantState);
+    const controlSection = this._renderQuickSettingsControlSection();
+    if (scLock) {
+      return `<header class="header"><h1>Quick Settings</h1><p>Day-to-day inverter controls — battery SOC limits, work mode, baseline charge windows, and plant control.</p></header>
+${this._renderSettingsLockedPanel(
         "quick",
         "Quick Settings",
-        " SOC limits, work mode, and charge windows are managed by SmartCharge while automation is on."
-      );
+        " SOC limits, work mode, and charge windows are managed by SmartCharge while automation is on.",
+        { omitHeader: true }
+      )}
+${controlSection}`;
     }
     if (!this._socDraft) this._initSocDraft();
     if (!this._chargeDraft) this._initChargeDraft();
@@ -20598,7 +20620,7 @@ ${this._renderPeriodCard(1, this._chargeDraft[1])}
     const plant = this._getPlant();
     const liveSoc = this._liveBatterySoc(plant) ?? 0;
     const validation = validateSocLimits(this._socDraft, liveSoc);
-    return `<header class="header"><h1>Quick Settings</h1><p>Day-to-day inverter controls — battery SOC limits, work mode, and baseline charge windows.</p></header>
+    return `<header class="header"><h1>Quick Settings</h1><p>Day-to-day inverter controls — battery SOC limits, work mode, baseline charge windows, and plant control.</p></header>
 <div class="card quick-settings-card">
 <p class="card-title">SOC limits</p>
 <p class="field-hint" style="margin:0 0 12px">Quick controls for your plant. Drag the three handles — off-grid min, system min, system max</p>
@@ -20606,7 +20628,8 @@ ${this._renderTripleSoc(plant, this._socDraft, liveSoc)}
 <div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-soc" ${this._busy || validation.errors.length ? "disabled" : ""}>Save to inverter</button></div>
 </div>
 ${this._renderQuickSettingsWorkModeCard()}
-${this._renderQuickSettingsScheduleSection()}`;
+${this._renderQuickSettingsScheduleSection()}
+${controlSection}`;
   }
 
   _renderSmartChargeModePicker(draft) {
@@ -21667,51 +21690,13 @@ ${this._renderPvTiltAzimuthFields("pv2", { allowWhenDisabled: true })}
 </div>`;
   }
 
-  _renderSettingsControl() {
-    const active = this._plantState?.control_active;
-    const sched = this._plantState?.fox_scheduler ?? {};
-    const apiReady = Boolean(sched.fox_api_ready);
-    const schedEnabled = sched.enabled === true || sched.segments_active === true;
-    const schedSupported = sched.supported !== false;
-    const schedStatus = esc(String(sched.status || (apiReady ? "Not fetched yet" : "Configure Fox Cloud API first")));
-    const segHint = sched.active_groups
-      ? `<p class="field-hint" style="margin:8px 0 0">Active schedule segments: ${esc(String(sched.active_groups))}${sched.cloud_max_soc ? " · cloud max SOC set in schedule" : ""}</p>`
-      : "";
-    const schedErr = sched.last_error && apiReady ? `<p class="field-hint" style="margin:8px 0 0;color:var(--fp-amber)">Last Fox API error: ${esc(String(sched.last_error))}</p>` : "";
-    const schedulerCard = apiReady
-      ? `<div class="card">
-<p class="card-title">Fox Cloud mode scheduler</p>
-<p class="field-hint" style="margin:0 0 12px">On EVO, the scheduler <strong>master flag</strong> and <strong>V3 schedule segments</strong> are separate. Either can block Modbus max SOC (register 46610). Disable here before saving SOC limits.</p>
-<div class="entity-row"><span class="entity-name">Status</span><span class="entity-value">${schedStatus}</span></div>
-${segHint}
-<div class="btn-row" style="margin-top:12px">
-${schedEnabled && schedSupported ? `<button type="button" class="btn btn-danger" data-action="disable-fox-scheduler" ${this._busy ? "disabled" : ""}>Disable Fox Cloud scheduler</button>` : ""}
-<button type="button" class="btn btn-secondary" data-action="refresh-fox-scheduler" ${this._busy ? "disabled" : ""}>Refresh status</button>
-</div>
-${schedErr}
-</div>`
-      : `<div class="card">
-<p class="card-title">Fox Cloud mode scheduler</p>
-<p class="field-hint" style="margin:0">Enable the <strong>Fox Cloud API</strong> under <strong>Settings → API &amp; accounts</strong> to check or disable the cloud mode scheduler from here.</p>
-</div>`;
-    return `<header class="header"><h1>Plant control</h1></header>
-<div class="card">
-<p style="margin:0 0 12px;line-height:1.5;font-size:14px">When <strong>active</strong>, Fox Plant is the only writer for charge periods (via <code>foxess_modbus</code>). Release control if you need to edit schedules in the Fox app temporarily.</p>
-<div class="btn-row">
-${active
-      ? `<button type="button" class="btn btn-danger" data-action="release-control" ${this._busy ? "disabled" : ""}>Release control</button>`
-      : `<button type="button" class="btn btn-primary" data-action="take-control" ${this._busy ? "disabled" : ""}>Take control</button>`}
-<button type="button" class="btn btn-secondary" data-action="apply-baseline" ${this._busy ? "disabled" : ""}>Apply baseline now</button>
-</div></div>
-${schedulerCard}`;
-  }
-
   _renderSettings(plant) {
     this._ensureSettingsViewAllowed();
     switch (this._settingsView) {
       case "quick":
       case "schedules":
       case "workmode":
+      case "control":
         return this._renderSettingsQuick();
       case "pv":
         return this._renderSettingsPv();
@@ -21729,8 +21714,6 @@ ${schedulerCard}`;
         return this._renderSettingsStorm();
       case "warmup":
         return this._renderSettingsWarmup();
-      case "control":
-        return this._renderSettingsControl();
       default:
         return this._renderSettingsMain(plant);
     }
