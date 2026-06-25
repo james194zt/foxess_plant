@@ -20,8 +20,8 @@ _EVO_CHARGE_PERIOD_HINT = (
     "does not write to the inverter. Use `foxess_modbus.update_all_charge_periods` instead. "
     "On EVO 10-H, period 1 uses holding registers **48011–48013** (start, end, grid/mode) and "
     "period 2 uses **48020–48023**. Each period is written as one FC16 block. "
-    "IllegalAddress usually means an outdated FoxESS Modbus EVO profile — the Fox app Scheduler "
-    "uses a different register block."
+    "EVO mode planner requires register **48000=1** before period writes — update your "
+    "foxess_modbus EVO fork if IllegalAddress persists at 48010/48020."
 )
 
 
