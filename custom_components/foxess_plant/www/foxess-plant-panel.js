@@ -39,6 +39,10 @@ function isLegacyQuickSettingsSub(sub) {
   return sub === "quick" || sub === "schedules" || sub === "workmode" || sub === "control";
 }
 
+function isLegacyPvSettingsSub(sub) {
+  return sub === "pv";
+}
+
 /** Fox Cloud device Analysis real-time curve series. */
 // FOX_DEVICE_SUMMARY_ICONS_START
 const FOX_DEVICE_SUMMARY_ICONS = {"battery_soc": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 40 40\" fill=\"none\" id=\"icon-d-battery1\">\n<g id=\"icon-d-battery1_Frame 1739332876\">\n<circle id=\"icon-d-battery1_Ellipse 3833\" cx=\"19.9967\" cy=\"19.9967\" r=\"16.6667\" fill=\"#894BFC\" fill-opacity=\"0.1\" />\n<g id=\"icon-d-battery1_Rectangle 34625968\">\n<mask id=\"icon-d-battery1_path-2-inside-1_278_10283\" fill=\"white\">\n<rect x=\"15.1123\" y=\"13.1847\" width=\"9.76953\" height=\"14.5304\" rx=\"1\" />\n</mask>\n<rect x=\"15.1123\" y=\"13.1847\" width=\"9.76953\" height=\"14.5304\" rx=\"1\" stroke=\"#894BFC\" stroke-width=\"2.2\" mask=\"url(#icon-d-battery1_path-2-inside-1_278_10283)\" />\n</g>\n<path id=\"icon-d-battery1_Rectangle 34625969\" d=\"M18.1475 12.6784C18.1475 12.4575 18.3265 12.2784 18.5475 12.2784H21.4486C21.6695 12.2784 21.8486 12.4575 21.8486 12.6784V13.3163H18.1475V12.6784Z\" fill=\"#894BFC\" />\n<rect id=\"icon-d-battery1_Rectangle 34625973\" x=\"16.9961\" y=\"23.9239\" width=\"6\" height=\"1.76709\" rx=\"0.2\" fill=\"#894BFC\" />\n<rect id=\"icon-d-battery1_Rectangle 34625974\" x=\"16.9961\" y=\"21.3531\" width=\"6\" height=\"1.76709\" rx=\"0.2\" fill=\"#894BFC\" />\n</g>\n</svg>", "discharging": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 40 40\" fill=\"none\" id=\"icon-d-battery2\">\n<g id=\"icon-d-battery2_Frame 1739332877\">\n<circle id=\"icon-d-battery2_Ellipse 3833\" cx=\"19.9997\" cy=\"19.9987\" r=\"16.6667\" fill=\"#D9F7BE\" />\n<path id=\"icon-d-battery2_Vector 1662\" d=\"M14.0558 20.3907L21.9124 12.165C22.0395 12.032 22.2627 12.1393 22.2381 12.3217L21.3216 19.1138C21.3062 19.2278 21.3948 19.3292 21.5099 19.3292L25.7831 19.3292C25.9537 19.3292 26.0379 19.5367 25.9154 19.6555L17.4973 27.828C17.3629 27.9584 17.1407 27.8363 17.1789 27.6529L18.5773 20.9407C18.6019 20.8227 18.5119 20.7119 18.3913 20.7119H14.1932C14.0261 20.7119 13.9404 20.5116 14.0558 20.3907Z\" stroke=\"#52C41A\" stroke-width=\"1.045\" />\n<path id=\"icon-d-battery2_Vector 1663\" d=\"M19.7575 16.8945L17.9814 18.9603\" stroke=\"#52C41A\" stroke-width=\"0.76\" stroke-linecap=\"round\" />\n</g>\n</svg>", "temperature": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 41 40\" fill=\"none\" id=\"icon-d-battery3\">\n<circle cx=\"20.4997\" cy=\"19.9987\" r=\"16.6667\" fill=\"#D9F7BE\" />\n<path d=\"M18.5741 15.2578H19.7591C20.1542 15.2578 20.3518 15.4554 20.3518 15.8505C20.3518 16.2456 20.1542 16.4431 19.7591 16.4431H18.5741C18.179 16.4431 17.9814 16.2456 17.9814 15.8505C17.9814 15.4554 18.179 15.2578 18.5741 15.2578Z\" fill=\"#52C41A\" />\n<path d=\"M18.5741 17.9258H19.7591C20.1542 17.9258 20.3518 18.1233 20.3518 18.5184C20.3518 18.9136 20.1542 19.1111 19.7591 19.1111H18.5741C18.179 19.1111 17.9814 18.9136 17.9814 18.5184C17.9814 18.1233 18.179 17.9258 18.5741 17.9258Z\" fill=\"#52C41A\" />\n<path d=\"M20.413 11.3334C19.6621 11.3559 18.9496 11.67 18.4264 12.2091C17.9033 12.7482 17.6107 13.4698 17.6107 14.221V20.3334L17.527 20.401C16.9967 20.8386 16.5698 21.3881 16.2769 22.0101C15.9841 22.6321 15.8325 23.3112 15.833 23.9987C15.833 26.576 17.9223 28.6654 20.4997 28.6654C23.077 28.6654 25.1663 26.576 25.1663 23.9987L25.1647 23.8777C25.1479 23.2108 24.9882 22.5553 24.6962 21.9555C24.4042 21.3557 23.9869 20.8256 23.4723 20.401L23.3883 20.3334V14.221C23.3883 13.4549 23.084 12.7201 22.5423 12.1783C22.0006 11.6365 21.2658 11.3321 20.4997 11.332L20.413 11.3334ZM20.4997 12.6654C20.704 12.6654 20.9063 12.7056 21.095 12.7838C21.2837 12.862 21.4552 12.9766 21.5997 13.121C21.7442 13.2655 21.8587 13.437 21.9369 13.6257C22.0151 13.8144 22.0553 14.0167 22.0553 14.221V20.672C22.0553 20.7816 22.0823 20.8894 22.1339 20.986C22.1854 21.0826 22.26 21.1651 22.351 21.226C22.8073 21.5303 23.1814 21.9427 23.4399 22.4264C23.6985 22.9101 23.8335 23.4502 23.833 23.9987C23.833 25.8397 22.3407 27.332 20.4997 27.332C18.6587 27.332 17.1663 25.8397 17.1663 23.9987C17.1663 22.872 17.729 21.842 18.6483 21.2264C18.7393 21.1654 18.8139 21.083 18.8655 20.9864C18.9171 20.8897 18.944 20.7819 18.944 20.6724V14.221C18.944 14.0167 18.9842 13.8144 19.0624 13.6257C19.1406 13.437 19.2552 13.2655 19.3997 13.121C19.5441 12.9766 19.7156 12.862 19.9043 12.7838C20.0931 12.7056 20.2954 12.6654 20.4997 12.6654Z\" fill=\"#52C41A\" />\n<path d=\"M18.8337 23C18.9216 23 19.0087 23.0174 19.0899 23.0512C19.1712 23.085 19.2449 23.1346 19.3068 23.197C19.3688 23.2595 19.4178 23.3335 19.451 23.415C19.4842 23.4965 19.501 23.5837 19.5003 23.6717L19.502 23.7317C19.5187 24.054 19.6584 24.3576 19.8925 24.5798C20.1265 24.8021 20.4369 24.926 20.7597 24.926V26.2593L20.6773 26.258C20.0043 26.2366 19.366 25.9542 18.8975 25.4706C18.429 24.987 18.167 24.34 18.167 23.6667L18.1687 23.6167C18.1813 23.4489 18.2568 23.2922 18.3801 23.1778C18.5035 23.0635 18.6655 22.9999 18.8337 23Z\" fill=\"#52C41A\" />\n</svg>", "pv_power": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 40 40\" fill=\"none\" id=\"icon-d-battery4\">\n<g id=\"icon-d-battery4_Frame 1321317006\">\n<circle id=\"icon-d-battery4_Ellipse 3833\" cx=\"19.9967\" cy=\"19.9948\" r=\"16.6667\" fill=\"#699BFF\" fill-opacity=\"0.1\" />\n<rect id=\"icon-d-battery4_Rectangle 34625970\" x=\"23.4297\" y=\"22.2656\" width=\"5.96902\" height=\"1.1\" rx=\"0.55\" fill=\"#699BFF\" />\n<rect id=\"icon-d-battery4_Rectangle 34625971\" x=\"22.0918\" y=\"24.4102\" width=\"7.30739\" height=\"1.1\" rx=\"0.55\" fill=\"#699BFF\" />\n<rect id=\"icon-d-battery4_Rectangle 34625972\" x=\"20.2891\" y=\"26.8477\" width=\"9.10883\" height=\"1.1\" rx=\"0.55\" fill=\"#699BFF\" />\n<path id=\"icon-d-battery4_Vector\" d=\"M22.3981 19.087H20.816C20.6734 19.087 20.5645 18.9583 20.5877 18.8181L21.151 15.3676C21.1881 15.1416 20.9087 15.0048 20.7523 15.1717L16.7698 19.4335C16.6318 19.5819 16.7361 19.8241 16.939 19.8241H18.5211C18.6636 19.8241 18.7726 19.9528 18.7494 20.093L18.1861 23.5435C18.149 23.7696 18.4284 23.9063 18.5848 23.7394L22.5673 19.4776C22.7064 19.3292 22.6009 19.087 22.3981 19.087Z\" fill=\"#699BFF\" />\n<path id=\"icon-d-battery4_Ellipse 3837\" d=\"M28.7434 19.9967C28.7434 14.9848 24.6805 10.9219 19.6686 10.9219C14.6567 10.9219 10.5938 14.9848 10.5938 19.9967C10.5938 25.0086 14.6567 29.0715 19.6686 29.0715\" stroke=\"#699BFF\" stroke-width=\"1.1\" stroke-linecap=\"round\" />\n</g>\n</svg>"};
@@ -120,7 +124,6 @@ function normalizePanelView(view) {
 
 const SETTINGS_NAV = [
   { id: "main", label: "All" },
-  { id: "pv", label: "PV" },
   { id: "api", label: "API" },
   { id: "solcast", label: "Solcast" },
   { id: "glow", label: "Glow meter" },
@@ -14429,6 +14432,17 @@ Reloading panel registration…
     if (isLegacyQuickSettingsSub(this._settingsView)) {
       this._settingsView = "main";
     }
+    if (isLegacyPvSettingsSub(this._settingsView)) {
+      this._settingsView = "main";
+    }
+  }
+
+  _openPvConfigView() {
+    this._view = "device_new";
+    this._deviceNewSub = "pv-config";
+    this._deviceNewScreen = "main";
+    this._settingsView = "main";
+    this._enterPvSettings();
   }
 
   _openQuickSettingsView() {
@@ -16132,6 +16146,11 @@ Reloading panel registration…
         this._render();
         return;
       }
+      if (isLegacyPvSettingsSub(rawSub)) {
+        this._openPvConfigView();
+        this._render();
+        return;
+      }
       const sub = rawSub;
       this._view = "settings";
       if (btn.dataset.sub !== "solcast" && btn.dataset.sub !== "api") this._solcastDraft = null;
@@ -16145,7 +16164,6 @@ Reloading panel registration…
       if (btn.dataset.sub !== "warmup") this._warmupDraft = null;
       this._settingsView = sub;
       if (btn.dataset.sub === "storm") this._enterStormSettings();
-      if (btn.dataset.sub === "pv") this._enterPvSettings();
       if (btn.dataset.sub === "api") this._enterApiSettings();
       if (btn.dataset.sub === "warmup") void this._enterWarmupSettings();
       if (btn.dataset.sub === "solcast") this._enterSolcastSettings();
@@ -16172,6 +16190,11 @@ Reloading panel registration…
         this._render();
         return;
       }
+      if (isLegacyPvSettingsSub(rawSub)) {
+        this._openPvConfigView();
+        this._render();
+        return;
+      }
       const sub = rawSub;
       this._view = "settings";
       if (btn.dataset.sub !== "solcast" && btn.dataset.sub !== "api") this._solcastDraft = null;
@@ -16185,7 +16208,6 @@ Reloading panel registration…
       if (btn.dataset.sub !== "warmup") this._warmupDraft = null;
       this._settingsView = sub;
       if (btn.dataset.sub === "storm") this._enterStormSettings();
-      if (btn.dataset.sub === "pv") this._enterPvSettings();
       if (btn.dataset.sub === "api") this._enterApiSettings();
       if (btn.dataset.sub === "warmup") void this._enterWarmupSettings();
       if (btn.dataset.sub === "solcast") this._enterSolcastSettings();
@@ -20758,7 +20780,6 @@ ${note}${via}${forecastHint}${activeBadge}
 
   _settingsMainSubtitles() {
     return {
-      pv: pvConfigSummary(this._plantState?.pv_config),
       api: this._apiSettingsSubtitle(),
       solcast: this._solcastSettingsSubtitle(),
       glow: this._glowSettingsSubtitle(),
@@ -20824,7 +20845,6 @@ ${note}${via}${forecastHint}${activeBadge}
     return `<div data-settings-main="1"><header class="header"><h1>Settings</h1><p>Configure your plant, automations, and integrations</p></header>
 <div data-settings-live>${this._renderSettingsMainLiveHtml()}</div>
 <div data-settings-nav>
-${renderListButton({ action: "settings-sub", sub: "pv" }, "PV Configuration", subs.pv)}
 ${renderListButton({ action: "settings-sub", sub: "api" }, "API & accounts", subs.api)}
 ${renderListButton({ action: "settings-sub", sub: "solcast" }, "Solcast", subs.solcast)}
 ${renderListButton({ action: "settings-sub", sub: "glow" }, "Glow smart meter", subs.glow)}
@@ -21542,13 +21562,6 @@ ${this._renderPvStringBlock("pv2")}
 <div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-pv-config" ${this._busy ? "disabled" : ""}>Save PV configuration</button></div>`;
   }
 
-  _renderSettingsPv() {
-    return this._renderPvConfiguration({
-      title: "PV Configuration",
-      subtitle: "Configure PV1 and PV2 arrays for analysis",
-    });
-  }
-
   _renderTariffRateBlock(kind, { label, unitLabel, placeholder, liveMeta, pluginEntityId }) {
     if (!this._tariffDraft) this._initTariffDraft();
     const draft = this._tariffDraft;
@@ -22164,8 +22177,6 @@ ${this._renderPvTiltAzimuthFields("pv2", { allowWhenDisabled: true })}
   _renderSettings(plant) {
     this._ensureSettingsViewAllowed();
     switch (this._settingsView) {
-      case "pv":
-        return this._renderSettingsPv();
       case "api":
         return this._renderSettingsApi();
       case "tariff":
@@ -22198,6 +22209,10 @@ ${this._renderPvTiltAzimuthFields("pv2", { allowWhenDisabled: true })}
       case "reports":
         return this._renderReports(plant);
       case "settings":
+        if (isLegacyPvSettingsSub(this._settingsView)) {
+          this._openPvConfigView();
+          return this._renderDeviceNew(plant);
+        }
         return this._renderSettings(plant);
       default:
         return "";
