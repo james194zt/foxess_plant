@@ -2746,7 +2746,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if product:
                     out["device_product"] = product
                 heating = await client.get_battery_heating(warmup_sn, alt_sns=warmup_alts)
-                out["warmup"] = parse_battery_heating_result(heating)
+                parsed = parse_battery_heating_result(heating)
+                self._battery_warmup_live = parsed
+                out["warmup"] = parsed
                 out["warmup_available"] = True
             except FoxCloudApiError as warmup_err:
                 if fox_cloud_permission_denied(str(warmup_err)):

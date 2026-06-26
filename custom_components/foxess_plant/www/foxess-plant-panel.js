@@ -15018,14 +15018,18 @@ Reloading panel registration…
     }
   }
 
-  _warmupStatusLabel(state) {
+  _warmupStatusLabel(state, { enabled = false } = {}) {
     const text = String(state || "").toLowerCase();
-    if (!text) return "Unknown";
+    if (!text) {
+      if (enabled) return "warmup standby";
+      return "off";
+    }
     if (text.includes("warm up state") && !text.includes("stopped") && !text.includes("ready")) return "warming up";
     if (text.includes("ready warm up") && !text.includes("stopped")) return "warmup ready";
     if (text.includes("self warm")) return "self warming";
     if (text.includes("stopped")) return "warmup standby";
     if (text.includes("ready stopped")) return "standby ready";
+    if (text.includes("standby")) return "warmup standby";
     return String(state).replace(/^The battery is in (a )?/i, "").replace(/ state$/i, "");
   }
 
@@ -20765,7 +20769,7 @@ ${note}${via}${forecastHint}${activeBadge}
     const w = this._plantState?.battery_warmup ?? {};
     if (!w.fox_api_ready) return "Fox Cloud API required";
     if (!w.enabled) return "Off";
-    return this._warmupStatusLabel(w.state) || "Enabled";
+    return this._warmupStatusLabel(w.state, { enabled: Boolean(w.enabled) }) || "Enabled";
   }
 
   _controlSettingsSubtitle() {
@@ -21835,7 +21839,9 @@ ${detailBlock}
     const ranges = draft.ranges || { start_min: 1, start_max: 9, end_min: 5, end_max: 15 };
     const tempC = live.battery_temperature_c;
     const tempDisplay = Number.isFinite(tempC) ? `${Number(tempC).toFixed(1)}°C` : "—";
-    const statusLabel = this._warmupStatusLabel(draft.state || live.state);
+    const statusLabel = this._warmupStatusLabel(live.state || draft.state, {
+      enabled: Boolean(draft.enabled),
+    });
     const slotCards = [0, 1, 2]
       .map((i) => {
         const slot = draft.slots[i] || { enabled: false, start: "00:00", end: "00:00" };

@@ -22,6 +22,92 @@ def _enable_from_api(value: Any) -> bool:
     return str(value or "disable").strip().lower() == "enable"
 
 
+def _resolve_data_list_item_value(item: dict[str, Any]) -> Any:
+    """Resolve Fox dataList value; some devices return enum index instead of label."""
+    value = item.get("value")
+    enum_list = item.get("enumList")
+    if not isinstance(enum_list, list) or not enum_list:
+        return value
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    for entry in enum_list:
+        if str(entry).strip().lower() == text.lower():
+            return str(entry)
+    try:
+        idx = int(text)
+        if 0 <= idx < len(enum_list):
+            return str(enum_list[idx])
+    except (TypeError, ValueError):
+        pass
+    return text
+
+
+def _flatten_battery_heating_data_list(
+    result: dict[str, Any] | None,
+) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+    data_list = (result or {}).get("dataList") if isinstance(result, dict) else None
+    flat: dict[str, Any] = {}
+    ci: dict[str, Any] = {}
+    rows: list[dict[str, Any]] = []
+    if not isinstance(data_list, list):
+        return flat, ci, rows
+    for item in data_list:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        rows.append(item)
+        value = _resolve_data_list_item_value(item)
+        flat[name] = value
+        ci[name.lower()] = value
+    return flat, ci, rows
+
+
+def _pick_flat_value(flat: dict[str, Any], ci: dict[str, Any], *names: str) -> Any:
+    for name in names:
+        if name in flat and flat[name] not in (None, ""):
+            return flat[name]
+        low = name.lower()
+        if low in ci and ci[low] not in (None, ""):
+            return ci[low]
+    return None
+
+
+def _warmup_state_from_rows(
+    flat: dict[str, Any],
+    ci: dict[str, Any],
+    rows: list[dict[str, Any]],
+) -> str | None:
+    state = _pick_flat_value(
+        flat,
+        ci,
+        "batteryWarmUpState",
+        "BatteryWarmUpState",
+        "batteryWarmUpStatus",
+    )
+    if state not in (None, ""):
+        return str(state).strip() or None
+    for item in rows:
+        name = str(item.get("name") or "").lower()
+        compact = name.replace("_", "")
+        if "warmup" in compact and "state" in compact:
+            resolved = _resolve_data_list_item_value(item)
+            if resolved not in (None, ""):
+                return str(resolved).strip() or None
+    return None
+
+
+def _warmup_enabled_from_flat(flat: dict[str, Any], ci: dict[str, Any]) -> bool:
+    for key in ("batteryWarmUpEnable", "batteryWarmUpFunctionEnableFlag"):
+        if _enable_from_api(_pick_flat_value(flat, ci, key)):
+            return True
+    return False
+
+
 def _hm_from_parts(hour_key: str, minute_key: str, flat: dict[str, Any]) -> str:
     try:
         hour = int(flat.get(hour_key, 0) or 0)
@@ -46,19 +132,11 @@ def _slot_from_flat(flat: dict[str, Any], prefix: str) -> dict[str, Any]:
 
 def parse_battery_heating_result(result: dict[str, Any] | None) -> dict[str, Any]:
     """Normalize Fox Cloud batteryHeating/get result for the panel."""
-    data_list = (result or {}).get("dataList") if isinstance(result, dict) else None
-    flat: dict[str, Any] = {}
-    if isinstance(data_list, list):
-        for item in data_list:
-            if not isinstance(item, dict):
-                continue
-            name = item.get("name")
-            if name:
-                flat[str(name)] = item.get("value")
+    flat, ci, rows = _flatten_battery_heating_data_list(result)
 
     def _int(name: str, default: int) -> int:
         try:
-            return int(flat.get(name, default) or default)
+            return int(_pick_flat_value(flat, ci, name) or default)
         except (TypeError, ValueError):
             return default
 
@@ -70,10 +148,10 @@ def parse_battery_heating_result(result: dict[str, Any] | None) -> dict[str, Any
     }
 
     return {
-        "enabled": _enable_from_api(flat.get("batteryWarmUpEnable")),
+        "enabled": _warmup_enabled_from_flat(flat, ci),
         "start_temperature": _int("startTemperature", ranges["start_min"]),
         "end_temperature": _int("endTemperature", ranges["end_min"] + 5),
-        "state": str(flat.get("batteryWarmUpState") or "").strip() or None,
+        "state": _warmup_state_from_rows(flat, ci, rows),
         "ranges": ranges,
         "slots": [
             _slot_from_flat(flat, "time1"),
