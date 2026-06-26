@@ -12788,8 +12788,10 @@ const STYLES = `
 .tariff-hour-block:hover { opacity: 1; transform: scaleY(1.08); }
 .tariff-hour-labels { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 3px; font-size: 9px; color: var(--secondary-text-color); text-align: center; margin-bottom: 12px; }
 .tariff-band-rates { display: grid; gap: 10px; }
-.tariff-band-rate-row { display: grid; grid-template-columns: auto 1fr 1fr minmax(130px, 1.1fr) auto; gap: 10px; align-items: end; }
+.tariff-band-rate-row { display: grid; grid-template-columns: auto 1fr 1fr minmax(180px, 1.4fr) auto; gap: 10px; align-items: end; }
+.tariff-band-rate-row .tariff-band-work-mode,
 .tariff-band-rate-row .tariff-band-force { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; white-space: nowrap; font-size: 13px; color: var(--secondary-text-color); }
+.tariff-band-rate-row .tariff-band-work-mode select { flex: 1; min-width: 0; }
 .tariff-schedule-card.tariff-schedule-locked .tariff-band-picker,
 .tariff-schedule-card.tariff-schedule-locked .tariff-hour-grid { opacity: 0.72; pointer-events: none; }
 .tariff-schedule-card.tariff-schedule-locked .tariff-hour-block { cursor: default; transform: none; }
@@ -21604,8 +21606,8 @@ ${standingManualBlock}
 <span class="tariff-band-chip" style="cursor:default;border:none;padding:4px 0"><span class="tariff-band-swatch" style="background:${TARIFF_BAND_COLORS[idx]}"></span>${esc(TARIFF_BAND_LABELS[idx])}</span>
 ${showImport ? `<div class="field" style="margin:0"><label>Import ${esc(currency)}/kWh</label><input type="number" min="0" max="9999" step="${esc(inputStep)}" inputmode="decimal" data-field="tariff:schedule:band:${idx}:import" value="${esc(String(importDisplay || ""))}" placeholder="${currency === "GBP" ? "e.g. 0.245" : "e.g. 0.25"}" ${scheduleDisabled ? "disabled" : ""}></div>` : `<div></div>`}
 ${showExport ? `<div class="field" style="margin:0"><label>Export ${esc(currency)}/kWh</label><input type="number" min="0" max="9999" step="${esc(inputStep)}" inputmode="decimal" data-field="tariff:schedule:band:${idx}:export" value="${esc(String(exportDisplay || ""))}" placeholder="${currency === "GBP" ? "e.g. 0.150" : "e.g. 0.15"}" ${scheduleDisabled ? "disabled" : ""}></div>` : `<div></div>`}
-<div class="field" style="margin:0"><label>Work mode</label><select data-field="tariff:schedule:band:${idx}:work_mode" ${scheduleDisabled ? "disabled" : ""}>${modeOpts}</select></div>
-<label class="tariff-band-force"><input type="checkbox" data-field="tariff:schedule:band:${idx}:force_charge" ${band.enable_force_charge ? "checked" : ""} ${scheduleDisabled ? "disabled" : ""}>Force charge</label>
+<label class="tariff-band-work-mode"><span>Work Mode</span><select data-field="tariff:schedule:band:${idx}:work_mode" ${scheduleDisabled ? "disabled" : ""}>${modeOpts}</select></label>
+<label class="tariff-band-force"><input type="checkbox" data-field="tariff:schedule:band:${idx}:force_charge" ${band.enable_force_charge ? "checked" : ""} ${scheduleDisabled ? "disabled" : ""}><span>Force Charge</span></label>
 </div>`;
       })
       .join("");
