@@ -461,6 +461,40 @@ const DEFAULT_PERIODS = [
   { enable_force_charge: false, enable_charge_from_grid: false, start: "00:00", end: "00:00" },
 ];
 
+/** Legacy two-slot charge_periods → single automation behaviour (times ignored on Modbus path). */
+function automationBehaviourFromPeriods(periods) {
+  const active = (periods || []).find((p) => p?.enable_force_charge) || periods?.[0] || DEFAULT_PERIODS[0];
+  return {
+    enable_force_charge: Boolean(active?.enable_force_charge),
+    enable_charge_from_grid: Boolean(active?.enable_charge_from_grid),
+  };
+}
+
+/** SmartCharge always force-charges from grid when Agile windows are armed (backend overwrites template). */
+const SMART_CHARGE_GRID_BEHAVIOUR = {
+  enable_force_charge: true,
+  enable_charge_from_grid: true,
+};
+
+function chargePeriodsFromAutomationBehaviour(behaviour) {
+  const force = Boolean(behaviour?.enable_force_charge);
+  const grid = Boolean(behaviour?.enable_charge_from_grid);
+  return [
+    {
+      enable_force_charge: force,
+      enable_charge_from_grid: grid,
+      start: "00:01",
+      end: "23:59",
+    },
+    {
+      enable_force_charge: false,
+      enable_charge_from_grid: false,
+      start: "00:00",
+      end: "00:00",
+    },
+  ];
+}
+
 const DEFAULT_SCHEDULE_SEGMENT = {
   enabled: true,
   start: "23:00",
@@ -6735,7 +6769,7 @@ function overviewStormStatusSummary(plantState) {
   const armed = triggersArmed || overrideArmed || forecastArmed;
   if (armed) {
     const precheck = storm.solcast_precheck ?? {};
-    let detail = "Storm charge schedule applied";
+    let detail = "Storm pre-charge active";
     if (precheck.action === "pv_only") detail = "PV top-up only — no grid import";
     else if (forecastArmed && !triggersArmed && !overrideArmed) detail = "Forecast pre-charge armed";
     return { label: "Active", tone: "armed", detail };
@@ -14501,7 +14535,7 @@ Reloading panel registration…
         green_export_spread_multiplier: Number(d.green_export_spread_multiplier) || 2,
         cheap_import_p_per_kwh: Number(d.cheap_import_p_per_kwh) || 8,
         peak_import_penalty_p_per_kwh: Number(d.peak_import_penalty_p_per_kwh) || 5,
-        charge_periods: d.charge_periods,
+        charge_periods: chargePeriodsFromAutomationBehaviour(SMART_CHARGE_GRID_BEHAVIOUR),
       });
       if (state) this._plantState = state;
       this._initSmartChargeDraft();
@@ -14517,8 +14551,8 @@ Reloading panel registration…
 
   _initStormDraft() {
     const storm = this._plantState?.storm_prep ?? {};
-    const periods = JSON.parse(JSON.stringify(storm.charge_periods ?? DEFAULT_PERIODS)).slice(0, 2);
-    while (periods.length < 2) periods.push({ ...DEFAULT_PERIODS[0] });
+    const behaviour = automationBehaviourFromPeriods(storm.charge_periods);
+    const periods = chargePeriodsFromAutomationBehaviour(behaviour);
     const catalog = this._getStormWeatherCategoryCatalog();
     const supportedIds = catalog.filter((row) => row.supported !== false).map((row) => row.id);
     const fallbackIds = STORM_WEATHER_CATEGORY_FALLBACK.map((r) => r.id);
@@ -15745,7 +15779,9 @@ Reloading panel registration…
         plant_id: plant.entry_id,
         enabled: this._stormDraft.enabled,
         trigger_entities: this._stormDraft.trigger_entities,
-        charge_periods: this._stormDraft.charge_periods,
+        charge_periods: chargePeriodsFromAutomationBehaviour(
+          automationBehaviourFromPeriods(this._stormDraft.charge_periods)
+        ),
         target_max_soc: target == null || target === "" ? null : Number(target),
       };
       if (this._stormDraft.alert_provider) {
@@ -16646,24 +16682,14 @@ Reloading panel registration…
     if (!el?.dataset?.field) return;
     const parts = el.dataset.field.split(":");
     const kind = parts[0];
-    if (kind === "smart-period" && this._smartChargeDraft) {
-      const i = parseInt(parts[1], 10);
-      const field = parts[2];
-      if (el.type === "checkbox") {
-        this._smartChargeDraft.charge_periods[i][field] = el.checked;
-      } else {
-        this._smartChargeDraft.charge_periods[i][field] = el.value;
-      }
-      return;
-    }
-    if (kind === "storm-period" && this._stormDraft) {
-      const i = parseInt(parts[1], 10);
-      const field = parts[2];
-      if (el.type === "checkbox") {
-        this._stormDraft.charge_periods[i][field] = el.checked;
-      } else {
-        this._stormDraft.charge_periods[i][field] = el.value;
-      }
+    if (kind === "storm-behaviour" && this._stormDraft) {
+      const field = parts[1];
+      if (field !== "enable_force_charge" && field !== "enable_charge_from_grid") return;
+      const checked = Boolean(el.checked);
+      this._stormDraft.charge_periods = chargePeriodsFromAutomationBehaviour({
+        ...automationBehaviourFromPeriods(this._stormDraft.charge_periods),
+        [field]: checked,
+      });
       return;
     }
     if (kind === "storm-max-soc" && this._stormDraft) {
@@ -20247,6 +20273,24 @@ ${this._renderEnergyAnalysisCharts()}
 </div>`;
   }
 
+  _renderSmartChargeGridBehaviourInfo() {
+    return `<div class="card">
+<p class="card-title">Grid charging behaviour</p>
+<p class="storm-hint">When SmartCharge arms grid import, windows are chosen from Octopus Agile (daily plan and live price decisions). The inverter is set to force charge from grid for those windows — there is no manual timetable to configure.</p>
+</div>`;
+  }
+
+  _renderAutomationOverrideBehaviourCard(period, fieldPrefix, { title, hint, disabled = false } = {}) {
+    const p = period || DEFAULT_PERIODS[0];
+    const dis = disabled ? "disabled" : "";
+    return `<div class="card">
+<p class="card-title">${esc(title)}</p>
+${hint ? `<p class="storm-hint">${hint}</p>` : ""}
+<div class="toggle-row"><span>Force charge</span><input type="checkbox" data-field="${esc(fieldPrefix)}:enable_force_charge" ${p.enable_force_charge ? "checked" : ""} ${dis}></div>
+<div class="toggle-row"><span>Charge from grid</span><input type="checkbox" data-field="${esc(fieldPrefix)}:enable_charge_from_grid" ${p.enable_charge_from_grid ? "checked" : ""} ${dis}></div>
+</div>`;
+  }
+
   _renderPeriodCard(idx, period, fieldPrefix = "period", titlePrefix = "Period") {
     const p = period || DEFAULT_PERIODS[0];
     const actual = fieldPrefix === "period" ? this._plantState?.actual_periods?.[idx] : null;
@@ -21115,7 +21159,6 @@ ${body}
       reserve: false,
       agile: false,
       spread: mode === "max_profit",
-      charge: false,
     };
   }
 
@@ -21329,12 +21372,7 @@ ${draft.enabled ? `<details class="sc-section-details" data-sc-section="energy"$
 <input type="number" min="0" max="50" step="0.5" data-field="smart-charge:price_drop_interrupt_p_per_kwh" value="${esc(String(draft.price_drop_interrupt_p_per_kwh ?? 2))}" ${busy}></div>
 </details>
 ${this._renderSmartChargeSpreadPanel(draft)}
-<details class="sc-section-details" data-sc-section="charge"${this._smartChargeSectionOpenAttr("charge", draft)}>
-<summary>Charge period template</summary>
-<p class="field-hint">Start/end times are chosen automatically — these flags apply to the programmed window.</p>
-${this._renderPeriodCard(0, draft.charge_periods[0], "smart-period", "Charge template")}
-${this._renderPeriodCard(1, draft.charge_periods[1], "smart-period", "Reserve period")}
-</details>` : ""}
+${this._renderSmartChargeGridBehaviourInfo()}` : ""}
 <div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-smart-charge" ${busy || (draft.enabled && socValidation.errors.length) ? "disabled" : ""}>Save SmartCharge</button></div>
 </div></div>`;
   }
@@ -21353,7 +21391,7 @@ ${this._renderPeriodCard(1, draft.charge_periods[1], "smart-period", "Reserve pe
       armed && precheck.action === "pv_only"
         ? "Storm prep is <strong>active</strong> — PV top-up only (no grid import per Solcast pre-check)."
         : armed
-          ? "Storm prep is <strong>active</strong> — storm charge schedule applied."
+          ? "Storm prep is <strong>active</strong> — storm pre-charge applied."
           : "No storm triggers active right now.";
     return `${this._renderStormHero(armed)}
 <header class="header storm-settings-header"><h1>StormSafe</h1><p>Pre-charge before severe weather — <strong>Google Weather</strong> detects storms; optional <strong>Solcast</strong> can reduce grid import when forecast solar covers the gap</p></header>
@@ -21372,22 +21410,21 @@ ${this._renderStormSolcastSection()}
 ${this._renderStormWeatherCategories()}
 <div class="card">
 <p class="card-title">Pre-charge timing</p>
-<div class="toggle-row"><span><strong>Forecast pre-charge</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Start storm schedule when Google hourly forecast shows severe weather within the lead time</span></span>
+<div class="toggle-row"><span><strong>Forecast pre-charge</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Arm storm pre-charge when Google hourly forecast shows severe weather within the lead time</span></span>
 <input type="checkbox" data-field="toggle-storm-forecast" ${draft.use_forecast_lead ? "checked" : ""} ${!draft.enabled || this._busy ? "disabled" : ""}></div>
 <div class="field" style="margin-top:10px"><label>Lead time (hours before forecast storm)</label>
 <input type="number" min="1" max="48" step="1" data-field="storm-lead-hours" value="${esc(String(draft.forecast_lead_hours ?? 4))}" ${!draft.enabled || !draft.use_forecast_lead || this._busy ? "disabled" : ""}></div>
 </div>
 ${this._renderStormAdvancedTriggers()}
-<div class="card">
-<p class="card-title">Storm charge schedule</p>
-<p class="storm-hint">Applied while a trigger is active (separate from your baseline schedule).</p>
-${this._renderPeriodCard(0, draft.charge_periods[0], "storm-period", "Storm period")}
-${this._renderPeriodCard(1, draft.charge_periods[1], "storm-period", "Storm period")}
-</div>
+${this._renderAutomationOverrideBehaviourCard(draft.charge_periods[0], "storm-behaviour", {
+  title: "While storm is active",
+  hint: "Direct inverter control while StormSafe is armed — not a timed charge schedule. Solcast may turn off grid import when PV covers the gap.",
+  disabled: !draft.enabled || this._busy,
+})}
 <div class="card">
 <p class="card-title">Optional max SoC during storm</p>
 <div class="field"><label>Target max % (leave empty to keep current max)</label>
-<input type="number" min="10" max="100" step="1" data-field="storm-max-soc" value="${esc(maxSocVal)}" placeholder="e.g. 100"></div>
+<input type="number" min="10" max="100" step="1" data-field="storm-max-soc" value="${esc(maxSocVal)}" placeholder="e.g. 100" ${!draft.enabled || this._busy ? "disabled" : ""}></div>
 </div>
 <div class="btn-row">
 <button type="button" class="btn btn-primary" data-action="save-storm-prep" ${this._busy ? "disabled" : ""}>Save StormSafe settings</button>

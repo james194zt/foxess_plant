@@ -142,7 +142,7 @@ def evaluate_storm_solcast_precheck(
         )
         out["detail"] = (
             "When the inverter is already in a storm-type weather state, StormSafe "
-            "always uses your storm charge schedule with grid import enabled."
+            "always uses your storm settings with grid import enabled."
         )
         return out
 
