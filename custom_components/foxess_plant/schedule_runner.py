@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.util import dt as dt_util
 
 from .models import ChargePeriodConfig, SchedulerSegmentConfig
-from .remote_control import set_remote_control_mode
+from .remote_control import is_remote_control_active, set_remote_control_mode
 from .soc_limits import apply_soc_limits, read_soc_current
 
 if TYPE_CHECKING:
@@ -243,10 +243,13 @@ async def apply_schedule_bundle(
 
     await coordinator._set_work_mode(bundle.work_mode)
 
-    if entity_map.get("remote_control"):
+    rc_entity = entity_map.get("remote_control")
+    if rc_entity:
+        live_rc = coordinator._entity_state("remote_control")
         if bundle.force_charge:
-            await set_remote_control_mode(coordinator.hass, entity_map, "Force Charge")
-        else:
+            if live_rc != "Force Charge":
+                await set_remote_control_mode(coordinator.hass, entity_map, "Force Charge")
+        elif is_remote_control_active(live_rc):
             await set_remote_control_mode(coordinator.hass, entity_map, "Disable")
 
     if device_is_evo(coordinator.hass, plant.device_id, entity_map):

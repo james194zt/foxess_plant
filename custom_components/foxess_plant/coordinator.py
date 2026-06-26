@@ -1922,6 +1922,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _set_work_mode(self, option: str) -> None:
         from .virtual_max_soc import resolve_work_mode_option
+        from .work_mode import work_mode_options_match
 
         entity_id = self.plant.entity_map.get("work_mode")
         if not entity_id:
@@ -1936,6 +1937,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 resolved,
                 ", ".join(options),
             )
+            return
+        current = self._entity_state("work_mode")
+        if work_mode_options_match(current, option, options):
+            _LOGGER.debug("Work mode already %s; skipping Modbus write", resolved)
             return
         await self.hass.services.async_call(
             "select",
@@ -3174,7 +3179,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if resolve_desired_bundle(self) is not None:
             self._applying = True
             try:
-                await apply_current_schedule_state(self, force=True)
+                await apply_current_schedule_state(self, force=force)
                 periods = self.plant.desired_periods()
                 self._fire(
                     EVENT_PERIOD_APPLIED,

@@ -449,6 +449,10 @@ async def _maybe_clear_evo_remote_work_mode(hass: HomeAssistant, entity_map: dic
     current = state.state if state else None
     if current not in ("Remote Control", "Force Charge", "Force Discharge"):
         return False
+    from .work_mode import work_mode_options_match
+
+    if work_mode_options_match(current, "Self Use", state.attributes.get("options")):
+        return False
     try:
         await hass.services.async_call(
             "select",

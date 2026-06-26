@@ -84,6 +84,8 @@ async def run_schedule_write_probe(coordinator: Any) -> dict[str, Any]:
     desired_before = resolve_desired_bundle(coordinator)
     live_before = await _read_live_bundle_state(coordinator)
     restore_bundle = desired_before if desired_before is not None else _bundle_from_live(live_before)
+    was_applying = getattr(coordinator, "_applying", False)
+    coordinator._applying = True
 
     try:
         options = coordinator._entity_options("work_mode")
@@ -101,21 +103,13 @@ async def run_schedule_write_probe(coordinator: Any) -> dict[str, Any]:
         else:
             write_err: str | None = None
             min_v = int(live_before.get("min_soc") or 10)
-            mid_v = int(live_before.get("min_soc_on_grid") or min_v)
-            max_v = int(live_before.get("max_soc") or 100)
-            test_min = _pick_test_min_soc(min_v, mid_v, max_v)
-            test_bundle = ScheduleApplyBundle(
-                work_mode=target_mode,
-                min_soc=test_min if test_min is not None else min_v,
-                min_soc_on_grid=mid_v,
-                max_soc=int(restore_bundle.max_soc),
-                force_charge=False,
-                charge_from_grid=False,
-                source="probe",
-                label="schedule_probe",
+            test_min = _pick_test_min_soc(
+                min_v,
+                int(live_before.get("min_soc_on_grid") or min_v),
+                int(live_before.get("max_soc") or 100),
             )
             try:
-                await apply_schedule_bundle(coordinator, test_bundle)
+                await coordinator._set_work_mode(target_mode)
             except Exception as err:
                 write_err = str(err)
 
@@ -200,6 +194,7 @@ async def run_schedule_write_probe(coordinator: Any) -> dict[str, Any]:
                 }
             )
     finally:
+        coordinator._applying = was_applying
         restore_status = "pass"
         restore_error: str | None = None
         try:
