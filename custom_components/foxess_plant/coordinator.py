@@ -157,6 +157,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._glow_unsub_mqtt: callable | None = None
         self._glow_sensors: dict[str, Any] = {}
         self._battery_warmup_live: dict[str, Any] = {}
+        self._battery_warmup_api_available: bool | None = None
+        self._battery_warmup_last_error: str | None = None
         self._fox_scheduler_live: dict[str, Any] = {}
         self._fox_scheduler_schedule_live: dict[str, Any] = {}
         self._virtual_cap_active = False
@@ -2579,7 +2581,40 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         merged["fox_api_ready"] = bool(
             self.plant.fox_cloud.enabled and self.plant.fox_cloud.api_key_configured() and merged["device_sn"]
         )
+        merged["api_available"] = self._battery_warmup_api_available
+        merged["last_error"] = self._battery_warmup_last_error
         return merged
+
+    def _note_battery_warmup_success(self) -> None:
+        self._battery_warmup_api_available = True
+        self._battery_warmup_last_error = None
+
+    def _note_battery_warmup_failure(self, err: Exception) -> None:
+        from .fox_cloud_api import FoxCloudApiError, format_fox_cloud_error
+
+        self._battery_warmup_api_available = False
+        if isinstance(err, FoxCloudApiError):
+            self._battery_warmup_last_error = format_fox_cloud_error(err)
+        else:
+            self._battery_warmup_last_error = str(err)
+
+    @staticmethod
+    def _battery_warmup_unavailable_message(err: Exception, *, device_sn: str | None = None) -> str:
+        from .fox_cloud_api import FoxCloudApiError, format_fox_cloud_error
+
+        detail = format_fox_cloud_error(err) if isinstance(err, FoxCloudApiError) else str(err)
+        sn_hint = (
+            f" Tried Fox serial {device_sn}."
+            if device_sn
+            else " Set the inverter deviceSN from the Fox portal under Settings → API & accounts."
+        )
+        if isinstance(err, FoxCloudApiError) and err.errno == 41200:
+            return (
+                f"Fox Cloud could not read battery warmup settings ({detail}).{sn_hint} "
+                "The scheduler API may work while batteryHeating fails — open the Fox portal "
+                "device list and paste the inverter deviceSN (not always the same as the Modbus PCS serial)."
+            )
+        return f"Battery warmup unavailable: {detail}.{sn_hint}"
 
     def resolve_fox_device_sn(self) -> str | None:
         configured = self.plant.fox_cloud.device_sn
@@ -2620,9 +2655,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         primary_sn: str,
         configured_sn: str | None = None,
     ) -> tuple[str, tuple[str, ...], dict[str, Any] | None]:
-        from .fox_cloud_api import fox_device_row, fox_device_sn_candidates
+        from .fox_cloud_api import fox_device_row, fox_device_warmup_sn_candidates
 
-        candidates = fox_device_sn_candidates(
+        candidates = fox_device_warmup_sn_candidates(
             devices,
             primary_sn=primary_sn,
             configured_sn=configured_sn or self.resolve_fox_device_sn(),
@@ -2748,9 +2783,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 heating = await client.get_battery_heating(warmup_sn, alt_sns=warmup_alts)
                 parsed = parse_battery_heating_result(heating)
                 self._battery_warmup_live = parsed
+                self._note_battery_warmup_success()
                 out["warmup"] = parsed
                 out["warmup_available"] = True
             except FoxCloudApiError as warmup_err:
+                self._note_battery_warmup_failure(warmup_err)
                 if fox_cloud_permission_denied(str(warmup_err)):
                     out["warmup_available"] = False
                     out["warmup_note"] = (
@@ -2758,12 +2795,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     )
                 elif warmup_err.errno == 41200:
                     out["warmup_available"] = False
-                    product = out.get("device_product") or ""
-                    evo_hint = " EVO" if "EVO" in str(product).upper() else ""
-                    out["warmup_note"] = (
-                        f"Battery warmup is not available via Fox Open API for this{evo_hint} device "
-                        f"(41200). Scheduler uses V3; warmup still uses the V0 batteryHeating endpoint per "
-                        "Fox docs — control warmup in the Fox app until Fox enable API access."
+                    out["warmup_note"] = self._battery_warmup_unavailable_message(
+                        warmup_err,
+                        device_sn=warmup_sn,
                     )
                 else:
                     out["warmup_probe_error"] = format_fox_cloud_error(warmup_err)
@@ -2814,6 +2848,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             result = await client.get_battery_heating(warmup_sn, alt_sns=warmup_alts)
             parsed = parse_battery_heating_result(result)
             self._battery_warmup_live = parsed
+            self._note_battery_warmup_success()
             fox.last_error = None
             fox.last_fetch_at = dt_util.utcnow().isoformat()
             data = dict(self.config_entry.data)
@@ -2822,8 +2857,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.async_request_refresh()
             return parsed
         except FoxCloudApiError as err:
+            self._note_battery_warmup_failure(err)
             fox.last_error = str(err)
-            raise HomeAssistantError(str(err)) from err
+            raise HomeAssistantError(
+                self._battery_warmup_unavailable_message(err, device_sn=self.resolve_fox_device_sn())
+            ) from err
 
     async def async_save_battery_warmup(self, *, warmup: dict[str, Any]) -> dict[str, Any]:
         from .battery_warmup import (
@@ -2851,6 +2889,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             result = await client.get_battery_heating(warmup_sn, alt_sns=warmup_alts)
             parsed = parse_battery_heating_result(result)
             self._battery_warmup_live = parsed
+            self._note_battery_warmup_success()
             fox.last_error = None
             fox.last_fetch_at = dt_util.utcnow().isoformat()
             data = dict(self.config_entry.data)
@@ -2859,8 +2898,14 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self.async_request_refresh()
             return parsed
         except FoxCloudApiError as api_err:
+            self._note_battery_warmup_failure(api_err)
             fox.last_error = str(api_err)
-            raise HomeAssistantError(str(api_err)) from api_err
+            raise HomeAssistantError(
+                self._battery_warmup_unavailable_message(
+                    api_err,
+                    device_sn=self.resolve_fox_device_sn(),
+                )
+            ) from api_err
 
     def _fox_scheduler_state(self) -> dict[str, Any]:
         from .fox_cloud_scheduler import scheduler_status_label

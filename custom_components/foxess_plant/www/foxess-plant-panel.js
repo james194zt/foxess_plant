@@ -14788,8 +14788,8 @@ Reloading panel registration…
       this._render();
       try {
         await this._fetchBatteryWarmup(false);
-      } catch {
-        /* keep draft from plant state */
+      } catch (err) {
+        this._showToast(String(err?.message || err), "err");
       } finally {
         this._warmupLoading = false;
         this._render();
@@ -21832,6 +21832,8 @@ ${detailBlock}
     const draft = this._warmupDraft;
     const ready = Boolean(live.fox_api_ready);
     const loading = this._warmupLoading || (this._busy && this._settingsView === "warmup");
+    const warmupBlocked = live.api_available === false;
+    const warmupError = live.last_error || this._plantState?.fox_cloud?.last_error || "";
     if (!ready) {
       return `<header class="header"><h1>Battery Warmup</h1><p>Pre-heat the battery pack in cold weather using grid power during cheap-rate windows — matches the Fox app <strong>Battery warmup</strong> screen.</p></header>
 <div class="card"><p class="field-hint" style="margin:0">Enable the <strong>Fox Cloud API</strong> under <strong>Settings → API &amp; accounts</strong> and save your API key first. Warmup is controlled via Fox Cloud (not Modbus).</p></div>`;
@@ -21857,7 +21859,11 @@ ${detailBlock}
 </div>`;
       })
       .join("");
+    const blockedBanner = warmupBlocked
+      ? `<div class="banner err" style="margin-bottom:14px"><strong>Battery warmup not reachable via Fox Cloud API</strong><br>${esc(warmupError || "Fox returned an error when reading batteryHeating settings.")} Open the Fox portal device list and confirm the <strong>inverter deviceSN</strong> under Settings → API &amp; accounts — it is often different from the Modbus PCS serial (${esc(String(live.device_sn || "—"))}).</div>`
+      : "";
     return `<header class="header"><h1>Battery Warmup</h1><p>Grid-assisted battery heating during low-price periods. Settings sync with your inverter via Fox Cloud.</p></header>
+${blockedBanner}
 <div class="warmup-hero${draft.enabled ? " is-on" : ""}">
 <div class="warmup-hero-badge">${esc(statusLabel)}</div>
 <div class="warmup-hero-temp">${esc(tempDisplay)}</div>
