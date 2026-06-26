@@ -28,7 +28,16 @@ const DEVICE_NEW_NAV = [
   { id: "realtime", label: "Realtime" },
   { id: "alarms", label: "Alerts" },
   { id: "pv-config", label: "PV Configuration" },
+  { id: "quick-settings", label: "Quick Settings" },
 ];
+
+function isQuickSettingsDeviceSub(sub) {
+  return sub === "quick-settings";
+}
+
+function isLegacyQuickSettingsSub(sub) {
+  return sub === "quick" || sub === "schedules" || sub === "workmode" || sub === "control";
+}
 
 /** Fox Cloud device Analysis real-time curve series. */
 // FOX_DEVICE_SUMMARY_ICONS_START
@@ -111,7 +120,6 @@ function normalizePanelView(view) {
 
 const SETTINGS_NAV = [
   { id: "main", label: "All" },
-  { id: "quick", label: "Quick Settings" },
   { id: "pv", label: "PV" },
   { id: "api", label: "API" },
   { id: "solcast", label: "Solcast" },
@@ -13735,7 +13743,7 @@ Reloading panel registration…
     if (!plant || !this._hass) return;
     try {
       this._plantState = await fetchPlantState(this._hass, plant.entry_id);
-      if (this._settingsView !== "quick") {
+      if (!this._isQuickSettingsView()) {
         this._chargeDraft = null;
         this._socDraft = null;
         this._workModeDraft = null;
@@ -13865,7 +13873,7 @@ Reloading panel registration…
   }
 
   _settingsFieldBlocksRender() {
-    if (this._view !== "settings") return false;
+    if (this._view !== "settings" && !this._isQuickSettingsView()) return false;
     if (this._settingsFieldFocused) return true;
     const el = this.shadowRoot?.activeElement || document.activeElement;
     if (!el || !this._root.contains(el)) return false;
@@ -13879,7 +13887,7 @@ Reloading panel registration…
 
   _onFocusIn(e) {
     if (!this._root.contains(e.target)) return;
-    if (this._view === "settings") {
+    if (this._view === "settings" || this._isQuickSettingsView()) {
       if (
         e.target.matches?.("input, select, textarea, ha-entity-picker") ||
         e.target.closest?.("ha-entity-picker")
@@ -13910,7 +13918,7 @@ Reloading panel registration…
       });
       return;
     }
-    if (this._view !== "settings") {
+    if (this._view !== "settings" && !this._isQuickSettingsView()) {
       if (this._settingsFieldFocused) {
         this._settingsFieldFocused = false;
         if (this._renderPending) {
@@ -14384,9 +14392,20 @@ Reloading panel registration…
   }
 
   _ensureSettingsViewAllowed() {
-    if (this._settingsView === "schedules" || this._settingsView === "workmode" || this._settingsView === "control") {
-      this._settingsView = "quick";
+    if (isLegacyQuickSettingsSub(this._settingsView)) {
+      this._settingsView = "main";
     }
+  }
+
+  _openQuickSettingsView() {
+    this._view = "device_new";
+    this._deviceNewSub = "quick-settings";
+    this._deviceNewScreen = "main";
+    this._enterQuickSettings();
+  }
+
+  _isQuickSettingsView() {
+    return this._view === "device_new" && isQuickSettingsDeviceSub(this._deviceNewSub);
   }
 
   _enterQuickSettings() {
@@ -15878,6 +15897,7 @@ Reloading panel registration…
       if (sub === "analysis") this._loadDeviceNewCharts();
       if (sub === "alarms") void this._loadDeviceNewAlarms({ force: true });
       if (sub === "pv-config") this._enterPvSettings();
+      if (isQuickSettingsDeviceSub(sub)) this._enterQuickSettings();
       this._scheduleRender(true);
       return;
     }
@@ -16070,10 +16090,13 @@ Reloading panel registration…
       return;
     }
     if (action === "settings-sub") {
-      const sub =
-        btn.dataset.sub === "schedules" || btn.dataset.sub === "workmode" || btn.dataset.sub === "control"
-          ? "quick"
-          : btn.dataset.sub;
+      const rawSub = btn.dataset.sub;
+      if (isLegacyQuickSettingsSub(rawSub)) {
+        this._openQuickSettingsView();
+        this._render();
+        return;
+      }
+      const sub = rawSub;
       this._view = "settings";
       if (btn.dataset.sub !== "solcast" && btn.dataset.sub !== "api") this._solcastDraft = null;
       if (btn.dataset.sub !== "tariff" && btn.dataset.sub !== "api") {
@@ -16085,7 +16108,6 @@ Reloading panel registration…
       if (btn.dataset.sub !== "api") this._foxCloudDraft = null;
       if (btn.dataset.sub !== "warmup") this._warmupDraft = null;
       this._settingsView = sub;
-      if (sub === "quick") this._enterQuickSettings();
       if (btn.dataset.sub === "storm") this._enterStormSettings();
       if (btn.dataset.sub === "pv") this._enterPvSettings();
       if (btn.dataset.sub === "api") this._enterApiSettings();
@@ -16108,10 +16130,13 @@ Reloading panel registration…
       return;
     }
     if (action === "settings-tab") {
-      const sub =
-        btn.dataset.sub === "schedules" || btn.dataset.sub === "workmode" || btn.dataset.sub === "control"
-          ? "quick"
-          : btn.dataset.sub;
+      const rawSub = btn.dataset.sub;
+      if (isLegacyQuickSettingsSub(rawSub)) {
+        this._openQuickSettingsView();
+        this._render();
+        return;
+      }
+      const sub = rawSub;
       this._view = "settings";
       if (btn.dataset.sub !== "solcast" && btn.dataset.sub !== "api") this._solcastDraft = null;
       if (btn.dataset.sub !== "tariff" && btn.dataset.sub !== "api") {
@@ -16123,7 +16148,6 @@ Reloading panel registration…
       if (btn.dataset.sub !== "api") this._foxCloudDraft = null;
       if (btn.dataset.sub !== "warmup") this._warmupDraft = null;
       this._settingsView = sub;
-      if (sub === "quick") this._enterQuickSettings();
       if (btn.dataset.sub === "storm") this._enterStormSettings();
       if (btn.dataset.sub === "pv") this._enterPvSettings();
       if (btn.dataset.sub === "api") this._enterApiSettings();
@@ -18834,6 +18858,9 @@ ${this._renderPvConfiguration({
 })}
 </div>`;
     }
+    if (this._deviceNewSub === "quick-settings") {
+      return `<div data-device-new-main="1" data-plant-id="${esc(plant.entry_id)}">${this._renderSettingsQuick()}</div>`;
+    }
     const summary = renderDeviceNewSummaryCards(this._hass, plant, this._plantState);
     const sidebar = renderDeviceNewSidebar(this._hass, plant, this._plantState);
     if (this._deviceNewSub === "analysis") {
@@ -18872,7 +18899,7 @@ ${body}
 
   _patchDeviceNewLiveIfNeeded() {
     if (this._view !== "device_new" || !this._hass) return false;
-    if (this._deviceNewSub === "analysis" || this._deviceNewSub === "pv-config" || this._deviceNewSub === "alarms") return false;
+    if (this._deviceNewSub === "analysis" || this._deviceNewSub === "pv-config" || this._deviceNewSub === "alarms" || this._deviceNewSub === "quick-settings") return false;
     if (this._deviceNewScreen !== "main") return false;
     if (this._deviceNewAnalysisChartsStale()) return false;
     const root = this._root.querySelector("[data-device-new-main]");
@@ -20686,9 +20713,7 @@ ${note}${via}${forecastHint}${activeBadge}
   }
 
   _settingsMainSubtitles() {
-    const s = this._plantState?.settings ?? {};
     return {
-      quick: `${String(s.work_mode ?? "—")} · Max ${s.max_soc ?? "—"}% · ${this._controlSettingsSubtitle()}`,
       pv: pvConfigSummary(this._plantState?.pv_config),
       api: this._apiSettingsSubtitle(),
       solcast: this._solcastSettingsSubtitle(),
@@ -20751,13 +20776,10 @@ ${note}${via}${forecastHint}${activeBadge}
 
   _renderSettingsMain(plant) {
     const subs = this._settingsMainSubtitles();
-    const scLock = smartChargeOwnsPlantControls(this._plantState);
     const debugProbe = DEBUG_MODBUS_PROBE ? this._renderModbusDebugProbeCard() : "";
     return `<div data-settings-main="1"><header class="header"><h1>Settings</h1><p>Configure your plant, automations, and integrations</p></header>
-${scLock ? `<div class="banner info" style="margin-bottom:12px"><strong>SmartCharge is active</strong> SOC limits, work mode, and charge schedule are managed under SmartCharge. Plant control remains available below.</div>` : ""}
 <div data-settings-live>${this._renderSettingsMainLiveHtml()}</div>
 <div data-settings-nav>
-${renderListButton({ action: "settings-sub", sub: "quick" }, "Quick Settings", subs.quick, scLock)}
 ${renderListButton({ action: "settings-sub", sub: "pv" }, "PV Configuration", subs.pv)}
 ${renderListButton({ action: "settings-sub", sub: "api" }, "API & accounts", subs.api)}
 ${renderListButton({ action: "settings-sub", sub: "solcast" }, "Solcast", subs.solcast)}
@@ -22105,11 +22127,6 @@ ${this._renderPvTiltAzimuthFields("pv2", { allowWhenDisabled: true })}
   _renderSettings(plant) {
     this._ensureSettingsViewAllowed();
     switch (this._settingsView) {
-      case "quick":
-      case "schedules":
-      case "workmode":
-      case "control":
-        return this._renderSettingsQuick();
       case "pv":
         return this._renderSettingsPv();
       case "api":
@@ -22234,7 +22251,7 @@ ${this._renderPvTiltAzimuthFields("pv2", { allowWhenDisabled: true })}
     this._syncEnergyBalanceHelpModal(shell);
     this._syncFoxAlarmDetailModal(shell);
 
-    if (this._view === "settings" && this._settingsView === "quick") {
+    if (this._isQuickSettingsView()) {
       this._bindTripleSoc();
     }
     if (this._view === "settings" && this._settingsView === "storm" && this._stormDraft) {
