@@ -12796,8 +12796,10 @@ const STYLES = `
 .tariff-schedule-card.tariff-schedule-locked .tariff-hour-grid { opacity: 0.72; pointer-events: none; }
 .tariff-schedule-card.tariff-schedule-locked .tariff-hour-block { cursor: default; transform: none; }
 .tariff-schedule-card.tariff-schedule-locked .tariff-band-chip[data-action="tariff-pick-band"] { cursor: default; }
-.tariff-schedule-card.tariff-schedule-locked .tariff-band-rate-row input,
-.tariff-schedule-card.tariff-schedule-locked .tariff-band-rate-row select { opacity: 0.55; cursor: not-allowed; }
+.tariff-schedule-card.tariff-schedule-locked .tariff-band-rate-row input[type="number"] { opacity: 0.55; cursor: not-allowed; }
+.tariff-schedule-card.tariff-band-inverter-locked .tariff-band-work-mode select,
+.tariff-schedule-card.tariff-band-inverter-locked .tariff-band-force input,
+.tariff-schedule-card.tariff-band-inverter-locked [data-field="tariff:apply_band_inverter_control"] { opacity: 0.55; cursor: not-allowed; }
 .tariff-rate-block.tariff-standing-locked input[data-field="tariff:standing:p"] { opacity: 0.55; cursor: not-allowed; }
 @media (max-width: 720px) {
   .tariff-band-rate-row { grid-template-columns: 1fr; }
@@ -21570,18 +21572,20 @@ ${standingManualBlock}
     const showExport = normalizeTariffExportSource(draft.export_source) === "schedule";
     if (!showImport && !showExport) return "";
     const octopusLocked = octopusNativeManagesSchedule(this._plantState?.tariff, this._octopusDraft);
-    const scheduleDisabled = this._busy || octopusLocked;
+    const scheduleRatesDisabled = this._busy || octopusLocked;
+    const smartChargeActive = smartChargeEnabled(this._plantState);
+    const bandInverterDisabled = this._busy || smartChargeActive;
     const currency = normalizeTariffCurrency(draft.currency);
     const schedule = normalizeTariffSchedule(draft.schedule);
     const activeBand = this._tariffActiveBand ?? 0;
     const bandChips = TARIFF_BAND_LABELS.map(
       (label, idx) =>
-        `<button type="button" class="tariff-band-chip${idx === activeBand ? " is-active" : ""}" data-action="tariff-pick-band" data-band="${idx}" ${scheduleDisabled ? "disabled" : ""}><span class="tariff-band-swatch" style="background:${TARIFF_BAND_COLORS[idx]}"></span>${esc(label)}</button>`
+        `<button type="button" class="tariff-band-chip${idx === activeBand ? " is-active" : ""}" data-action="tariff-pick-band" data-band="${idx}" ${scheduleRatesDisabled ? "disabled" : ""}><span class="tariff-band-swatch" style="background:${TARIFF_BAND_COLORS[idx]}"></span>${esc(label)}</button>`
     ).join("");
     const hourBlocks = schedule.hours
       .map((bandIdx, hour) => {
         const color = TARIFF_BAND_COLORS[bandIdx] ?? TARIFF_BAND_COLORS[0];
-        return `<button type="button" class="tariff-hour-block" style="background:${color}" title="${String(hour).padStart(2, "0")}:00–${String((hour + 1) % 24).padStart(2, "0")}:00 · ${esc(TARIFF_BAND_LABELS[bandIdx] || "Band A")}" data-action="tariff-hour" data-hour="${hour}" ${scheduleDisabled ? "disabled" : ""} aria-label="Hour ${hour}"></button>`;
+        return `<button type="button" class="tariff-hour-block" style="background:${color}" title="${String(hour).padStart(2, "0")}:00–${String((hour + 1) % 24).padStart(2, "0")}:00 · ${esc(TARIFF_BAND_LABELS[bandIdx] || "Band A")}" data-action="tariff-hour" data-hour="${hour}" ${scheduleRatesDisabled ? "disabled" : ""} aria-label="Hour ${hour}"></button>`;
       })
       .join("");
     const hourLabels = schedule.hours
@@ -21604,10 +21608,10 @@ ${standingManualBlock}
           .join("");
         return `<div class="tariff-band-rate-row">
 <span class="tariff-band-chip" style="cursor:default;border:none;padding:4px 0"><span class="tariff-band-swatch" style="background:${TARIFF_BAND_COLORS[idx]}"></span>${esc(TARIFF_BAND_LABELS[idx])}</span>
-${showImport ? `<div class="field" style="margin:0"><label>Import ${esc(currency)}/kWh</label><input type="number" min="0" max="9999" step="${esc(inputStep)}" inputmode="decimal" data-field="tariff:schedule:band:${idx}:import" value="${esc(String(importDisplay || ""))}" placeholder="${currency === "GBP" ? "e.g. 0.245" : "e.g. 0.25"}" ${scheduleDisabled ? "disabled" : ""}></div>` : `<div></div>`}
-${showExport ? `<div class="field" style="margin:0"><label>Export ${esc(currency)}/kWh</label><input type="number" min="0" max="9999" step="${esc(inputStep)}" inputmode="decimal" data-field="tariff:schedule:band:${idx}:export" value="${esc(String(exportDisplay || ""))}" placeholder="${currency === "GBP" ? "e.g. 0.150" : "e.g. 0.15"}" ${scheduleDisabled ? "disabled" : ""}></div>` : `<div></div>`}
-<label class="tariff-band-work-mode"><span>Work Mode</span><select data-field="tariff:schedule:band:${idx}:work_mode" ${scheduleDisabled ? "disabled" : ""}>${modeOpts}</select></label>
-<label class="tariff-band-force"><input type="checkbox" data-field="tariff:schedule:band:${idx}:force_charge" ${band.enable_force_charge ? "checked" : ""} ${scheduleDisabled ? "disabled" : ""}><span>Force Charge</span></label>
+${showImport ? `<div class="field" style="margin:0"><label>Import ${esc(currency)}/kWh</label><input type="number" min="0" max="9999" step="${esc(inputStep)}" inputmode="decimal" data-field="tariff:schedule:band:${idx}:import" value="${esc(String(importDisplay || ""))}" placeholder="${currency === "GBP" ? "e.g. 0.245" : "e.g. 0.25"}" ${scheduleRatesDisabled ? "disabled" : ""}></div>` : `<div></div>`}
+${showExport ? `<div class="field" style="margin:0"><label>Export ${esc(currency)}/kWh</label><input type="number" min="0" max="9999" step="${esc(inputStep)}" inputmode="decimal" data-field="tariff:schedule:band:${idx}:export" value="${esc(String(exportDisplay || ""))}" placeholder="${currency === "GBP" ? "e.g. 0.150" : "e.g. 0.15"}" ${scheduleRatesDisabled ? "disabled" : ""}></div>` : `<div></div>`}
+<label class="tariff-band-work-mode"><span>Work Mode</span><select data-field="tariff:schedule:band:${idx}:work_mode" ${bandInverterDisabled ? "disabled" : ""}>${modeOpts}</select></label>
+<label class="tariff-band-force"><input type="checkbox" data-field="tariff:schedule:band:${idx}:force_charge" ${band.enable_force_charge ? "checked" : ""} ${bandInverterDisabled ? "disabled" : ""}><span>Force Charge</span></label>
 </div>`;
       })
       .join("");
@@ -21616,18 +21620,23 @@ ${showExport ? `<div class="field" style="margin:0"><label>Export ${esc(currency
       ? "Quick Settings mode scheduler is enabled — it takes priority over tariff band work modes."
       : "When enabled, each hour applies that band’s work mode (and optional force charge) while plant control is on.";
     const bandControlChecked = Boolean(draft.apply_band_inverter_control);
+    const smartChargeBandHint = smartChargeActive
+      ? `<p class="field-hint" style="margin:0 0 12px;color:var(--fp-accent)">SmartCharge is currently active — per-band Work Mode and Force Charge are not applied while it is enabled.</p>`
+      : "";
     const pluginIds = this._plantState?.tariff?.plugin_sensors ?? {};
     const pluginHint = pluginIds.import || pluginIds.export
       ? `<p class="field-hint" style="margin:0 0 12px">Plugin sensors: ${[pluginIds.import, pluginIds.export].filter(Boolean).map((id) => esc(id)).join(" · ") || "—"} — rates update at each hour boundary so the recorder captures when costs change.</p>`
       : `<p class="field-hint" style="margin:0 0 12px">Plugin sensors are created when you save. They update at each hour boundary so the recorder captures when costs change (same path planned for Agile API tariffs).</p>`;
     const scheduleIntro = octopusLocked
-      ? "Rates and hour bands are synced from Octopus automatically whenever rates are fetched (including the 30-minute poll). Edit Octopus settings above to change tariff source."
+      ? "Rates and hour bands are synced from Octopus automatically whenever rates are fetched (including the 30-minute poll). Work Mode and Force Charge per band can still be configured below."
       : "24 hourly blocks from 00:00 to 24:00, same every day. Pick a band colour, then tap hours to assign it. Use one band for a flat tariff, or two to four for peak/off-peak.";
-    return `<div class="card tariff-schedule-card${octopusLocked ? " tariff-schedule-locked" : ""}">
+    const cardLockClass = `${octopusLocked ? " tariff-schedule-locked" : ""}${smartChargeActive ? " tariff-band-inverter-locked" : ""}`;
+    return `<div class="card tariff-schedule-card${cardLockClass}">
 <p class="card-title">Daily time-of-use schedule</p>
 <p class="field-hint" style="margin:0 0 12px">${esc(scheduleIntro)}</p>
-<div class="toggle-row" style="margin:0 0 12px"><span>Apply band work mode to inverter</span><input type="checkbox" data-field="tariff:apply_band_inverter_control" ${bandControlChecked ? "checked" : ""} ${scheduleDisabled ? "disabled" : ""}></div>
+<div class="toggle-row" style="margin:0 0 12px"><span>Apply band work mode to inverter</span><input type="checkbox" data-field="tariff:apply_band_inverter_control" ${bandControlChecked ? "checked" : ""} ${bandInverterDisabled ? "disabled" : ""}></div>
 <p class="field-hint" style="margin:0 0 12px">${esc(bandControlHint)}</p>
+${smartChargeBandHint}
 ${pluginHint}
 <div class="tariff-band-picker">${bandChips}</div>
 <div class="tariff-hour-grid">${hourBlocks}</div>
