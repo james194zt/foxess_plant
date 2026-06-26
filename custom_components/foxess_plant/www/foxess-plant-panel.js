@@ -161,13 +161,14 @@ const DEFAULT_TARIFF = {
   standing_source: "plugin",
   standing_entity: "",
   standing_charge_p_per_day: 0,
+  apply_band_inverter_control: false,
   schedule: {
     hours: Array(24).fill(0),
     bands: [
-      { import_p_per_kwh: 0, export_p_per_kwh: 0 },
-      { import_p_per_kwh: 0, export_p_per_kwh: 0 },
-      { import_p_per_kwh: 0, export_p_per_kwh: 0 },
-      { import_p_per_kwh: 0, export_p_per_kwh: 0 },
+      { import_p_per_kwh: 0, export_p_per_kwh: 0, work_mode: "Self Use", enable_force_charge: false },
+      { import_p_per_kwh: 0, export_p_per_kwh: 0, work_mode: "Self Use", enable_force_charge: false },
+      { import_p_per_kwh: 0, export_p_per_kwh: 0, work_mode: "Self Use", enable_force_charge: false },
+      { import_p_per_kwh: 0, export_p_per_kwh: 0, work_mode: "Self Use", enable_force_charge: false },
     ],
   },
   dynamic: {
@@ -3275,6 +3276,8 @@ function normalizeTariffSchedule(raw) {
     bands.push({
       import_p_per_kwh: parseTariffRate(b.import_p_per_kwh),
       export_p_per_kwh: parseTariffRate(b.export_p_per_kwh),
+      work_mode: String(b.work_mode || "Self Use").trim() || "Self Use",
+      enable_force_charge: Boolean(b.enable_force_charge),
     });
   }
   return { hours, bands };
@@ -3365,6 +3368,7 @@ function normalizeTariffDraft(raw) {
     standing_source: normalizeTariffStandingSource(t.standing_source),
     standing_entity: entity(t.standing_entity),
     standing_charge_p_per_day: parseTariffRate(t.standing_charge_p_per_day),
+    apply_band_inverter_control: Boolean(t.apply_band_inverter_control),
     schedule,
     dynamic: normalizeOctopusDraft(t.dynamic, null),
   };
@@ -3397,6 +3401,7 @@ function buildTariffSavePayload(draft) {
     standing_source: normalized.standing_source,
     standing_entity: normalized.standing_entity,
     standing_charge_p_per_day: normalized.standing_charge_p_per_day,
+    apply_band_inverter_control: Boolean(normalized.apply_band_inverter_control),
     schedule,
     dynamic: {
       enabled: Boolean(normalized.dynamic?.enabled),
@@ -12783,12 +12788,14 @@ const STYLES = `
 .tariff-hour-block:hover { opacity: 1; transform: scaleY(1.08); }
 .tariff-hour-labels { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 3px; font-size: 9px; color: var(--secondary-text-color); text-align: center; margin-bottom: 12px; }
 .tariff-band-rates { display: grid; gap: 10px; }
-.tariff-band-rate-row { display: grid; grid-template-columns: auto 1fr 1fr; gap: 10px; align-items: end; }
+.tariff-band-rate-row { display: grid; grid-template-columns: auto 1fr 1fr minmax(130px, 1.1fr) auto; gap: 10px; align-items: end; }
+.tariff-band-rate-row .tariff-band-force { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; white-space: nowrap; font-size: 13px; color: var(--secondary-text-color); }
 .tariff-schedule-card.tariff-schedule-locked .tariff-band-picker,
 .tariff-schedule-card.tariff-schedule-locked .tariff-hour-grid { opacity: 0.72; pointer-events: none; }
 .tariff-schedule-card.tariff-schedule-locked .tariff-hour-block { cursor: default; transform: none; }
 .tariff-schedule-card.tariff-schedule-locked .tariff-band-chip[data-action="tariff-pick-band"] { cursor: default; }
-.tariff-schedule-card.tariff-schedule-locked .tariff-band-rate-row input { opacity: 0.55; cursor: not-allowed; }
+.tariff-schedule-card.tariff-schedule-locked .tariff-band-rate-row input,
+.tariff-schedule-card.tariff-schedule-locked .tariff-band-rate-row select { opacity: 0.55; cursor: not-allowed; }
 .tariff-rate-block.tariff-standing-locked input[data-field="tariff:standing:p"] { opacity: 0.55; cursor: not-allowed; }
 @media (max-width: 720px) {
   .tariff-band-rate-row { grid-template-columns: 1fr; }
@@ -15011,11 +15018,22 @@ Reloading panel registration…
       const bandIdx = parseInt(parts[3], 10);
       const field = parts[4];
       if (Number.isNaN(bandIdx) || bandIdx < 0 || bandIdx > 3) continue;
-      if (field !== "import" && field !== "export") continue;
-      this._tariffDraft.schedule.bands[bandIdx][`${field}_p_per_kwh`] = majorToMinor(
-        parseTariffRate(el.value),
-        currency
-      );
+      if (field !== "import" && field !== "export" && field !== "work_mode" && field !== "force_charge") continue;
+      if (!this._tariffDraft.schedule.bands[bandIdx]) continue;
+      if (field === "import" || field === "export") {
+        this._tariffDraft.schedule.bands[bandIdx][`${field}_p_per_kwh`] = majorToMinor(
+          parseTariffRate(el.value),
+          currency
+        );
+      } else if (field === "work_mode") {
+        this._tariffDraft.schedule.bands[bandIdx].work_mode = String(el.value || "Self Use").trim() || "Self Use";
+      } else if (field === "force_charge") {
+        this._tariffDraft.schedule.bands[bandIdx].enable_force_charge = Boolean(el.checked);
+      }
+    }
+    const bandControlEl = this._root.querySelector('[data-field="tariff:apply_band_inverter_control"]');
+    if (bandControlEl) {
+      this._tariffDraft.apply_band_inverter_control = Boolean(bandControlEl.checked);
     }
     const standingEl = this._root.querySelector('[data-field="tariff:standing:p"]');
     if (
@@ -21568,19 +21586,34 @@ ${standingManualBlock}
       .map((_, hour) => `<span>${hour % 6 === 0 ? String(hour).padStart(2, "0") : ""}</span>`)
       .join("");
     const inputStep = tariffRateInputStep(currency);
+    const workModeOptions = selectableWorkModeOptions(this._plantState?.settings?.work_mode_options ?? []);
     const bandRows = schedule.bands
       .map((band, idx) => {
         const importDisplay =
           showImport && band.import_p_per_kwh > 0 ? minorToMajor(band.import_p_per_kwh, currency) : "";
         const exportDisplay =
           showExport && band.export_p_per_kwh > 0 ? minorToMajor(band.export_p_per_kwh, currency) : "";
+        const bandWorkMode = resolveWorkModeDraft(band.work_mode || "Self Use", workModeOptions);
+        const modeOpts = (workModeOptions.length ? workModeOptions : [bandWorkMode])
+          .map(
+            (opt) =>
+              `<option value="${esc(opt)}" ${opt === bandWorkMode ? "selected" : ""}>${esc(workModeMeta(opt).title)}</option>`
+          )
+          .join("");
         return `<div class="tariff-band-rate-row">
 <span class="tariff-band-chip" style="cursor:default;border:none;padding:4px 0"><span class="tariff-band-swatch" style="background:${TARIFF_BAND_COLORS[idx]}"></span>${esc(TARIFF_BAND_LABELS[idx])}</span>
 ${showImport ? `<div class="field" style="margin:0"><label>Import ${esc(currency)}/kWh</label><input type="number" min="0" max="9999" step="${esc(inputStep)}" inputmode="decimal" data-field="tariff:schedule:band:${idx}:import" value="${esc(String(importDisplay || ""))}" placeholder="${currency === "GBP" ? "e.g. 0.245" : "e.g. 0.25"}" ${scheduleDisabled ? "disabled" : ""}></div>` : `<div></div>`}
 ${showExport ? `<div class="field" style="margin:0"><label>Export ${esc(currency)}/kWh</label><input type="number" min="0" max="9999" step="${esc(inputStep)}" inputmode="decimal" data-field="tariff:schedule:band:${idx}:export" value="${esc(String(exportDisplay || ""))}" placeholder="${currency === "GBP" ? "e.g. 0.150" : "e.g. 0.15"}" ${scheduleDisabled ? "disabled" : ""}></div>` : `<div></div>`}
+<div class="field" style="margin:0"><label>Work mode</label><select data-field="tariff:schedule:band:${idx}:work_mode" ${scheduleDisabled ? "disabled" : ""}>${modeOpts}</select></div>
+<label class="tariff-band-force"><input type="checkbox" data-field="tariff:schedule:band:${idx}:force_charge" ${band.enable_force_charge ? "checked" : ""} ${scheduleDisabled ? "disabled" : ""}>Force charge</label>
 </div>`;
       })
       .join("");
+    const haSchedulerOn = Boolean(this._plantState?.plant_schedule?.enabled);
+    const bandControlHint = haSchedulerOn
+      ? "Quick Settings mode scheduler is enabled — it takes priority over tariff band work modes."
+      : "When enabled, each hour applies that band’s work mode (and optional force charge) while plant control is on.";
+    const bandControlChecked = Boolean(draft.apply_band_inverter_control);
     const pluginIds = this._plantState?.tariff?.plugin_sensors ?? {};
     const pluginHint = pluginIds.import || pluginIds.export
       ? `<p class="field-hint" style="margin:0 0 12px">Plugin sensors: ${[pluginIds.import, pluginIds.export].filter(Boolean).map((id) => esc(id)).join(" · ") || "—"} — rates update at each hour boundary so the recorder captures when costs change.</p>`
@@ -21591,6 +21624,8 @@ ${showExport ? `<div class="field" style="margin:0"><label>Export ${esc(currency
     return `<div class="card tariff-schedule-card${octopusLocked ? " tariff-schedule-locked" : ""}">
 <p class="card-title">Daily time-of-use schedule</p>
 <p class="field-hint" style="margin:0 0 12px">${esc(scheduleIntro)}</p>
+<div class="toggle-row" style="margin:0 0 12px"><span>Apply band work mode to inverter</span><input type="checkbox" data-field="tariff:apply_band_inverter_control" ${bandControlChecked ? "checked" : ""} ${scheduleDisabled ? "disabled" : ""}></div>
+<p class="field-hint" style="margin:0 0 12px">${esc(bandControlHint)}</p>
 ${pluginHint}
 <div class="tariff-band-picker">${bandChips}</div>
 <div class="tariff-hour-grid">${hourBlocks}</div>

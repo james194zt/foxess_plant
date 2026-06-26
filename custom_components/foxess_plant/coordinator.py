@@ -861,6 +861,14 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_tariff_schedule_tick(self) -> None:
         await self.async_update_tariff_sensors(record_history=True)
         self._setup_tariff_schedule_timer()
+        if self.plant.control_active and self.plant.tariff.apply_band_inverter_control:
+            if not self.plant.plant_schedule.enabled:
+                from .schedule_runner import apply_current_schedule_state
+
+                try:
+                    await apply_current_schedule_state(self)
+                except Exception as err:
+                    _LOGGER.warning("Tariff band inverter apply failed: %s", err)
         try:
             await self._evaluate_smart_charge()
         except Exception as err:
@@ -3627,6 +3635,14 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._setup_octopus_timer()
         self._setup_octopus_greener_timer()
         self._setup_octopus_consumption_timer()
+        if cfg.apply_band_inverter_control and self.plant.control_active:
+            from .schedule_runner import apply_current_schedule_state
+
+            self._last_schedule_bundle_sig = None
+            try:
+                await apply_current_schedule_state(self, force=True)
+            except Exception as err:
+                _LOGGER.warning("Tariff band apply after save failed: %s", err)
         await self.async_request_refresh()
 
     async def async_save_octopus(

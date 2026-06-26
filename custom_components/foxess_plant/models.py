@@ -997,6 +997,7 @@ class TariffConfig:
     standing_entity: str | None = None
     standing_charge_p_per_day: float = 0.0
     schedule: Any = None  # TariffScheduleConfig — lazy import to avoid circular refs
+    apply_band_inverter_control: bool = False
     dynamic: TariffDynamicConfig = field(default_factory=TariffDynamicConfig)
     last_updated_at: str | None = None
 
@@ -1073,6 +1074,7 @@ class TariffConfig:
             standing_entity=_entity("standing_entity"),
             standing_charge_p_per_day=_rate("standing_charge_p_per_day"),
             schedule=schedule,
+            apply_band_inverter_control=bool(raw.get("apply_band_inverter_control")),
             dynamic=TariffDynamicConfig.from_dict(raw.get("dynamic")),
             last_updated_at=raw.get("last_updated_at"),
         )
@@ -1098,6 +1100,7 @@ class TariffConfig:
             "standing_source": self.standing_source,
             "standing_entity": self.standing_entity,
             "standing_charge_p_per_day": round(self.standing_charge_p_per_day, 4),
+            "apply_band_inverter_control": bool(self.apply_band_inverter_control),
             "schedule": schedule.to_dict(),
             "dynamic": self.dynamic.to_dict(include_api_key=include_secrets),
             "last_updated_at": self.last_updated_at,

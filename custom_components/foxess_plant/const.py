@@ -560,13 +560,34 @@ DEFAULT_TARIFF = {
     "standing_source": "plugin",
     "standing_entity": None,
     "standing_charge_p_per_day": 0.0,
+    "apply_band_inverter_control": False,
     "schedule": {
         "hours": [0] * 24,
         "bands": [
-            {"import_p_per_kwh": 0.0, "export_p_per_kwh": 0.0},
-            {"import_p_per_kwh": 0.0, "export_p_per_kwh": 0.0},
-            {"import_p_per_kwh": 0.0, "export_p_per_kwh": 0.0},
-            {"import_p_per_kwh": 0.0, "export_p_per_kwh": 0.0},
+            {
+                "import_p_per_kwh": 0.0,
+                "export_p_per_kwh": 0.0,
+                "work_mode": "Self Use",
+                "enable_force_charge": False,
+            },
+            {
+                "import_p_per_kwh": 0.0,
+                "export_p_per_kwh": 0.0,
+                "work_mode": "Self Use",
+                "enable_force_charge": False,
+            },
+            {
+                "import_p_per_kwh": 0.0,
+                "export_p_per_kwh": 0.0,
+                "work_mode": "Self Use",
+                "enable_force_charge": False,
+            },
+            {
+                "import_p_per_kwh": 0.0,
+                "export_p_per_kwh": 0.0,
+                "work_mode": "Self Use",
+                "enable_force_charge": False,
+            },
         ],
     },
     "dynamic": {

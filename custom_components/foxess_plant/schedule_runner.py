@@ -23,6 +23,7 @@ SOURCE_SEGMENT = "segment"
 SOURCE_REMAINING = "remaining"
 SOURCE_OVERRIDE = "override"
 SOURCE_LEGACY = "legacy"
+SOURCE_TARIFF = "tariff"
 
 
 @dataclass(frozen=True)
@@ -139,6 +140,58 @@ def bundle_from_override_periods(
     )
 
 
+def bundle_from_tariff_band(
+    band,
+    *,
+    min_soc: int,
+    min_soc_on_grid: int,
+    max_soc: int,
+    band_label: str,
+) -> ScheduleApplyBundle:
+    """Map one TOU tariff band to instant Modbus commands."""
+    force = bool(band.enable_force_charge)
+    work_mode = str(getattr(band, "work_mode", None) or "Self Use").strip() or "Self Use"
+    return ScheduleApplyBundle(
+        work_mode=work_mode,
+        min_soc=min_soc,
+        min_soc_on_grid=min_soc_on_grid,
+        max_soc=max_soc,
+        force_charge=force,
+        charge_from_grid=force,
+        source=SOURCE_TARIFF,
+        label=band_label,
+    )
+
+
+def resolve_tariff_band_bundle(
+    coordinator: FoxESSPlantCoordinator,
+    when: datetime | None = None,
+) -> ScheduleApplyBundle | None:
+    """Bundle for the tariff band covering the current local hour."""
+    plant = coordinator.plant
+    tariff = plant.tariff
+    if not tariff.apply_band_inverter_control:
+        return None
+
+    from .tariff_schedule import TARIFF_BAND_LABELS
+
+    schedule = tariff.schedule_config()
+    local = dt_util.as_local(when or dt_util.now())
+    band_idx = schedule.band_index_for_hour(local.hour)
+    band = schedule.bands[band_idx]
+    virtual_max = plant.virtual_soc.max_soc
+    current = read_soc_current(coordinator.hass, plant.entity_map)
+    max_soc = int(virtual_max) if virtual_max is not None else current.get("max_soc", 100)
+    label = TARIFF_BAND_LABELS[band_idx] if band_idx < len(TARIFF_BAND_LABELS) else f"Band {band_idx + 1}"
+    return bundle_from_tariff_band(
+        band,
+        min_soc=current.get("min_soc", 10),
+        min_soc_on_grid=current.get("min_soc_on_grid", 10),
+        max_soc=max_soc,
+        band_label=label,
+    )
+
+
 def resolve_desired_bundle(coordinator: FoxESSPlantCoordinator) -> ScheduleApplyBundle | None:
     """Pick the schedule bundle Fox Plant should apply right now."""
     plant = coordinator.plant
@@ -167,21 +220,21 @@ def resolve_desired_bundle(coordinator: FoxESSPlantCoordinator) -> ScheduleApply
         )
 
     schedule = plant.plant_schedule
-    if not schedule.enabled:
-        return None
+    if schedule.enabled:
+        segment = resolve_active_segment(schedule.segments) if schedule.segments else None
+        if segment:
+            return bundle_from_segment(segment)
+        virtual_max = plant.virtual_soc.max_soc
+        current = read_soc_current(coordinator.hass, plant.entity_map)
+        max_soc = int(virtual_max) if virtual_max is not None else current.get("max_soc", 100)
+        return bundle_from_remaining(
+            schedule.remaining_work_mode,
+            min_soc=current.get("min_soc", 10),
+            min_soc_on_grid=current.get("min_soc_on_grid", 10),
+            max_soc=max_soc,
+        )
 
-    segment = resolve_active_segment(schedule.segments) if schedule.segments else None
-    if segment:
-        return bundle_from_segment(segment)
-    virtual_max = plant.virtual_soc.max_soc
-    current = read_soc_current(coordinator.hass, plant.entity_map)
-    max_soc = int(virtual_max) if virtual_max is not None else current.get("max_soc", 100)
-    return bundle_from_remaining(
-        schedule.remaining_work_mode,
-        min_soc=current.get("min_soc", 10),
-        min_soc_on_grid=current.get("min_soc_on_grid", 10),
-        max_soc=max_soc,
-    )
+    return resolve_tariff_band_bundle(coordinator)
 
 
 def _soc_bundle_needs_write(

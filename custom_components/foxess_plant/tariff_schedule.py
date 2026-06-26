@@ -15,12 +15,18 @@ TARIFF_SOURCE_SCHEDULE = "schedule"
 TARIFF_SOURCE_PLUGIN = "plugin"
 
 
+TARIFF_BAND_LABELS = ("Band A", "Band B", "Band C", "Band D")
+DEFAULT_TARIFF_BAND_WORK_MODE = "Self Use"
+
+
 @dataclass
 class TariffBandConfig:
-    """One of up to four daily rate bands (import + export per band)."""
+    """One of up to four daily rate bands (rates + optional inverter behaviour)."""
 
     import_p_per_kwh: float = 0.0
     export_p_per_kwh: float = 0.0
+    work_mode: str = DEFAULT_TARIFF_BAND_WORK_MODE
+    enable_force_charge: bool = False
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> TariffBandConfig:
@@ -32,12 +38,22 @@ class TariffBandConfig:
             except (TypeError, ValueError):
                 return 0.0
 
-        return cls(import_p_per_kwh=_rate("import_p_per_kwh"), export_p_per_kwh=_rate("export_p_per_kwh"))
+        work_mode = str(raw.get("work_mode") or DEFAULT_TARIFF_BAND_WORK_MODE).strip()
+        if not work_mode:
+            work_mode = DEFAULT_TARIFF_BAND_WORK_MODE
+        return cls(
+            import_p_per_kwh=_rate("import_p_per_kwh"),
+            export_p_per_kwh=_rate("export_p_per_kwh"),
+            work_mode=work_mode,
+            enable_force_charge=bool(raw.get("enable_force_charge")),
+        )
 
-    def to_dict(self) -> dict[str, float]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "import_p_per_kwh": round(self.import_p_per_kwh, 4),
             "export_p_per_kwh": round(self.export_p_per_kwh, 4),
+            "work_mode": self.work_mode,
+            "enable_force_charge": bool(self.enable_force_charge),
         }
 
 
