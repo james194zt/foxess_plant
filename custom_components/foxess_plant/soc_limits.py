@@ -484,15 +484,22 @@ async def _apply_contiguous_soc_writes(
 ) -> list[dict[str, Any]]:
     """EVO/H3 Pro: FC6 writes for 46609, 46611, 46610 — always in min → system min → max order."""
     is_evo = device_is_evo(hass, device_id, entity_map)
-    await _prepare_inverter_for_soc_writes(hass, entity_map)
-    outcomes: dict[str, SocWriteResult] = {}
-    write_failed = False
     if emulate_max_soc:
         seq_current = read_soc_current(hass, entity_map)
         write_steps = compute_evo_min_write_steps(target, seq_current)
     else:
         write_steps = [(key, target[key]) for key in EVO_SOC_WRITE_ORDER]
 
+    needs_prepare = False
+    for key, value in write_steps:
+        if _read_soc_key(hass, entity_map, key) != value:
+            needs_prepare = True
+            break
+    if needs_prepare:
+        await _prepare_inverter_for_soc_writes(hass, entity_map)
+
+    outcomes: dict[str, SocWriteResult] = {}
+    write_failed = False
     verify_retries = 3 if emulate_max_soc else 1
     for index, (key, value) in enumerate(write_steps):
         if write_failed:
@@ -676,7 +683,13 @@ async def apply_soc_limits(
         return _build_soc_results(target, outcomes)
 
     # H1 / legacy inverters — ordered per-register writes.
-    await _prepare_inverter_for_soc_writes(hass, entity_map)
+    needs_prepare = False
+    for key, value in sequence:
+        if _read_soc_key(hass, entity_map, key) != value:
+            needs_prepare = True
+            break
+    if needs_prepare:
+        await _prepare_inverter_for_soc_writes(hass, entity_map)
     outcomes: dict[str, SocWriteResult] = {}
     errors: dict[str, str] = {}
     write_failed = False

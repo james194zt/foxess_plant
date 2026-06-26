@@ -14,6 +14,26 @@ CAP_SOURCE_HARDWARE = "hardware"
 
 FEED_IN_WORK_MODE_OPTIONS = ("Feed-in Priority", "Feed-in First")
 
+# Fox app / entity option spelling variants on different firmware builds.
+WORK_MODE_ALIASES: dict[str, tuple[str, ...]] = {
+    "Feed-in First": ("Feed-in Priority",),
+    "Feed-in Priority": ("Feed-in First",),
+    "Back-up": ("Back Up",),
+    "Back Up": ("Back-up",),
+}
+
+
+def resolve_work_mode_option(requested: str, options: list[str] | None) -> str:
+    """Map a requested work mode to a valid foxess_modbus select option when possible."""
+    if not options:
+        return requested
+    if requested in options:
+        return requested
+    for alt in WORK_MODE_ALIASES.get(requested, ()):
+        if alt in options:
+            return alt
+    return requested
+
 
 def smart_charge_max_cap(target_max_soc: float | None, max_target_soc: float) -> float:
     """Effective charging ceiling from SmartCharge config."""

@@ -82,13 +82,12 @@ def resolve_active_segment(
 
 
 def bundle_from_segment(segment: SchedulerSegmentConfig) -> ScheduleApplyBundle:
-    force = segment.enable_force_charge and segment.enable_charge_from_grid
     return ScheduleApplyBundle(
         work_mode=segment.work_mode,
         min_soc=segment.min_soc,
         min_soc_on_grid=segment.min_soc_on_grid,
         max_soc=segment.max_soc,
-        force_charge=force,
+        force_charge=segment.enable_force_charge,
         charge_from_grid=segment.enable_charge_from_grid,
         source=SOURCE_SEGMENT,
         label=segment.label or f"{segment.start}–{segment.end}",
@@ -133,7 +132,7 @@ def bundle_from_override_periods(
         min_soc=min_soc,
         min_soc_on_grid=min_soc_on_grid,
         max_soc=max_v,
-        force_charge=force and grid,
+        force_charge=force,
         charge_from_grid=grid,
         source=SOURCE_OVERRIDE,
         label=mode_label,
@@ -185,6 +184,22 @@ def resolve_desired_bundle(coordinator: FoxESSPlantCoordinator) -> ScheduleApply
     )
 
 
+def _soc_bundle_needs_write(
+    current: dict[str, int],
+    bundle: ScheduleApplyBundle,
+    *,
+    emulate_max: bool,
+) -> bool:
+    """True when min/on-grid/max registers need a Modbus write for this bundle."""
+    if current.get("min_soc") != bundle.min_soc:
+        return True
+    if current.get("min_soc_on_grid") != bundle.min_soc_on_grid:
+        return True
+    if emulate_max:
+        return False
+    return current.get("max_soc") != bundle.max_soc
+
+
 async def apply_schedule_bundle(
     coordinator: FoxESSPlantCoordinator,
     bundle: ScheduleApplyBundle,
@@ -202,40 +217,40 @@ async def apply_schedule_bundle(
         if emulate_max:
             plant.virtual_soc.hardware_max_supported = False
 
-    await apply_soc_limits(
-        coordinator.hass,
-        entity_map,
-        min_soc=bundle.min_soc,
-        min_soc_on_grid=bundle.min_soc_on_grid,
-        max_soc=bundle.max_soc,
-        force_write=True,
-        verify=False,
-        emulate_max_soc=emulate_max,
-        inverter_target=plant.inverter_target,
-        device_id=plant.device_id,
-        live_battery_soc=coordinator._entity_float("battery_soc"),
-    )
-
-    entity_id = entity_map.get("work_mode")
-    if entity_id:
-        options = coordinator._entity_options("work_mode")
-        if not options or bundle.work_mode in options:
-            await coordinator.hass.services.async_call(
-                "select",
-                "select_option",
-                {"entity_id": entity_id, "option": bundle.work_mode},
-                blocking=True,
+    current_soc = read_soc_current(coordinator.hass, entity_map)
+    if _soc_bundle_needs_write(current_soc, bundle, emulate_max=emulate_max):
+        try:
+            await apply_soc_limits(
+                coordinator.hass,
+                entity_map,
+                min_soc=bundle.min_soc,
+                min_soc_on_grid=bundle.min_soc_on_grid,
+                max_soc=bundle.max_soc,
+                force_write=True,
+                verify=False,
+                emulate_max_soc=emulate_max,
+                inverter_target=plant.inverter_target,
+                device_id=plant.device_id,
+                live_battery_soc=coordinator._entity_float("battery_soc"),
+            )
+        except Exception as err:
+            _LOGGER.warning(
+                "Schedule SOC apply failed for %s / %s (continuing with work mode): %s",
+                bundle.source,
+                bundle.label,
+                err,
             )
 
+    await coordinator._set_work_mode(bundle.work_mode)
+
     if entity_map.get("remote_control"):
-        if bundle.force_charge and bundle.charge_from_grid:
+        if bundle.force_charge:
             await set_remote_control_mode(coordinator.hass, entity_map, "Force Charge")
         else:
             await set_remote_control_mode(coordinator.hass, entity_map, "Disable")
 
-    await coordinator._enforce_virtual_max_soc()
     if device_is_evo(coordinator.hass, plant.device_id, entity_map):
-        _LOGGER.debug(
+        _LOGGER.info(
             "Applied HA schedule bundle (%s / %s): work_mode=%s max_soc=%s force_charge=%s",
             bundle.source,
             bundle.label,

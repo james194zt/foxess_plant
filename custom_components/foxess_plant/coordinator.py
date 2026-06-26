@@ -1921,24 +1921,29 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 _LOGGER.debug("Remote Control disable before restore skipped: %s", err)
 
     async def _set_work_mode(self, option: str) -> None:
+        from .virtual_max_soc import resolve_work_mode_option
+
         entity_id = self.plant.entity_map.get("work_mode")
         if not entity_id:
+            _LOGGER.warning("Cannot set work mode %r: work_mode entity not mapped", option)
             return
         options = self._entity_options("work_mode")
-        if options and option not in options:
+        resolved = resolve_work_mode_option(option, options)
+        if options and resolved not in options:
             _LOGGER.warning(
-                "Cannot restore work mode %r; not in entity options (%s)",
+                "Cannot set work mode %r (resolved %r); not in entity options (%s)",
                 option,
+                resolved,
                 ", ".join(options),
             )
             return
         await self.hass.services.async_call(
             "select",
             "select_option",
-            {"entity_id": entity_id, "option": option},
+            {"entity_id": entity_id, "option": resolved},
             blocking=True,
         )
-        _LOGGER.info("Restored work mode to %s on %s", option, entity_id)
+        _LOGGER.info("Set work mode to %s on %s", resolved, entity_id)
 
     async def _restore_after_automation_disarm(
         self,
@@ -2055,6 +2060,22 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._persist()
         return results
 
+    def _resolve_schedule_work_mode(self) -> str | None:
+        """Work mode the HA scheduler wants right now, resolved to entity options."""
+        from .schedule_runner import resolve_desired_bundle
+        from .virtual_max_soc import resolve_work_mode_option
+
+        schedule = self.plant.plant_schedule
+        if not schedule.enabled:
+            return None
+        bundle = resolve_desired_bundle(self)
+        if bundle is None:
+            return None
+        return resolve_work_mode_option(
+            bundle.work_mode,
+            self._entity_options("work_mode"),
+        )
+
     async def _enforce_virtual_max_soc(self) -> None:
         if not self.plant.control_active:
             await self._release_virtual_max_cap()
@@ -2086,8 +2107,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if current == feed_in:
             self._virtual_cap_active = True
             return
-        if current and current not in TRANSIENT_WORK_MODE_OPTIONS:
-            self._virtual_cap_saved_work_mode = current
+        scheduled = self._resolve_schedule_work_mode()
+        save_mode = scheduled
+        if not save_mode and current and current not in TRANSIENT_WORK_MODE_OPTIONS:
+            save_mode = current
+        if save_mode:
+            self._virtual_cap_saved_work_mode = save_mode
         await self._clear_remote_control_for_restore()
         await self._set_work_mode(feed_in)
         self._virtual_cap_active = True
@@ -2099,10 +2124,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         saved = self._virtual_cap_saved_work_mode
         self._virtual_cap_active = False
         self._virtual_cap_saved_work_mode = None
-        if saved:
+        scheduled = self._resolve_schedule_work_mode()
+        restore = scheduled or saved
+        if restore:
             await self._clear_remote_control_for_restore()
-            await self._set_work_mode(saved)
-            _LOGGER.info("Released virtual max SOC cap; restored work mode %s", saved)
+            await self._set_work_mode(restore)
+            _LOGGER.info("Released virtual max SOC cap; restored work mode %s", restore)
         else:
             _LOGGER.info("Released virtual max SOC cap")
 
