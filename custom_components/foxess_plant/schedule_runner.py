@@ -322,15 +322,15 @@ async def apply_current_schedule_state(
     coordinator: FoxESSPlantCoordinator,
     *,
     force: bool = False,
-) -> bool:
-    """Apply the bundle for the current minute if it changed. Returns True when applied."""
+) -> ScheduleApplyBundle | None:
+    """Apply the bundle for the current minute if it changed. Returns bundle when applied."""
     bundle = resolve_desired_bundle(coordinator)
     if bundle is None:
-        return False
+        return None
     signature = bundle.signature()
     last = getattr(coordinator, "_last_schedule_bundle_sig", None)
     if not force and signature == last:
-        return False
+        return None
     await apply_schedule_bundle(coordinator, bundle)
     coordinator._last_schedule_bundle_sig = signature
-    return True
+    return bundle

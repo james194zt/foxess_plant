@@ -13432,6 +13432,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._smartChargeSocSaveResults = null;
     this._socSaveError = null;
     this._socSaveResults = null;
+    this._scheduleApplyResults = null;
     this._workModeDraft = null;
     this._stormDraft = null;
     this._triggerMeta = null;
@@ -16725,6 +16726,11 @@ Reloading panel registration…
       this._render();
       return;
     }
+    if (action === "schedule-result-close") {
+      this._scheduleApplyResults = null;
+      this._render();
+      return;
+    }
     if (action === "save-work-mode") {
       await this._saveWorkMode();
       return;
@@ -17817,7 +17823,7 @@ ${note}
     this._busy = true;
     this._render();
     try {
-      const state = await this._hass.connection.sendMessagePromise({
+      const response = await this._hass.connection.sendMessagePromise({
         type: "foxess_plant/update_plant_schedule",
         plant_id: plant.entry_id,
         plant_schedule: {
@@ -17826,10 +17832,26 @@ ${note}
           segments: this._scheduleDraft.segments || [],
         },
       });
-      if (state) this._plantState = state;
+      const { schedule_apply_results: scheduleResults, ...plantState } = response || {};
+      if (response) this._plantState = plantState;
+      this._scheduleApplyResults = Array.isArray(scheduleResults) ? scheduleResults : null;
       this._initScheduleDraft();
       this._initChargeDraft();
-      this._showToast("Mode scheduler saved — Fox Plant will apply segments on the clock");
+      const allOk =
+        !this._scheduleApplyResults?.length || this._scheduleApplyResults.every((row) => row.success);
+      if (allOk) {
+        this._showToast("Mode scheduler saved — live inverter read-back OK");
+      } else {
+        const failed = (this._scheduleApplyResults || [])
+          .filter((row) => !row.success)
+          .map((row) => row.label || row.key);
+        this._showToast(
+          failed.length
+            ? `Scheduler saved but read-back failed: ${failed.join(", ")}`
+            : "Scheduler saved but inverter read-back incomplete",
+          "err"
+        );
+      }
     } catch (err) {
       this._showToast(formatWebsocketError(err, "Scheduler save failed"), "err");
     } finally {
@@ -21605,6 +21627,12 @@ ${periodMaxHint}
     const probeBusy = this._busy || this._scheduleProbeRunning;
     const probeSummary = this._probeSummaryLine(this._scheduleProbeResults?.summary);
     const probeTable = DEBUG_SCHEDULE_PROBE ? this._renderProbeResultsTable(this._scheduleProbeResults) : "";
+    const applyFeedback = this._scheduleApplyResults?.length
+      ? renderSocResultHtml(this._scheduleApplyResults).replace(
+          'data-action="soc-result-close"',
+          'data-action="schedule-result-close"'
+        ).replace('aria-label="SOC save result"', 'aria-label="Schedule apply result"')
+      : "";
     const probeBlock = DEBUG_SCHEDULE_PROBE
       ? `<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--divider-color)">
 <p class="field-hint" style="margin:0 0 8px"><strong>Schedule write test</strong> — applies a temporary work mode / SOC change via the same path as the live scheduler, reads back from the inverter (not cached HA state), then restores your current schedule.</p>
@@ -21628,6 +21656,7 @@ ${segmentCards}
 <button type="button" class="btn btn-secondary" data-action="add-schedule-segment" ${this._busy || segments.length >= MAX_SCHEDULE_SEGMENTS ? "disabled" : ""}>Add a schedule</button>
 <button type="button" class="btn btn-secondary" data-action="apply-plant-schedule-now" ${this._busy ? "disabled" : ""}>Apply now</button>
 </div>
+${applyFeedback}
 ${probeBlock}
 </div>`;
   }

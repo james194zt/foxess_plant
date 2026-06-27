@@ -1266,10 +1266,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "using_ha_scheduler": bool(schedule.enabled),
         }
 
-    async def async_save_plant_schedule(self, schedule: dict[str, Any]) -> None:
+    async def async_save_plant_schedule(self, schedule: dict[str, Any]) -> list[dict[str, Any]]:
         from .const import MAX_SCHEDULE_SEGMENTS
         from .models import ChargePeriodConfig, PlantScheduleConfig
         from .schedule_runner import apply_current_schedule_state
+        from .schedule_verify import verify_schedule_bundle
 
         cfg = PlantScheduleConfig.from_dict(schedule)
         if len(cfg.segments) > MAX_SCHEDULE_SEGMENTS:
@@ -1280,7 +1281,18 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.plant.control_active = True
         await self._persist()
         self._last_schedule_bundle_sig = None
-        await apply_current_schedule_state(self, force=True)
+        applied = await apply_current_schedule_state(self, force=True)
+        if applied is None:
+            return [
+                {
+                    "key": "apply",
+                    "label": "Apply",
+                    "success": True,
+                    "message": "Schedule saved — nothing to apply to the inverter right now",
+                    "skipped": True,
+                }
+            ]
+        return await verify_schedule_bundle(self, applied)
 
     @staticmethod
     def _baseline_periods_from_schedule(schedule: PlantScheduleConfig) -> list[ChargePeriodConfig]:

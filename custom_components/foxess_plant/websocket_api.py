@@ -539,7 +539,7 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             connection.send_error(msg["id"], err_code, err_msg)
             return
         try:
-            await coordinator.async_save_plant_schedule(dict(msg["plant_schedule"]))
+            verify_results = await coordinator.async_save_plant_schedule(dict(msg["plant_schedule"]))
         except HomeAssistantError as err:
             connection.send_error(msg["id"], "plant_schedule_save_failed", str(err))
             return
@@ -547,7 +547,9 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             _LOGGER.exception("update_plant_schedule websocket failed")
             connection.send_error(msg["id"], "plant_schedule_save_failed", str(err))
             return
-        connection.send_result(msg["id"], coordinator.get_plant_state())
+        state = coordinator.get_plant_state()
+        state["schedule_apply_results"] = verify_results
+        connection.send_result(msg["id"], state)
 
     @websocket_api.websocket_command({vol.Required("type"): WS_TYPE_FORECAST_ENTITY_CANDIDATES})
     @websocket_api.async_response
