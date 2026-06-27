@@ -56,6 +56,17 @@ def _coordinator(
 
 
 class VirtualMaxSocTests(unittest.TestCase):
+    def test_emulate_max_soc_defaults_to_hardware(self) -> None:
+        plant = SimpleNamespace(virtual_soc=SimpleNamespace(hardware_max_supported=None))
+        coord = SimpleNamespace(plant=plant)
+        self.assertFalse(virtual_max_soc.emulate_max_soc(coord))
+
+    def test_emulate_max_soc_when_hardware_known(self) -> None:
+        for hw, expected in ((True, False), (False, True)):
+            plant = SimpleNamespace(virtual_soc=SimpleNamespace(hardware_max_supported=hw))
+            coord = SimpleNamespace(plant=plant)
+            self.assertEqual(virtual_max_soc.emulate_max_soc(coord), expected)
+
     def test_storm_overrides_smart_charge(self) -> None:
         cap, source = virtual_max_soc.resolve_virtual_max_soc_cap(
             _coordinator(

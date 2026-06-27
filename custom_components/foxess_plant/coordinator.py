@@ -165,6 +165,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._virtual_cap_saved_work_mode: str | None = None
         self._unsub_schedule: callable | None = None
         self._last_schedule_bundle_sig: str | None = None
+        self._evo_max_soc_flag_migrated = False
         super().__init__(
             hass,
             _LOGGER,
@@ -2021,7 +2022,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         is_evo = device_is_evo(self.hass, self.plant.device_id, self.plant.entity_map)
         if not is_evo:
             await self.async_ensure_fox_scheduler_disabled()
-        emulate_max = True if is_evo else emulate_max_soc(self)
+        emulate_max = emulate_max_soc(self)
         results = await apply_soc_limits(
             self.hass,
             self.plant.entity_map,
@@ -2093,6 +2094,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _enforce_virtual_max_soc(self) -> None:
         if not self.plant.control_active:
+            await self._release_virtual_max_cap()
+            return
+
+        if not emulate_max_soc(self):
             await self._release_virtual_max_cap()
             return
 
@@ -3061,7 +3066,26 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self.plant.entity_map.get(key)
         }
 
+    async def _maybe_migrate_evo_max_soc_flag(self) -> None:
+        """Older builds assumed EVO max SOC was read-only; retry register 46610."""
+        if self._evo_max_soc_flag_migrated:
+            return
+        self._evo_max_soc_flag_migrated = True
+        vs = self.plant.virtual_soc
+        if vs.hardware_max_supported is not False:
+            return
+        from .discovery import device_is_evo
+
+        if not device_is_evo(self.hass, self.plant.device_id, self.plant.entity_map):
+            return
+        vs.hardware_max_supported = None
+        await self._persist()
+        _LOGGER.info(
+            "Reset stored EVO max SOC emulation flag; next save will write register 46610"
+        )
+
     async def _async_update_data(self) -> dict[str, Any]:
+        await self._maybe_migrate_evo_max_soc_flag()
         await self.async_ensure_solcast_cache()
         self._enrich_solcast_cache_metrics()
         try:

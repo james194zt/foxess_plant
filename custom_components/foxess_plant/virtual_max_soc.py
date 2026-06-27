@@ -76,14 +76,14 @@ def pick_feed_in_work_mode(options: list[str] | None) -> str | None:
 
 
 def emulate_max_soc(coordinator: FoxESSPlantCoordinator) -> bool:
-    """True when system max is enforced in software (EVO register 46610 / cloud MaxSoc unavailable)."""
-    if coordinator.plant.virtual_soc.hardware_max_supported is True:
+    """True when system max is enforced in software (hardware register 46610 unavailable)."""
+    hw = coordinator.plant.virtual_soc.hardware_max_supported
+    if hw is True:
         return False
-    if coordinator.plant.virtual_soc.hardware_max_supported is False:
+    if hw is False:
         return True
-    from .discovery import device_is_evo
-
-    return device_is_evo(coordinator.hass, coordinator.plant.device_id, coordinator.plant.entity_map)
+    # Default: write register 46610; fall back to software cap only after a failed write.
+    return False
 
 
 def virtual_max_soc_message(max_soc: int) -> str:

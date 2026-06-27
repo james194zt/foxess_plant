@@ -258,12 +258,10 @@ async def apply_modbus_lab(coordinator: Any, payload: dict[str, Any]) -> dict[st
         min_soc = int(payload["min_soc"])
         min_soc_on_grid = int(payload["min_soc_on_grid"])
         max_soc = int(payload["max_soc"])
-        force_hardware = bool(payload.get("force_hardware_max_soc"))
-        from .discovery import device_is_evo
-        from .virtual_max_soc import emulate_max_soc
+        force_hardware = bool(payload.get("force_hardware_max_soc", True))
+        from .virtual_max_soc import emulate_max_soc, virtual_max_soc_message
 
-        is_evo = device_is_evo(hass, plant.device_id, entity_map)
-        emulate_max = False if force_hardware else (True if is_evo else emulate_max_soc(coordinator))
+        emulate_max = False if force_hardware else emulate_max_soc(coordinator)
         try:
             rows = await apply_soc_limits(
                 hass,
@@ -278,6 +276,20 @@ async def apply_modbus_lab(coordinator: Any, payload: dict[str, Any]) -> dict[st
                 live_battery_soc=coordinator._entity_float("battery_soc"),
                 emulate_max_soc=emulate_max,
             )
+            max_row = next((row for row in rows if row.get("key") == "max_soc"), None)
+            if max_row:
+                if emulate_max:
+                    plant.virtual_soc.hardware_max_supported = False
+                    plant.virtual_soc.max_soc = max_soc
+                elif max_row.get("success"):
+                    plant.virtual_soc.hardware_max_supported = True
+                    plant.virtual_soc.max_soc = max_soc
+                else:
+                    plant.virtual_soc.hardware_max_supported = False
+                    plant.virtual_soc.max_soc = max_soc
+                    max_row["success"] = True
+                    max_row["message"] = virtual_max_soc_message(max_soc)
+                await coordinator._persist()
             results.append({"key": "soc_limits", "success": True, "rows": rows})
         except Exception as err:
             results.append({"key": "soc_limits", "success": False, "error": str(err)})

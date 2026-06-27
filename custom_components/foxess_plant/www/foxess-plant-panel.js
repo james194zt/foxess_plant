@@ -14986,7 +14986,7 @@ Reloading panel registration…
       work_mode: entities.work_mode || this._workModeDraft || "Self Use",
       remote_control: entities.remote_control || "Disable",
       charge_period_path: "modbus_service",
-      force_hardware_max_soc: false,
+      force_hardware_max_soc: true,
       charge_periods: periods,
       plant_schedule: {
         enabled: schedule.enabled !== false,
@@ -17707,7 +17707,7 @@ Reloading panel registration…
       opts.note ||
       (emulateMaxSocFromPlant(this._plantState)
         ? `<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. On this inverter, system max is enforced by Fox Plant — you can save a cap below the current battery level.</p>`
-        : `<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. On <strong>EVO</strong>, system max (Modbus 46610) is often read-only — Fox Plant emulates the cap when hardware writes fail.</p>`);
+        : `<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. System max is written to inverter register <strong>46610</strong> (disable Fox app scheduler if writes fail).</p>`);
 
     const thumbsHtml = SOC_THUMBS.map(
       (t) =>
@@ -21428,8 +21428,8 @@ ${table}
     const hwMax = live?.hardware_max_supported;
     const virtualMax = live?.virtual_max_soc;
     const socNote = hwMax === false
-      ? `<p class="field-hint" style="margin-top:8px">Hardware max SOC (46610) not writable — Fox Plant emulates cap${virtualMax != null ? ` at ${virtualMax}%` : ""}. Tick <strong>Force hardware max write</strong> to attempt register 46610 anyway.</p>`
-      : "";
+      ? `<p class="field-hint" style="margin-top:8px">Hardware max SOC (46610) not writable — Fox Plant emulates cap${virtualMax != null ? ` at ${virtualMax}%` : ""}. Tick <strong>Force hardware max write</strong> to retry register 46610.</p>`
+      : `<p class="field-hint" style="margin-top:8px">System max is written to inverter register <strong>46610</strong>. Disable Fox app scheduler if writes fail.</p>`;
     const periodCards = (draft.charge_periods || [])
       .slice(0, 2)
       .map((p, idx) => this._renderPeriodCard(idx, p, "modbus-lab", "Charge period"))
@@ -21548,6 +21548,9 @@ ${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">
   _renderSchedulerSegmentCard(idx, segment) {
     const seg = segment || { ...DEFAULT_SCHEDULE_SEGMENT };
     const options = selectableWorkModeOptions(this._plantState?.settings?.work_mode_options ?? []);
+    const periodMaxHint = emulateMaxSocFromPlant(this._plantState)
+      ? `<p class="field-hint" style="margin:0 0 8px">Period max is enforced by Fox Plant (inverter register 46610 unavailable).</p>`
+      : `<p class="field-hint" style="margin:0 0 8px">Period max is written to inverter register 46610.</p>`;
     const modeOpts = options.length
       ? options
           .map(
@@ -21571,7 +21574,7 @@ ${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">
 <div class="field"><label>System min SOC (%)</label><input type="number" min="10" max="100" data-field="schedule:${idx}:min_soc_on_grid" value="${esc(String(seg.min_soc_on_grid ?? seg.min_soc ?? 10))}"></div>
 <div class="field"><label>Period max SOC (%)</label><input type="number" min="10" max="100" data-field="schedule:${idx}:max_soc" value="${esc(String(seg.max_soc ?? 100))}"></div>
 </div>
-<p class="field-hint" style="margin:0 0 8px">Period max is applied as a Fox Plant cap on EVO (not inverter register 46610).</p>
+${periodMaxHint}
 <div class="toggle-row"><span>Force charge</span><input type="checkbox" data-field="schedule:${idx}:enable_force_charge" ${seg.enable_force_charge ? "checked" : ""}></div>
 <div class="toggle-row"><span>Charge from grid</span><input type="checkbox" data-field="schedule:${idx}:enable_charge_from_grid" ${seg.enable_charge_from_grid ? "checked" : ""}></div>
 <div class="btn-row" style="margin-top:8px"><button type="button" class="btn btn-secondary" data-action="remove-schedule-segment" data-idx="${idx}">Remove</button></div>
@@ -21939,7 +21942,7 @@ ${spreadHtml}
 <p class="field-hint" style="margin:0 0 12px">Same controls as Quick Settings — these values are used by SmartCharge (and override Quick Settings while automation is on). StormSafe can still charge above this cap when armed.</p>
 ${this._renderTripleSoc(plant, this._smartChargeSocDraft, liveSoc, {
   context: "smart",
-  note: `<p class="soc-limit-note">Off-grid min and system min are written to the inverter. System max is enforced by Fox Plant when register 46610 is locked on EVO.</p>`,
+  note: `<p class="soc-limit-note">Off-grid min, system min, and system max are written to the inverter (46609–46611).</p>`,
 })}
 </div>`
         : "";
