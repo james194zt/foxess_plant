@@ -1268,7 +1268,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_save_plant_schedule(self, schedule: dict[str, Any]) -> list[dict[str, Any]]:
         from .const import MAX_SCHEDULE_SEGMENTS
-        from .models import ChargePeriodConfig, PlantScheduleConfig
+        from .models import PlantScheduleConfig
         from .schedule_runner import apply_current_schedule_state
         from .schedule_verify import verify_schedule_save
 
@@ -1276,73 +1276,17 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if len(cfg.segments) > MAX_SCHEDULE_SEGMENTS:
             raise HomeAssistantError(f"At most {MAX_SCHEDULE_SEGMENTS} schedule segments are allowed")
         self.plant.plant_schedule = cfg
-        baseline = self._baseline_periods_from_schedule(cfg)
-        self.plant.baseline_periods = baseline
         if not self.plant.control_active:
             self.plant.control_active = True
         await self._persist()
         self._last_schedule_bundle_sig = None
         applied = await apply_current_schedule_state(self, force=True)
-        await self.async_ensure_fox_scheduler_disabled()
-        charge_write = await self._write_plant_schedule_charge_periods(baseline)
-        return await verify_schedule_save(self, cfg, applied, baseline, charge_write)
-
-    async def _write_plant_schedule_charge_periods(
-        self,
-        periods: list[ChargePeriodConfig],
-    ) -> dict[str, Any]:
-        """Push force-charge windows to inverter 480xx via foxess_modbus PR #1134 path."""
-        from .charge_period import apply_charge_periods, assert_charge_period_entities
-        from .discovery import missing_charge_period_entities
-
-        missing = missing_charge_period_entities(self.plant.entity_map)
-        if missing:
-            return {
-                "attempted": False,
-                "success": False,
-                "skipped": True,
-                "error": f"Missing charge period entities: {', '.join(missing)}",
-            }
-        try:
-            assert_charge_period_entities(self.plant.entity_map)
-            await apply_charge_periods(
-                self.hass,
-                self.plant.inverter_target,
-                periods,
-                entity_map=self.plant.entity_map,
-            )
-            return {"attempted": True, "success": True}
-        except HomeAssistantError as err:
-            return {"attempted": True, "success": False, "error": str(err)}
+        return await verify_schedule_save(self, cfg, applied)
 
     async def async_verify_plant_schedule_on_inverter(self) -> list[dict[str, Any]]:
-        from .schedule_verify import (
-            verify_charge_periods_on_inverter,
-            verify_saved_segments_on_inverter,
-        )
+        from .schedule_verify import verify_saved_segments_on_inverter
 
-        baseline = self.plant.baseline_periods or self._baseline_periods_from_schedule(
-            self.plant.plant_schedule
-        )
-        results = await verify_charge_periods_on_inverter(self, baseline)
-        results.extend(await verify_saved_segments_on_inverter(self, self.plant.plant_schedule))
-        return results
-
-    @staticmethod
-    def _baseline_periods_from_schedule(schedule: PlantScheduleConfig) -> list[ChargePeriodConfig]:
-        periods = [ChargePeriodConfig(), ChargePeriodConfig()]
-        slot = 0
-        for segment in schedule.segments:
-            if not segment.enable_force_charge or slot >= 2:
-                continue
-            periods[slot] = ChargePeriodConfig(
-                enable_force_charge=True,
-                enable_charge_from_grid=segment.enable_charge_from_grid,
-                start=segment.start,
-                end=segment.end,
-            )
-            slot += 1
-        return periods
+        return await verify_saved_segments_on_inverter(self, self.plant.plant_schedule)
 
     def _setup_storm_forecast_timer(self) -> None:
         if getattr(self, "_unsub_storm_forecast", None):
@@ -3325,7 +3269,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await apply_current_schedule_state(self, force=force)
                 periods = self.plant.desired_periods()
                 _LOGGER.debug(
-                    "Applied HA mode scheduler (work mode / SOC); charge periods written on Save & apply"
+                    "Applied HA mode scheduler (work mode / SOC / Remote Control); "
+                    "did not write foxess_modbus charge-period registers 480xx"
                 )
                 self._fire(
                     EVENT_PERIOD_APPLIED,

@@ -12,7 +12,6 @@ from .entity_live import (
     async_read_soc_live,
     async_refresh_entity_keys,
 )
-from .models import ChargePeriodConfig
 from .remote_control import is_remote_control_active
 from .schedule_runner import ScheduleApplyBundle
 from .soc_limits import SOC_KEYS
@@ -56,105 +55,6 @@ def _result(
         "skipped": skipped,
         "warning": warning,
     }
-
-
-def _period_label(period: ChargePeriodConfig | dict[str, Any], slot: int) -> str:
-    data = period.to_dict() if isinstance(period, ChargePeriodConfig) else period
-    if not data.get("enable_force_charge"):
-        return f"Period {slot}: disabled"
-    grid = " from grid" if data.get("enable_charge_from_grid") else ""
-    return f"Period {slot}: {data.get('start')}–{data.get('end')} force charge{grid}"
-
-
-def _charge_periods_match(
-    coordinator: FoxESSPlantCoordinator,
-    expected: list[ChargePeriodConfig],
-    actual: list[dict[str, Any]],
-) -> bool:
-    desired = [p.to_dict() for p in expected]
-    return not coordinator._compute_drift(desired, actual)
-
-
-async def verify_charge_periods_on_inverter(
-    coordinator: FoxESSPlantCoordinator,
-    expected: list[ChargePeriodConfig],
-    *,
-    timeout_s: float = _VERIFY_TIMEOUT_S,
-) -> list[dict[str, Any]]:
-    """Poll foxess_modbus charge-period entities until they match saved windows."""
-    loop = asyncio.get_running_loop()
-    start = loop.time()
-    last_actual: list[dict[str, Any]] = []
-    matched = False
-
-    while True:
-        await coordinator._refresh_charge_period_entities()
-        last_actual = coordinator._read_actual_periods()
-        matched = _charge_periods_match(coordinator, expected, last_actual)
-        if matched:
-            break
-        if loop.time() - start >= timeout_s:
-            break
-        await asyncio.sleep(ENTITY_POLL_INTERVAL_S)
-
-    summary_ok = matched
-    elapsed = loop.time() - start
-    rows: list[dict[str, Any]] = [
-        _result(
-            "charge_periods",
-            "Charge periods on inverter (480xx)",
-            success=summary_ok,
-            message=(
-                "Live read-back matches saved force-charge windows"
-                if summary_ok
-                else f"Inverter charge periods do not match saved schedule (after {elapsed:.0f}s)"
-            ),
-        )
-    ]
-
-    for idx in range(2):
-        want = expected[idx] if idx < len(expected) else ChargePeriodConfig()
-        got = last_actual[idx] if idx < len(last_actual) else {}
-        slot = idx + 1
-        if not want.enable_force_charge and not got.get("enable_force_charge"):
-            rows.append(
-                _result(
-                    f"charge_period_{slot}",
-                    f"Period {slot}",
-                    success=True,
-                    skipped=True,
-                    message="Disabled",
-                )
-            )
-            continue
-        force_ok = bool(want.enable_force_charge) == bool(got.get("enable_force_charge"))
-        grid_ok = bool(want.enable_charge_from_grid) == bool(got.get("enable_charge_from_grid"))
-        start_ok = (
-            not want.enable_force_charge
-            or coordinator._normalize_period_time(want.start)
-            == coordinator._normalize_period_time(got.get("start"))
-        )
-        end_ok = (
-            not want.enable_force_charge
-            or coordinator._normalize_period_time(want.end)
-            == coordinator._normalize_period_time(got.get("end"))
-        )
-        ok = force_ok and grid_ok and start_ok and end_ok
-        want_msg = _period_label(want, slot)
-        got_msg = _period_label(got, slot)
-        rows.append(
-            _result(
-                f"charge_period_{slot}",
-                f"Period {slot} (480xx)",
-                success=ok,
-                message=(
-                    want_msg
-                    if ok
-                    else f"Want {want_msg} — inverter has {got_msg}"
-                ),
-            )
-        )
-    return rows
 
 
 def _work_mode_matches(expected: str, actual: str | None, options: list[str]) -> bool:
@@ -295,51 +195,94 @@ def _segment_saved_summary(seg: Any) -> str:
     )
 
 
-def _same_segment(a: Any, b: Any) -> bool:
-    return a.start == b.start and a.end == b.end
-
-
 async def verify_saved_segments_on_inverter(
     coordinator: FoxESSPlantCoordinator,
     cfg: Any,
 ) -> list[dict[str, Any]]:
-    """Read live work mode / SOC when a segment is active right now."""
+    """Prove whether each saved segment is live on the inverter right now."""
     from .schedule_runner import bundle_from_segment, resolve_active_segment
 
     results: list[dict[str, Any]] = []
     segments = list(cfg.segments or [])
     enabled = [(idx, seg) for idx, seg in enumerate(segments) if seg.enabled]
 
-    if not cfg.enabled or not enabled:
-        return results
+    if not cfg.enabled:
+        return [
+            _result(
+                "scheduler_off",
+                "HA scheduler",
+                success=True,
+                skipped=True,
+                message="Scheduler disabled — timetable stored in Fox Plant only",
+            )
+        ]
+
+    if not enabled:
+        return [
+            _result(
+                "no_segments",
+                "Schedule segments",
+                success=True,
+                skipped=True,
+                message="No enabled segments — only remaining time mode applies",
+            )
+        ]
 
     active = resolve_active_segment(segments)
-    if active is None:
-        return results
+    any_active_proof = False
 
     for idx, seg in enabled:
-        if not _same_segment(seg, active):
-            continue
         window = _segment_window_label(seg)
-        expected = bundle_from_segment(seg)
-        detail_rows = await verify_schedule_bundle(coordinator, expected)
-        all_ok = all(row["success"] for row in detail_rows)
+        saved = _segment_saved_summary(seg)
+        if active is not None and seg.start == active.start and seg.end == active.end:
+            any_active_proof = True
+            expected = bundle_from_segment(seg)
+            detail_rows = await verify_schedule_bundle(coordinator, expected)
+            all_ok = all(row["success"] for row in detail_rows)
+            results.append(
+                _result(
+                    f"segment_{idx}_proof",
+                    f"Schedule {idx + 1} on inverter",
+                    success=all_ok,
+                    message=(
+                        f"Active now ({window}) — live inverter matches saved segment"
+                        if all_ok
+                        else f"Active now ({window}) — inverter does NOT match saved segment"
+                    ),
+                )
+            )
+            for row in detail_rows:
+                row["label"] = f"Schedule {idx + 1} · {row['label']}"
+            results.extend(detail_rows)
+        else:
+            results.append(
+                _result(
+                    f"segment_{idx}_proof",
+                    f"Schedule {idx + 1} on inverter",
+                    success=False,
+                    warning=True,
+                    message=(
+                        f"Not active now (outside {window}). Saved: {saved}. "
+                        f"Fox Plant applies this via Modbus when {seg.start} starts."
+                    ),
+                )
+            )
+
+    if not any_active_proof:
+        live = await read_live_schedule_state(coordinator)
         results.append(
             _result(
-                f"segment_{idx}_live",
-                f"Active segment · work mode & SOC",
-                success=all_ok,
+                "inverter_now",
+                "Inverter right now",
+                success=True,
+                skipped=True,
                 message=(
-                    f"Schedule {idx + 1} active now ({window}) — live values match"
-                    if all_ok
-                    else f"Schedule {idx + 1} active now ({window}) — live values do NOT match"
+                    f"Remaining time: {live.get('work_mode')}, "
+                    f"SOC {live.get('min_soc')}/{live.get('min_soc_on_grid')}/"
+                    f"{live.get('max_soc')}%, Remote Control {live.get('remote_control')!r}"
                 ),
             )
         )
-        for row in detail_rows:
-            row["label"] = f"Active segment · {row['label']}"
-        results.extend(detail_rows)
-        break
 
     return results
 
@@ -348,55 +291,33 @@ async def verify_schedule_save(
     coordinator: FoxESSPlantCoordinator,
     cfg: Any,
     applied: ScheduleApplyBundle | None,
-    baseline: list[ChargePeriodConfig],
-    charge_write: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """After save+apply, prove charge periods (480xx) and active segment on inverter."""
+    """After save+apply, read back what HA pushed to the inverter."""
     results: list[dict[str, Any]] = [
         _result(
             "saved",
             "Saved in Fox Plant",
             success=True,
             skipped=True,
-            message="Timetable stored on Home Assistant",
-        )
+            message="Timetable on Home Assistant — Fox Plant applies each segment on the clock",
+        ),
+        _result(
+            "ha_scheduler",
+            "How it works",
+            success=True,
+            skipped=True,
+            message=(
+                "HA owns the schedule. Each minute Fox Plant pushes work mode, SOC, and "
+                "Remote Control for the active window — not Fox app / 480xx charge periods."
+            ),
+        ),
     ]
-
-    if charge_write.get("skipped"):
-        results.append(
-            _result(
-                "charge_periods_write",
-                "Write charge periods (480xx)",
-                success=False,
-                warning=True,
-                message=charge_write.get("error") or "Charge period entities not available",
-            )
-        )
-    elif not charge_write.get("success"):
-        results.append(
-            _result(
-                "charge_periods_write",
-                "Write charge periods (480xx)",
-                success=False,
-                message=charge_write.get("error") or "foxess_modbus update_all_charge_periods failed",
-            )
-        )
-    else:
-        results.append(
-            _result(
-                "charge_periods_write",
-                "Write charge periods (480xx)",
-                success=True,
-                message="Sent to inverter via foxess_modbus update_all_charge_periods",
-            )
-        )
-        results.extend(await verify_charge_periods_on_inverter(coordinator, baseline))
 
     if applied is None:
         results.append(
             _result(
                 "apply",
-                "Apply work mode / SOC now",
+                "Apply now",
                 success=True,
                 skipped=True,
                 message="Nothing pushed (scheduler off or plant control released)",
@@ -404,30 +325,5 @@ async def verify_schedule_save(
         )
         return results
 
-    active = None
-    if cfg.enabled and cfg.segments:
-        from .schedule_runner import resolve_active_segment
-
-        active = resolve_active_segment(cfg.segments)
-
-    if active is None:
-        enabled_segments = [seg for seg in (cfg.segments or []) if seg.enabled]
-        if enabled_segments:
-            results.append(
-                _result(
-                    "segment_timing",
-                    "Work mode / SOC timing",
-                    success=True,
-                    skipped=True,
-                    warning=True,
-                    message=(
-                        "No segment active right now — work mode and SOC apply on the "
-                        "minute tick when each window starts. Charge periods above are "
-                        "stored on the inverter for force-charge windows."
-                    ),
-                )
-            )
-    else:
-        results.extend(await verify_saved_segments_on_inverter(coordinator, cfg))
-
+    results.extend(await verify_saved_segments_on_inverter(coordinator, cfg))
     return results
