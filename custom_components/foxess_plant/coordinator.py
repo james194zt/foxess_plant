@@ -1283,6 +1283,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._persist()
         self._last_schedule_bundle_sig = None
         applied = await apply_current_schedule_state(self, force=True)
+        await self.async_ensure_fox_scheduler_disabled()
         charge_write = await self._write_plant_schedule_charge_periods(baseline)
         return await verify_schedule_save(self, cfg, applied, baseline, charge_write)
 
