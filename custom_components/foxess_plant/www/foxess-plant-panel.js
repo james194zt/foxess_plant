@@ -29,10 +29,17 @@ const DEVICE_NEW_NAV = [
   { id: "alarms", label: "Alerts" },
   { id: "pv-config", label: "PV Configuration" },
   { id: "quick-settings", label: "Quick Settings" },
+  { id: "storm", label: "StormSafe" },
+  { id: "smart", label: "SmartCharge" },
+  { id: "warmup", label: "Warmup" },
 ];
 
 function isQuickSettingsDeviceSub(sub) {
   return sub === "quick-settings";
+}
+
+function isDeviceAutomationSub(sub) {
+  return sub === "storm" || sub === "smart" || sub === "warmup";
 }
 
 function isLegacyQuickSettingsSub(sub) {
@@ -41,6 +48,10 @@ function isLegacyQuickSettingsSub(sub) {
 
 function isLegacyPvSettingsSub(sub) {
   return sub === "pv";
+}
+
+function isLegacyAutomationSettingsSub(sub) {
+  return isDeviceAutomationSub(sub);
 }
 
 /** Fox Cloud device Analysis real-time curve series. */
@@ -128,9 +139,6 @@ const SETTINGS_NAV = [
   { id: "solcast", label: "Solcast" },
   { id: "glow", label: "Glow meter" },
   { id: "tariff", label: "Tariff" },
-  { id: "smart", label: "SmartCharge" },
-  { id: "storm", label: "StormSafe" },
-  { id: "warmup", label: "Warmup" },
 ];
 
 function smartChargeOwnsPlantControls(plantState) {
@@ -2865,7 +2873,7 @@ function renderSmartChargeAnalysisPage(report, { loading = false } = {}) {
     return `<div data-smart-charge-analysis-main="1"><header class="header"><h1>SmartCharge Analysis</h1></header><p class="chart-loading">Loading SmartCharge analysis…</p></div>`;
   }
   if (!report || report.enabled === false) {
-    return `<div data-smart-charge-analysis-main="1"><header class="header"><h1>SmartCharge Analysis</h1></header><p class="placeholder">Enable SmartCharge in Settings → SmartCharge to use this report.</p></div>`;
+    return `<div data-smart-charge-analysis-main="1"><header class="header"><h1>SmartCharge Analysis</h1></header><p class="placeholder">Enable SmartCharge in Device → SmartCharge to use this report.</p></div>`;
   }
   if (report.error) {
     return `<div data-smart-charge-analysis-main="1"><header class="header"><h1>SmartCharge Analysis</h1><p class="placeholder">${esc(report.error)}</p></div>`;
@@ -6940,7 +6948,7 @@ function renderSmartChargeStatTiles(decision) {
 
 function renderOverviewAutomationHalf({ sub, title, summary }) {
   const pillClass = overviewAutomationStatusPillClass(summary.tone);
-  return `<button type="button" class="overview-automation-half" data-action="settings-sub" data-sub="${esc(sub)}" aria-label="${esc(title)}: ${esc(summary.label)}">
+  return `<button type="button" class="overview-automation-half" data-action="nav" data-view="device_new" data-device-sub="${esc(sub)}" aria-label="${esc(title)}: ${esc(summary.label)}">
 <div class="overview-automation-half-head">
 <span class="overview-automation-half-title">${esc(title)}</span>
 <span class="${pillClass}">${esc(summary.label)}</span>
@@ -13785,9 +13793,9 @@ Reloading panel registration…
         this._socDraft = null;
         this._workModeDraft = null;
       }
-      if (this._settingsView !== "storm") this._stormDraft = null;
+      if (!this._isStormView()) this._stormDraft = null;
       if (this._settingsView !== "tariff" && this._settingsView !== "api") this._tariffDraft = null;
-      if (this._settingsView !== "smart") this._smartChargeDraft = null;
+      if (!this._isSmartChargeView()) this._smartChargeDraft = null;
       if (this._settingsView !== "glow") this._glowDraft = null;
       if (
         (this._settingsView === "solcast" || this._settingsView === "api") &&
@@ -13910,7 +13918,7 @@ Reloading panel registration…
   }
 
   _settingsFieldBlocksRender() {
-    if (this._view !== "settings" && !this._isQuickSettingsView()) return false;
+    if (this._view !== "settings" && !this._isDeviceFormView()) return false;
     if (this._settingsFieldFocused) return true;
     const el = this.shadowRoot?.activeElement || document.activeElement;
     if (!el || !this._root.contains(el)) return false;
@@ -13924,7 +13932,7 @@ Reloading panel registration…
 
   _onFocusIn(e) {
     if (!this._root.contains(e.target)) return;
-    if (this._view === "settings" || this._isQuickSettingsView()) {
+    if (this._view === "settings" || this._isDeviceFormView()) {
       if (
         e.target.matches?.("input, select, textarea, ha-entity-picker") ||
         e.target.closest?.("ha-entity-picker")
@@ -13955,7 +13963,7 @@ Reloading panel registration…
       });
       return;
     }
-    if (this._view !== "settings" && !this._isQuickSettingsView()) {
+    if (this._view !== "settings" && !this._isDeviceFormView()) {
       if (this._settingsFieldFocused) {
         this._settingsFieldFocused = false;
         if (this._renderPending) {
@@ -14452,8 +14460,38 @@ Reloading panel registration…
     this._enterQuickSettings();
   }
 
+  _openDeviceAutomationView(sub) {
+    this._view = "device_new";
+    this._deviceNewSub = sub;
+    this._deviceNewScreen = "main";
+    this._settingsView = "main";
+    if (sub === "storm") this._enterStormSettings();
+    if (sub === "smart") this._enterSmartChargeSettings();
+    if (sub === "warmup") void this._enterWarmupSettings();
+  }
+
   _isQuickSettingsView() {
     return this._view === "device_new" && isQuickSettingsDeviceSub(this._deviceNewSub);
+  }
+
+  _isDeviceAutomationView() {
+    return this._view === "device_new" && isDeviceAutomationSub(this._deviceNewSub);
+  }
+
+  _isDeviceFormView() {
+    return this._isQuickSettingsView() || this._isDeviceAutomationView();
+  }
+
+  _isStormView() {
+    return this._view === "device_new" && this._deviceNewSub === "storm";
+  }
+
+  _isSmartChargeView() {
+    return this._view === "device_new" && this._deviceNewSub === "smart";
+  }
+
+  _isWarmupView() {
+    return this._view === "device_new" && this._deviceNewSub === "warmup";
   }
 
   _enterQuickSettings() {
@@ -15770,7 +15808,7 @@ Reloading panel registration…
     try {
       this._triggerMeta = await fetchTriggerCandidates(this._hass);
       this._triggerCandidates = this._triggerMeta?.entities ?? [];
-      if (this._settingsView === "storm" && this._stormDraft) {
+      if (this._isStormView() && this._stormDraft) {
         const inferred = this._inferGoogleWeatherEntryId();
         if (inferred && !this._stormDraft.google_weather_entry_id) {
           this._applyGoogleWeatherEntry(inferred);
@@ -15928,6 +15966,15 @@ Reloading panel registration…
         this._deviceNewSub = btn.dataset.deviceSub;
         this._deviceNewScreen = "main";
         this._foxAlarmDetailName = null;
+        this._deviceNewStatisticsChart = null;
+        this._deviceNewStatisticsChartPlantId = undefined;
+        this._deviceNewEnergyChart = null;
+        this._deviceNewEnergyChartPlantId = undefined;
+        if (isQuickSettingsDeviceSub(this._deviceNewSub)) this._enterQuickSettings();
+        if (this._deviceNewSub === "pv-config") this._enterPvSettings();
+        if (this._deviceNewSub === "storm") this._enterStormSettings();
+        if (this._deviceNewSub === "smart") this._enterSmartChargeSettings();
+        if (this._deviceNewSub === "warmup") void this._enterWarmupSettings();
       }
       if (this._view === "energy_analysis") this._loadEnergyCharts();
       if (this._view === "reports") {
@@ -15948,10 +15995,16 @@ Reloading panel registration…
       this._deviceNewSub = sub;
       this._deviceNewScreen = "main";
       this._foxAlarmDetailName = null;
+      if (sub !== "smart") this._smartChargeDraft = null;
+      if (sub !== "warmup") this._warmupDraft = null;
+      if (sub !== "storm") this._stormDraft = null;
       if (sub === "analysis") this._loadDeviceNewCharts();
       if (sub === "alarms") void this._loadDeviceNewAlarms({ force: true });
       if (sub === "pv-config") this._enterPvSettings();
       if (isQuickSettingsDeviceSub(sub)) this._enterQuickSettings();
+      if (sub === "storm") this._enterStormSettings();
+      if (sub === "smart") this._enterSmartChargeSettings();
+      if (sub === "warmup") void this._enterWarmupSettings();
       this._scheduleRender(true);
       return;
     }
@@ -16155,6 +16208,11 @@ Reloading panel registration…
         this._render();
         return;
       }
+      if (isLegacyAutomationSettingsSub(rawSub)) {
+        this._openDeviceAutomationView(rawSub);
+        this._render();
+        return;
+      }
       const sub = rawSub;
       this._view = "settings";
       if (btn.dataset.sub !== "solcast" && btn.dataset.sub !== "api") this._solcastDraft = null;
@@ -16167,13 +16225,10 @@ Reloading panel registration…
       if (btn.dataset.sub !== "api") this._foxCloudDraft = null;
       if (btn.dataset.sub !== "warmup") this._warmupDraft = null;
       this._settingsView = sub;
-      if (btn.dataset.sub === "storm") this._enterStormSettings();
       if (btn.dataset.sub === "api") this._enterApiSettings();
-      if (btn.dataset.sub === "warmup") void this._enterWarmupSettings();
       if (btn.dataset.sub === "solcast") this._enterSolcastSettings();
       if (btn.dataset.sub === "glow") this._enterGlowSettings();
       if (btn.dataset.sub === "tariff") this._enterTariffSettings();
-      if (btn.dataset.sub === "smart") this._enterSmartChargeSettings();
       this._render();
       return;
     }
@@ -16199,6 +16254,11 @@ Reloading panel registration…
         this._render();
         return;
       }
+      if (isLegacyAutomationSettingsSub(rawSub)) {
+        this._openDeviceAutomationView(rawSub);
+        this._render();
+        return;
+      }
       const sub = rawSub;
       this._view = "settings";
       if (btn.dataset.sub !== "solcast" && btn.dataset.sub !== "api") this._solcastDraft = null;
@@ -16211,13 +16271,10 @@ Reloading panel registration…
       if (btn.dataset.sub !== "api") this._foxCloudDraft = null;
       if (btn.dataset.sub !== "warmup") this._warmupDraft = null;
       this._settingsView = sub;
-      if (btn.dataset.sub === "storm") this._enterStormSettings();
       if (btn.dataset.sub === "api") this._enterApiSettings();
-      if (btn.dataset.sub === "warmup") void this._enterWarmupSettings();
       if (btn.dataset.sub === "solcast") this._enterSolcastSettings();
       if (btn.dataset.sub === "glow") this._enterGlowSettings();
       if (btn.dataset.sub === "tariff") this._enterTariffSettings();
-      if (btn.dataset.sub === "smart") this._enterSmartChargeSettings();
       this._render();
       return;
     }
@@ -18913,6 +18970,15 @@ ${this._renderPvConfiguration({
     if (this._deviceNewSub === "quick-settings") {
       return `<div data-device-new-main="1" data-plant-id="${esc(plant.entry_id)}">${this._renderSettingsQuick()}</div>`;
     }
+    if (this._deviceNewSub === "storm") {
+      return `<div data-device-new-main="1" data-plant-id="${esc(plant.entry_id)}">${this._renderSettingsStorm()}</div>`;
+    }
+    if (this._deviceNewSub === "smart") {
+      return `<div data-device-new-main="1" data-plant-id="${esc(plant.entry_id)}">${this._renderSettingsSmartCharge()}</div>`;
+    }
+    if (this._deviceNewSub === "warmup") {
+      return `<div data-device-new-main="1" data-plant-id="${esc(plant.entry_id)}">${this._renderSettingsWarmup()}</div>`;
+    }
     const summary = renderDeviceNewSummaryCards(this._hass, plant, this._plantState);
     const sidebar = renderDeviceNewSidebar(this._hass, plant, this._plantState);
     if (this._deviceNewSub === "analysis") {
@@ -18951,7 +19017,7 @@ ${body}
 
   _patchDeviceNewLiveIfNeeded() {
     if (this._view !== "device_new" || !this._hass) return false;
-    if (this._deviceNewSub === "analysis" || this._deviceNewSub === "pv-config" || this._deviceNewSub === "alarms" || this._deviceNewSub === "quick-settings") return false;
+    if (this._deviceNewSub === "analysis" || this._deviceNewSub === "pv-config" || this._deviceNewSub === "alarms" || this._deviceNewSub === "quick-settings" || isDeviceAutomationSub(this._deviceNewSub)) return false;
     if (this._deviceNewScreen !== "main") return false;
     if (this._deviceNewAnalysisChartsStale()) return false;
     const root = this._root.querySelector("[data-device-new-main]");
@@ -20690,7 +20756,7 @@ ${note}${via}${forecastHint}${activeBadge}
   }
 
   _syncStormTriggerPicker() {
-    if (this._settingsView !== "storm" || !this._stormDraft) return;
+    if (!this._isStormView() || !this._stormDraft) return;
     const main = this._root.querySelector(".main");
     if (!main) return;
 
@@ -20788,9 +20854,6 @@ ${note}${via}${forecastHint}${activeBadge}
       solcast: this._solcastSettingsSubtitle(),
       glow: this._glowSettingsSubtitle(),
       tariff: tariffSettingsSummary(this._plantState?.tariff),
-      smart: this._smartChargeSettingsSubtitle(),
-      storm: this._settingsStormSubtitle(),
-      warmup: this._warmupSettingsSubtitle(),
     };
   }
 
@@ -20853,9 +20916,6 @@ ${renderListButton({ action: "settings-sub", sub: "api" }, "API & accounts", sub
 ${renderListButton({ action: "settings-sub", sub: "solcast" }, "Solcast", subs.solcast)}
 ${renderListButton({ action: "settings-sub", sub: "glow" }, "Glow smart meter", subs.glow)}
 ${renderListButton({ action: "settings-sub", sub: "tariff" }, "Tariff", subs.tariff)}
-${renderListButton({ action: "settings-sub", sub: "smart" }, "SmartCharge", subs.smart)}
-${renderListButton({ action: "settings-sub", sub: "storm" }, "StormSafe", subs.storm)}
-${renderListButton({ action: "settings-sub", sub: "warmup" }, "Battery Warmup", subs.warmup)}
 </div>
 ${debugProbe}</div>`;
   }
@@ -21256,7 +21316,7 @@ ${body}
   }
 
   _patchSettingsSmartChargeLiveIfNeeded() {
-    if (this._view !== "settings" || this._settingsView !== "smart" || !this._hass) return false;
+    if (!this._isSmartChargeView() || !this._hass) return false;
     const liveEl = this._root.querySelector("[data-smart-charge-live]");
     if (!liveEl || !this._smartChargeDraft?.enabled) return false;
     const { live, decision, dailyPlan, spreadPairs, planSummary } = this._smartChargeLivePlanContext();
@@ -21820,7 +21880,7 @@ ${live.last_error ? `<p class="field-hint" style="margin-top:8px;color:var(--fp-
     return `<div class="card">
 <p class="card-title">Fox Cloud API</p>
 <p class="field-hint">FoxESS Open API for mode scheduler control, battery warmup, and other cloud-only settings (not available over Modbus). A falling API quota on the Fox portal means authentication is working — some endpoints may still return &ldquo;permissions&rdquo; errors for owner accounts.</p>
-<div class="toggle-row"><span><strong>Enable Fox Cloud API</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Required for <strong>Settings → Battery Warmup</strong></span></span>
+<div class="toggle-row"><span><strong>Enable Fox Cloud API</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Required for <strong>Device → Warmup</strong></span></span>
 <input type="checkbox" data-field="fox:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 ${detailBlock}
 </div>`;
@@ -21831,7 +21891,7 @@ ${detailBlock}
     if (!this._warmupDraft) this._initWarmupDraftFromLive(live);
     const draft = this._warmupDraft;
     const ready = Boolean(live.fox_api_ready);
-    const loading = this._warmupLoading || (this._busy && this._settingsView === "warmup");
+    const loading = this._warmupLoading || (this._busy && this._isWarmupView());
     const warmupBlocked = live.api_available === false;
     const warmupError = live.last_error || this._plantState?.fox_cloud?.last_error || "";
     if (!ready) {
@@ -22193,16 +22253,10 @@ ${this._renderPvTiltAzimuthFields("pv2", { allowWhenDisabled: true })}
         return this._renderSettingsApi();
       case "tariff":
         return this._renderSettingsTariff();
-      case "smart":
-        return this._renderSettingsSmartCharge();
       case "solcast":
         return this._renderSettingsSolcast();
       case "glow":
         return this._renderSettingsGlow();
-      case "storm":
-        return this._renderSettingsStorm();
-      case "warmup":
-        return this._renderSettingsWarmup();
       default:
         return this._renderSettingsMain(plant);
     }
@@ -22223,6 +22277,10 @@ ${this._renderPvTiltAzimuthFields("pv2", { allowWhenDisabled: true })}
       case "settings":
         if (isLegacyPvSettingsSub(this._settingsView)) {
           this._openPvConfigView();
+          return this._renderDeviceNew(plant);
+        }
+        if (isLegacyAutomationSettingsSub(this._settingsView)) {
+          this._openDeviceAutomationView(this._settingsView);
           return this._renderDeviceNew(plant);
         }
         return this._renderSettings(plant);
@@ -22300,7 +22358,7 @@ ${this._renderPvTiltAzimuthFields("pv2", { allowWhenDisabled: true })}
 
     const mainEl = shell.querySelector(".main");
     const contentEl = ensureMainInner(mainEl);
-    if (this._view === "settings" && this._settingsView === "smart") {
+    if (this._isSmartChargeView()) {
       this._captureSmartChargeDetailsOpen();
     }
     if (this._view === "overview") {
@@ -22318,7 +22376,7 @@ ${this._renderPvTiltAzimuthFields("pv2", { allowWhenDisabled: true })}
     if (this._isQuickSettingsView()) {
       this._bindTripleSoc();
     }
-    if (this._view === "settings" && this._settingsView === "storm" && this._stormDraft) {
+    if (this._isStormView() && this._stormDraft) {
       this._syncStormTriggerPicker();
     }
     if (this._view === "settings" && this._settingsView === "tariff" && this._tariffDraft) {
@@ -22327,7 +22385,7 @@ ${this._renderPvTiltAzimuthFields("pv2", { allowWhenDisabled: true })}
     if (this._view === "settings" && this._settingsView === "api" && this._octopusDraft) {
       void this._syncOctopusEntityPickers();
     }
-    if (this._view === "settings" && this._settingsView === "smart") {
+    if (this._isSmartChargeView()) {
       this._bindSmartChargeDetailsOpen();
     }
     if (
