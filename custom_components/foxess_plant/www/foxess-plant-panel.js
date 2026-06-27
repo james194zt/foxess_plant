@@ -45,6 +45,11 @@ function isDeviceAutomationSub(sub) {
   return sub === "storm" || sub === "smart" || sub === "warmup";
 }
 
+/** Device subs that use the two-column sidebar layout (Analysis / Realtime / Alerts). */
+function isDeviceNewWideSub(sub) {
+  return sub === "analysis" || sub === "realtime" || sub === "alarms";
+}
+
 function isLegacyQuickSettingsSub(sub) {
   return sub === "quick" || sub === "schedules" || sub === "workmode" || sub === "control";
 }
@@ -4355,7 +4360,14 @@ function wrapFoxInverterStatePillLink(label, pillHtml, { fromOverview = false } 
   const attrs = fromOverview
     ? `data-action="nav" data-view="device_new" data-device-sub="alarms"`
     : `data-action="device-new-tab" data-sub="alarms"`;
-  return `<button type="button" class="fox-inverter-state-pill-link" ${attrs} title="View alerts">${pillHtml}</button>`;
+  return wrapFoxOverviewPillNav(pillHtml, attrs, "View alerts");
+}
+
+/** Wrap overview status / work mode / plant mode pills for navigation. */
+function wrapFoxOverviewPillNav(pillHtml, attrs, title = "") {
+  if (!pillHtml) return "";
+  const t = title ? ` title="${esc(title)}"` : "";
+  return `<button type="button" class="fox-overview-pill-link"${t} ${attrs}>${pillHtml}</button>`;
 }
 
 /** Fox device card status pill (Normal / Online with tick). */
@@ -10325,7 +10337,7 @@ const STYLES = `
   container-type: inline-size;
   container-name: fp-main;
 }
-.shell.view-device-new .main-inner {
+.shell.view-device-new-wide .main-inner {
   max-width: calc(1100px + ${DEVICE_NEW_MAIN_WIDTH_EXTRA_PX}px);
 }
 .shell.narrow .main-inner { padding: 16px; }
@@ -10353,13 +10365,16 @@ const STYLES = `
   display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; line-height: 1.35;
 }
 .overview-status-row .fox-device-new-check-pill { flex-shrink: 0; }
-.fox-inverter-state-pill-link {
+.fox-inverter-state-pill-link,
+.fox-overview-pill-link {
   display: inline-flex; align-items: center; padding: 0; margin: 0; border: none;
   background: transparent; font: inherit; color: inherit; cursor: pointer;
   border-radius: 999px;
 }
-.fox-inverter-state-pill-link:hover { filter: brightness(1.08); }
-.fox-inverter-state-pill-link:focus-visible {
+.fox-inverter-state-pill-link:hover,
+.fox-overview-pill-link:hover { filter: brightness(1.08); }
+.fox-inverter-state-pill-link:focus-visible,
+.fox-overview-pill-link:focus-visible {
   outline: 2px solid var(--primary-color, #894bfc); outline-offset: 2px;
 }
 .overview-control-hint { font-size: 13px; color: var(--secondary-text-color); white-space: nowrap; }
@@ -13430,6 +13445,7 @@ class FoxessPlantPanel extends HTMLElement {
     this._brandIconFallback = DEFAULT_BRAND_ICON_STATIC;
     this._brandIconStatic = DEFAULT_BRAND_ICON_STATIC;
     this._socDrag = null;
+    this._quickSettingsScrollSection = null;
     this._rangeDrag = false;
     this._settingsFieldFocused = false;
     this._renderPending = false;
@@ -14177,6 +14193,10 @@ Reloading panel registration…
     const hasSubnav = this._view === "settings" || this._view === "device_new";
     shell.classList.toggle("narrow", this._narrow);
     shell.classList.toggle("view-device-new", this._view === "device_new");
+    shell.classList.toggle(
+      "view-device-new-wide",
+      this._view === "device_new" && isDeviceNewWideSub(this._deviceNewSub)
+    );
     shell.classList.toggle("has-subnav", hasSubnav);
   }
 
@@ -14462,11 +14482,22 @@ Reloading panel registration…
     this._enterPvSettings();
   }
 
-  _openQuickSettingsView() {
+  _openQuickSettingsView(scrollSection = null) {
     this._view = "device_new";
     this._deviceNewSub = "quick-settings";
     this._deviceNewScreen = "main";
+    if (scrollSection) this._quickSettingsScrollSection = scrollSection;
     this._enterQuickSettings();
+  }
+
+  _scrollQuickSettingsSectionIfNeeded() {
+    const section = this._quickSettingsScrollSection;
+    if (!section || !this._isQuickSettingsView()) return;
+    this._quickSettingsScrollSection = null;
+    requestAnimationFrame(() => {
+      const el = this._root.querySelector(`[data-quick-settings-section="${section}"]`);
+      el?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   }
 
   _openDeviceAutomationView(sub) {
@@ -14505,6 +14536,10 @@ Reloading panel registration…
 
   _isModbusLabView() {
     return this._view === "settings" && this._settingsView === "modbus-lab";
+  }
+
+  _needsTripleSocBind() {
+    return this._isQuickSettingsView() || this._isModbusLabView() || this._isSmartChargeView();
   }
 
   _enterQuickSettings() {
@@ -16131,6 +16166,12 @@ Reloading panel registration…
       }
       return;
     }
+    if (action === "nav-quick-settings-section") {
+      const section = btn.dataset.section;
+      this._openQuickSettingsView(section || null);
+      this._render();
+      return;
+    }
     if (action === "nav") {
       const nextView = btn.dataset.view;
       if (
@@ -17568,7 +17609,7 @@ Reloading panel registration…
       const wrap = track.closest(".triple-soc");
       track.querySelectorAll("[data-soc-thumb]").forEach((thumb) => {
         thumb.addEventListener("pointerdown", (e) => {
-          if (this._busy) return;
+          if (this._busy || this._modbusLabApplyBusy) return;
           const draft = this._tripleSocDraftForWrap(wrap);
           if (!draft) return;
           e.preventDefault();
@@ -17640,7 +17681,7 @@ Reloading panel registration…
           : `<strong>Reserve band</strong> ${min}% – ${mid}%<br><strong>Usable to</strong> ${max}% · <strong>Now</strong> ${live}%`;
     }
     if (wrap.dataset.tripleSocContext === "smart") this._syncSmartChargeSocValidationUi();
-    else this._syncSocValidationUi();
+    else if (wrap.dataset.tripleSocContext !== "modbus-lab") this._syncSocValidationUi();
   }
 
   _renderTripleSoc(plant, d, liveSoc, opts = {}) {
@@ -17999,18 +18040,29 @@ ${note}
     const plantMode = st.mode ?? "baseline";
     const statusPart =
       systemStatus !== "—"
-        ? wrapFoxInverterStatePillLink(
-            systemStatus,
+        ? wrapFoxOverviewPillNav(
             formatFoxOverviewStatusPill(systemStatus),
-            { fromOverview: true }
+            `data-action="nav" data-view="device_new" data-device-sub="alarms"`,
+            "View alerts"
           )
         : "";
-    const workPart = workMode !== "—" ? formatFoxOverviewWorkModePill(workMode) : "";
+    const workPart =
+      workMode !== "—"
+        ? wrapFoxOverviewPillNav(
+            formatFoxOverviewWorkModePill(workMode),
+            `data-action="nav-quick-settings-section" data-section="work-mode"`,
+            "Open Work Mode in Quick Settings"
+          )
+        : "";
     return `<div class="overview-status-block">
 <div class="overview-status-row">
 ${statusPart}
 ${workPart}
-${formatFoxOverviewPlantModePill(plantMode)}
+${wrapFoxOverviewPillNav(
+  formatFoxOverviewPlantModePill(plantMode),
+  `data-action="nav-quick-settings-section" data-section="plant-control"`,
+  "Open Plant Controls in Quick Settings"
+)}
 <span class="overview-control-hint">${st.control_active ? "Plant control active" : "Plant control off"}</span>
 </div>
 ${this._renderOverviewWeather()}
@@ -21478,7 +21530,7 @@ ${this._renderModbusLabApplyResults()}
       rc && rc !== "Disable" && rc !== "unknown" && rc !== "unavailable"
         ? `<p class="field-hint" style="margin:0 0 12px">Remote control active: <strong>${esc(rc)}</strong> (use FoxESS Modbus Remote Control to change; not a work mode).</p>`
         : `<p class="field-hint" style="margin:0 0 12px">Ordinary inverter strategy — force charge/discharge is separate on EVO.</p>`;
-    return `<div class="card quick-settings-card">
+    return `<div class="card quick-settings-card" data-quick-settings-section="work-mode">
 <p class="card-title">Work mode</p>
 ${rcHint}
 <div class="mode-grid">${options
@@ -21607,7 +21659,7 @@ ${schedErr}
 <p class="card-title">Fox Cloud mode scheduler</p>
 <p class="field-hint" style="margin:0">Enable the <strong>Fox Cloud API</strong> under <strong>Settings → API &amp; accounts</strong> to check or disable the cloud mode scheduler from here.</p>
 </div>`;
-    return `<div class="card quick-settings-card">
+    return `<div class="card quick-settings-card" data-quick-settings-section="plant-control">
 <p class="card-title">Plant control</p>
 <p class="field-hint" style="margin:0 0 12px">When <strong>active</strong>, Fox Plant is the only writer for charge periods (via <code>foxess_modbus</code>). Release control if you need to edit schedules in the Fox app temporarily.</p>
 <div class="btn-row">
@@ -22858,6 +22910,9 @@ ${this._renderPvTiltAzimuthFields("pv2", { allowWhenDisabled: true })}
     this._syncFoxAlarmDetailModal(shell);
 
     if (this._isQuickSettingsView()) {
+      this._bindTripleSoc();
+      this._scrollQuickSettingsSectionIfNeeded();
+    } else if (this._needsTripleSocBind()) {
       this._bindTripleSoc();
     }
     if (this._isStormView() && this._stormDraft) {
