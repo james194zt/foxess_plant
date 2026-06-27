@@ -2601,7 +2601,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         sn_hint = (
             f" Tried Fox serial {device_sn}."
             if device_sn
-            else " Set the inverter deviceSN from the Fox portal under Settings → API & accounts."
+            else " Set the inverter deviceSN from the Fox portal under Settings → Fox API."
         )
         if isinstance(err, FoxCloudApiError) and err.errno == 41200:
             return (
@@ -2851,7 +2851,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         fox = self.plant.fox_cloud
         if not fox.enabled or not fox.api_key_configured():
-            raise HomeAssistantError("Enable Fox Cloud API under Settings → API & accounts")
+            raise HomeAssistantError("Enable Fox Cloud API under Settings → Fox API")
         if not self.resolve_fox_device_sn():
             raise HomeAssistantError("Inverter serial number required for battery warmup")
         client = self._fox_cloud_client()
@@ -2887,7 +2887,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         fox = self.plant.fox_cloud
         if not fox.enabled or not fox.api_key_configured():
-            raise HomeAssistantError("Enable Fox Cloud API under Settings → API & accounts")
+            raise HomeAssistantError("Enable Fox Cloud API under Settings → Fox API")
         if not self.resolve_fox_device_sn():
             raise HomeAssistantError("Inverter serial number required for battery warmup")
         err = validate_battery_warmup_config(warmup)
@@ -2945,7 +2945,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         fox = self.plant.fox_cloud
         if not fox.enabled or not fox.api_key_configured():
-            raise HomeAssistantError("Enable Fox Cloud API under Settings → API & accounts")
+            raise HomeAssistantError("Enable Fox Cloud API under Settings → Fox API")
         if not self.resolve_fox_device_sn():
             raise HomeAssistantError("Inverter serial number required for Fox Cloud scheduler")
         client = self._fox_cloud_client()
@@ -2972,7 +2972,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         fox = self.plant.fox_cloud
         if not fox.enabled or not fox.api_key_configured():
-            raise HomeAssistantError("Enable Fox Cloud API under Settings → API & accounts")
+            raise HomeAssistantError("Enable Fox Cloud API under Settings → Fox API")
         if not self.resolve_fox_device_sn():
             raise HomeAssistantError("Inverter serial number required for Fox Cloud scheduler")
         client = self._fox_cloud_client()
