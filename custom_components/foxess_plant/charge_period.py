@@ -16,6 +16,9 @@ _LOGGER = logging.getLogger(__name__)
 
 _EVO_CHARGE_PERIOD_HINT = (
     "FoxESS Modbus could not write EVO charge-period registers (480xx). "
+    "The HA Mode Scheduler does not use 480xx — it applies work mode, SOC, and "
+    "Remote Control → Force Charge on the clock instead. "
+    "Disable the Fox app scheduler before writing 480xx directly. "
     "EVO 10-H often has no writable register 48000 — that is normal. "
     "If all 480xx writes fail, Fox Plant will use Remote Control → Force Charge "
     "when grid charge is enabled on your schedule."

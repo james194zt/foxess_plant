@@ -3278,6 +3278,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             try:
                 await apply_current_schedule_state(self, force=force)
                 periods = self.plant.desired_periods()
+                _LOGGER.debug(
+                    "Applied HA mode scheduler (work mode / SOC / Remote Control); "
+                    "did not write foxess_modbus charge-period registers 480xx"
+                )
                 self._fire(
                     EVENT_PERIOD_APPLIED,
                     {

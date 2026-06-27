@@ -307,12 +307,14 @@ async def apply_schedule_bundle(
 
     if device_is_evo(coordinator.hass, plant.device_id, entity_map):
         _LOGGER.info(
-            "Applied HA schedule bundle (%s / %s): work_mode=%s max_soc=%s force_charge=%s",
+            "Applied HA schedule bundle (%s / %s): work_mode=%s max_soc=%s "
+            "force_charge=%s charge_from_grid=%s (uses Remote Control, not 480xx charge periods)",
             bundle.source,
             bundle.label,
             bundle.work_mode,
             bundle.max_soc,
             bundle.force_charge,
+            bundle.charge_from_grid,
         )
 
 

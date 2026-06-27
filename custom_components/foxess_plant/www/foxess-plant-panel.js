@@ -21615,7 +21615,7 @@ ${probeTable}
       : "";
     return `<div class="card quick-settings-card">
 <p class="card-title">Mode scheduler</p>
-<p class="field-hint" style="margin:0 0 12px">Fox Plant owns the clock on Home Assistant. Each segment sets work mode, SOC limits, and optional grid force-charge for its time window. StormSafe and SmartCharge still override temporarily while armed.</p>
+<p class="field-hint" style="margin:0 0 12px">Fox Plant owns the clock on Home Assistant. Each segment sets work mode, SOC limits, and optional grid force-charge via <strong>Remote Control</strong> for its time window — not inverter charge-period registers 48010–48023. Use Modbus lab charge periods only to test 480xx directly. StormSafe and SmartCharge still override temporarily while armed.</p>
 <div class="toggle-row"><span><strong>Enable HA scheduler</strong></span><input type="checkbox" data-field="schedule:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 ${activeHint}
 <div class="field"><label>Remaining time work mode</label>
