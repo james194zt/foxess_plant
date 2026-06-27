@@ -10119,10 +10119,12 @@ function renderSocResultHtml(results) {
   if (!results?.length) return "";
   const items = results
     .map((row) => {
+      const skipped = Boolean(row.skipped);
       const ok = row.success;
-      const icon = ok ? "✓" : "✕";
-      const cls = ok ? "ok" : "err";
-      const detail = row.skipped && ok ? "Already set" : row.message || (ok ? "Operation successful" : "Failed");
+      const warn = Boolean(row.warning);
+      const icon = skipped ? "·" : warn ? "!" : ok ? "✓" : "✕";
+      const cls = skipped ? "info" : warn ? "warn" : ok ? "ok" : "err";
+      const detail = row.message || (skipped ? "" : ok ? "Operation successful" : "Failed");
       return `<li class="soc-result-item ${cls}">
 <span class="soc-result-icon" aria-hidden="true">${icon}</span>
 <span class="soc-result-text"><strong>${esc(row.label || row.key)}</strong> ${esc(detail)}</span>
@@ -13075,6 +13077,14 @@ const STYLES = `
 .soc-result-item.err .soc-result-icon {
   background: #c62828;
   color: #fff;
+}
+.soc-result-item.warn .soc-result-icon {
+  background: #f59e0b;
+  color: #fff;
+}
+.soc-result-item.info .soc-result-icon {
+  background: var(--divider-color);
+  color: var(--secondary-text-color);
 }
 .soc-result-text strong {
   display: block;
@@ -16699,6 +16709,10 @@ Reloading panel registration…
       await this._runPlantService("reapply_schedule", {}, "Schedule applied now");
       return;
     }
+    if (action === "verify-plant-schedule") {
+      await this._verifyScheduleOnInverter();
+      return;
+    }
     if (action === "add-schedule-segment") {
       if (!this._scheduleDraft) this._initScheduleDraft();
       this._syncScheduleDraftFromDom();
@@ -17816,6 +17830,65 @@ ${note}
     }
   }
 
+  _toastForScheduleVerifyResults(results, { saved = false } = {}) {
+    const rows = results || [];
+    const hardFail = rows.some((row) => !row.success && !row.warning && !row.skipped);
+    const hasWarning = rows.some((row) => row.warning);
+    const chargePeriodsOk = rows.find((row) => row.key === "charge_periods" && row.success);
+    const chargePeriodsFail = rows.find((row) => row.key === "charge_periods" && !row.success);
+    const segmentProof = rows.find(
+      (row) => String(row.key || "").startsWith("segment_") && row.success && !row.skipped
+    );
+    const prefix = saved ? "Schedule saved — " : "";
+    if (hardFail) {
+      const failed = rows
+        .filter((row) => !row.success && !row.warning && !row.skipped)
+        .map((row) => row.label || row.key);
+      this._showToast(
+        failed.length
+          ? `${prefix}${failed.join(", ")} failed read-back`
+          : `${prefix}inverter read-back failed`,
+        "err"
+      );
+    } else if (chargePeriodsFail) {
+      this._showToast(`${prefix}480xx charge periods did not match inverter`, "err");
+    } else if (chargePeriodsOk) {
+      this._showToast(
+        segmentProof
+          ? `${prefix}480xx windows on inverter; active segment work mode/SOC OK`
+          : `${prefix}480xx charge periods written and read-back OK`
+      );
+    } else if (segmentProof) {
+      this._showToast(`${prefix}active segment work mode/SOC on inverter — read-back OK`);
+    } else if (hasWarning) {
+      this._showToast(`${prefix}480xx OK; no segment active now for work mode/SOC check`, "err");
+    } else {
+      this._showToast(saved ? "Schedule saved" : "Schedule verification complete");
+    }
+  }
+
+  async _verifyScheduleOnInverter() {
+    const plant = this._getPlant();
+    if (!plant) return;
+    this._busy = true;
+    this._render();
+    try {
+      const response = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/verify_plant_schedule",
+        plant_id: plant.entry_id,
+      });
+      this._scheduleApplyResults = Array.isArray(response?.schedule_apply_results)
+        ? response.schedule_apply_results
+        : null;
+      this._toastForScheduleVerifyResults(this._scheduleApplyResults);
+    } catch (err) {
+      this._showToast(formatWebsocketError(err, "Schedule verify failed"), "err");
+    } finally {
+      this._busy = false;
+      this._render();
+    }
+  }
+
   async _savePlantSchedule() {
     const plant = this._getPlant();
     if (!plant || !this._scheduleDraft) return;
@@ -17837,21 +17910,7 @@ ${note}
       this._scheduleApplyResults = Array.isArray(scheduleResults) ? scheduleResults : null;
       this._initScheduleDraft();
       this._initChargeDraft();
-      const allOk =
-        !this._scheduleApplyResults?.length || this._scheduleApplyResults.every((row) => row.success);
-      if (allOk) {
-        this._showToast("Mode scheduler saved — live inverter read-back OK");
-      } else {
-        const failed = (this._scheduleApplyResults || [])
-          .filter((row) => !row.success)
-          .map((row) => row.label || row.key);
-        this._showToast(
-          failed.length
-            ? `Scheduler saved but read-back failed: ${failed.join(", ")}`
-            : "Scheduler saved but inverter read-back incomplete",
-          "err"
-        );
-      }
+      this._toastForScheduleVerifyResults(this._scheduleApplyResults, { saved: true });
     } catch (err) {
       this._showToast(formatWebsocketError(err, "Scheduler save failed"), "err");
     } finally {
@@ -21641,9 +21700,13 @@ ${periodMaxHint}
 ${probeTable}
 </div>`
       : "";
+    const activeSegmentNow = Boolean(active);
+    const verifyBtn = activeSegmentNow
+      ? `<button type="button" class="btn btn-secondary" data-action="verify-plant-schedule" ${this._busy ? "disabled" : ""}>Verify segment on inverter</button>`
+      : "";
     return `<div class="card quick-settings-card">
 <p class="card-title">Mode scheduler</p>
-<p class="field-hint" style="margin:0 0 12px">Fox Plant owns the clock on Home Assistant. Each segment sets work mode, SOC limits, and optional grid force-charge via <strong>Remote Control</strong> for its time window — not inverter charge-period registers 48010–48023. Use Modbus lab charge periods only to test 480xx directly. StormSafe and SmartCharge still override temporarily while armed.</p>
+<p class="field-hint" style="margin:0 0 12px">Save &amp; apply writes force-charge windows to inverter registers <strong>48010–48023</strong> (foxess_modbus PR #1134) and applies work mode / SOC for the active segment. Up to two force-charge segments map to charge period 1 and 2. Work mode and SOC for other segments apply on the minute tick when each window starts. Disable the Fox app scheduler first.</p>
 <div class="toggle-row"><span><strong>Enable HA scheduler</strong></span><input type="checkbox" data-field="schedule:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 ${activeHint}
 <div class="field"><label>Remaining time work mode</label>
@@ -21655,6 +21718,7 @@ ${segmentCards}
 <button type="button" class="btn btn-primary" data-action="save-plant-schedule" ${this._busy ? "disabled" : ""}>Save &amp; apply</button>
 <button type="button" class="btn btn-secondary" data-action="add-schedule-segment" ${this._busy || segments.length >= MAX_SCHEDULE_SEGMENTS ? "disabled" : ""}>Add a schedule</button>
 <button type="button" class="btn btn-secondary" data-action="apply-plant-schedule-now" ${this._busy ? "disabled" : ""}>Apply now</button>
+${verifyBtn}
 </div>
 ${applyFeedback}
 ${probeBlock}

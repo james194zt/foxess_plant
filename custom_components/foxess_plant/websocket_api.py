@@ -42,6 +42,7 @@ WS_TYPE_TRIGGER_CANDIDATES = "foxess_plant/trigger_candidates"
 WS_TYPE_UPDATE_STORM_PREP = "foxess_plant/update_storm_prep"
 WS_TYPE_SET_SOC_LIMITS = "foxess_plant/set_soc_limits"
 WS_TYPE_UPDATE_PLANT_SCHEDULE = "foxess_plant/update_plant_schedule"
+WS_TYPE_VERIFY_PLANT_SCHEDULE = "foxess_plant/verify_plant_schedule"
 WS_TYPE_FORECAST_ENTITY_CANDIDATES = "foxess_plant/forecast_entity_candidates"
 WS_TYPE_UPDATE_PANEL_DISPLAY = "foxess_plant/update_panel_display"
 WS_TYPE_UPDATE_PV_CONFIG = "foxess_plant/update_pv_config"
@@ -550,6 +551,31 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
         state = coordinator.get_plant_state()
         state["schedule_apply_results"] = verify_results
         connection.send_result(msg["id"], state)
+
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): WS_TYPE_VERIFY_PLANT_SCHEDULE,
+            vol.Optional("plant_id"): str,
+        }
+    )
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def ws_verify_plant_schedule(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        try:
+            verify_results = await coordinator.async_verify_plant_schedule_on_inverter()
+        except Exception as err:
+            _LOGGER.exception("verify_plant_schedule websocket failed")
+            connection.send_error(msg["id"], "plant_schedule_verify_failed", str(err))
+            return
+        connection.send_result(msg["id"], {"schedule_apply_results": verify_results})
 
     @websocket_api.websocket_command({vol.Required("type"): WS_TYPE_FORECAST_ENTITY_CANDIDATES})
     @websocket_api.async_response
@@ -1662,6 +1688,7 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_update_storm_prep)
     websocket_api.async_register_command(hass, ws_set_soc_limits)
     websocket_api.async_register_command(hass, ws_update_plant_schedule)
+    websocket_api.async_register_command(hass, ws_verify_plant_schedule)
     websocket_api.async_register_command(hass, ws_forecast_entity_candidates)
     websocket_api.async_register_command(hass, ws_update_panel_display)
     websocket_api.async_register_command(hass, ws_update_pv_config)

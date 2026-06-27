@@ -1270,29 +1270,62 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         from .const import MAX_SCHEDULE_SEGMENTS
         from .models import ChargePeriodConfig, PlantScheduleConfig
         from .schedule_runner import apply_current_schedule_state
-        from .schedule_verify import verify_schedule_bundle
+        from .schedule_verify import verify_schedule_save
 
         cfg = PlantScheduleConfig.from_dict(schedule)
         if len(cfg.segments) > MAX_SCHEDULE_SEGMENTS:
             raise HomeAssistantError(f"At most {MAX_SCHEDULE_SEGMENTS} schedule segments are allowed")
         self.plant.plant_schedule = cfg
-        self.plant.baseline_periods = self._baseline_periods_from_schedule(cfg)
+        baseline = self._baseline_periods_from_schedule(cfg)
+        self.plant.baseline_periods = baseline
         if not self.plant.control_active:
             self.plant.control_active = True
         await self._persist()
         self._last_schedule_bundle_sig = None
         applied = await apply_current_schedule_state(self, force=True)
-        if applied is None:
-            return [
-                {
-                    "key": "apply",
-                    "label": "Apply",
-                    "success": True,
-                    "message": "Schedule saved — nothing to apply to the inverter right now",
-                    "skipped": True,
-                }
-            ]
-        return await verify_schedule_bundle(self, applied)
+        charge_write = await self._write_plant_schedule_charge_periods(baseline)
+        return await verify_schedule_save(self, cfg, applied, baseline, charge_write)
+
+    async def _write_plant_schedule_charge_periods(
+        self,
+        periods: list[ChargePeriodConfig],
+    ) -> dict[str, Any]:
+        """Push force-charge windows to inverter 480xx via foxess_modbus PR #1134 path."""
+        from .charge_period import apply_charge_periods, assert_charge_period_entities
+        from .discovery import missing_charge_period_entities
+
+        missing = missing_charge_period_entities(self.plant.entity_map)
+        if missing:
+            return {
+                "attempted": False,
+                "success": False,
+                "skipped": True,
+                "error": f"Missing charge period entities: {', '.join(missing)}",
+            }
+        try:
+            assert_charge_period_entities(self.plant.entity_map)
+            await apply_charge_periods(
+                self.hass,
+                self.plant.inverter_target,
+                periods,
+                entity_map=self.plant.entity_map,
+            )
+            return {"attempted": True, "success": True}
+        except HomeAssistantError as err:
+            return {"attempted": True, "success": False, "error": str(err)}
+
+    async def async_verify_plant_schedule_on_inverter(self) -> list[dict[str, Any]]:
+        from .schedule_verify import (
+            verify_charge_periods_on_inverter,
+            verify_saved_segments_on_inverter,
+        )
+
+        baseline = self.plant.baseline_periods or self._baseline_periods_from_schedule(
+            self.plant.plant_schedule
+        )
+        results = await verify_charge_periods_on_inverter(self, baseline)
+        results.extend(await verify_saved_segments_on_inverter(self, self.plant.plant_schedule))
+        return results
 
     @staticmethod
     def _baseline_periods_from_schedule(schedule: PlantScheduleConfig) -> list[ChargePeriodConfig]:
@@ -3291,8 +3324,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await apply_current_schedule_state(self, force=force)
                 periods = self.plant.desired_periods()
                 _LOGGER.debug(
-                    "Applied HA mode scheduler (work mode / SOC / Remote Control); "
-                    "did not write foxess_modbus charge-period registers 480xx"
+                    "Applied HA mode scheduler (work mode / SOC); charge periods written on Save & apply"
                 )
                 self._fire(
                     EVENT_PERIOD_APPLIED,
