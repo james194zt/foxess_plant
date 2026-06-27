@@ -23,6 +23,9 @@ const DEBUG_MODBUS_PROBE = true;
 /** TEMP — search DEBUG_SCHEDULE_PROBE to remove schedule probe UI + backend. */
 const DEBUG_SCHEDULE_PROBE = true;
 
+/** TEMP — search MODBUS_LAB to remove EVO Modbus test page + backend. */
+const MODBUS_LAB = true;
+
 const DEVICE_NEW_NAV = [
   { id: "analysis", label: "Analysis" },
   { id: "realtime", label: "Realtime" },
@@ -139,6 +142,7 @@ const SETTINGS_NAV = [
   { id: "solcast", label: "Solcast" },
   { id: "glow", label: "Glow meter" },
   { id: "tariff", label: "Tariff" },
+  ...(MODBUS_LAB ? [{ id: "modbus-lab", label: "Modbus lab" }] : []),
 ];
 
 function smartChargeOwnsPlantControls(plantState) {
@@ -13396,6 +13400,11 @@ class FoxessPlantPanel extends HTMLElement {
     this._busy = false;
     this._modbusProbeResults = null;
     this._modbusProbeRunning = false;
+    this._modbusLabLive = null;
+    this._modbusLabDraft = null;
+    this._modbusLabLoading = false;
+    this._modbusLabApplyBusy = false;
+    this._modbusLabLastResults = null;
     this._scheduleProbeResults = null;
     this._scheduleProbeRunning = false;
     this._foxSchedulerBusy = false;
@@ -13918,7 +13927,7 @@ Reloading panel registration…
   }
 
   _settingsFieldBlocksRender() {
-    if (this._view !== "settings" && !this._isDeviceFormView()) return false;
+    if (this._view !== "settings" && !this._isDeviceFormView() && !this._isModbusLabView()) return false;
     if (this._settingsFieldFocused) return true;
     const el = this.shadowRoot?.activeElement || document.activeElement;
     if (!el || !this._root.contains(el)) return false;
@@ -13932,7 +13941,7 @@ Reloading panel registration…
 
   _onFocusIn(e) {
     if (!this._root.contains(e.target)) return;
-    if (this._view === "settings" || this._isDeviceFormView()) {
+    if (this._view === "settings" || this._isDeviceFormView() || this._isModbusLabView()) {
       if (
         e.target.matches?.("input, select, textarea, ha-entity-picker") ||
         e.target.closest?.("ha-entity-picker")
@@ -13963,7 +13972,7 @@ Reloading panel registration…
       });
       return;
     }
-    if (this._view !== "settings" && !this._isDeviceFormView()) {
+    if (this._view !== "settings" && !this._isDeviceFormView() && !this._isModbusLabView()) {
       if (this._settingsFieldFocused) {
         this._settingsFieldFocused = false;
         if (this._renderPending) {
@@ -14494,6 +14503,10 @@ Reloading panel registration…
     return this._view === "device_new" && this._deviceNewSub === "warmup";
   }
 
+  _isModbusLabView() {
+    return this._view === "settings" && this._settingsView === "modbus-lab";
+  }
+
   _enterQuickSettings() {
     this._initSocDraft();
     this._initChargeDraft();
@@ -14925,6 +14938,205 @@ Reloading panel registration…
     } finally {
       this._modbusProbeRunning = false;
       this._render();
+    }
+  }
+
+  _initModbusLabDraft(live) {
+    const entities = live?.entities ?? {};
+    const periods = JSON.parse(JSON.stringify(entities.charge_periods ?? DEFAULT_PERIODS)).slice(0, 2);
+    while (periods.length < 2) periods.push({ ...DEFAULT_PERIODS[0] });
+    const schedule = JSON.parse(JSON.stringify(live?.plant_schedule ?? this._plantState?.plant_schedule ?? {}));
+    if (!Array.isArray(schedule.segments)) schedule.segments = [];
+    this._modbusLabDraft = {
+      work_mode: entities.work_mode || this._workModeDraft || "Self Use",
+      remote_control: entities.remote_control || "Disable",
+      charge_period_path: "modbus_service",
+      force_hardware_max_soc: false,
+      charge_periods: periods,
+      plant_schedule: {
+        enabled: schedule.enabled !== false,
+        remaining_work_mode: schedule.remaining_work_mode || "Self Use",
+        segments: schedule.segments,
+      },
+      soc: clampSocDraft({
+        min_soc: entities.min_soc ?? 10,
+        min_soc_on_grid: entities.min_soc_on_grid ?? 20,
+        max_soc: entities.max_soc ?? 100,
+      }),
+    };
+  }
+
+  _syncModbusLabDraftFromDom() {
+    if (!this._modbusLabDraft) return;
+    const root = this._root;
+    const draft = this._modbusLabDraft;
+    const wm = root.querySelector('[data-field="modbus-lab:work_mode"]');
+    if (wm) draft.work_mode = wm.value;
+    const rc = root.querySelector('[data-field="modbus-lab:remote_control"]');
+    if (rc) draft.remote_control = rc.value;
+    const pathEl = root.querySelector('[data-field="modbus-lab:charge_period_path"]');
+    if (pathEl) draft.charge_period_path = pathEl.value || "modbus_service";
+    const forceHw = root.querySelector('[data-field="modbus-lab:force_hardware_max_soc"]');
+    if (forceHw) draft.force_hardware_max_soc = forceHw.checked;
+    const schedEnabled = root.querySelector('[data-field="modbus-lab:schedule:enabled"]');
+    if (schedEnabled) draft.plant_schedule.enabled = schedEnabled.checked;
+    const schedRemain = root.querySelector('[data-field="modbus-lab:schedule:remaining_work_mode"]');
+    if (schedRemain) draft.plant_schedule.remaining_work_mode = schedRemain.value;
+    draft.charge_periods.forEach((p, i) => {
+      const force = root.querySelector(`[data-field="modbus-lab:${i}:enable_force_charge"]`);
+      if (force) p.enable_force_charge = force.checked;
+      const grid = root.querySelector(`[data-field="modbus-lab:${i}:enable_charge_from_grid"]`);
+      if (grid) p.enable_charge_from_grid = grid.checked;
+      const start = root.querySelector(`[data-field="modbus-lab:${i}:start"]`);
+      if (start?.value) p.start = start.value.slice(0, 5);
+      const end = root.querySelector(`[data-field="modbus-lab:${i}:end"]`);
+      if (end?.value) p.end = end.value.slice(0, 5);
+    });
+    draft.plant_schedule.segments.forEach((seg, idx) => {
+      const enabled = root.querySelector(`[data-field="modbus-lab:schedule:${idx}:enabled"]`);
+      if (enabled) seg.enabled = enabled.checked;
+      const start = root.querySelector(`[data-field="modbus-lab:schedule:${idx}:start"]`);
+      if (start?.value) seg.start = start.value.slice(0, 5);
+      const end = root.querySelector(`[data-field="modbus-lab:schedule:${idx}:end"]`);
+      if (end?.value) seg.end = end.value.slice(0, 5);
+      const mode = root.querySelector(`[data-field="modbus-lab:schedule:${idx}:work_mode"]`);
+      if (mode?.value) seg.work_mode = mode.value;
+      const minSoc = root.querySelector(`[data-field="modbus-lab:schedule:${idx}:min_soc"]`);
+      if (minSoc?.value) seg.min_soc = parseInt(minSoc.value, 10);
+      const minGrid = root.querySelector(`[data-field="modbus-lab:schedule:${idx}:min_soc_on_grid"]`);
+      if (minGrid?.value) seg.min_soc_on_grid = parseInt(minGrid.value, 10);
+      const maxSoc = root.querySelector(`[data-field="modbus-lab:schedule:${idx}:max_soc"]`);
+      if (maxSoc?.value) seg.max_soc = parseInt(maxSoc.value, 10);
+      const force = root.querySelector(`[data-field="modbus-lab:schedule:${idx}:enable_force_charge"]`);
+      if (force) seg.enable_force_charge = force.checked;
+      const grid = root.querySelector(`[data-field="modbus-lab:schedule:${idx}:enable_charge_from_grid"]`);
+      if (grid) seg.enable_charge_from_grid = grid.checked;
+    });
+    if (this._modbusLabDraft.soc) {
+      SOC_THUMBS.forEach((t) => {
+        const num = root.querySelector(`[data-field="modbus-lab-soc-num:${t.key}"]`);
+        if (num?.value) draft.soc[t.key] = parseInt(num.value, 10);
+      });
+      draft.soc = clampSocDraft(draft.soc);
+    }
+  }
+
+  async _enterModbusLabSettings() {
+    this._modbusLabDraft = null;
+    await this._fetchModbusLabLive(false);
+  }
+
+  async _fetchModbusLabLive(showToast = true) {
+    const plant = this._getPlant();
+    if (!plant || !this._hass) return;
+    this._modbusLabLoading = true;
+    this._scheduleRender(true);
+    try {
+      const res = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/read_modbus_lab",
+        plant_id: plant.entry_id,
+      });
+      if (res?.plant_state) this._plantState = res.plant_state;
+      this._modbusLabLive = res?.live ?? null;
+      this._initModbusLabDraft(this._modbusLabLive);
+      if (showToast) this._showToast("Modbus lab refreshed from inverter");
+    } catch (err) {
+      this._showToast(String(err?.message || err), "err");
+    } finally {
+      this._modbusLabLoading = false;
+      this._scheduleRender(true);
+    }
+  }
+
+  async _applyModbusLab(partial = {}) {
+    const plant = this._getPlant();
+    if (!plant || !this._modbusLabDraft) return;
+    this._syncModbusLabDraftFromDom();
+    const draft = this._modbusLabDraft;
+    this._modbusLabApplyBusy = true;
+    this._scheduleRender(true);
+    const payload = {
+      work_mode: partial.work_mode ?? draft.work_mode,
+      remote_control: partial.remote_control ?? draft.remote_control,
+      min_soc: draft.soc.min_soc,
+      min_soc_on_grid: draft.soc.min_soc_on_grid,
+      max_soc: draft.soc.max_soc,
+      force_hardware_max_soc: draft.force_hardware_max_soc,
+      charge_periods: draft.charge_periods,
+      charge_period_path: draft.charge_period_path,
+      plant_schedule: draft.plant_schedule,
+      apply_schedule_now: Boolean(partial.apply_schedule_now),
+    };
+    if (partial.soc_only) {
+      delete payload.work_mode;
+      delete payload.remote_control;
+      delete payload.charge_periods;
+      delete payload.plant_schedule;
+      delete payload.apply_schedule_now;
+    }
+    if (partial.charge_periods_only) {
+      delete payload.work_mode;
+      delete payload.remote_control;
+      delete payload.min_soc;
+      delete payload.min_soc_on_grid;
+      delete payload.max_soc;
+      delete payload.plant_schedule;
+      delete payload.apply_schedule_now;
+    }
+    if (partial.work_mode_only) {
+      payload.work_mode = partial.work_mode ?? draft.work_mode;
+      delete payload.remote_control;
+      delete payload.min_soc;
+      delete payload.min_soc_on_grid;
+      delete payload.max_soc;
+      delete payload.charge_periods;
+      delete payload.plant_schedule;
+      delete payload.apply_schedule_now;
+    }
+    if (partial.remote_control_only) {
+      payload.remote_control = partial.remote_control ?? draft.remote_control;
+      delete payload.work_mode;
+      delete payload.min_soc;
+      delete payload.min_soc_on_grid;
+      delete payload.max_soc;
+      delete payload.charge_periods;
+      delete payload.plant_schedule;
+      delete payload.apply_schedule_now;
+    }
+    if (partial.schedule_only) {
+      delete payload.work_mode;
+      delete payload.remote_control;
+      delete payload.min_soc;
+      delete payload.min_soc_on_grid;
+      delete payload.max_soc;
+      delete payload.charge_periods;
+      delete payload.apply_schedule_now;
+    }
+    if (partial.apply_schedule_now_only) {
+      delete payload.work_mode;
+      delete payload.remote_control;
+      delete payload.min_soc;
+      delete payload.min_soc_on_grid;
+      delete payload.max_soc;
+      delete payload.charge_periods;
+      delete payload.plant_schedule;
+    }
+    try {
+      const res = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/apply_modbus_lab",
+        plant_id: plant.entry_id,
+        ...payload,
+      });
+      if (res?.plant_state) this._plantState = res.plant_state;
+      this._modbusLabLive = res?.live ?? this._modbusLabLive;
+      this._modbusLabLastResults = res?.results ?? null;
+      this._initModbusLabDraft(this._modbusLabLive);
+      this._showToast("Modbus lab apply finished");
+    } catch (err) {
+      this._showToast(String(err?.message || err), "err");
+    } finally {
+      this._modbusLabApplyBusy = false;
+      this._scheduleRender(true);
     }
   }
 
@@ -16229,6 +16441,7 @@ Reloading panel registration…
       if (btn.dataset.sub === "solcast") this._enterSolcastSettings();
       if (btn.dataset.sub === "glow") this._enterGlowSettings();
       if (btn.dataset.sub === "tariff") this._enterTariffSettings();
+      if (btn.dataset.sub === "modbus-lab") void this._enterModbusLabSettings();
       this._render();
       return;
     }
@@ -16275,6 +16488,7 @@ Reloading panel registration…
       if (btn.dataset.sub === "solcast") this._enterSolcastSettings();
       if (btn.dataset.sub === "glow") this._enterGlowSettings();
       if (btn.dataset.sub === "tariff") this._enterTariffSettings();
+      if (btn.dataset.sub === "modbus-lab") void this._enterModbusLabSettings();
       this._render();
       return;
     }
@@ -16351,6 +16565,38 @@ Reloading panel registration…
     }
     if (action === "run-schedule-probe") {
       await this._runScheduleProbe();
+      return;
+    }
+    if (action === "modbus-lab-refresh") {
+      await this._fetchModbusLabLive(true);
+      return;
+    }
+    if (action === "modbus-lab-apply-soc") {
+      await this._applyModbusLab({ soc_only: true });
+      return;
+    }
+    if (action === "modbus-lab-apply-work-mode") {
+      await this._applyModbusLab({ work_mode_only: true });
+      return;
+    }
+    if (action === "modbus-lab-apply-remote") {
+      await this._applyModbusLab({ remote_control_only: true });
+      return;
+    }
+    if (action === "modbus-lab-apply-periods") {
+      await this._applyModbusLab({ charge_periods_only: true });
+      return;
+    }
+    if (action === "modbus-lab-save-schedule") {
+      await this._applyModbusLab({ schedule_only: true });
+      return;
+    }
+    if (action === "modbus-lab-apply-schedule-now") {
+      await this._applyModbusLab({ apply_schedule_now_only: true, apply_schedule_now: true });
+      return;
+    }
+    if (action === "modbus-lab-apply-all") {
+      await this._applyModbusLab({});
       return;
     }
     if (action === "save-battery-warmup") {
@@ -17185,6 +17431,38 @@ Reloading panel registration…
       }
       return;
     }
+    if (kind === "modbus-lab-soc-num" && this._modbusLabDraft?.soc) {
+      const field = parts[1];
+      const raw = String(el.value).trim();
+      if (raw === "") return;
+      const v = parseFloat(raw);
+      if (Number.isNaN(v)) return;
+      if (e.type === "change" || (v >= SOC_MIN_PCT && v <= 100)) {
+        applySocDrag(this._modbusLabDraft.soc, field, v);
+        this._updateTripleSocDom(el.closest(".triple-soc"));
+      }
+      return;
+    }
+    if (kind === "modbus-lab" && this._modbusLabDraft) {
+      if (parts[1] === "schedule") {
+        const idx = parseInt(parts[2], 10);
+        const field = parts[3];
+        const seg = this._modbusLabDraft.plant_schedule?.segments?.[idx];
+        if (!seg || !field) return;
+        if (el.type === "checkbox") seg[field] = el.checked;
+        else if (field === "min_soc" || field === "min_soc_on_grid" || field === "max_soc") {
+          seg[field] = parseInt(el.value, 10);
+        } else seg[field] = el.value;
+        return;
+      }
+      const idx = parseInt(parts[1], 10);
+      const field = parts[2];
+      if (!Number.isNaN(idx) && field && this._modbusLabDraft.charge_periods[idx]) {
+        if (el.type === "checkbox") this._modbusLabDraft.charge_periods[idx][field] = el.checked;
+        else this._modbusLabDraft.charge_periods[idx][field] = el.value;
+      }
+      return;
+    }
     if (kind === "soc-num" && this._socDraft) {
       const field = parts[1];
       const raw = String(el.value).trim();
@@ -17272,12 +17550,17 @@ Reloading panel registration…
   }
 
   _tripleSocDraftForWrap(wrap) {
-    if (wrap?.dataset?.tripleSocContext === "smart") return this._smartChargeSocDraft;
+    const ctx = wrap?.dataset?.tripleSocContext;
+    if (ctx === "smart") return this._smartChargeSocDraft;
+    if (ctx === "modbus-lab") return this._modbusLabDraft?.soc;
     return this._socDraft;
   }
 
   _tripleSocFieldPrefix(wrap) {
-    return wrap?.dataset?.tripleSocContext === "smart" ? "sc-soc-num" : "soc-num";
+    const ctx = wrap?.dataset?.tripleSocContext;
+    if (ctx === "smart") return "sc-soc-num";
+    if (ctx === "modbus-lab") return "modbus-lab-soc-num";
+    return "soc-num";
   }
 
   _bindTripleSoc() {
@@ -17368,7 +17651,8 @@ Reloading panel registration…
     const max = clamped.max_soc;
     const live = Math.max(0, Math.min(100, Math.round(liveSoc ?? 0)));
     const fillMarkup = tripleSocBatteryFillMarkup(live);
-    const fieldPrefix = context === "smart" ? "sc-soc-num" : "soc-num";
+    const fieldPrefix =
+      context === "smart" ? "sc-soc-num" : context === "modbus-lab" ? "modbus-lab-soc-num" : "soc-num";
     const virtual = this._plantState?.virtual_soc;
     const capHint =
       context === "smart" && virtual?.cap_source === "smart_charge" && virtual?.cap_active
@@ -20908,7 +21192,6 @@ ${note}${via}${forecastHint}${activeBadge}
 
   _renderSettingsMain(plant) {
     const subs = this._settingsMainSubtitles();
-    const debugProbe = DEBUG_MODBUS_PROBE ? this._renderModbusDebugProbeCard() : "";
     return `<div data-settings-main="1"><header class="header"><h1>Settings</h1><p>Configure your plant, automations, and integrations</p></header>
 <div data-settings-live>${this._renderSettingsMainLiveHtml()}</div>
 <div data-settings-nav>
@@ -20916,8 +21199,8 @@ ${renderListButton({ action: "settings-sub", sub: "api" }, "API & accounts", sub
 ${renderListButton({ action: "settings-sub", sub: "solcast" }, "Solcast", subs.solcast)}
 ${renderListButton({ action: "settings-sub", sub: "glow" }, "Glow smart meter", subs.glow)}
 ${renderListButton({ action: "settings-sub", sub: "tariff" }, "Tariff", subs.tariff)}
-</div>
-${debugProbe}</div>`;
+${MODBUS_LAB ? renderListButton({ action: "settings-sub", sub: "modbus-lab" }, "Modbus lab", "EVO scheduler / SOC test page") : ""}
+</div></div>`;
   }
 
   _formatModbusProbeValue(value) {
@@ -20980,6 +21263,205 @@ ${debugProbe}</div>`;
 <button type="button" class="btn btn-secondary" data-action="run-modbus-probe" ${busy ? "disabled" : ""}>${running ? "Running probes…" : "Run Modbus probes"}</button>
 </div>
 ${table}
+</div>`;
+  }
+
+  _renderModbusLabSchedulerSegmentCard(idx, segment) {
+    const seg = segment || { ...DEFAULT_SCHEDULE_SEGMENT };
+    const options = selectableWorkModeOptions(
+      this._modbusLabLive?.entities?.work_mode_options ??
+        this._plantState?.settings?.work_mode_options ??
+        []
+    );
+    const modeOpts = options.length
+      ? options
+          .map(
+            (opt) =>
+              `<option value="${esc(opt)}" ${opt === seg.work_mode ? "selected" : ""}>${esc(workModeMeta(opt).title)}</option>`
+          )
+          .join("")
+      : `<option value="${esc(seg.work_mode || "Self Use")}">${esc(seg.work_mode || "Self Use")}</option>`;
+    return `<div class="period-card" data-modbus-lab-segment="${idx}">
+<h4>Schedule ${idx + 1}${seg.label ? ` · ${esc(seg.label)}` : ""}</h4>
+<div class="toggle-row"><span>Enabled</span><input type="checkbox" data-field="modbus-lab:schedule:${idx}:enabled" ${seg.enabled !== false ? "checked" : ""}></div>
+<div class="period-times">
+<div class="field"><label>Start</label><input type="time" data-field="modbus-lab:schedule:${idx}:start" value="${esc(timeForInput(seg.start))}"></div>
+<div class="field"><label>End</label><input type="time" data-field="modbus-lab:schedule:${idx}:end" value="${esc(timeForInput(seg.end))}"></div>
+</div>
+<div class="field"><label>Work mode</label>
+<select data-field="modbus-lab:schedule:${idx}:work_mode">${modeOpts}</select>
+</div>
+<div class="period-times">
+<div class="field"><label>Period min SOC (%)</label><input type="number" min="10" max="100" data-field="modbus-lab:schedule:${idx}:min_soc" value="${esc(String(seg.min_soc ?? 10))}"></div>
+<div class="field"><label>System min SOC (%)</label><input type="number" min="10" max="100" data-field="modbus-lab:schedule:${idx}:min_soc_on_grid" value="${esc(String(seg.min_soc_on_grid ?? seg.min_soc ?? 10))}"></div>
+<div class="field"><label>Period max SOC (%)</label><input type="number" min="10" max="100" data-field="modbus-lab:schedule:${idx}:max_soc" value="${esc(String(seg.max_soc ?? 100))}"></div>
+</div>
+<div class="toggle-row"><span>Force charge</span><input type="checkbox" data-field="modbus-lab:schedule:${idx}:enable_force_charge" ${seg.enable_force_charge ? "checked" : ""}></div>
+<div class="toggle-row"><span>Charge from grid</span><input type="checkbox" data-field="modbus-lab:schedule:${idx}:enable_charge_from_grid" ${seg.enable_charge_from_grid ? "checked" : ""}></div>
+</div>`;
+  }
+
+  _renderModbusLabRawRegisters(live) {
+    const registers = live?.registers ?? {};
+    const errors = live?.register_errors ?? {};
+    const blocks = [
+      ["evo_period_1", "48010–48013 (P1 enable/start/end/mode)"],
+      ["evo_period_2", "48020–48023 (P2 enable/start/end/mode)"],
+      ["soc_limits", "46609–46611 (off-grid min / max / system min)"],
+      ["work_mode", "49203 (work mode)"],
+    ];
+    const rows = blocks
+      .map(([key, label]) => {
+        const err = errors[key];
+        const vals = registers[key];
+        const detail = err
+          ? esc(err)
+          : vals
+            ? esc(Object.entries(vals).map(([a, v]) => `${a}=${v}`).join(", "))
+            : "—";
+        return `<tr><td>${esc(label)}</td><td><pre class="modbus-probe-detail">${detail}</pre></td></tr>`;
+      })
+      .join("");
+    return `<table class="modbus-probe-table"><thead><tr><th>Register block</th><th>Raw values</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  _renderModbusLabApplyResults() {
+    const results = this._modbusLabLastResults;
+    if (!Array.isArray(results) || !results.length) return "";
+    const rows = results
+      .map((row) => {
+        const ok = row.success !== false;
+        const detail = row.error
+          ? esc(row.error)
+          : row.rows
+            ? esc(JSON.stringify(row.rows))
+            : row.path
+              ? esc(String(row.path))
+              : row.attempted != null
+                ? esc(String(row.attempted))
+                : "OK";
+        return `<tr><td>${esc(String(row.key || ""))}</td><td><span class="modbus-probe-status ${ok ? "pass" : "fail"}">${ok ? "OK" : "FAIL"}</span></td><td>${detail}</td></tr>`;
+      })
+      .join("");
+    return `<div class="card" style="margin-top:16px"><p class="card-title">Last apply results</p>
+<table class="modbus-probe-table"><thead><tr><th>Key</th><th>Status</th><th>Detail</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
+  _renderSettingsModbusLab(plant) {
+    const loading = this._modbusLabLoading;
+    const busy = this._modbusLabApplyBusy || this._busy;
+    const live = this._modbusLabLive;
+    const draft = this._modbusLabDraft;
+    if (loading && !draft) {
+      return `<header class="header"><h1>Modbus lab</h1><p class="placeholder">Loading live inverter state…</p></header>`;
+    }
+    if (!draft) {
+      return `<header class="header"><h1>Modbus lab</h1><p class="placeholder">Could not load — open again or refresh.</p>
+<div class="btn-row"><button type="button" class="btn btn-secondary" data-action="modbus-lab-refresh">Refresh</button></div></header>`;
+    }
+    const controlHint = live?.control_active
+      ? `<p class="field-hint" style="margin:0 0 12px;color:var(--fp-accent)">Plant control is active — writes will go to the inverter.</p>`
+      : `<p class="field-hint" style="margin:0 0 12px;color:var(--fp-amber)">Take plant control before applying writes.</p>`;
+    const workModeOptions = selectableWorkModeOptions(
+      live?.entities?.work_mode_options ?? this._plantState?.settings?.work_mode_options ?? []
+    );
+    const wmOpts = (workModeOptions.length ? workModeOptions : [draft.work_mode || "Self Use"])
+      .map((opt) => `<option value="${esc(opt)}" ${opt === draft.work_mode ? "selected" : ""}>${esc(workModeMeta(opt).title)}</option>`)
+      .join("");
+    const rcOptions = live?.entities?.remote_control_options ?? ["Disable", "Force Charge", "Force Discharge"];
+    const rcOpts = rcOptions
+      .map((opt) => `<option value="${esc(opt)}" ${opt === draft.remote_control ? "selected" : ""}>${esc(opt)}</option>`)
+      .join("");
+    const liveSoc = this._liveBatterySoc(plant);
+    const hwMax = live?.hardware_max_supported;
+    const virtualMax = live?.virtual_max_soc;
+    const socNote = hwMax === false
+      ? `<p class="field-hint" style="margin-top:8px">Hardware max SOC (46610) not writable — Fox Plant emulates cap${virtualMax != null ? ` at ${virtualMax}%` : ""}. Tick <strong>Force hardware max write</strong> to attempt register 46610 anyway.</p>`
+      : "";
+    const periodCards = (draft.charge_periods || [])
+      .slice(0, 2)
+      .map((p, idx) => this._renderPeriodCard(idx, p, "modbus-lab", "Charge period"))
+      .join("");
+    const sched = draft.plant_schedule || { enabled: true, remaining_work_mode: "Self Use", segments: [] };
+    const remainingOptions = selectableWorkModeOptions(
+      live?.entities?.work_mode_options ?? this._plantState?.settings?.work_mode_options ?? []
+    );
+    const remainingOpts = (remainingOptions.length ? remainingOptions : [sched.remaining_work_mode || "Self Use"])
+      .map(
+        (opt) =>
+          `<option value="${esc(opt)}" ${opt === sched.remaining_work_mode ? "selected" : ""}>${esc(workModeMeta(opt).title)}</option>`
+      )
+      .join("");
+    const segmentCards = (sched.segments || []).length
+      ? sched.segments.map((seg, idx) => this._renderModbusLabSchedulerSegmentCard(idx, seg)).join("")
+      : `<p class="placeholder" style="margin:0 0 12px">No schedule segments in plant config.</p>`;
+    const foxSched = live?.fox_scheduler;
+    const foxHint = foxSched
+      ? `<p class="field-hint" style="margin:0 0 12px">Fox app scheduler entity: ${esc(String(foxSched.state ?? "—"))}${foxSched.attributes?.friendly_name ? ` · ${esc(String(foxSched.attributes.friendly_name))}` : ""}</p>`
+      : "";
+    const probeBusy = busy || this._modbusProbeRunning || this._scheduleProbeRunning;
+    const modbusProbe = DEBUG_MODBUS_PROBE ? this._renderModbusDebugProbeCard() : "";
+    const scheduleProbeSummary = this._probeSummaryLine(this._scheduleProbeResults?.summary);
+    const scheduleProbeTable = DEBUG_SCHEDULE_PROBE ? this._renderProbeResultsTable(this._scheduleProbeResults) : "";
+    const scheduleProbeBlock = DEBUG_SCHEDULE_PROBE
+      ? `<div class="card" style="margin-top:16px"><p class="card-title">Schedule write probe</p>
+<p class="field-hint" style="margin:0 0 8px">Uses the live scheduler apply path, read-back from inverter, then restores.</p>
+<p class="field-hint" style="margin:0 0 8px"><strong>${esc(scheduleProbeSummary)}</strong></p>
+<button type="button" class="btn btn-secondary" data-action="run-schedule-probe" ${probeBusy ? "disabled" : ""}>${this._scheduleProbeRunning ? "Testing…" : "Run schedule probe"}</button>
+${scheduleProbeTable}</div>`
+      : "";
+    return `<header class="header"><h1>Modbus lab</h1>
+<p>Temporary EVO test page (foxess_modbus PR #1134). Does not change Quick Settings or Device tabs. Requires updated FoxESS Modbus with 480xx charge periods.</p></header>
+${controlHint}
+<div class="btn-row" style="margin-bottom:16px">
+<button type="button" class="btn btn-secondary" data-action="modbus-lab-refresh" ${busy ? "disabled" : ""}>${loading ? "Refreshing…" : "Refresh live state"}</button>
+<span class="field-hint" style="margin:0;align-self:center">Inverter ${esc(String(live?.inverter_ref || "—"))}</span>
+</div>
+<div class="card">
+<p class="card-title">SOC limits</p>
+${this._renderTripleSoc(plant, draft.soc, liveSoc, { context: "modbus-lab", note: socNote })}
+<div class="toggle-row" style="margin-top:12px"><span>Force hardware max write (46610)</span><input type="checkbox" data-field="modbus-lab:force_hardware_max_soc" ${draft.force_hardware_max_soc ? "checked" : ""}></div>
+<div class="btn-row"><button type="button" class="btn btn-primary" data-action="modbus-lab-apply-soc" ${busy ? "disabled" : ""}>Apply SOC</button></div>
+</div>
+<div class="card">
+<p class="card-title">Work mode &amp; remote control</p>
+<div class="field"><label>Work mode (49203)</label><select data-field="modbus-lab:work_mode">${wmOpts}</select></div>
+<div class="btn-row"><button type="button" class="btn btn-secondary" data-action="modbus-lab-apply-work-mode" ${busy ? "disabled" : ""}>Apply work mode</button></div>
+<div class="field" style="margin-top:12px"><label>Remote control</label><select data-field="modbus-lab:remote_control">${rcOpts}</select></div>
+<div class="btn-row"><button type="button" class="btn btn-secondary" data-action="modbus-lab-apply-remote" ${busy ? "disabled" : ""}>Apply remote control</button></div>
+</div>
+<div class="card">
+<p class="card-title">Charge periods (480xx)</p>
+<p class="field-hint" style="margin:0 0 12px"><strong>modbus_service</strong> uses FoxESS Modbus entities (PR #1134). <strong>evo_direct</strong> writes raw FC16 blocks to 48010/48020 (bypasses integration mapping).</p>
+<div class="field"><label>Write path</label>
+<select data-field="modbus-lab:charge_period_path">
+<option value="modbus_service" ${draft.charge_period_path === "modbus_service" ? "selected" : ""}>FoxESS Modbus service</option>
+<option value="evo_direct" ${draft.charge_period_path === "evo_direct" ? "selected" : ""}>EVO direct registers</option>
+</select></div>
+${periodCards}
+<div class="btn-row"><button type="button" class="btn btn-primary" data-action="modbus-lab-apply-periods" ${busy ? "disabled" : ""}>Apply charge periods</button></div>
+</div>
+<div class="card">
+<p class="card-title">Plant mode scheduler</p>
+<p class="field-hint" style="margin:0 0 12px">Fox Plant HA scheduler — save config then apply-now to push current segment to inverter via schedule runner.</p>
+${foxHint}
+<div class="toggle-row"><span>Enable HA scheduler</span><input type="checkbox" data-field="modbus-lab:schedule:enabled" ${sched.enabled !== false ? "checked" : ""}></div>
+<div class="field"><label>Remaining time work mode</label><select data-field="modbus-lab:schedule:remaining_work_mode">${remainingOpts}</select></div>
+${segmentCards}
+<div class="btn-row">
+<button type="button" class="btn btn-secondary" data-action="modbus-lab-save-schedule" ${busy ? "disabled" : ""}>Save schedule config</button>
+<button type="button" class="btn btn-primary" data-action="modbus-lab-apply-schedule-now" ${busy ? "disabled" : ""}>Apply schedule now</button>
+</div>
+</div>
+<div class="card">
+<p class="card-title">Raw holding registers</p>
+${this._renderModbusLabRawRegisters(live)}
+</div>
+${modbusProbe}
+${scheduleProbeBlock}
+${this._renderModbusLabApplyResults()}
+<div class="btn-row" style="margin-top:16px">
+<button type="button" class="btn btn-primary" data-action="modbus-lab-apply-all" ${busy ? "disabled" : ""}>Apply everything</button>
 </div>`;
   }
 
@@ -22257,6 +22739,8 @@ ${this._renderPvTiltAzimuthFields("pv2", { allowWhenDisabled: true })}
         return this._renderSettingsSolcast();
       case "glow":
         return this._renderSettingsGlow();
+      case "modbus-lab":
+        return this._renderSettingsModbusLab(plant);
       default:
         return this._renderSettingsMain(plant);
     }

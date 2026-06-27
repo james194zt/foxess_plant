@@ -2831,6 +2831,24 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise HomeAssistantError("Schedule probe is disabled")
         return await run_schedule_write_probe(self)
 
+    async def async_read_modbus_lab(self) -> dict[str, Any]:
+        """TEMPORARY — live Modbus lab snapshot."""
+        from .const import MODBUS_LAB
+        from .modbus_lab import read_modbus_lab_state
+
+        if not MODBUS_LAB:
+            raise HomeAssistantError("Modbus lab is disabled")
+        return await read_modbus_lab_state(self)
+
+    async def async_apply_modbus_lab(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """TEMPORARY — apply Modbus lab writes."""
+        from .const import MODBUS_LAB
+        from .modbus_lab import apply_modbus_lab
+
+        if not MODBUS_LAB:
+            raise HomeAssistantError("Modbus lab is disabled")
+        return await apply_modbus_lab(self, payload)
+
     async def async_fetch_battery_warmup(self) -> dict[str, Any]:
         from .battery_warmup import parse_battery_heating_result
         from .fox_cloud_api import FoxCloudApiError

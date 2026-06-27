@@ -608,5 +608,8 @@ TRIGGER_ON_STATES = frozenset({"on", "true", "1", "active", "warning", "severe"}
 # TEMPORARY — Modbus scheduler debug probe (settings page). Search DEBUG_MODBUS_PROBE to remove.
 DEBUG_MODBUS_PROBE = True
 
+# TEMPORARY — Modbus lab settings page (EVO PR #1134 testing). Search MODBUS_LAB to remove.
+MODBUS_LAB = True
+
 # TEMPORARY — schedule write probe on Mode scheduler card. Search DEBUG_SCHEDULE_PROBE to remove.
 DEBUG_SCHEDULE_PROBE = True

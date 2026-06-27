@@ -16,7 +16,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.util import dt as dt_util
 
-from .const import DEBUG_MODBUS_PROBE, DEBUG_SCHEDULE_PROBE, DOMAIN, STORM_ALERT_PROVIDER_GOOGLE, TARIFF_CURRENCIES
+from .const import DEBUG_MODBUS_PROBE, DEBUG_SCHEDULE_PROBE, DOMAIN, MODBUS_LAB, STORM_ALERT_PROVIDER_GOOGLE, TARIFF_CURRENCIES
 from .panel_config import list_forecast_entity_candidates, list_tariff_entity_candidates, list_trigger_candidates
 
 _LOGGER = logging.getLogger(__name__)
@@ -62,6 +62,8 @@ WS_TYPE_UPDATE_FOX_CLOUD = "foxess_plant/update_fox_cloud"
 WS_TYPE_TEST_FOX_CLOUD = "foxess_plant/test_fox_cloud"
 WS_TYPE_RUN_MODBUS_DEBUG_PROBE = "foxess_plant/run_modbus_debug_probe"
 WS_TYPE_RUN_SCHEDULE_PROBE = "foxess_plant/run_schedule_probe"
+WS_TYPE_READ_MODBUS_LAB = "foxess_plant/read_modbus_lab"
+WS_TYPE_APPLY_MODBUS_LAB = "foxess_plant/apply_modbus_lab"
 WS_TYPE_FETCH_BATTERY_WARMUP = "foxess_plant/fetch_battery_warmup"
 WS_TYPE_UPDATE_BATTERY_WARMUP = "foxess_plant/update_battery_warmup"
 WS_TYPE_FETCH_FOX_SCHEDULER = "foxess_plant/fetch_fox_scheduler"
@@ -1205,6 +1207,108 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
                 {**result, "plant_state": coordinator.get_plant_state()},
             )
 
+    if MODBUS_LAB:
+        CHARGE_PERIOD_LAB_SCHEMA = vol.Schema(
+            {
+                vol.Required("enable_force_charge"): bool,
+                vol.Required("enable_charge_from_grid"): bool,
+                vol.Required("start"): str,
+                vol.Required("end"): str,
+            }
+        )
+
+        @websocket_api.websocket_command(
+            {
+                vol.Required("type"): WS_TYPE_READ_MODBUS_LAB,
+                vol.Optional("plant_id"): str,
+            }
+        )
+        @websocket_api.require_admin
+        @websocket_api.async_response
+        async def ws_read_modbus_lab(
+            hass: HomeAssistant,
+            connection: websocket_api.ActiveConnection,
+            msg: dict[str, Any],
+        ) -> None:
+            coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+            if coordinator is None:
+                connection.send_error(msg["id"], err_code, err_msg)
+                return
+            try:
+                live = await coordinator.async_read_modbus_lab()
+            except HomeAssistantError as err:
+                connection.send_error(msg["id"], "modbus_lab_read_failed", str(err))
+                return
+            except Exception as err:
+                _LOGGER.exception("Modbus lab read failed")
+                connection.send_error(msg["id"], "modbus_lab_read_failed", str(err))
+                return
+            connection.send_result(
+                msg["id"],
+                {"live": live, "plant_state": coordinator.get_plant_state()},
+            )
+
+        @websocket_api.websocket_command(
+            {
+                vol.Required("type"): WS_TYPE_APPLY_MODBUS_LAB,
+                vol.Optional("plant_id"): str,
+                vol.Optional("work_mode"): str,
+                vol.Optional("remote_control"): str,
+                vol.Optional("min_soc"): vol.All(vol.Coerce(int), vol.Range(min=10, max=100)),
+                vol.Optional("min_soc_on_grid"): vol.All(vol.Coerce(int), vol.Range(min=10, max=100)),
+                vol.Optional("max_soc"): vol.All(vol.Coerce(int), vol.Range(min=10, max=100)),
+                vol.Optional("force_hardware_max_soc"): bool,
+                vol.Optional("charge_periods"): [CHARGE_PERIOD_LAB_SCHEMA],
+                vol.Optional("charge_period_path"): vol.In(["modbus_service", "evo_direct"]),
+                vol.Optional("plant_schedule"): {
+                    vol.Optional("enabled", default=True): bool,
+                    vol.Optional("remaining_work_mode", default="Self Use"): str,
+                    vol.Required("segments"): [PLANT_SCHEDULE_SEGMENT_SCHEMA],
+                },
+                vol.Optional("apply_schedule_now"): bool,
+            }
+        )
+        @websocket_api.require_admin
+        @websocket_api.async_response
+        async def ws_apply_modbus_lab(
+            hass: HomeAssistant,
+            connection: websocket_api.ActiveConnection,
+            msg: dict[str, Any],
+        ) -> None:
+            coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+            if coordinator is None:
+                connection.send_error(msg["id"], err_code, err_msg)
+                return
+            payload = {
+                k: msg[k]
+                for k in (
+                    "work_mode",
+                    "remote_control",
+                    "min_soc",
+                    "min_soc_on_grid",
+                    "max_soc",
+                    "force_hardware_max_soc",
+                    "charge_periods",
+                    "charge_period_path",
+                    "plant_schedule",
+                    "apply_schedule_now",
+                )
+                if k in msg
+            }
+            try:
+                result = await coordinator.async_apply_modbus_lab(payload)
+            except HomeAssistantError as err:
+                connection.send_error(msg["id"], "modbus_lab_apply_failed", str(err))
+                return
+            except Exception as err:
+                _LOGGER.exception("Modbus lab apply failed")
+                connection.send_error(msg["id"], "modbus_lab_apply_failed", str(err))
+                return
+            connection.send_result(
+                msg["id"],
+                {**result, "plant_state": coordinator.get_plant_state()},
+            )
+
     @websocket_api.websocket_command(
         {
             vol.Required("type"): WS_TYPE_FETCH_BATTERY_WARMUP,
@@ -1578,6 +1682,9 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
         websocket_api.async_register_command(hass, ws_run_modbus_debug_probe)
     if DEBUG_SCHEDULE_PROBE:
         websocket_api.async_register_command(hass, ws_run_schedule_probe)
+    if MODBUS_LAB:
+        websocket_api.async_register_command(hass, ws_read_modbus_lab)
+        websocket_api.async_register_command(hass, ws_apply_modbus_lab)
     websocket_api.async_register_command(hass, ws_fetch_battery_warmup)
     websocket_api.async_register_command(hass, ws_update_battery_warmup)
     websocket_api.async_register_command(hass, ws_fetch_fox_scheduler)
