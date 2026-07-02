@@ -1010,6 +1010,18 @@ function formatSolcastTimeOnly(iso) {
   return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
+/** Today's sunrise / sunset (HH:MM) from the Home Assistant sun.sun entity. */
+function overviewSunTimes(hass) {
+  const sun = hass?.states?.["sun.sun"];
+  if (!sun) return null;
+  const rising = sun.attributes?.next_rising;
+  const setting = sun.attributes?.next_setting;
+  const sunrise = rising ? formatSolcastTimeOnly(rising) : null;
+  const sunset = setting ? formatSolcastTimeOnly(setting) : null;
+  if ((!sunrise || sunrise === "—") && (!sunset || sunset === "—")) return null;
+  return { sunrise, sunset };
+}
+
 function formatSolcastNextFetch(sc) {
   const status = sc?.next_fetch_status;
   if (status === "disabled") return "Off";
@@ -10396,8 +10408,13 @@ const STYLES = `
 }
 .panel-stale-banner { margin-bottom: 14px; }
 .overview-status-block { margin-top: 12px; }
+.overview-status-topline {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  flex-wrap: wrap; gap: 8px 16px;
+}
 .overview-status-row {
   display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; line-height: 1.35;
+  justify-content: flex-end; margin-left: auto;
 }
 .overview-status-row .fox-device-new-check-pill { flex-shrink: 0; }
 .fox-inverter-state-pill-link,
@@ -10420,6 +10437,16 @@ const STYLES = `
 .overview-weather-icon { width: 18px; height: 18px; flex-shrink: 0; display: block; object-fit: contain; }
 .overview-weather-temp { letter-spacing: -0.01em; }
 .overview-weather-label { font-size: 13px; font-weight: 500; color: var(--secondary-text-color); }
+.overview-weather-block { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
+.overview-weather-block .overview-weather { margin-top: 0; }
+.overview-status-topline .overview-weather-block { margin-top: 0; }
+.overview-status-topline .overview-status-row { padding-top: 1px; }
+.overview-sun-times {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px;
+  font-size: 12px; font-weight: 500; color: var(--secondary-text-color); line-height: 1.2;
+}
+.overview-sun-item { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.overview-sun-icon { width: 14px; height: 14px; flex-shrink: 0; display: block; color: var(--primary-color, #894bfc); }
 .hourly-weather-card { margin-top: 14px; padding-bottom: 12px; }
 .hourly-weather-card-inner { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .hourly-weather-head {
@@ -18152,7 +18179,19 @@ ${note}
       ? `<span class="overview-weather-label">${esc(wx.condition_label)}</span>`
       : "";
     const aria = [wx.temperature_display, wx.condition_label].filter(Boolean).join(", ");
-    return `<div class="overview-weather" role="img" aria-label="${esc(aria || "Weather")}">${icon}${temp}${label}</div>`;
+    const sun = overviewSunTimes(this._hass);
+    const sunRow = sun
+      ? `<div class="overview-sun-times">${
+          sun.sunrise
+            ? `<span class="overview-sun-item"><svg class="overview-sun-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M3 18h18M7 18a5 5 0 0 1 10 0M12 3v4M5 8 6.5 9.5M19 8l-1.5 1.5M8.5 14.5 12 11l3.5 3.5"/></svg>Sunrise ${esc(sun.sunrise)}</span>`
+            : ""
+        }${
+          sun.sunset
+            ? `<span class="overview-sun-item"><svg class="overview-sun-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M3 18h18M7 18a5 5 0 0 1 10 0M12 9V5M5 8 6.5 9.5M19 8l-1.5 1.5M8.5 5.5 12 9l3.5-3.5"/></svg>Sunset ${esc(sun.sunset)}</span>`
+            : ""
+        }</div>`
+      : "";
+    return `<div class="overview-weather-block"><div class="overview-weather" role="img" aria-label="${esc(aria || "Weather")}">${icon}${temp}${label}</div>${sunRow}</div>`;
   }
 
   _resolveOverviewWeatherEntity() {
@@ -18224,6 +18263,8 @@ ${note}
           )
         : "";
     return `<div class="overview-status-block">
+<div class="overview-status-topline">
+${this._renderOverviewWeather()}
 <div class="overview-status-row">
 ${statusPart}
 ${workPart}
@@ -18234,7 +18275,7 @@ ${wrapFoxOverviewPillNav(
 )}
 <span class="overview-control-hint">${st.control_active ? "Plant control active" : "Plant control off"}</span>
 </div>
-${this._renderOverviewWeather()}
+</div>
 ${this._modeBannerExtra()}
 </div>`;
   }
