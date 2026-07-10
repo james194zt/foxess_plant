@@ -26,9 +26,8 @@ virtual_temp = _load_module("perf_virtual_temp", "performance/virtual_panel_temp
 clipping = _load_module("perf_clipping", "performance/clipping.py")
 financial = _load_module("perf_financial", "performance/financial.py")
 store_mod = _load_module("perf_store", "performance/store.py")
-
-
 solar_analysis = _load_module("perf_solar_analysis", "performance/solar_analysis.py")
+physics_insights = _load_module("perf_physics_insights", "performance/physics_insights.py")
 
 
 class VirtualPanelTempTests(unittest.TestCase):
@@ -182,6 +181,33 @@ class SolarAnalysisTests(unittest.TestCase):
         )
         self.assertEqual(result["break_even_date"], "paid_off")
         self.assertEqual(result["payback_progress_pct"], 100.0)
+
+
+class PhysicsInsightsTests(unittest.TestCase):
+    def test_clipping_insight_when_sustained(self) -> None:
+        clip = [{"t": float(i * 300000), "v": 0.2} for i in range(6)]
+        notes = physics_insights.build_intraday_physics_insights(
+            {"clipping_loss_kw": clip},
+            ac_limit_kw=4.3,
+        )
+        self.assertTrue(any("clipping" in n.lower() for n in notes))
+
+    def test_cloud_flush_detects_cold_then_peak(self) -> None:
+        temp = [
+            {"t": 1000.0, "v": 22.0},
+            {"t": 2000.0, "v": 14.0},
+            {"t": 3000.0, "v": 16.0},
+        ]
+        pv = [
+            {"t": 1000.0, "v": 1.0},
+            {"t": 2500.0, "v": 4.5},
+            {"t": 3500.0, "v": 3.0},
+        ]
+        notes = physics_insights.build_intraday_physics_insights(
+            {"virtual_panel_temp_c": temp, "pv_power_kw": pv},
+            ac_limit_kw=4.3,
+        )
+        self.assertTrue(any("cloud-edge" in n.lower() for n in notes))
 
 
 if __name__ == "__main__":

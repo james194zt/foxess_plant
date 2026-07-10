@@ -2984,6 +2984,10 @@ function renderPerformanceSummaryCards(chart) {
     live.forecast_accuracy_pct != null
       ? `${Number(live.forecast_accuracy_pct).toFixed(0)}% of Solcast`
       : "Forecast pending";
+  const clipSub =
+    live.clipping_kwh_today != null && Number(live.clipping_kwh_today) > 0
+      ? `Clipping ~${Number(live.clipping_kwh_today).toFixed(1)} kWh`
+      : accuracy;
   const breakEven = formatPerformanceBreakEven(summary.break_even_date);
   const paybackSub =
     breakEven != null
@@ -2995,7 +2999,7 @@ function renderPerformanceSummaryCards(chart) {
     {
       label: "Solar yield",
       value: live.pv_kwh_today != null ? `${Number(live.pv_kwh_today).toFixed(1)} kWh` : "—",
-      sub: accuracy,
+      sub: clipSub,
       tone: "solar",
     },
     {
@@ -3044,6 +3048,39 @@ function performancePolyline(points, range, xScale, yScale) {
   return pts.length >= 2 ? `<polyline fill="none" points="${pts.join(" ")}" />` : "";
 }
 
+function performanceClippingHatchSvg(pv, range, xScale, yScaleP, acLimit) {
+  if (!Number.isFinite(acLimit) || acLimit <= 0) return "";
+  const threshold = acLimit * 0.98;
+  const pts = (pv || [])
+    .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.t >= range.tMin && p.t <= range.nowMs)
+    .sort((a, b) => a.t - b.t);
+  if (pts.length < 2) return "";
+  const polys = [];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    if (a.v < threshold && b.v < threshold) continue;
+    const topA = Math.max(a.v, acLimit);
+    const topB = Math.max(b.v, acLimit);
+    const x1 = xScale(a.t);
+    const x2 = xScale(b.t);
+    const yBase = yScaleP(acLimit);
+    polys.push(
+      `<polygon points="${x1.toFixed(1)},${yBase.toFixed(1)} ${x2.toFixed(1)},${yBase.toFixed(1)} ${x2.toFixed(1)},${yScaleP(topB).toFixed(1)} ${x1.toFixed(1)},${yScaleP(topA).toFixed(1)}" fill="url(#fox-perf-clip-hatch)" opacity="0.5" />`
+    );
+  }
+  if (!polys.length) return "";
+  return `<defs><pattern id="fox-perf-clip-hatch" patternUnits="userSpaceOnUse" width="6" height="6" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="#ef4444" stroke-width="2" /></pattern></defs>${polys.join("")}`;
+}
+
+function renderPerformancePhysicsInsights(chart) {
+  const items = Array.isArray(chart?.physics_insights) ? chart.physics_insights : [];
+  if (!items.length) return "";
+  return `<ul class="fox-perf-highlights fox-perf-physics-insights">${items
+    .map((note) => `<li>${esc(String(note))}</li>`)
+    .join("")}</ul>`;
+}
+
 function renderPerformancePowerChartSvg(chart) {
   const series = chart?.series || {};
   const range = performanceChartRange(chart);
@@ -3074,9 +3111,11 @@ function renderPerformancePowerChartSvg(chart) {
   const yScaleR = (v) => padT + h - ((v - rMin) / Math.max(rMax - rMin, 0.1)) * h;
   const acLimit = Number(chart?.ac_limit_kw);
   let limitLine = "";
+  let clipHatch = "";
   if (Number.isFinite(acLimit) && acLimit > 0 && acLimit >= pMin && acLimit <= pMax * 1.2) {
     const y = yScaleP(acLimit);
     limitLine = `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + w}" y2="${y.toFixed(1)}" stroke="#f59e0b" stroke-dasharray="4 3" stroke-width="1" />`;
+    clipHatch = performanceClippingHatchSvg(pv, range, xScale, yScaleP, acLimit);
   }
   const lines = [
     { pts: pv, color: "#19D4DE", width: 2 },
@@ -3095,9 +3134,11 @@ function renderPerformancePowerChartSvg(chart) {
 <span><i style="background:#19D4DE"></i> PV kW</span>
 <span><i style="background:#2F6BFF"></i> Net grid kW</span>
 <span><i style="background:#ef4444"></i> Clipping</span>
+<span><i style="background:repeating-linear-gradient(45deg,#ef4444,#ef4444 2px,transparent 2px,transparent 4px)"></i> Clipped region</span>
 ${rate.length ? `<span><i style="background:#8A4DFF"></i> Import p/kWh</span>` : ""}
 </div>`;
   return `${legend}<svg class="fox-perf-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Performance power and price chart">
+${clipHatch}
 ${limitLine}
 ${lines}
 ${rateLine}
@@ -3292,6 +3333,7 @@ ${renderPerformancePowerChartSvg(chart)}
 <div class="card fox-perf-chart-card">
 <h3 class="fox-analysis-summary-title fox-analysis-chart-title">Panel cooling — virtual temperature vs wind</h3>
 ${renderPerformancePhysicsChartSvg(chart)}
+${renderPerformancePhysicsInsights(chart)}
 </div>
 </div>`;
 }
@@ -12100,6 +12142,7 @@ const STYLES = `
   color: #19D4DE;
 }
 .fox-perf-insight { margin: 0 0 12px; }
+.fox-perf-physics-insights { margin: 12px 0 0; }
 .fox-perf-highlights { margin: 0; padding-left: 18px; font-size: 13px; }
 @media (max-width: 900px) {
   .fox-perf-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }

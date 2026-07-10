@@ -163,6 +163,19 @@ async def async_build_performance_day_chart(
             pass
 
     today_summary = summary.get("today") or {}
+    physics_insights: list[str] = []
+    if series:
+        from .performance.physics_insights import build_intraday_physics_insights
+
+        physics_insights = build_intraday_physics_insights(series, ac_limit_kw=cfg.inverter_ac_limit_kw)
+
+    clipping_kwh_today = None
+    if ledger_row and ledger_row.get("clipping_loss_kwh") is not None:
+        clipping_kwh_today = ledger_row.get("clipping_loss_kwh")
+    elif is_today:
+        acc = getattr(coordinator, "_performance_daily", None) or {}
+        clipping_kwh_today = acc.get("clipping_loss_kwh")
+
     return {
         "day": day_iso,
         "enabled": cfg.enabled,
@@ -179,7 +192,9 @@ async def async_build_performance_day_chart(
             "export_p_per_kwh": coordinator._octopus_cache.get("current_export_p_per_kwh"),
             "solar_day_class_label": today_summary.get("solar_day_class_label"),
             "insight_note": today_summary.get("insight_note"),
+            "clipping_kwh_today": clipping_kwh_today,
         },
+        "physics_insights": physics_insights,
         "chart_window": {
             "start_ms": day_start.timestamp() * 1000,
             "end_ms": day_end.timestamp() * 1000,
