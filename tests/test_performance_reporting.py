@@ -30,6 +30,16 @@ solar_analysis = _load_module("perf_solar_analysis", "performance/solar_analysis
 physics_insights = _load_module("perf_physics_insights", "performance/physics_insights.py")
 hems_audit = _load_module("perf_hems_audit", "performance/hems_audit.py")
 
+import types
+
+_pkg = types.ModuleType("foxess_plant")
+_pkg.__path__ = [str(PKG_ROOT)]
+sys.modules.setdefault("foxess_plant", _pkg)
+sys.modules["foxess_plant.tariff_currency"] = _load_module(
+    "foxess_plant.tariff_currency", "tariff_currency.py"
+)
+models = _load_module("foxess_plant.models", "models.py")
+
 
 class VirtualPanelTempTests(unittest.TestCase):
     def test_cold_panel_above_baseline_voltage(self) -> None:
@@ -249,6 +259,43 @@ class HemsAuditTests(unittest.TestCase):
             )
             self.assertEqual(report["event_count"], 1)
             self.assertIn("3 slots", report["events"][0]["summary"])
+
+
+class PerformanceConfigSaveTests(unittest.TestCase):
+    def test_from_dict_accepts_string_install_cost(self) -> None:
+        cfg = models.PerformanceConfig.from_dict({"system_install_cost_gbp": "8500"})
+        self.assertEqual(cfg.system_install_cost_gbp, 8500.0)
+
+    def test_save_merge_round_trip(self) -> None:
+        existing = models.PerformanceConfig(system_install_cost_gbp=None)
+        payload = {"system_install_cost_gbp": 8500.0}
+        merged = {**existing.to_dict(), **payload}
+        cfg = models.PerformanceConfig.from_dict(merged)
+        self.assertEqual(cfg.system_install_cost_gbp, 8500.0)
+        self.assertEqual(cfg.to_dict()["system_install_cost_gbp"], 8500.0)
+
+
+class PvInstallCostMigrationTests(unittest.TestCase):
+    def test_merges_legacy_pv_minor_when_performance_unset(self) -> None:
+        perf = models.PerformanceConfig(system_install_cost_gbp=None)
+        merged = models.merge_legacy_pv_install_cost_into_performance(
+            perf,
+            {
+                "pv1": {"installation_cost_minor": 500000},
+                "pv2": {"installation_cost_minor": 350000},
+            },
+            "GBP",
+        )
+        self.assertEqual(merged.system_install_cost_gbp, 8500.0)
+
+    def test_keeps_performance_cost_when_set(self) -> None:
+        perf = models.PerformanceConfig(system_install_cost_gbp=12000.0)
+        merged = models.merge_legacy_pv_install_cost_into_performance(
+            perf,
+            {"pv1": {"installation_cost_minor": 100000}},
+            "GBP",
+        )
+        self.assertEqual(merged.system_install_cost_gbp, 12000.0)
 
 
 if __name__ == "__main__":

@@ -95,9 +95,6 @@ PV_STRING_SCHEMA = vol.Schema(
         vol.Required("efficiency_factor"): vol.All(vol.Coerce(float), vol.Range(min=1, max=100)),
         vol.Required("tilt"): vol.All(vol.Coerce(int), vol.Range(min=0, max=90)),
         vol.Required("azimuth"): vol.All(vol.Coerce(int), vol.Range(min=0, max=359)),
-        vol.Optional("installation_cost_minor", default=0): vol.All(
-            vol.Coerce(float), vol.Range(min=0, max=99_999_999)
-        ),
     }
 )
 
@@ -109,7 +106,7 @@ PERFORMANCE_SCHEMA = vol.Schema(
             vol.Coerce(float), vol.Range(min=-0.02, max=0)
         ),
         vol.Optional("inverter_ac_limit_kw"): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=50)),
-        vol.Optional("system_install_cost_gbp"): vol.Any(vol.Coerce(float), None),
+        vol.Optional("system_install_cost_gbp"): vol.Any(None, vol.Coerce(float)),
         vol.Optional("system_rte"): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=1.0)),
         vol.Optional("degradation_buffer_p_per_kwh"): vol.All(
             vol.Coerce(float), vol.Range(min=0, max=50)

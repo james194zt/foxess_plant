@@ -535,13 +535,19 @@ class PerformanceConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> PerformanceConfig:
-        install_cost = data.get("system_install_cost_gbp")
+        install_cost_raw = data.get("system_install_cost_gbp")
+        install_cost: float | None = None
+        if install_cost_raw is not None and install_cost_raw != "":
+            try:
+                install_cost = float(install_cost_raw)
+            except (TypeError, ValueError):
+                install_cost = None
         return cls(
             enabled=bool(data.get("enabled", True)),
             baseline_v_at_25c=float(data.get("baseline_v_at_25c", 400.0) or 400.0),
             temp_coefficient_v_per_c=float(data.get("temp_coefficient_v_per_c", -0.003) or -0.003),
             inverter_ac_limit_kw=float(data.get("inverter_ac_limit_kw", 4.3) or 4.3),
-            system_install_cost_gbp=float(install_cost) if install_cost is not None else None,
+            system_install_cost_gbp=install_cost,
             system_rte=float(data.get("system_rte", 0.85) or 0.85),
             degradation_buffer_p_per_kwh=float(data.get("degradation_buffer_p_per_kwh", 1.0) or 1.0),
         )
@@ -558,6 +564,36 @@ class PerformanceConfig:
             "system_rte": round(self.system_rte, 2),
             "degradation_buffer_p_per_kwh": round(self.degradation_buffer_p_per_kwh, 2),
         }
+
+
+def merge_legacy_pv_install_cost_into_performance(
+    performance: PerformanceConfig,
+    pv_config_raw: dict[str, Any] | None,
+    currency: str,
+) -> PerformanceConfig:
+    """Read deprecated per-string PV install cost into performance payback when unset."""
+    if performance.system_install_cost_gbp is not None:
+        try:
+            if float(performance.system_install_cost_gbp) > 0:
+                return performance
+        except (TypeError, ValueError):
+            pass
+    raw = pv_config_raw if isinstance(pv_config_raw, dict) else {}
+    total_minor = 0.0
+    for key in ("pv1", "pv2"):
+        pv = raw.get(key)
+        if not isinstance(pv, dict):
+            continue
+        try:
+            total_minor += float(pv.get("installation_cost_minor") or 0)
+        except (TypeError, ValueError):
+            continue
+    if total_minor <= 0:
+        return performance
+    from .tariff_currency import minor_to_major
+
+    cost_major = round(minor_to_major(total_minor, currency), 2)
+    return PerformanceConfig.from_dict({**performance.to_dict(), "system_install_cost_gbp": cost_major})
 
 
 @dataclass
@@ -585,7 +621,6 @@ class PvStringConfig:
     efficiency_factor: float = 100.0
     tilt: int = 25
     azimuth: int = 180
-    installation_cost_minor: float = 0.0
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], *, defaults: dict[str, Any] | None = None) -> PvStringConfig:
@@ -618,13 +653,6 @@ class PvStringConfig:
             azimuth = 180
         tilt = max(0, min(90, tilt))
         azimuth = max(0, min(359, azimuth))
-        try:
-            installation_cost_minor = float(
-                data.get("installation_cost_minor", base.get("installation_cost_minor", 0)) or 0
-            )
-        except (TypeError, ValueError):
-            installation_cost_minor = 0.0
-        installation_cost_minor = max(0.0, min(99_999_999.0, installation_cost_minor))
         return cls(
             enabled=bool(data.get("enabled", base.get("enabled", True))),
             panel_count=panel_count,
@@ -632,7 +660,6 @@ class PvStringConfig:
             efficiency_factor=efficiency_factor,
             tilt=tilt,
             azimuth=azimuth,
-            installation_cost_minor=installation_cost_minor,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -643,7 +670,6 @@ class PvStringConfig:
             "efficiency_factor": self.efficiency_factor,
             "tilt": self.tilt,
             "azimuth": self.azimuth,
-            "installation_cost_minor": round(self.installation_cost_minor, 4),
         }
 
     @property
@@ -1310,7 +1336,11 @@ class PlantConfig:
             smart_charge=SmartChargeConfig.from_dict(
                 data.get("smart_charge", {}), DEFAULT_SMART_CHARGE["charge_periods"]
             ),
-            performance=PerformanceConfig.from_dict(data.get("performance", DEFAULT_PERFORMANCE)),
+            performance=merge_legacy_pv_install_cost_into_performance(
+                PerformanceConfig.from_dict(data.get("performance", DEFAULT_PERFORMANCE)),
+                data.get("pv_config"),
+                TariffConfig.from_dict(data.get("tariff", DEFAULT_TARIFF)).currency,
+            ),
             panel_display=PanelDisplayConfig.from_dict(data.get("panel_display", DEFAULT_PANEL_DISPLAY)),
             pv_config=PvSystemConfig.from_dict(data.get("pv_config", DEFAULT_PV_CONFIG)),
             solcast=SolcastConfig.from_dict(data.get("solcast", DEFAULT_SOLCAST)),

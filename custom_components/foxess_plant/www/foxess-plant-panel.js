@@ -161,7 +161,6 @@ const DEFAULT_PV_STRING = {
   efficiency_factor: 100,
   tilt: 25,
   azimuth: 180,
-  installation_cost_minor: 0,
 };
 
 const DEFAULT_PV_CONFIG = {
@@ -827,9 +826,6 @@ function normalizePvString(raw, defaults) {
   let azimuth = parseInt(src.azimuth, 10);
   if (!Number.isFinite(azimuth)) azimuth = base.azimuth ?? 180;
   azimuth = Math.max(0, Math.min(359, azimuth));
-  let installationCostMinor = parseFloat(src.installation_cost_minor);
-  if (!Number.isFinite(installationCostMinor)) installationCostMinor = base.installation_cost_minor ?? 0;
-  installationCostMinor = Math.max(0, Math.min(99_999_999, installationCostMinor));
   return {
     enabled: Boolean(src.enabled ?? base.enabled),
     panel_count: panelCount,
@@ -837,7 +833,6 @@ function normalizePvString(raw, defaults) {
     efficiency_factor: eff,
     tilt,
     azimuth,
-    installation_cost_minor: installationCostMinor,
   };
 }
 
@@ -14415,6 +14410,18 @@ Reloading panel registration…
         this._foxCloudDraft.enabled = Boolean(fc.enabled);
         this._foxCloudDraft.api_key_set = Boolean(fc.api_key_set);
       }
+      if (
+        this._settingsView === "performance" &&
+        this._performanceDraft &&
+        !this._settingsFieldFocused &&
+        !this._rangeDrag
+      ) {
+        const cfg = this._performanceConfigFromState();
+        this._performanceDraft.enabled = cfg.enabled !== false;
+        this._performanceDraft.system_install_cost_gbp = this._parsePerformanceInstallCost(
+          cfg.system_install_cost_gbp
+        );
+      }
       this._panelStale = this._panelIsStale();
       const forecastPart = this._forecastStatisticsSlotPart?.();
       if (forecastPart !== this._statisticsForecastSlotTrack) {
@@ -14594,6 +14601,8 @@ Reloading panel registration…
   _onPointerDown(e) {
     const t = e.target;
     if (t?.matches?.('input[type="range"][data-field^="pv:"]')) this._rangeDrag = true;
+    const saveBtn = t?.closest?.('[data-action="save-performance-settings"]');
+    if (saveBtn && this._performanceDraft) this._syncPerformanceDraftFromDom();
   }
 
   _onPointerUp() {
@@ -16437,8 +16446,7 @@ Reloading panel registration…
   }
 
   _performanceSettingsSubtitle() {
-    const perf = this._plantState?.performance || {};
-    const cfg = perf.config || perf;
+    const cfg = this._performanceConfigFromState();
     if (cfg.enabled === false) return "Off — recorder-backed solar and savings reports";
     const cost = cfg.system_install_cost_gbp;
     if (cost != null && Number(cost) > 0) {
@@ -16447,18 +16455,26 @@ Reloading panel registration…
     return `On · ${Number(cfg.baseline_v_at_25c || 400).toFixed(0)} V baseline · set install cost for payback`;
   }
 
-  _initPerformanceDraft() {
+  _performanceConfigFromState() {
     const live = this._plantState?.performance || {};
-    const cfg = live.config || live;
+    const cfg = live.config && typeof live.config === "object" ? live.config : live;
+    return cfg || {};
+  }
+
+  _parsePerformanceInstallCost(raw) {
+    if (raw == null || raw === "") return "";
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : "";
+  }
+
+  _initPerformanceDraft() {
+    const cfg = this._performanceConfigFromState();
     this._performanceDraft = {
       enabled: cfg.enabled !== false,
       baseline_v_at_25c: Number(cfg.baseline_v_at_25c ?? 400),
       temp_coefficient_v_per_c: Number(cfg.temp_coefficient_v_per_c ?? -0.003),
       inverter_ac_limit_kw: Number(cfg.inverter_ac_limit_kw ?? 4.3),
-      system_install_cost_gbp:
-        cfg.system_install_cost_gbp != null && cfg.system_install_cost_gbp !== ""
-          ? Number(cfg.system_install_cost_gbp)
-          : "",
+      system_install_cost_gbp: this._parsePerformanceInstallCost(cfg.system_install_cost_gbp),
       system_rte: Number(cfg.system_rte ?? 0.85),
       degradation_buffer_p_per_kwh: Number(cfg.degradation_buffer_p_per_kwh ?? 1),
     };
@@ -16477,7 +16493,6 @@ Reloading panel registration…
       "baseline_v_at_25c",
       "temp_coefficient_v_per_c",
       "inverter_ac_limit_kw",
-      "system_install_cost_gbp",
       "system_rte",
       "degradation_buffer_p_per_kwh",
     ];
@@ -16487,22 +16502,34 @@ Reloading panel registration…
       const raw = el.value;
       this._performanceDraft[key] = raw === "" ? "" : Number(raw);
     }
+    const installEl = root.querySelector('[data-field="performance:system_install_cost_gbp"]');
+    if (installEl) {
+      this._performanceDraft.system_install_cost_gbp = this._parsePerformanceInstallCost(
+        String(installEl.value ?? "").trim()
+      );
+    }
+  }
+
+  _performanceInstallCostFromDom() {
+    const el = this._root?.querySelector?.('[data-field="performance:system_install_cost_gbp"]');
+    if (!el) return null;
+    const raw = String(el.value ?? "").trim();
+    if (raw === "") return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
   }
 
   _buildPerformanceSavePayload() {
     if (!this._performanceDraft) return null;
     this._syncPerformanceDraftFromDom();
     const d = this._performanceDraft;
-    const installRaw = d.system_install_cost_gbp;
+    const installCost = this._performanceInstallCostFromDom();
     return {
       enabled: Boolean(d.enabled),
       baseline_v_at_25c: Number(d.baseline_v_at_25c) || 400,
       temp_coefficient_v_per_c: Number(d.temp_coefficient_v_per_c) || -0.003,
       inverter_ac_limit_kw: Number(d.inverter_ac_limit_kw) || 4.3,
-      system_install_cost_gbp:
-        installRaw === "" || installRaw == null || !Number.isFinite(Number(installRaw))
-          ? null
-          : Number(installRaw),
+      system_install_cost_gbp: installCost,
       system_rte: Number(d.system_rte) || 0.85,
       degradation_buffer_p_per_kwh: Number(d.degradation_buffer_p_per_kwh) || 1,
     };
@@ -17683,6 +17710,12 @@ Reloading panel registration…
           return;
         }
       }
+      if (parts[0] === "performance" && this._performanceDraft) {
+        if (parts[1] === "enabled") {
+          this._performanceDraft.enabled = el.checked;
+          this._scheduleRender();
+        }
+      }
       if (parts[0] === "tariff" && this._tariffDraft) {
         const kind = parts[1];
         const sub = parts[2];
@@ -17867,6 +17900,31 @@ Reloading panel registration…
       const n = parseFloat(String(el.value).trim());
       this._stormDraft.solcast_min_soc_floor = Math.max(10, Math.min(100, Number.isFinite(n) ? n : DEFAULT_STORM_SOLCAST_MIN_SOC));
       return;
+    }
+    if (kind === "performance" && this._performanceDraft) {
+      const field = parts[1];
+      if (field === "enabled") {
+        this._performanceDraft.enabled = el.checked;
+        this._scheduleRender();
+        return;
+      }
+      if (field === "system_install_cost_gbp") {
+        this._performanceDraft.system_install_cost_gbp = this._parsePerformanceInstallCost(
+          String(el.value ?? "").trim()
+        );
+        return;
+      }
+      if (
+        field === "baseline_v_at_25c" ||
+        field === "temp_coefficient_v_per_c" ||
+        field === "inverter_ac_limit_kw" ||
+        field === "system_rte" ||
+        field === "degradation_buffer_p_per_kwh"
+      ) {
+        const raw = String(el.value ?? "").trim();
+        this._performanceDraft[field] = raw === "" ? "" : Number(raw);
+        return;
+      }
     }
     if (kind === "smart-charge" && this._smartChargeDraft) {
       const field = parts[1];
@@ -18222,16 +18280,6 @@ Reloading panel registration…
         cfg.tilt = Math.max(0, Math.min(90, parseInt(el.value, 10) || 25));
       } else if (field === "azimuth") {
         cfg.azimuth = Math.max(0, Math.min(359, parseInt(el.value, 10) || 180));
-      } else if (field === "installation_cost") {
-        const currency = pvConfigCurrency(this._plantState, this._tariffDraft);
-        const raw = String(el.value).trim();
-        if (raw === "") {
-          cfg.installation_cost_minor = 0;
-        } else {
-          cfg.installation_cost_minor = majorToMinor(parseTariffRate(el.value), currency);
-        }
-        if (e.type === "change") this._scheduleRender();
-        return;
       } else {
         return;
       }
@@ -23123,10 +23171,6 @@ ${this._renderAutomationOverrideBehaviourCard(draft.charge_periods[0], "storm-be
       (cfg.panel_count * cfg.watts_per_panel * cfg.efficiency_factor) /
       100000
     ).toFixed(2);
-    const currency = pvConfigCurrency(this._plantState, this._tariffDraft);
-    const costStep = tariffRateInputStep(currency);
-    const costDisplay =
-      cfg.installation_cost_minor > 0 ? minorToMajor(cfg.installation_cost_minor, currency) : "";
     return `<div class="card pv-string-card${disabledClass}">
 <p class="card-title">${esc(sectionTitle)}</p>
 <div class="toggle-row"><span><strong>${esc(enabledLabel)}</strong></span>
@@ -23151,11 +23195,6 @@ ${this._renderAutomationOverrideBehaviourCard(draft.charge_periods[0], "storm-be
 <label>Efficiency Factor</label>
 ${effHint}
 <input type="number" class="pv-eff-input" min="1" max="100" step="1" data-field="pv:${which}:efficiency_factor" value="${esc(String(cfg.efficiency_factor))}" ${effDisabled ? "disabled" : ""} aria-label="Efficiency factor percent"> <span style="font-size:14px">%</span>
-</div>
-<div class="field">
-<label>Installation cost</label>
-<p class="field-hint">Optional total cost for this PV string in ${esc(currency)} — for future payback analysis (uses your tariff currency)</p>
-<input type="number" class="pv-eff-input" min="0" step="${esc(costStep)}" inputmode="decimal" data-field="pv:${which}:installation_cost" value="${costDisplay !== "" ? esc(String(costDisplay)) : ""}" placeholder="0" ${disabled ? "disabled" : ""} aria-label="Installation cost">
 </div>
 ${this._renderPvTiltAzimuthFields(which)}
 <p class="field-hint" style="margin-top:4px">Nameplate ${esc(nameplateKw)} kW DC · Effective ${esc(effectiveKw)} kW (after efficiency)</p>
@@ -23826,6 +23865,7 @@ ${brightApiFields}
 <div class="field"><label>AC export limit (kW)</label>
 <input type="number" step="0.1" data-field="performance:inverter_ac_limit_kw" value="${esc(String(draft.inverter_ac_limit_kw))}" ${this._busy ? "disabled" : ""}></div>
 <div class="field"><label>System install cost (£)</label>
+<p class="field-hint">Total system cost for payback tracking (migrated from legacy PV string costs if set).</p>
 <input type="number" step="1" min="0" data-field="performance:system_install_cost_gbp" value="${esc(String(draft.system_install_cost_gbp ?? ""))}" placeholder="e.g. 8500" ${this._busy ? "disabled" : ""}></div>
 <div class="field"><label>Battery round-trip efficiency</label>
 <input type="number" step="0.01" min="0.5" max="1" data-field="performance:system_rte" value="${esc(String(draft.system_rte))}" ${this._busy ? "disabled" : ""}></div>
