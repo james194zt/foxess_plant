@@ -54,6 +54,8 @@ WS_TYPE_FETCH_OCTOPUS_ANALYSIS = "foxess_plant/fetch_octopus_analysis"
 WS_TYPE_APPLY_OCTOPUS_SCHEDULE = "foxess_plant/apply_octopus_schedule"
 WS_TYPE_FETCH_SMART_CHARGE_ANALYSIS = "foxess_plant/fetch_smart_charge_analysis"
 WS_TYPE_FETCH_PERFORMANCE_DAY = "foxess_plant/fetch_performance_day"
+WS_TYPE_FETCH_PERFORMANCE_REPORT = "foxess_plant/fetch_performance_report"
+WS_TYPE_UPDATE_PERFORMANCE = "foxess_plant/update_performance"
 WS_TYPE_UPDATE_SMART_CHARGE = "foxess_plant/update_smart_charge"
 WS_TYPE_TARIFF_ENTITY_CANDIDATES = "foxess_plant/tariff_entity_candidates"
 WS_TYPE_UPDATE_SOLCAST = "foxess_plant/update_solcast"
@@ -95,6 +97,22 @@ PV_STRING_SCHEMA = vol.Schema(
         vol.Required("azimuth"): vol.All(vol.Coerce(int), vol.Range(min=0, max=359)),
         vol.Optional("installation_cost_minor", default=0): vol.All(
             vol.Coerce(float), vol.Range(min=0, max=99_999_999)
+        ),
+    }
+)
+
+PERFORMANCE_SCHEMA = vol.Schema(
+    {
+        vol.Optional("enabled"): cv.boolean,
+        vol.Optional("baseline_v_at_25c"): vol.All(vol.Coerce(float), vol.Range(min=300, max=500)),
+        vol.Optional("temp_coefficient_v_per_c"): vol.All(
+            vol.Coerce(float), vol.Range(min=-0.02, max=0)
+        ),
+        vol.Optional("inverter_ac_limit_kw"): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=50)),
+        vol.Optional("system_install_cost_gbp"): vol.Any(vol.Coerce(float), None),
+        vol.Optional("system_rte"): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=1.0)),
+        vol.Optional("degradation_buffer_p_per_kwh"): vol.All(
+            vol.Coerce(float), vol.Range(min=0, max=50)
         ),
     }
 )
@@ -898,6 +916,62 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             msg["id"],
             {"performance_day": chart, "plant_state": coordinator.get_plant_state()},
         )
+
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): WS_TYPE_FETCH_PERFORMANCE_REPORT,
+            vol.Required("plant_id"): str,
+            vol.Optional("period", default="week"): vol.In(("week", "month", "year")),
+            vol.Optional("offset", default=0): vol.Coerce(int),
+        }
+    )
+    @websocket_api.async_response
+    async def ws_fetch_performance_report(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        from .performance.report import async_build_performance_report
+
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        try:
+            report = await async_build_performance_report(
+                coordinator,
+                period=str(msg.get("period") or "week"),
+                offset=int(msg.get("offset") or 0),
+            )
+        except Exception as err:
+            _LOGGER.exception("fetch_performance_report failed")
+            connection.send_error(msg["id"], "fetch_performance_report_failed", str(err))
+            return
+        connection.send_result(
+            msg["id"],
+            {"performance_report": report, "plant_state": coordinator.get_plant_state()},
+        )
+
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): WS_TYPE_UPDATE_PERFORMANCE,
+            vol.Optional("plant_id"): str,
+            vol.Required("performance"): PERFORMANCE_SCHEMA,
+        }
+    )
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def ws_update_performance(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        await coordinator.async_save_performance(performance=dict(msg["performance"]))
+        connection.send_result(msg["id"], coordinator.get_plant_state())
 
     @websocket_api.websocket_command(
         {
@@ -1739,6 +1813,8 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_apply_octopus_schedule)
     websocket_api.async_register_command(hass, ws_fetch_smart_charge_analysis)
     websocket_api.async_register_command(hass, ws_fetch_performance_day)
+    websocket_api.async_register_command(hass, ws_fetch_performance_report)
+    websocket_api.async_register_command(hass, ws_update_performance)
     websocket_api.async_register_command(hass, ws_update_smart_charge)
     websocket_api.async_register_command(hass, ws_update_solcast)
     websocket_api.async_register_command(hass, ws_test_solcast)

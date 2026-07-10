@@ -36,6 +36,8 @@ def new_daily_accumulator() -> dict[str, Any]:
         "clipping_loss_kwh": 0.0,
         "clipping_loss_valuation_gbp": 0.0,
         "peak_power_kw": 0.0,
+        "pv_kwh_today": None,
+        "solcast_forecast_kwh_today": None,
     }
 
 
@@ -62,6 +64,12 @@ async def async_performance_tick(coordinator: Any) -> None:
 
     sample = collect_performance_sample(coordinator)
     await coordinator.async_update_performance_sensors(sample)
+
+    acc = coordinator._performance_daily
+    if sample.pv_kwh_today is not None:
+        acc["pv_kwh_today"] = sample.pv_kwh_today
+    if sample.solcast_forecast_kwh_today is not None:
+        acc["solcast_forecast_kwh_today"] = sample.solcast_forecast_kwh_today
 
     import_kwh = estimate_bucket_energy_kwh(
         abs(sample.net_grid_power_kw) if (sample.net_grid_power_kw or 0) < 0 else None
@@ -98,39 +106,60 @@ async def async_performance_tick(coordinator: Any) -> None:
 
 async def async_commit_daily_ledger(coordinator: Any, date: str) -> None:
     """Flush accumulated daily metrics to SQLite."""
+    from .solar_analysis import build_daily_insight, classify_forecast_day
+
     store: PerformanceStore | None = coordinator._performance_store
     if store is None:
         return
 
     acc = coordinator._performance_daily or new_daily_accumulator()
-    sample = collect_performance_sample(coordinator)
     cfg = coordinator.plant.performance
 
-    pv_kwh = sample.pv_kwh_today
-    solcast_kwh = sample.solcast_forecast_kwh_today
+    pv_kwh = acc.get("pv_kwh_today")
+    solcast_kwh = acc.get("solcast_forecast_kwh_today")
+    forecast_accuracy = _forecast_accuracy_pct(
+        float(pv_kwh) if pv_kwh is not None else None,
+        float(solcast_kwh) if solcast_kwh is not None else None,
+    )
     peak = float(acc.get("peak_power_kw") or 0.0)
     peak_vs_rated = None
     if cfg.inverter_ac_limit_kw > 0 and peak > 0:
         peak_vs_rated = round(peak / cfg.inverter_ac_limit_kw * 100.0, 1)
 
+    solar_day_class = classify_forecast_day(
+        forecast_accuracy_pct=forecast_accuracy,
+        peak_vs_rated_pct=peak_vs_rated,
+    )
+    clipping_kwh = float(acc.get("clipping_loss_kwh") or 0.0)
+    insight_note = build_daily_insight(
+        forecast_accuracy_pct=forecast_accuracy,
+        peak_vs_rated_pct=peak_vs_rated,
+        solar_day_class=solar_day_class,
+        virtual_temp_min_c=acc.get("virtual_temp_min_c"),
+        virtual_temp_max_c=acc.get("virtual_temp_max_c"),
+        clipping_loss_kwh=clipping_kwh,
+    )
+
     row = {
         "date": date,
         "pv_kwh": pv_kwh,
         "solcast_forecast_kwh": solcast_kwh,
-        "forecast_accuracy_pct": _forecast_accuracy_pct(pv_kwh, solcast_kwh),
+        "forecast_accuracy_pct": forecast_accuracy,
         "export_kwh": round(float(acc.get("export_kwh") or 0.0), 3),
         "import_kwh": round(float(acc.get("import_kwh") or 0.0), 3),
         "export_earnings_gbp": round(float(acc.get("export_earnings_gbp") or 0.0), 2),
         "import_spend_gbp": round(float(acc.get("import_spend_gbp") or 0.0), 2),
         "avoided_grid_cost_gbp": round(float(acc.get("avoided_grid_cost_gbp") or 0.0), 2),
-        "clipping_loss_kwh": round(float(acc.get("clipping_loss_kwh") or 0.0), 3),
+        "clipping_loss_kwh": round(clipping_kwh, 3),
         "clipping_loss_valuation_gbp": round(float(acc.get("clipping_loss_valuation_gbp") or 0.0), 2),
         "net_daily_savings_gbp": net_daily_savings_gbp(acc),
         "peak_power_kw": round(peak, 2) if peak else None,
         "peak_vs_rated_pct": peak_vs_rated,
         "virtual_temp_min_c": acc.get("virtual_temp_min_c"),
         "virtual_temp_max_c": acc.get("virtual_temp_max_c"),
-        "wind_correlation_note": None,
+        "wind_correlation_note": insight_note,
+        "solar_day_class": solar_day_class,
+        "insight_note": insight_note,
     }
     store.upsert_daily_ledger(row)
     _LOGGER.debug("Performance daily ledger committed for %s", date)
@@ -152,6 +181,8 @@ async def async_init_performance_store(coordinator: Any) -> None:
 
 def performance_summary(coordinator: Any) -> dict[str, Any]:
     """Panel-friendly performance snapshot."""
+    from .solar_analysis import payback_summary, solar_day_class_label
+
     store: PerformanceStore | None = getattr(coordinator, "_performance_store", None)
     cfg = coordinator.plant.performance
     today = coordinator._performance_day or dt_util.as_local(dt_util.now()).date().isoformat()
@@ -159,22 +190,28 @@ def performance_summary(coordinator: Any) -> dict[str, Any]:
     ledger_today = store.get_daily_ledger(today) if store else None
     total_saved = store.sum_net_savings() if store else 0.0
     avg_90 = store.avg_net_savings_days(90) if store else None
-    install_cost = cfg.system_install_cost_gbp
-    payback_pct = None
-    if install_cost and install_cost > 0:
-        payback_pct = round(total_saved / install_cost * 100.0, 1)
+    payback = payback_summary(
+        total_saved_gbp=total_saved,
+        install_cost_gbp=cfg.system_install_cost_gbp,
+        avg_daily_savings_gbp=avg_90,
+    )
+    today_row = ledger_today or {
+        "date": today,
+        "net_daily_savings_gbp": net_daily_savings_gbp(acc) if acc else 0.0,
+        "export_earnings_gbp": acc.get("export_earnings_gbp"),
+        "import_spend_gbp": acc.get("import_spend_gbp"),
+        "avoided_grid_cost_gbp": acc.get("avoided_grid_cost_gbp"),
+    }
+    if today_row.get("solar_day_class"):
+        today_row = {
+            **today_row,
+            "solar_day_class_label": solar_day_class_label(today_row.get("solar_day_class")),
+        }
     return {
         "enabled": cfg.enabled,
-        "today": ledger_today or {
-            "date": today,
-            "net_daily_savings_gbp": net_daily_savings_gbp(acc) if acc else 0.0,
-            "export_earnings_gbp": acc.get("export_earnings_gbp"),
-            "import_spend_gbp": acc.get("import_spend_gbp"),
-            "avoided_grid_cost_gbp": acc.get("avoided_grid_cost_gbp"),
-        },
-        "lifetime_saved_gbp": round(total_saved, 2),
-        "payback_progress_pct": payback_pct,
-        "avg_daily_savings_90d_gbp": round(avg_90, 2) if avg_90 is not None else None,
+        "config": cfg.to_dict(),
+        "today": today_row,
+        **payback,
         "db_path": str(store.path) if store else None,
     }
 

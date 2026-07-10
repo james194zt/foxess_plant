@@ -28,6 +28,9 @@ financial = _load_module("perf_financial", "performance/financial.py")
 store_mod = _load_module("perf_store", "performance/store.py")
 
 
+solar_analysis = _load_module("perf_solar_analysis", "performance/solar_analysis.py")
+
+
 class VirtualPanelTempTests(unittest.TestCase):
     def test_cold_panel_above_baseline_voltage(self) -> None:
         temp = virtual_temp.compute_virtual_panel_temp_c(
@@ -119,12 +122,66 @@ class PerformanceStoreTests(unittest.TestCase):
                     "virtual_temp_min_c": 18.0,
                     "virtual_temp_max_c": 42.0,
                     "wind_correlation_note": None,
+                    "solar_day_class": "under_forecast",
+                    "insight_note": "113% of Solcast",
                 }
             )
             row = s.get_daily_ledger("2026-07-10")
             assert row is not None
             self.assertAlmostEqual(row["net_daily_savings_gbp"], 0.75)
             self.assertAlmostEqual(s.sum_net_savings(), 0.75)
+
+    def test_period_aggregate(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "test.db"
+            s = store_mod.PerformanceStore(db)
+            s.init_schema()
+            for day, savings in [("2026-07-08", 0.5), ("2026-07-09", 0.75), ("2026-07-10", 1.0)]:
+                s.upsert_daily_ledger(
+                    {
+                        "date": day,
+                        "pv_kwh": 10.0,
+                        "solcast_forecast_kwh": 9.0,
+                        "forecast_accuracy_pct": 111.0,
+                        "export_kwh": 1.0,
+                        "import_kwh": 2.0,
+                        "export_earnings_gbp": 0.15,
+                        "import_spend_gbp": 0.60,
+                        "avoided_grid_cost_gbp": 1.20,
+                        "clipping_loss_kwh": 0.0,
+                        "clipping_loss_valuation_gbp": 0.0,
+                        "net_daily_savings_gbp": savings,
+                        "peak_power_kw": 4.0,
+                        "peak_vs_rated_pct": 93.0,
+                        "virtual_temp_min_c": None,
+                        "virtual_temp_max_c": None,
+                        "wind_correlation_note": None,
+                        "solar_day_class": "under_forecast",
+                        "insight_note": "Above forecast",
+                    }
+                )
+            agg = s.period_aggregate("2026-07-08", "2026-07-10")
+            self.assertEqual(agg["days"], 3)
+            self.assertAlmostEqual(agg["net_daily_savings_gbp"], 2.25)
+            rows = s.list_ledger_between("2026-07-08", "2026-07-10")
+            self.assertEqual(len(rows), 3)
+
+
+class SolarAnalysisTests(unittest.TestCase):
+    def test_under_forecast_classification(self) -> None:
+        self.assertEqual(
+            solar_analysis.classify_forecast_day(forecast_accuracy_pct=115.0, peak_vs_rated_pct=95.0),
+            solar_analysis.SOLAR_CLASS_UNDER_FORECAST,
+        )
+
+    def test_payback_summary_paid_off(self) -> None:
+        result = solar_analysis.payback_summary(
+            total_saved_gbp=9000.0,
+            install_cost_gbp=8000.0,
+            avg_daily_savings_gbp=2.5,
+        )
+        self.assertEqual(result["break_even_date"], "paid_off")
+        self.assertEqual(result["payback_progress_pct"], 100.0)
 
 
 if __name__ == "__main__":

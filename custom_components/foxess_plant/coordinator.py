@@ -41,6 +41,7 @@ from .const import (
     IMPACT_ENTITY_SUFFIXES,
     AUTOMATION_MODES,
     CONF_PANEL_DISPLAY,
+    CONF_PERFORMANCE,
     CONF_PV_CONFIG,
     CONF_SMART_CHARGE,
     CONF_SOLCAST,
@@ -3958,6 +3959,26 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._setup_tariff_schedule_timer()
         await self.async_request_refresh()
         return self._tariff_state()
+
+    async def async_save_performance(self, *, performance: dict[str, Any]) -> None:
+        """Persist performance reporting settings from the panel."""
+        from .models import PerformanceConfig
+
+        merged = {**self.plant.performance.to_dict(), **performance}
+        cfg = PerformanceConfig.from_dict(merged)
+        data = dict(self.config_entry.data)
+        data[CONF_PERFORMANCE] = cfg.to_dict()
+        self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+        self.update_plant_config(PlantConfig.from_entry_data(data))
+        store = self._performance_store
+        if store is not None:
+            store.set_payback_config(
+                install_cost_gbp=cfg.system_install_cost_gbp,
+                install_date=self.plant.solcast.installation_date,
+                system_rte=cfg.system_rte,
+            )
+        self._setup_performance_timer()
+        await self.async_request_refresh()
 
     async def async_save_smart_charge(self, *, smart_charge: dict[str, Any]) -> None:
         """Persist smart charge settings from the panel."""

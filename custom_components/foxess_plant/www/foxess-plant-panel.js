@@ -147,6 +147,7 @@ const SETTINGS_NAV = [
   { id: "solcast", label: "Solcast" },
   { id: "glow", label: "Glow meter" },
   { id: "tariff", label: "Tariff" },
+  { id: "performance", label: "Performance" },
 ];
 
 function smartChargeOwnsPlantControls(plantState) {
@@ -2960,6 +2961,14 @@ function performanceDayIso(offset = 0) {
   return d.toISOString().slice(0, 10);
 }
 
+function formatPerformanceBreakEven(value) {
+  if (value == null || value === "") return null;
+  if (value === "paid_off") return "Paid off";
+  const d = new Date(`${value}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
+
 function formatPerformanceGbp(value) {
   if (value == null || !Number.isFinite(Number(value))) return "—";
   const n = Number(value);
@@ -2975,6 +2984,13 @@ function renderPerformanceSummaryCards(chart) {
     live.forecast_accuracy_pct != null
       ? `${Number(live.forecast_accuracy_pct).toFixed(0)}% of Solcast`
       : "Forecast pending";
+  const breakEven = formatPerformanceBreakEven(summary.break_even_date);
+  const paybackSub =
+    breakEven != null
+      ? `Break-even ${breakEven}`
+      : summary.payback_progress_pct != null
+        ? `${Number(summary.payback_progress_pct).toFixed(1)}% of install cost`
+        : "Set install cost in performance settings";
   const cards = [
     {
       label: "Solar yield",
@@ -2997,10 +3013,7 @@ function renderPerformanceSummaryCards(chart) {
     {
       label: "Lifetime payback",
       value: summary.lifetime_saved_gbp != null ? `£${Number(summary.lifetime_saved_gbp).toFixed(2)}` : "—",
-      sub:
-        summary.payback_progress_pct != null
-          ? `${Number(summary.payback_progress_pct).toFixed(1)}% of install cost`
-          : "Set install cost in performance settings",
+      sub: paybackSub,
       tone: "payback",
     },
   ];
@@ -3129,6 +3142,130 @@ ${windLine}
 </svg>`;
 }
 
+function renderPerformancePeriodSummaryCards(report) {
+  const s = report?.summary || {};
+  const cards = [
+    {
+      label: "Solar yield",
+      value: s.pv_kwh != null ? `${Number(s.pv_kwh).toFixed(1)} kWh` : "—",
+      sub:
+        s.avg_forecast_accuracy_pct != null
+          ? `${Number(s.avg_forecast_accuracy_pct).toFixed(0)}% avg Solcast`
+          : `${s.days ?? 0} days`,
+      tone: "solar",
+    },
+    {
+      label: "Grid trade",
+      value: `${formatPerformanceGbp(s.export_earnings_gbp)} export`,
+      sub: `${formatPerformanceGbp(s.import_spend_gbp != null ? -Math.abs(Number(s.import_spend_gbp)) : null)} import`,
+      tone: "grid",
+    },
+    {
+      label: "True savings",
+      value: formatPerformanceGbp(s.net_daily_savings_gbp),
+      sub: s.avoided_grid_cost_gbp != null ? `Avoided ${formatPerformanceGbp(s.avoided_grid_cost_gbp)}` : "",
+      tone: "savings",
+    },
+    {
+      label: "Lifetime payback",
+      value: s.lifetime_saved_gbp != null ? `£${Number(s.lifetime_saved_gbp).toFixed(2)}` : "—",
+      sub: formatPerformanceBreakEven(s.break_even_date) || "Set install cost in settings",
+      tone: "payback",
+    },
+  ];
+  return `<div class="fox-perf-summary">${cards
+    .map(
+      (c) => `<div class="fox-perf-card fox-perf-card--${esc(c.tone)}">
+<div class="fox-perf-card-label">${esc(c.label)}</div>
+<div class="fox-perf-card-value">${esc(c.value)}</div>
+${c.sub ? `<div class="fox-perf-card-sub">${esc(c.sub)}</div>` : ""}
+</div>`
+    )
+    .join("")}</div>`;
+}
+
+function renderPerformancePeriodDailyChartSvg(dailyChart) {
+  const rows = (Array.isArray(dailyChart) ? dailyChart : []).filter((r) => r?.date);
+  if (!rows.length) {
+    return `<p class="octopus-greener-empty">No daily ledger rows for this period yet.</p>`;
+  }
+  const mapped = rows.map((row) => {
+    const d = new Date(`${row.date}T12:00:00`);
+    return {
+      start_ms: d.getTime(),
+      label: d.toLocaleDateString(undefined, { day: "numeric", month: "short" }),
+      pv_kwh: Number(row.pv_kwh) || 0,
+      net_savings_gbp: Number(row.net_savings_gbp) || 0,
+    };
+  });
+  const maxVal = Math.max(...mapped.flatMap((r) => [r.pv_kwh, Math.abs(r.net_savings_gbp)]), 0.1);
+  const W = 640;
+  const H = 168;
+  const padL = 28;
+  const padR = 12;
+  const padT = 12;
+  const padB = 28;
+  const chartW = W - padL - padR;
+  const chartH = H - padT - padB;
+  const slotW = chartW / mapped.length;
+  const barW = Math.max(2, slotW * 0.28);
+  const bars = mapped
+    .map((row, i) => {
+      const x0 = padL + i * slotW + slotW * 0.12;
+      const specs = [
+        { key: "pv_kwh", color: "#19D4DE" },
+        { key: "net_savings_gbp", color: "#22c55e" },
+      ];
+      return specs
+        .map((spec, j) => {
+          const v = Math.max(0, row[spec.key]);
+          const h = Math.max(1, (v / maxVal) * chartH);
+          const x = x0 + j * (barW + 2);
+          const y = padT + chartH - h;
+          return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${spec.color}" rx="1" />`;
+        })
+        .join("");
+    })
+    .join("");
+  return `<svg class="fox-perf-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Daily PV and savings chart">
+${bars}
+</svg>
+<p class="field-hint" style="margin-top:8px">Cyan = PV kWh · Green = net daily savings (£ scale)</p>`;
+}
+
+function renderPerformancePeriodReportPage(report, { loading = false } = {}) {
+  if (loading && !report) {
+    return `<div data-performance-report-main="1"><header class="header"><h1>Performance</h1></header><p class="chart-loading">Loading performance report…</p></div>`;
+  }
+  if (!report || report.enabled === false) {
+    return `<div data-performance-report-main="1"><header class="header"><h1>Performance</h1></header><p class="placeholder">Performance reporting is disabled for this plant.</p></div>`;
+  }
+  if (report.error) {
+    return `<div data-performance-report-main="1"><header class="header"><h1>Performance</h1></header><p class="placeholder">${esc(report.error)}</p></div>`;
+  }
+  const highlights = report.highlights || {};
+  const bestDays = (highlights.best_forecast_days || [])
+    .map(
+      (d) =>
+        `<li><strong>${esc(d.date || "")}</strong> — ${esc(String(d.forecast_accuracy_pct ?? "—"))}%${d.insight_note ? ` · ${esc(d.insight_note)}` : ""}</li>`
+    )
+    .join("");
+  const clipNote =
+    highlights.total_clipping_kwh != null && Number(highlights.total_clipping_kwh) > 0
+      ? `<p class="field-hint">Clipping estimate: ${Number(highlights.total_clipping_kwh).toFixed(1)} kWh (${formatPerformanceGbp(highlights.total_clipping_gbp)} lost export value)</p>`
+      : "";
+  return `<div data-performance-report-main="1">
+<header class="header"><h1>Performance</h1><p>${esc(report.period_label || "")}</p></header>
+${renderPerformancePeriodSummaryCards(report)}
+<div class="card fox-perf-chart-card">
+<h3 class="fox-analysis-summary-title fox-analysis-chart-title">Daily PV &amp; savings</h3>
+${renderPerformancePeriodDailyChartSvg(report.daily_chart)}
+</div>
+${clipNote}
+${bestDays ? `<div class="card fox-report-details"><h3 class="fox-report-details-title">Best forecast days</h3><ul class="fox-perf-highlights">${bestDays}</ul></div>` : ""}
+</div>`;
+}
+
 function renderPerformanceReportPage(chart, { loading = false, dayOffset = 0 } = {}) {
   if (loading) {
     return `<div data-performance-report-main="1"><header class="header"><h1>Performance</h1></header><p class="chart-loading">Loading performance data…</p></div>`;
@@ -3137,8 +3274,16 @@ function renderPerformanceReportPage(chart, { loading = false, dayOffset = 0 } =
     return `<div data-performance-report-main="1"><header class="header"><h1>Performance</h1></header><p class="placeholder">Performance reporting is disabled for this plant.</p></div>`;
   }
   const dayLabel = performanceDayLabel(dayOffset);
+  const live = chart?.live || {};
+  const insightBadge = live.solar_day_class_label
+    ? `<span class="fox-perf-badge fox-perf-badge--${esc(String(live.solar_day_class_label).toLowerCase().replace(/\s+/g, "-"))}">${esc(live.solar_day_class_label)}</span>`
+    : "";
+  const insightNote = live.insight_note
+    ? `<p class="field-hint fox-perf-insight">${esc(live.insight_note)}</p>`
+    : "";
   return `<div data-performance-report-main="1">
-<header class="header"><h1>Performance</h1><p>${esc(dayLabel)}</p></header>
+<header class="header"><h1>Performance</h1><p>${esc(dayLabel)} ${insightBadge}</p></header>
+${insightNote}
 ${renderPerformanceSummaryCards(chart)}
 <div class="card fox-perf-chart-card">
 <h3 class="fox-analysis-summary-title fox-analysis-chart-title">Power &amp; Agile import rate</h3>
@@ -6005,6 +6150,12 @@ const REPORTS_PERIOD_TABS = [
   { id: "week", label: "Week" },
   { id: "month", label: "Month" },
   { id: "year", label: "Year" },
+];
+
+const PERFORMANCE_REPORT_TABS = [
+  { id: "day", label: "Day" },
+  { id: "week", label: "Week" },
+  { id: "month", label: "Month" },
 ];
 
 const REPORTS_NAV = [
@@ -11937,6 +12088,19 @@ const STYLES = `
 .fox-perf-chart-legend i {
   display: inline-block; width: 10px; height: 10px; border-radius: 2px;
 }
+.fox-perf-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  vertical-align: middle;
+  background: rgba(25, 212, 222, 0.15);
+  color: #19D4DE;
+}
+.fox-perf-insight { margin: 0 0 12px; }
+.fox-perf-highlights { margin: 0; padding-left: 18px; font-size: 13px; }
 @media (max-width: 900px) {
   .fox-perf-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -13778,6 +13942,11 @@ class FoxessPlantPanel extends HTMLElement {
     this._performanceDayChartLoading = false;
     this._performanceDayChartKey = undefined;
     this._performanceDayOffset = 0;
+    this._performanceReportMode = "day";
+    this._performancePeriodReport = null;
+    this._performancePeriodReportLoading = false;
+    this._performancePeriodReportKey = undefined;
+    this._performanceDraft = null;
     this._energyReport = null;
     this._energyReportLoading = false;
     this._energyReportPlantId = undefined;
@@ -14604,7 +14773,7 @@ Reloading panel registration…
     this._ensureReportsViewValid();
     if (this._reportsView === "octopus") void this._loadOctopusAnalysis();
     else if (this._reportsView === "smart_charge") void this._loadSmartChargeAnalysis();
-    else if (this._reportsView === "performance") void this._loadPerformanceDay();
+    else if (this._reportsView === "performance") void this._loadPerformanceReport();
     else this._loadEnergyReport();
   }
 
@@ -16195,6 +16364,102 @@ Reloading panel registration…
     return "Enabled — configure MQTT or Bright API";
   }
 
+  _performanceSettingsSubtitle() {
+    const perf = this._plantState?.performance || {};
+    const cfg = perf.config || perf;
+    if (cfg.enabled === false) return "Off — recorder-backed solar and savings reports";
+    const cost = cfg.system_install_cost_gbp;
+    if (cost != null && Number(cost) > 0) {
+      return `On · £${Number(cost).toFixed(0)} install cost · ${Number(cfg.inverter_ac_limit_kw || 4.3).toFixed(1)} kW AC limit`;
+    }
+    return `On · ${Number(cfg.baseline_v_at_25c || 400).toFixed(0)} V baseline · set install cost for payback`;
+  }
+
+  _initPerformanceDraft() {
+    const live = this._plantState?.performance || {};
+    const cfg = live.config || live;
+    this._performanceDraft = {
+      enabled: cfg.enabled !== false,
+      baseline_v_at_25c: Number(cfg.baseline_v_at_25c ?? 400),
+      temp_coefficient_v_per_c: Number(cfg.temp_coefficient_v_per_c ?? -0.003),
+      inverter_ac_limit_kw: Number(cfg.inverter_ac_limit_kw ?? 4.3),
+      system_install_cost_gbp:
+        cfg.system_install_cost_gbp != null && cfg.system_install_cost_gbp !== ""
+          ? Number(cfg.system_install_cost_gbp)
+          : "",
+      system_rte: Number(cfg.system_rte ?? 0.85),
+      degradation_buffer_p_per_kwh: Number(cfg.degradation_buffer_p_per_kwh ?? 1),
+    };
+  }
+
+  _enterPerformanceSettings() {
+    if (!this._performanceDraft) this._initPerformanceDraft();
+  }
+
+  _syncPerformanceDraftFromDom() {
+    if (!this._performanceDraft) return;
+    const root = this._root;
+    const enabledEl = root.querySelector('[data-field="performance:enabled"]');
+    if (enabledEl) this._performanceDraft.enabled = enabledEl.checked;
+    const fields = [
+      "baseline_v_at_25c",
+      "temp_coefficient_v_per_c",
+      "inverter_ac_limit_kw",
+      "system_install_cost_gbp",
+      "system_rte",
+      "degradation_buffer_p_per_kwh",
+    ];
+    for (const key of fields) {
+      const el = root.querySelector(`[data-field="performance:${key}"]`);
+      if (!el) continue;
+      const raw = el.value;
+      this._performanceDraft[key] = raw === "" ? "" : Number(raw);
+    }
+  }
+
+  _buildPerformanceSavePayload() {
+    if (!this._performanceDraft) return null;
+    this._syncPerformanceDraftFromDom();
+    const d = this._performanceDraft;
+    const installRaw = d.system_install_cost_gbp;
+    return {
+      enabled: Boolean(d.enabled),
+      baseline_v_at_25c: Number(d.baseline_v_at_25c) || 400,
+      temp_coefficient_v_per_c: Number(d.temp_coefficient_v_per_c) || -0.003,
+      inverter_ac_limit_kw: Number(d.inverter_ac_limit_kw) || 4.3,
+      system_install_cost_gbp:
+        installRaw === "" || installRaw == null || !Number.isFinite(Number(installRaw))
+          ? null
+          : Number(installRaw),
+      system_rte: Number(d.system_rte) || 0.85,
+      degradation_buffer_p_per_kwh: Number(d.degradation_buffer_p_per_kwh) || 1,
+    };
+  }
+
+  async _savePerformanceSettings() {
+    const plant = this._getPlant();
+    if (!plant || !this._performanceDraft) return;
+    const payload = this._buildPerformanceSavePayload();
+    if (!payload) return;
+    this._busy = true;
+    this._render();
+    try {
+      const state = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/update_performance",
+        plant_id: plant.entry_id,
+        performance: payload,
+      });
+      if (state) this._plantState = state;
+      this._initPerformanceDraft();
+      this._showToast("Performance settings saved");
+    } catch (err) {
+      this._showToast(err?.message || "Save failed", "err");
+    } finally {
+      this._busy = false;
+      this._render();
+    }
+  }
+
   async _saveGlowSettings() {
     const plant = this._getPlant();
     if (!plant || !this._glowDraft) return;
@@ -16730,13 +16995,19 @@ Reloading panel registration…
       this._energyReportPlantId = undefined;
       this._smartChargeAnalysis = null;
       this._smartChargeAnalysisPlantId = undefined;
+      this._performancePeriodReport = null;
+      this._performancePeriodReportKey = undefined;
       this._loadActiveReport();
       this._scheduleRender(true);
       return;
     }
     if (action === "reports-nav") {
       const dir = btn.dataset.dir;
-      const bounds = energyPeriodBounds(this._reportsPeriod, this._reportsPeriodOffset);
+      const period =
+        this._view === "reports" && this._reportsView === "performance" && this._performanceReportMode !== "day"
+          ? this._performanceReportMode
+          : this._reportsPeriod;
+      const bounds = energyPeriodBounds(period, this._reportsPeriodOffset);
       if (dir === "prev") {
         this._reportsPeriodOffset += 1;
       } else if (dir === "next" && bounds.canNext) {
@@ -16748,7 +17019,23 @@ Reloading panel registration…
       this._energyReportPlantId = undefined;
       this._smartChargeAnalysis = null;
       this._smartChargeAnalysisPlantId = undefined;
+      this._performancePeriodReport = null;
+      this._performancePeriodReportKey = undefined;
       this._loadActiveReport();
+      this._scheduleRender(true);
+      return;
+    }
+    if (action === "performance-mode") {
+      const mode = btn.dataset.mode;
+      if (!mode || mode === this._performanceReportMode) return;
+      if (!PERFORMANCE_REPORT_TABS.some((t) => t.id === mode)) return;
+      this._performanceReportMode = mode;
+      this._reportsPeriodOffset = 0;
+      this._performanceDayChart = null;
+      this._performanceDayChartKey = undefined;
+      this._performancePeriodReport = null;
+      this._performancePeriodReportKey = undefined;
+      void this._loadPerformanceReport();
       this._scheduleRender(true);
       return;
     }
@@ -16842,6 +17129,7 @@ Reloading panel registration…
       }
       if (btn.dataset.sub !== "smart") this._smartChargeDraft = null;
       if (btn.dataset.sub !== "glow") this._glowDraft = null;
+      if (btn.dataset.sub !== "performance") this._performanceDraft = null;
       if (btn.dataset.sub !== "fox-api") this._foxCloudDraft = null;
       if (btn.dataset.sub !== "warmup") this._warmupDraft = null;
       this._settingsView = sub;
@@ -16849,6 +17137,7 @@ Reloading panel registration…
       if (btn.dataset.sub === "solcast") this._enterSolcastSettings();
       if (btn.dataset.sub === "glow") this._enterGlowSettings();
       if (btn.dataset.sub === "tariff") this._enterTariffSettings();
+      if (btn.dataset.sub === "performance") this._enterPerformanceSettings();
       this._render();
       return;
     }
@@ -16858,6 +17147,7 @@ Reloading panel registration…
       this._reportsView = sub;
       if (sub === "octopus") void this._loadOctopusAnalysis();
       else if (sub === "smart_charge") void this._loadSmartChargeAnalysis();
+      else if (sub === "performance") void this._loadPerformanceReport();
       else this._loadEnergyReport();
       this._scheduleRender(true);
       return;
@@ -16888,6 +17178,7 @@ Reloading panel registration…
       }
       if (btn.dataset.sub !== "smart") this._smartChargeDraft = null;
       if (btn.dataset.sub !== "glow") this._glowDraft = null;
+      if (btn.dataset.sub !== "performance") this._performanceDraft = null;
       if (btn.dataset.sub !== "fox-api") this._foxCloudDraft = null;
       if (btn.dataset.sub !== "warmup") this._warmupDraft = null;
       this._settingsView = sub;
@@ -16895,6 +17186,7 @@ Reloading panel registration…
       if (btn.dataset.sub === "solcast") this._enterSolcastSettings();
       if (btn.dataset.sub === "glow") this._enterGlowSettings();
       if (btn.dataset.sub === "tariff") this._enterTariffSettings();
+      if (btn.dataset.sub === "performance") this._enterPerformanceSettings();
       this._render();
       return;
     }
@@ -16947,6 +17239,10 @@ Reloading panel registration…
     }
     if (action === "save-solcast-settings") {
       await this._saveSolcastSettings();
+      return;
+    }
+    if (action === "save-performance-settings") {
+      await this._savePerformanceSettings();
       return;
     }
     if (action === "save-glow-settings") {
@@ -20275,6 +20571,18 @@ ${detailsHtml}
     return `${plant.entry_id}:performance:${this._performanceDayOffset}`;
   }
 
+  _performancePeriodCacheKey(plant) {
+    return `${plant.entry_id}:performance_period:${this._performanceReportMode}:${this._reportsPeriodOffset}`;
+  }
+
+  async _loadPerformanceReport() {
+    if (this._performanceReportMode === "day") {
+      await this._loadPerformanceDay();
+      return;
+    }
+    await this._loadPerformancePeriod();
+  }
+
   async _loadPerformanceDay() {
     const plant = this._getPlant();
     if (!plant || !this._hass || this._view !== "reports" || this._reportsView !== "performance") return;
@@ -20311,6 +20619,65 @@ ${detailsHtml}
     }
   }
 
+  async _loadPerformancePeriod() {
+    const plant = this._getPlant();
+    if (!plant || !this._hass || this._view !== "reports" || this._reportsView !== "performance") return;
+    if (!performanceEnabled(this._plantState)) return;
+    const period = this._performanceReportMode;
+    if (period === "day") return;
+    const cacheKey = this._performancePeriodCacheKey(plant);
+    if (this._performancePeriodReportKey === cacheKey && this._performancePeriodReport) return;
+    this._performancePeriodReportLoading = true;
+    this._performancePeriodReport = null;
+    this._performancePeriodReportKey = cacheKey;
+    this._scheduleRender();
+    try {
+      if (!this._plantState) await this._refreshPlantState();
+      const result = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/fetch_performance_report",
+        plant_id: plant.entry_id,
+        period,
+        offset: this._reportsPeriodOffset,
+      });
+      if (result?.plant_state) this._plantState = result.plant_state;
+      if (this._performancePeriodCacheKey(this._getPlant()) === cacheKey) {
+        this._performancePeriodReport = result?.performance_report || null;
+      }
+    } catch (err) {
+      if (this._performancePeriodCacheKey(this._getPlant()) === cacheKey) {
+        this._performancePeriodReport = {
+          enabled: true,
+          error: err?.message || "Could not load performance period report.",
+        };
+      }
+    } finally {
+      this._performancePeriodReportLoading = false;
+      if (this._view === "reports" && this._reportsView === "performance") {
+        this._scheduleRender();
+      }
+    }
+  }
+
+  _renderPerformanceModeTabs() {
+    const mode = this._performanceReportMode || "day";
+    const tabs = PERFORMANCE_REPORT_TABS.map(
+      (p) =>
+        `<button type="button" data-action="performance-mode" data-mode="${p.id}" class="${p.id === mode ? "active" : ""}">${p.label}</button>`
+    ).join("");
+    return `<div class="energy-period-tabs">${tabs}</div>`;
+  }
+
+  _renderPerformancePeriodNav() {
+    const mode = this._performanceReportMode || "week";
+    const bounds = energyPeriodBounds(mode, this._reportsPeriodOffset);
+    const label = energyPeriodNavLabel(mode, this._reportsPeriodOffset);
+    return `<div class="energy-date-nav">
+<button type="button" data-action="reports-nav" data-dir="prev" aria-label="Previous period">‹</button>
+<span class="energy-date-label">${esc(label)}</span>
+<button type="button" data-action="reports-nav" data-dir="next" aria-label="Next period"${bounds.canNext ? "" : " disabled"}>›</button>
+</div>`;
+  }
+
   _renderPerformanceDayNav() {
     const canNext = this._performanceDayOffset > 0;
     return `<div class="energy-date-nav">
@@ -20324,10 +20691,24 @@ ${detailsHtml}
     if (!performanceEnabled(this._plantState)) {
       return renderPerformanceReportPage({ enabled: false });
     }
+    const mode = this._performanceReportMode || "day";
+    const nav =
+      mode === "day"
+        ? this._renderPerformanceDayNav()
+        : this._renderPerformancePeriodNav();
+    const toolbar = `<div class="card fox-analysis-toolbar" data-performance-report-toolbar="1">${this._renderPerformanceModeTabs()}${nav}</div>`;
+    if (mode !== "day") {
+      const body = renderPerformancePeriodReportPage(this._performancePeriodReport, {
+        loading: this._performancePeriodReportLoading && !this._performancePeriodReport,
+      });
+      if (body.includes("data-performance-report-main")) {
+        return body.replace("<header class=\"header\">", `${toolbar}<header class="header">`);
+      }
+      return `${toolbar}${body}`;
+    }
     const chart = this._performanceDayChart?.error
       ? { enabled: true, live: {}, summary: { today: {} } }
       : this._performanceDayChart;
-    const toolbar = `<div class="card fox-analysis-toolbar" data-performance-report-toolbar="1">${this._renderPerformanceDayNav()}</div>`;
     const body = this._performanceDayChart?.error
       ? `<div data-performance-report-main="1"><header class="header"><h1>Performance</h1></header><p class="placeholder">${esc(this._performanceDayChart.error)}</p></div>`
       : renderPerformanceReportPage(chart, {
@@ -21732,6 +22113,7 @@ ${note}${via}${forecastHint}${activeBadge}
       solcast: this._solcastSettingsSubtitle(),
       glow: this._glowSettingsSubtitle(),
       tariff: tariffSettingsSummary(this._plantState?.tariff),
+      performance: this._performanceSettingsSubtitle(),
     };
   }
 
@@ -21793,6 +22175,7 @@ ${renderListButton({ action: "settings-sub", sub: "fox-api" }, "Fox API", subs["
 ${renderListButton({ action: "settings-sub", sub: "solcast" }, "Solcast", subs.solcast)}
 ${renderListButton({ action: "settings-sub", sub: "glow" }, "Glow smart meter", subs.glow)}
 ${renderListButton({ action: "settings-sub", sub: "tariff" }, "Tariff", subs.tariff)}
+${renderListButton({ action: "settings-sub", sub: "performance" }, "Performance", subs.performance)}
 </div></div>`;
   }
 
@@ -23348,6 +23731,41 @@ ${brightApiFields}
 </div>`;
   }
 
+  _renderSettingsPerformance() {
+    if (!this._performanceDraft) this._initPerformanceDraft();
+    const draft = this._performanceDraft;
+    const dbPath = this._plantState?.performance?.db_path;
+    return `<header class="header"><h1>Performance reporting</h1><p>Recorder-backed solar diagnostics, financial ledger, and payback tracking. Daily rows commit at midnight from 5-minute samples.</p></header>
+<div class="card">
+<p class="card-title">Enable</p>
+<div class="toggle-row"><span><strong>Performance reporting</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Creates diagnostic sensors and SQLite daily ledger</span></span>
+<input type="checkbox" data-field="performance:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+</div>
+<div class="card">
+<p class="card-title">Virtual panel temperature</p>
+<p class="field-hint">Calibrate against a cold morning reading when panels are near 25°C. Higher string voltage = colder panels.</p>
+<div class="field"><label>Baseline string voltage at 25°C (V)</label>
+<input type="number" step="0.1" data-field="performance:baseline_v_at_25c" value="${esc(String(draft.baseline_v_at_25c))}" ${this._busy ? "disabled" : ""}></div>
+<div class="field"><label>Temperature coefficient (V/°C)</label>
+<input type="number" step="0.0001" data-field="performance:temp_coefficient_v_per_c" value="${esc(String(draft.temp_coefficient_v_per_c))}" ${this._busy ? "disabled" : ""}></div>
+</div>
+<div class="card">
+<p class="card-title">Inverter &amp; payback</p>
+<div class="field"><label>AC export limit (kW)</label>
+<input type="number" step="0.1" data-field="performance:inverter_ac_limit_kw" value="${esc(String(draft.inverter_ac_limit_kw))}" ${this._busy ? "disabled" : ""}></div>
+<div class="field"><label>System install cost (£)</label>
+<input type="number" step="1" min="0" data-field="performance:system_install_cost_gbp" value="${esc(String(draft.system_install_cost_gbp ?? ""))}" placeholder="e.g. 8500" ${this._busy ? "disabled" : ""}></div>
+<div class="field"><label>Battery round-trip efficiency</label>
+<input type="number" step="0.01" min="0.5" max="1" data-field="performance:system_rte" value="${esc(String(draft.system_rte))}" ${this._busy ? "disabled" : ""}></div>
+<div class="field"><label>Degradation buffer (p/kWh)</label>
+<input type="number" step="0.1" min="0" data-field="performance:degradation_buffer_p_per_kwh" value="${esc(String(draft.degradation_buffer_p_per_kwh))}" ${this._busy ? "disabled" : ""}></div>
+${dbPath ? `<p class="field-hint">Ledger database: <code>${esc(String(dbPath))}</code></p>` : ""}
+</div>
+<div class="btn-row">
+<button type="button" class="btn btn-primary" data-action="save-performance-settings" ${this._busy ? "disabled" : ""}>Save</button>
+</div>`;
+  }
+
   _renderSettings(plant) {
     this._ensureSettingsViewAllowed();
     switch (this._settingsView) {
@@ -23359,6 +23777,8 @@ ${brightApiFields}
         return this._renderSettingsSolcast();
       case "glow":
         return this._renderSettingsGlow();
+      case "performance":
+        return this._renderSettingsPerformance();
       default:
         return this._renderSettingsMain(plant);
     }
@@ -23672,10 +24092,20 @@ ${brightApiFields}
         if (
           plant &&
           performanceEnabled(this._plantState) &&
+          this._performanceReportMode === "day" &&
           !this._performanceDayChartLoading &&
           (this._performanceDayChartKey !== this._performanceDayCacheKey(plant) || !this._performanceDayChart)
         ) {
           void this._loadPerformanceDay();
+        } else if (
+          plant &&
+          performanceEnabled(this._plantState) &&
+          this._performanceReportMode !== "day" &&
+          !this._performancePeriodReportLoading &&
+          (this._performancePeriodReportKey !== this._performancePeriodCacheKey(plant) ||
+            !this._performancePeriodReport)
+        ) {
+          void this._loadPerformancePeriod();
         }
       } else if (
         plant &&

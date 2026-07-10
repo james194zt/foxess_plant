@@ -67,7 +67,15 @@ class PerformanceStore:
     def init_schema(self) -> None:
         conn = self.connect()
         conn.executescript(_SCHEMA)
+        self._migrate_schema(conn)
         conn.commit()
+
+    def _migrate_schema(self, conn: sqlite3.Connection) -> None:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(daily_ledger)")}
+        if "solar_day_class" not in cols:
+            conn.execute("ALTER TABLE daily_ledger ADD COLUMN solar_day_class TEXT")
+        if "insight_note" not in cols:
+            conn.execute("ALTER TABLE daily_ledger ADD COLUMN insight_note TEXT")
 
     def close(self) -> None:
         if self._conn is not None:
@@ -83,13 +91,15 @@ class PerformanceStore:
                 export_kwh, import_kwh, export_earnings_gbp, import_spend_gbp,
                 avoided_grid_cost_gbp, clipping_loss_kwh, clipping_loss_valuation_gbp,
                 net_daily_savings_gbp, peak_power_kw, peak_vs_rated_pct,
-                virtual_temp_min_c, virtual_temp_max_c, wind_correlation_note
+                virtual_temp_min_c, virtual_temp_max_c, wind_correlation_note,
+                solar_day_class, insight_note
             ) VALUES (
                 :date, :pv_kwh, :solcast_forecast_kwh, :forecast_accuracy_pct,
                 :export_kwh, :import_kwh, :export_earnings_gbp, :import_spend_gbp,
                 :avoided_grid_cost_gbp, :clipping_loss_kwh, :clipping_loss_valuation_gbp,
                 :net_daily_savings_gbp, :peak_power_kw, :peak_vs_rated_pct,
-                :virtual_temp_min_c, :virtual_temp_max_c, :wind_correlation_note
+                :virtual_temp_min_c, :virtual_temp_max_c, :wind_correlation_note,
+                :solar_day_class, :insight_note
             )
             ON CONFLICT(date) DO UPDATE SET
                 pv_kwh=excluded.pv_kwh,
@@ -107,7 +117,9 @@ class PerformanceStore:
                 peak_vs_rated_pct=excluded.peak_vs_rated_pct,
                 virtual_temp_min_c=excluded.virtual_temp_min_c,
                 virtual_temp_max_c=excluded.virtual_temp_max_c,
-                wind_correlation_note=excluded.wind_correlation_note
+                wind_correlation_note=excluded.wind_correlation_note,
+                solar_day_class=excluded.solar_day_class,
+                insight_note=excluded.insight_note
             """,
             row,
         )
@@ -117,6 +129,60 @@ class PerformanceStore:
         conn = self.connect()
         row = conn.execute("SELECT * FROM daily_ledger WHERE date = ?", (date,)).fetchone()
         return dict(row) if row else None
+
+    def list_ledger_between(self, start_date: str, end_date: str) -> list[dict[str, Any]]:
+        conn = self.connect()
+        rows = conn.execute(
+            """
+            SELECT * FROM daily_ledger
+            WHERE date >= ? AND date <= ?
+            ORDER BY date ASC
+            """,
+            (start_date, end_date),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def period_aggregate(self, start_date: str, end_date: str) -> dict[str, Any]:
+        conn = self.connect()
+        row = conn.execute(
+            """
+            SELECT
+                COALESCE(SUM(pv_kwh), 0) AS pv_kwh,
+                COALESCE(SUM(export_kwh), 0) AS export_kwh,
+                COALESCE(SUM(import_kwh), 0) AS import_kwh,
+                COALESCE(SUM(export_earnings_gbp), 0) AS export_earnings_gbp,
+                COALESCE(SUM(import_spend_gbp), 0) AS import_spend_gbp,
+                COALESCE(SUM(avoided_grid_cost_gbp), 0) AS avoided_grid_cost_gbp,
+                COALESCE(SUM(net_daily_savings_gbp), 0) AS net_daily_savings_gbp,
+                COALESCE(SUM(clipping_loss_kwh), 0) AS clipping_loss_kwh,
+                COALESCE(SUM(clipping_loss_valuation_gbp), 0) AS clipping_loss_valuation_gbp,
+                AVG(forecast_accuracy_pct) AS avg_forecast_accuracy_pct,
+                MAX(peak_power_kw) AS peak_power_kw
+            FROM daily_ledger
+            WHERE date >= ? AND date <= ?
+            """,
+            (start_date, end_date),
+        ).fetchone()
+        if not row:
+            return {}
+        return {
+            "pv_kwh": round(float(row["pv_kwh"] or 0), 2),
+            "export_kwh": round(float(row["export_kwh"] or 0), 2),
+            "import_kwh": round(float(row["import_kwh"] or 0), 2),
+            "export_earnings_gbp": round(float(row["export_earnings_gbp"] or 0), 2),
+            "import_spend_gbp": round(float(row["import_spend_gbp"] or 0), 2),
+            "avoided_grid_cost_gbp": round(float(row["avoided_grid_cost_gbp"] or 0), 2),
+            "net_daily_savings_gbp": round(float(row["net_daily_savings_gbp"] or 0), 2),
+            "clipping_loss_kwh": round(float(row["clipping_loss_kwh"] or 0), 3),
+            "clipping_loss_valuation_gbp": round(float(row["clipping_loss_valuation_gbp"] or 0), 2),
+            "avg_forecast_accuracy_pct": round(float(row["avg_forecast_accuracy_pct"]), 1)
+            if row["avg_forecast_accuracy_pct"] is not None
+            else None,
+            "peak_power_kw": round(float(row["peak_power_kw"]), 2)
+            if row["peak_power_kw"] is not None
+            else None,
+            "days": len(self.list_ledger_between(start_date, end_date)),
+        }
 
     def sum_net_savings(self) -> float:
         conn = self.connect()

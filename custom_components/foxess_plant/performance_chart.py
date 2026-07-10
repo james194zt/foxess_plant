@@ -123,32 +123,62 @@ async def async_build_performance_day_chart(
     if export_eid:
         series["export_rate_p_kwh"] = _stats_to_points(stats.get(export_eid, []), scale=100.0)
 
+    from .performance.solar_analysis import payback_summary, solar_day_class_label
+
     cfg = coordinator.plant.performance
-    summary = performance_summary(coordinator)
+    day_iso = target_day.isoformat()
+    is_today = target_day == dt_util.as_local(dt_util.now()).date()
+    store = getattr(coordinator, "_performance_store", None)
+    ledger_row = store.get_daily_ledger(day_iso) if store else None
+
+    if ledger_row:
+        payback = payback_summary(
+            total_saved_gbp=store.sum_net_savings() if store else 0.0,
+            install_cost_gbp=cfg.system_install_cost_gbp,
+            avg_daily_savings_gbp=store.avg_net_savings_days(90) if store else None,
+        )
+        today_row = {
+            **ledger_row,
+            "solar_day_class_label": solar_day_class_label(ledger_row.get("solar_day_class")),
+        }
+        summary = {"enabled": cfg.enabled, "config": cfg.to_dict(), "today": today_row, **payback}
+    elif is_today:
+        summary = performance_summary(coordinator)
+    else:
+        summary = {"enabled": cfg.enabled, "today": {"date": day_iso}}
+
     analytics = coordinator._read_analytics()
-    pv_kwh = analytics.get("pv_production_kwh_today")
+    pv_kwh = ledger_row.get("pv_kwh") if ledger_row else analytics.get("pv_production_kwh_today")
     solcast_state = coordinator._solcast_state()
-    forecast_kwh = solcast_state.get("forecast_today_kwh")
-    accuracy_pct = None
-    if pv_kwh and forecast_kwh:
+    forecast_kwh = (
+        ledger_row.get("solcast_forecast_kwh")
+        if ledger_row
+        else solcast_state.get("forecast_today_kwh")
+    )
+    accuracy_pct = ledger_row.get("forecast_accuracy_pct") if ledger_row else None
+    if accuracy_pct is None and pv_kwh and forecast_kwh:
         try:
             accuracy_pct = round(float(pv_kwh) / float(forecast_kwh) * 100.0, 1)
         except (TypeError, ValueError, ZeroDivisionError):
             pass
 
+    today_summary = summary.get("today") or {}
     return {
-        "day": target_day.isoformat(),
+        "day": day_iso,
         "enabled": cfg.enabled,
         "entities": entities,
         "series": series,
         "ac_limit_kw": cfg.inverter_ac_limit_kw,
         "summary": summary,
+        "ledger": ledger_row,
         "live": {
             "pv_kwh_today": pv_kwh,
             "solcast_forecast_kwh": forecast_kwh,
             "forecast_accuracy_pct": accuracy_pct,
             "import_p_per_kwh": coordinator._octopus_cache.get("current_import_p_per_kwh"),
             "export_p_per_kwh": coordinator._octopus_cache.get("current_export_p_per_kwh"),
+            "solar_day_class_label": today_summary.get("solar_day_class_label"),
+            "insight_note": today_summary.get("insight_note"),
         },
         "chart_window": {
             "start_ms": day_start.timestamp() * 1000,
