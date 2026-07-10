@@ -1941,8 +1941,15 @@ function smartChargeEnabled(plantState) {
   return Boolean(plantState?.smart_charge?.enabled);
 }
 
+function performanceEnabled(plantState) {
+  return plantState?.performance?.enabled !== false;
+}
+
 function reportsNavForState(plantState) {
   const items = [...REPORTS_NAV];
+  if (performanceEnabled(plantState)) {
+    items.push({ id: "performance", label: "Performance" });
+  }
   if (smartChargeEnabled(plantState)) {
     items.push({ id: "smart_charge", label: "SmartCharge Analysis" });
   }
@@ -2934,6 +2941,212 @@ ${renderSmartChargeSessionsTable(report.sessions)}
 <div class="card fox-report-details">
 <h3 class="fox-report-details-title">Planned slots (from daily plan history)</h3>
 ${renderSmartChargePlannedTable(report.planned_slots)}
+</div>
+</div>`;
+}
+
+function performanceDayLabel(offset = 0) {
+  const d = new Date();
+  d.setHours(12, 0, 0, 0);
+  d.setDate(d.getDate() - Math.max(0, Number(offset) || 0));
+  if (offset === 0) return `Today · ${d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}`;
+  if (offset === 1) return `Yesterday · ${d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}`;
+  return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+}
+
+function performanceDayIso(offset = 0) {
+  const d = new Date();
+  d.setDate(d.getDate() - Math.max(0, Number(offset) || 0));
+  return d.toISOString().slice(0, 10);
+}
+
+function formatPerformanceGbp(value) {
+  if (value == null || !Number.isFinite(Number(value))) return "—";
+  const n = Number(value);
+  const sign = n >= 0 ? "+" : "";
+  return `${sign}£${Math.abs(n).toFixed(2)}`;
+}
+
+function renderPerformanceSummaryCards(chart) {
+  const live = chart?.live || {};
+  const summary = chart?.summary || {};
+  const today = summary.today || {};
+  const accuracy =
+    live.forecast_accuracy_pct != null
+      ? `${Number(live.forecast_accuracy_pct).toFixed(0)}% of Solcast`
+      : "Forecast pending";
+  const cards = [
+    {
+      label: "Solar yield",
+      value: live.pv_kwh_today != null ? `${Number(live.pv_kwh_today).toFixed(1)} kWh` : "—",
+      sub: accuracy,
+      tone: "solar",
+    },
+    {
+      label: "Grid trade",
+      value: `${formatPerformanceGbp(today.export_earnings_gbp)} export`,
+      sub: `${formatPerformanceGbp(today.import_spend_gbp != null ? -Math.abs(Number(today.import_spend_gbp)) : null)} import`,
+      tone: "grid",
+    },
+    {
+      label: "True savings today",
+      value: formatPerformanceGbp(today.net_daily_savings_gbp),
+      sub: today.avoided_grid_cost_gbp != null ? `Avoided ${formatPerformanceGbp(today.avoided_grid_cost_gbp)}` : "",
+      tone: "savings",
+    },
+    {
+      label: "Lifetime payback",
+      value: summary.lifetime_saved_gbp != null ? `£${Number(summary.lifetime_saved_gbp).toFixed(2)}` : "—",
+      sub:
+        summary.payback_progress_pct != null
+          ? `${Number(summary.payback_progress_pct).toFixed(1)}% of install cost`
+          : "Set install cost in performance settings",
+      tone: "payback",
+    },
+  ];
+  return `<div class="fox-perf-summary">${cards
+    .map(
+      (c) => `<div class="fox-perf-card fox-perf-card--${esc(c.tone)}">
+<div class="fox-perf-card-label">${esc(c.label)}</div>
+<div class="fox-perf-card-value">${esc(c.value)}</div>
+${c.sub ? `<div class="fox-perf-card-sub">${esc(c.sub)}</div>` : ""}
+</div>`
+    )
+    .join("")}</div>`;
+}
+
+function performanceChartRange(chart) {
+  const win = chart?.chart_window || {};
+  const tMin = Number(win.start_ms) || startOfLocalDay(new Date()).getTime();
+  const tMax = Number(win.end_ms) || tMin + 86400000;
+  const nowMs = Math.min(Number(win.now_ms) || Date.now(), tMax);
+  return { tMin, tMax, nowMs };
+}
+
+function performancePolyline(points, range, xScale, yScale) {
+  const { tMin, nowMs } = range;
+  const pts = (points || [])
+    .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.t >= tMin && p.t <= nowMs)
+    .map((p) => `${xScale(p.t).toFixed(1)},${yScale(p.v).toFixed(1)}`);
+  return pts.length >= 2 ? `<polyline fill="none" points="${pts.join(" ")}" />` : "";
+}
+
+function renderPerformancePowerChartSvg(chart) {
+  const series = chart?.series || {};
+  const range = performanceChartRange(chart);
+  const pv = series.pv_power_kw || [];
+  const grid = series.net_grid_power_kw || [];
+  const clip = series.clipping_loss_kw || [];
+  const rate = series.import_rate_p_kwh || [];
+  if (!pv.length && !grid.length && !rate.length) {
+    return `<p class="placeholder chart-empty">No performance recorder data yet. Sensors update every 5 minutes.</p>`;
+  }
+  const W = 640;
+  const H = 200;
+  const padL = 42;
+  const padR = rate.length ? 38 : 12;
+  const padT = 12;
+  const padB = 28;
+  const w = W - padL - padR;
+  const h = H - padT - padB;
+  const span = Math.max(range.tMax - range.tMin, 1);
+  const xScale = (t) => padL + ((t - range.tMin) / span) * w;
+  const powerVals = [...pv, ...grid, ...clip].map((p) => p.v).filter(Number.isFinite);
+  const pMin = Math.min(0, ...(powerVals.length ? powerVals : [0]));
+  const pMax = Math.max(0.5, ...(powerVals.length ? powerVals : [1]));
+  const yScaleP = (v) => padT + h - ((v - pMin) / Math.max(pMax - pMin, 0.1)) * h;
+  const rateVals = rate.map((p) => p.v).filter(Number.isFinite);
+  const rMin = rateVals.length ? Math.min(...rateVals) : 0;
+  const rMax = rateVals.length ? Math.max(...rateVals, rMin + 1) : 50;
+  const yScaleR = (v) => padT + h - ((v - rMin) / Math.max(rMax - rMin, 0.1)) * h;
+  const acLimit = Number(chart?.ac_limit_kw);
+  let limitLine = "";
+  if (Number.isFinite(acLimit) && acLimit > 0 && acLimit >= pMin && acLimit <= pMax * 1.2) {
+    const y = yScaleP(acLimit);
+    limitLine = `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + w}" y2="${y.toFixed(1)}" stroke="#f59e0b" stroke-dasharray="4 3" stroke-width="1" />`;
+  }
+  const lines = [
+    { pts: pv, color: "#19D4DE", width: 2 },
+    { pts: grid, color: "#2F6BFF", width: 1.8 },
+    { pts: clip, color: "#ef4444", width: 1.4 },
+  ]
+    .map(
+      (s) =>
+        `<g stroke="${s.color}" stroke-width="${s.width}" stroke-linejoin="round" stroke-linecap="round">${performancePolyline(s.pts, range, xScale, yScaleP)}</g>`
+    )
+    .join("");
+  const rateLine = rate.length
+    ? `<g stroke="#8A4DFF" stroke-width="1.6" stroke-dasharray="3 2" fill="none">${performancePolyline(rate, range, xScale, yScaleR)}</g>`
+    : "";
+  const legend = `<div class="fox-perf-chart-legend">
+<span><i style="background:#19D4DE"></i> PV kW</span>
+<span><i style="background:#2F6BFF"></i> Net grid kW</span>
+<span><i style="background:#ef4444"></i> Clipping</span>
+${rate.length ? `<span><i style="background:#8A4DFF"></i> Import p/kWh</span>` : ""}
+</div>`;
+  return `${legend}<svg class="fox-perf-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Performance power and price chart">
+${limitLine}
+${lines}
+${rateLine}
+</svg>`;
+}
+
+function renderPerformancePhysicsChartSvg(chart) {
+  const series = chart?.series || {};
+  const temp = series.virtual_panel_temp_c || [];
+  const wind = series.wind_speed_ms || [];
+  if (temp.length < 2 && wind.length < 2) {
+    return `<p class="placeholder chart-empty">Virtual panel temperature and wind data will appear after sunny or windy periods.</p>`;
+  }
+  const range = performanceChartRange(chart);
+  const W = 640;
+  const H = 160;
+  const padL = 42;
+  const padR = 38;
+  const padT = 10;
+  const padB = 24;
+  const w = W - padL - padR;
+  const h = H - padT - padB;
+  const span = Math.max(range.tMax - range.tMin, 1);
+  const xScale = (t) => padL + ((t - range.tMin) / span) * w;
+  const tVals = temp.map((p) => p.v).filter(Number.isFinite);
+  const wVals = wind.map((p) => p.v).filter(Number.isFinite);
+  const tMin = tVals.length ? Math.min(...tVals) : 0;
+  const tMax = tVals.length ? Math.max(...tVals) : 40;
+  const wMin = 0;
+  const wMax = wVals.length ? Math.max(...wVals, 1) : 10;
+  const yScaleT = (v) => padT + h - ((v - tMin) / Math.max(tMax - tMin, 1)) * h;
+  const yScaleW = (v) => padT + h - ((v - wMin) / Math.max(wMax - wMin, 0.1)) * h;
+  const tempLine = `<g stroke="#08979C" stroke-width="2" fill="none">${performancePolyline(temp, range, xScale, yScaleT)}</g>`;
+  const windLine = `<g stroke="#52C41A" stroke-width="1.6" stroke-dasharray="4 2" fill="none">${performancePolyline(wind, range, xScale, yScaleW)}</g>`;
+  return `<div class="fox-perf-chart-legend">
+<span><i style="background:#08979C"></i> Virtual panel °C</span>
+<span><i style="background:#52C41A"></i> Wind m/s</span>
+</div>
+<svg class="fox-perf-chart-svg fox-perf-chart-svg--physics" viewBox="0 0 ${W} ${H}" role="img" aria-label="Panel temperature and wind chart">
+${tempLine}
+${windLine}
+</svg>`;
+}
+
+function renderPerformanceReportPage(chart, { loading = false, dayOffset = 0 } = {}) {
+  if (loading) {
+    return `<div data-performance-report-main="1"><header class="header"><h1>Performance</h1></header><p class="chart-loading">Loading performance data…</p></div>`;
+  }
+  if (!chart?.enabled) {
+    return `<div data-performance-report-main="1"><header class="header"><h1>Performance</h1></header><p class="placeholder">Performance reporting is disabled for this plant.</p></div>`;
+  }
+  const dayLabel = performanceDayLabel(dayOffset);
+  return `<div data-performance-report-main="1">
+<header class="header"><h1>Performance</h1><p>${esc(dayLabel)}</p></header>
+${renderPerformanceSummaryCards(chart)}
+<div class="card fox-perf-chart-card">
+<h3 class="fox-analysis-summary-title fox-analysis-chart-title">Power &amp; Agile import rate</h3>
+${renderPerformancePowerChartSvg(chart)}
+</div>
+<div class="card fox-perf-chart-card">
+<h3 class="fox-analysis-summary-title fox-analysis-chart-title">Panel cooling — virtual temperature vs wind</h3>
+${renderPerformancePhysicsChartSvg(chart)}
 </div>
 </div>`;
 }
@@ -11700,6 +11913,36 @@ const STYLES = `
   display: inline-block; width: 10px; height: 10px; border-radius: 2px;
 }
 .fox-sc-analysis-table { font-size: 13px; }
+.fox-perf-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.fox-perf-card {
+  background: var(--card-background-color, #1c1c1c);
+  border-radius: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--divider-color, rgba(255,255,255,0.08));
+}
+.fox-perf-card-label { font-size: 12px; opacity: 0.75; margin-bottom: 6px; }
+.fox-perf-card-value { font-size: 20px; font-weight: 600; line-height: 1.25; }
+.fox-perf-card-sub { font-size: 12px; opacity: 0.7; margin-top: 6px; }
+.fox-perf-chart-card { margin-bottom: 14px; }
+.fox-perf-chart-svg { width: 100%; height: auto; display: block; }
+.fox-perf-chart-legend {
+  display: flex; flex-wrap: wrap; gap: 10px 14px; font-size: 12px; margin-bottom: 8px; opacity: 0.85;
+}
+.fox-perf-chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.fox-perf-chart-legend i {
+  display: inline-block; width: 10px; height: 10px; border-radius: 2px;
+}
+@media (max-width: 900px) {
+  .fox-perf-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 520px) {
+  .fox-perf-summary { grid-template-columns: 1fr; }
+}
 @media (max-width: 900px) {
   .fox-sc-analysis-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -13531,6 +13774,10 @@ class FoxessPlantPanel extends HTMLElement {
     this._smartChargeAnalysis = null;
     this._smartChargeAnalysisLoading = false;
     this._smartChargeAnalysisPlantId = undefined;
+    this._performanceDayChart = null;
+    this._performanceDayChartLoading = false;
+    this._performanceDayChartKey = undefined;
+    this._performanceDayOffset = 0;
     this._energyReport = null;
     this._energyReportLoading = false;
     this._energyReportPlantId = undefined;
@@ -14344,6 +14591,9 @@ Reloading panel registration…
     if (this._reportsView === "smart_charge" && !smartChargeEnabled(this._plantState)) {
       this._reportsView = "energy_report";
     }
+    if (this._reportsView === "performance" && !performanceEnabled(this._plantState)) {
+      this._reportsView = "energy_report";
+    }
     const nav = reportsNavForState(this._plantState);
     if (!nav.some((item) => item.id === this._reportsView)) {
       this._reportsView = "energy_report";
@@ -14354,6 +14604,7 @@ Reloading panel registration…
     this._ensureReportsViewValid();
     if (this._reportsView === "octopus") void this._loadOctopusAnalysis();
     else if (this._reportsView === "smart_charge") void this._loadSmartChargeAnalysis();
+    else if (this._reportsView === "performance") void this._loadPerformanceDay();
     else this._loadEnergyReport();
   }
 
@@ -16498,6 +16749,21 @@ Reloading panel registration…
       this._smartChargeAnalysis = null;
       this._smartChargeAnalysisPlantId = undefined;
       this._loadActiveReport();
+      this._scheduleRender(true);
+      return;
+    }
+    if (action === "performance-day-nav") {
+      const dir = btn.dataset.dir;
+      if (dir === "prev") {
+        this._performanceDayOffset += 1;
+      } else if (dir === "next" && this._performanceDayOffset > 0) {
+        this._performanceDayOffset = Math.max(0, this._performanceDayOffset - 1);
+      } else {
+        return;
+      }
+      this._performanceDayChart = null;
+      this._performanceDayChartKey = undefined;
+      void this._loadPerformanceDay();
       this._scheduleRender(true);
       return;
     }
@@ -19999,7 +20265,79 @@ ${detailsHtml}
     if (this._reportsView === "smart_charge") {
       return this._renderSmartChargeAnalysisReport(plant);
     }
+    if (this._reportsView === "performance") {
+      return this._renderPerformanceReport(plant);
+    }
     return this._renderEnergyReport(plant);
+  }
+
+  _performanceDayCacheKey(plant) {
+    return `${plant.entry_id}:performance:${this._performanceDayOffset}`;
+  }
+
+  async _loadPerformanceDay() {
+    const plant = this._getPlant();
+    if (!plant || !this._hass || this._view !== "reports" || this._reportsView !== "performance") return;
+    if (!performanceEnabled(this._plantState)) return;
+    const cacheKey = this._performanceDayCacheKey(plant);
+    if (this._performanceDayChartKey === cacheKey && this._performanceDayChart) return;
+    this._performanceDayChartLoading = true;
+    this._performanceDayChart = null;
+    this._performanceDayChartKey = cacheKey;
+    this._scheduleRender();
+    try {
+      if (!this._plantState) await this._refreshPlantState();
+      const result = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/fetch_performance_day",
+        plant_id: plant.entry_id,
+        day: performanceDayIso(this._performanceDayOffset),
+      });
+      if (result?.plant_state) this._plantState = result.plant_state;
+      if (this._performanceDayCacheKey(this._getPlant()) === cacheKey) {
+        this._performanceDayChart = result?.performance_day || null;
+      }
+    } catch (err) {
+      if (this._performanceDayCacheKey(this._getPlant()) === cacheKey) {
+        this._performanceDayChart = {
+          enabled: true,
+          error: err?.message || "Could not load performance data. Enable recorder for performance sensors.",
+        };
+      }
+    } finally {
+      this._performanceDayChartLoading = false;
+      if (this._view === "reports" && this._reportsView === "performance") {
+        this._scheduleRender();
+      }
+    }
+  }
+
+  _renderPerformanceDayNav() {
+    const canNext = this._performanceDayOffset > 0;
+    return `<div class="energy-date-nav">
+<button type="button" data-action="performance-day-nav" data-dir="prev" aria-label="Previous day">‹</button>
+<span class="energy-date-label">${esc(performanceDayLabel(this._performanceDayOffset))}</span>
+<button type="button" data-action="performance-day-nav" data-dir="next" aria-label="Next day"${canNext ? "" : " disabled"}>›</button>
+</div>`;
+  }
+
+  _renderPerformanceReport(plant) {
+    if (!performanceEnabled(this._plantState)) {
+      return renderPerformanceReportPage({ enabled: false });
+    }
+    const chart = this._performanceDayChart?.error
+      ? { enabled: true, live: {}, summary: { today: {} } }
+      : this._performanceDayChart;
+    const toolbar = `<div class="card fox-analysis-toolbar" data-performance-report-toolbar="1">${this._renderPerformanceDayNav()}</div>`;
+    const body = this._performanceDayChart?.error
+      ? `<div data-performance-report-main="1"><header class="header"><h1>Performance</h1></header><p class="placeholder">${esc(this._performanceDayChart.error)}</p></div>`
+      : renderPerformanceReportPage(chart, {
+          loading: this._performanceDayChartLoading && !this._performanceDayChart,
+          dayOffset: this._performanceDayOffset,
+        });
+    if (body.includes("data-performance-report-main")) {
+      return body.replace("<header class=\"header\">", `${toolbar}<header class="header">`);
+    }
+    return `${toolbar}${body}`;
   }
 
   _smartChargeAnalysisCacheKey(plant) {
@@ -23329,6 +23667,15 @@ ${brightApiFields}
             !this._smartChargeAnalysis)
         ) {
           void this._loadSmartChargeAnalysis();
+        }
+      } else if (this._reportsView === "performance") {
+        if (
+          plant &&
+          performanceEnabled(this._plantState) &&
+          !this._performanceDayChartLoading &&
+          (this._performanceDayChartKey !== this._performanceDayCacheKey(plant) || !this._performanceDayChart)
+        ) {
+          void this._loadPerformanceDay();
         }
       } else if (
         plant &&
