@@ -522,6 +522,45 @@ class SmartChargeConfig:
 
 
 @dataclass
+class PerformanceConfig:
+    """Recorder-backed performance reporting and SQLite financial ledger."""
+
+    enabled: bool = True
+    baseline_v_at_25c: float = 400.0
+    temp_coefficient_v_per_c: float = -0.003
+    inverter_ac_limit_kw: float = 4.3
+    system_install_cost_gbp: float | None = None
+    system_rte: float = 0.85
+    degradation_buffer_p_per_kwh: float = 1.0
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> PerformanceConfig:
+        install_cost = data.get("system_install_cost_gbp")
+        return cls(
+            enabled=bool(data.get("enabled", True)),
+            baseline_v_at_25c=float(data.get("baseline_v_at_25c", 400.0) or 400.0),
+            temp_coefficient_v_per_c=float(data.get("temp_coefficient_v_per_c", -0.003) or -0.003),
+            inverter_ac_limit_kw=float(data.get("inverter_ac_limit_kw", 4.3) or 4.3),
+            system_install_cost_gbp=float(install_cost) if install_cost is not None else None,
+            system_rte=float(data.get("system_rte", 0.85) or 0.85),
+            degradation_buffer_p_per_kwh=float(data.get("degradation_buffer_p_per_kwh", 1.0) or 1.0),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "baseline_v_at_25c": round(self.baseline_v_at_25c, 1),
+            "temp_coefficient_v_per_c": round(self.temp_coefficient_v_per_c, 5),
+            "inverter_ac_limit_kw": round(self.inverter_ac_limit_kw, 2),
+            "system_install_cost_gbp": round(self.system_install_cost_gbp, 2)
+            if self.system_install_cost_gbp is not None
+            else None,
+            "system_rte": round(self.system_rte, 2),
+            "degradation_buffer_p_per_kwh": round(self.degradation_buffer_p_per_kwh, 2),
+        }
+
+
+@dataclass
 class PanelDisplayConfig:
     """Fox Plant panel display options (charts, etc.)."""
 
@@ -1215,6 +1254,7 @@ class PlantConfig:
     outage_prep: PrepPolicyConfig = field(default_factory=PrepPolicyConfig)
     forecast_prep: ForecastPrepConfig = field(default_factory=ForecastPrepConfig)
     smart_charge: SmartChargeConfig = field(default_factory=SmartChargeConfig)
+    performance: PerformanceConfig = field(default_factory=PerformanceConfig)
     panel_display: PanelDisplayConfig = field(default_factory=PanelDisplayConfig)
     pv_config: PvSystemConfig = field(default_factory=PvSystemConfig)
     solcast: SolcastConfig = field(default_factory=SolcastConfig)
@@ -1235,6 +1275,7 @@ class PlantConfig:
             DEFAULT_PANEL_DISPLAY,
             DEFAULT_PV_CONFIG,
             DEFAULT_SMART_CHARGE,
+            DEFAULT_PERFORMANCE,
             DEFAULT_SOLCAST,
             DEFAULT_STORM_PREP,
             DEFAULT_TARIFF,
@@ -1269,6 +1310,7 @@ class PlantConfig:
             smart_charge=SmartChargeConfig.from_dict(
                 data.get("smart_charge", {}), DEFAULT_SMART_CHARGE["charge_periods"]
             ),
+            performance=PerformanceConfig.from_dict(data.get("performance", DEFAULT_PERFORMANCE)),
             panel_display=PanelDisplayConfig.from_dict(data.get("panel_display", DEFAULT_PANEL_DISPLAY)),
             pv_config=PvSystemConfig.from_dict(data.get("pv_config", DEFAULT_PV_CONFIG)),
             solcast=SolcastConfig.from_dict(data.get("solcast", DEFAULT_SOLCAST)),
@@ -1293,6 +1335,7 @@ class PlantConfig:
             "outage_prep": self.outage_prep.to_dict(),
             "forecast_prep": self.forecast_prep.to_dict(),
             "smart_charge": self.smart_charge.to_dict(),
+            "performance": self.performance.to_dict(),
             "panel_display": self.panel_display.to_dict(),
             "pv_config": self.pv_config.to_dict(),
             "solcast": self.solcast.to_dict(),

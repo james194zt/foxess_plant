@@ -15,6 +15,7 @@ CONF_STORM_PREP = "storm_prep"
 CONF_OUTAGE_PREP = "outage_prep"
 CONF_FORECAST_PREP = "forecast_prep"
 CONF_SMART_CHARGE = "smart_charge"
+CONF_PERFORMANCE = "performance"
 CONF_PANEL_DISPLAY = "panel_display"
 CONF_PV_CONFIG = "pv_config"
 CONF_SOLCAST = "solcast"
@@ -441,6 +442,16 @@ DEFAULT_SMART_CHARGE = {
             "end": "00:00",
         },
     ],
+}
+
+DEFAULT_PERFORMANCE = {
+    "enabled": True,
+    "baseline_v_at_25c": 400.0,
+    "temp_coefficient_v_per_c": -0.003,
+    "inverter_ac_limit_kw": 4.3,
+    "system_install_cost_gbp": None,
+    "system_rte": 0.85,
+    "degradation_buffer_p_per_kwh": 1.0,
 }
 
 DEFAULT_PANEL_DISPLAY = {

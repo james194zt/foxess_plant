@@ -8,7 +8,7 @@ from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, UnitOfEnergy, UnitOfPower
+from homeassistant.const import PERCENTAGE, UnitOfEnergy, UnitOfPower, UnitOfSpeed, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -192,6 +192,15 @@ GLOW_SENSORS: tuple[tuple[str, str, str, str, SensorDeviceClass | None, SensorSt
     ("import_cumulative", UnitOfEnergy.KILO_WATT_HOUR, "Glow grid import total", "mdi:counter", SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
 )
 
+PERFORMANCE_SENSORS: tuple[tuple[str, str, str, str, SensorDeviceClass | None, SensorStateClass | None], ...] = (
+    ("pv_power_kw", UnitOfPower.KILO_WATT, "Performance PV power", "mdi:solar-power", SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT),
+    ("net_grid_power_kw", UnitOfPower.KILO_WATT, "Performance net grid power", "mdi:transmission-tower", SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT),
+    ("virtual_panel_temp_c", UnitOfTemperature.CELSIUS, "Virtual panel temperature", "mdi:thermometer", SensorDeviceClass.TEMPERATURE, SensorStateClass.MEASUREMENT),
+    ("wind_speed_ms", UnitOfSpeed.METERS_PER_SECOND, "Performance wind speed", "mdi:weather-windy", SensorDeviceClass.WIND_SPEED, SensorStateClass.MEASUREMENT),
+    ("clipping_loss_kw", UnitOfPower.KILO_WATT, "Performance clipping loss", "mdi:chart-bell-curve-cumulative", SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT),
+    ("solcast_forecast_kw", UnitOfPower.KILO_WATT, "Performance Solcast forecast", "mdi:solar-power", SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT),
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -219,6 +228,12 @@ async def async_setup_entry(
             )
         )
     entities.append(FoxessPlantSmartChargeDecisionSensor(coordinator, entry))
+    for kind, unit, name, icon, device_class, state_class in PERFORMANCE_SENSORS:
+        entities.append(
+            FoxessPlantPerformanceSensor(
+                coordinator, entry, kind, unit, name, icon, device_class, state_class
+            )
+        )
     async_add_entities(entities)
 
 
@@ -539,6 +554,56 @@ class FoxessPlantSmartChargeDecisionSensor(CoordinatorEntity[FoxessPlantCoordina
             "spread_pairs": decision.get("spread_pairs"),
             "planned_spread_profit_p": decision.get("planned_spread_profit_p"),
         }
+
+
+class FoxessPlantPerformanceSensor(CoordinatorEntity[FoxessPlantCoordinator], SensorEntity):
+    """Recorder-backed performance metrics (5-minute coordinator updates)."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        coordinator: FoxessPlantCoordinator,
+        entry: ConfigEntry,
+        kind: str,
+        unit: str,
+        name: str,
+        icon: str,
+        device_class: SensorDeviceClass | None,
+        state_class: SensorStateClass | None,
+    ) -> None:
+        super().__init__(coordinator)
+        self._kind = kind
+        self._entry = entry
+        self._attr_device_info = plant_device_info(entry)
+        self._attr_unique_id = f"{entry.entry_id}_performance_{kind}"
+        self._attr_name = f"{entry.title} {name}"
+        self._attr_native_unit_of_measurement = unit
+        self._attr_icon = icon
+        self._attr_device_class = device_class
+        self._attr_state_class = state_class
+        self._value: float | None = None
+        coordinator.register_performance_sensor(kind, self)
+
+    @property
+    def available(self) -> bool:
+        if not self.coordinator.plant.performance.enabled:
+            return False
+        return self._value is not None
+
+    @property
+    def native_value(self) -> float | None:
+        return self._value
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"source": "foxess_plant_performance"}
+
+    def set_value(self, value: float | None) -> None:
+        self._value = value
+
+    async def async_publish(self) -> None:
+        self.async_write_ha_state()
 
 
 class FoxessPlantGlowSensor(CoordinatorEntity[FoxessPlantCoordinator], SensorEntity):

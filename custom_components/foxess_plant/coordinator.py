@@ -156,6 +156,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._glow_live: dict[str, Any] = {}
         self._glow_unsub_mqtt: callable | None = None
         self._glow_sensors: dict[str, Any] = {}
+        self._performance_sensors: dict[str, Any] = {}
+        self._performance_store = None
+        self._performance_day: str = ""
+        self._performance_daily: dict[str, Any] = {}
+        self._performance_recent_peak_kw: float = 0.0
+        self._unsub_performance: callable | None = None
         self._battery_warmup_live: dict[str, Any] = {}
         self._battery_warmup_api_available: bool | None = None
         self._battery_warmup_last_error: str | None = None
@@ -1184,6 +1190,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._setup_smart_charge_daily_plan_timer()
         self._setup_smart_charge_entity_listener()
         self._setup_pv_efficiency_timer()
+        await self._async_init_performance()
         try:
             await self._async_apply_pv_efficiency_age_derating()
         except Exception as err:
@@ -2320,6 +2327,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "entity_map": self.plant.entity_map,
             "analytics": analytics,
             "impact": impact,
+            "performance": self._performance_state(),
             "active_storm_triggers": sorted(self._active_storm_triggers),
             "active_outage_triggers": sorted(self._active_outage_triggers),
             "forecast_armed": self._forecast_armed,
@@ -2372,6 +2380,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             enabled=self._glow_enabled(),
         )
 
+    def _performance_state(self) -> dict[str, Any]:
+        from .performance.tick import performance_summary
+
+        return performance_summary(self)
+
     def _glow_enabled(self) -> bool:
         return bool(self.plant.glow.enabled)
 
@@ -2382,6 +2395,62 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def register_glow_sensor(self, kind: str, sensor: Any) -> None:
         self._glow_sensors[kind] = sensor
+
+    def register_performance_sensor(self, kind: str, sensor: Any) -> None:
+        self._performance_sensors[kind] = sensor
+
+    async def async_update_performance_sensors(self, sample: Any) -> None:
+        mapping = {
+            "pv_power_kw": sample.pv_power_kw,
+            "net_grid_power_kw": sample.net_grid_power_kw,
+            "virtual_panel_temp_c": sample.virtual_panel_temp_c,
+            "wind_speed_ms": sample.wind_speed_ms,
+            "clipping_loss_kw": sample.clipping_loss_kw,
+            "solcast_forecast_kw": sample.solcast_forecast_kw,
+        }
+        for kind, value in mapping.items():
+            sensor = self._performance_sensors.get(kind)
+            if sensor is None:
+                continue
+            sensor.set_value(float(value) if value is not None else None)
+            await sensor.async_publish()
+
+    async def _async_init_performance(self) -> None:
+        from .performance.tick import async_init_performance_store, new_daily_accumulator
+
+        from homeassistant.util import dt as dt_util
+
+        try:
+            await async_init_performance_store(self)
+            self._performance_day = dt_util.as_local(dt_util.now()).date().isoformat()
+            self._performance_daily = new_daily_accumulator()
+            self._setup_performance_timer()
+        except Exception as err:
+            _LOGGER.warning("Performance store init failed: %s", err)
+
+    def _setup_performance_timer(self) -> None:
+        if self._unsub_performance:
+            self._unsub_performance()
+            self._unsub_performance = None
+        if not self.plant.performance.enabled:
+            return
+        self._unsub_performance = async_track_time_interval(
+            self.hass,
+            self._performance_timer_callback,
+            timedelta(minutes=5),
+        )
+
+    @callback
+    def _performance_timer_callback(self, _now) -> None:
+        self.hass.async_create_task(self._async_performance_tick())
+
+    async def _async_performance_tick(self) -> None:
+        from .performance.tick import async_performance_tick
+
+        try:
+            await async_performance_tick(self)
+        except Exception as err:
+            _LOGGER.warning("Performance tick failed: %s", err)
 
     async def async_update_glow_sensors(self) -> None:
         if not self._glow_enabled():
