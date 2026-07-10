@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .guards import smart_charge_evaluation_blocked
 from .grid_charge import (
     battery_deficit_kwh,
     evaluate_grid_charge,
@@ -43,6 +44,7 @@ __all__ = [
     "compute_outage_reserve_kwh",
     "evaluate_grid_charge",
     "evaluate_smart_charge",
+    "smart_charge_evaluation_blocked",
     "find_negative_import_slot",
     "rate_slots_from_octopus",
     "rate_slots_from_schedule",

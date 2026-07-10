@@ -1823,14 +1823,23 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             tariff_type=tariff_type,
         )
 
-    async def _evaluate_smart_charge_daily_plan(self) -> None:
+    def _smart_charge_evaluation_blocked(self) -> str | None:
+        from .smart_charge import smart_charge_evaluation_blocked
+
         cfg = self.plant.smart_charge
-        if not cfg.enabled or not self.plant.control_active:
+        return smart_charge_evaluation_blocked(
+            enabled=cfg.enabled,
+            control_active=self.plant.control_active,
+            outage_prep_enabled=self.plant.outage_prep.enabled,
+            active_outage_triggers=self._active_outage_triggers,
+            storm_prep_enabled=self.plant.storm_prep.enabled,
+            active_storm_triggers=self._active_storm_triggers,
+        )
+
+    async def _evaluate_smart_charge_daily_plan(self) -> None:
+        if self._smart_charge_evaluation_blocked():
             return
-        if self.plant.outage_prep.enabled and self._active_outage_triggers:
-            return
-        if self.plant.storm_prep.enabled and self._active_storm_triggers:
-            return
+        cfg = self.plant.smart_charge
 
         if self._octopus_native_active():
             await self._async_refresh_octopus(force=True)
@@ -1841,15 +1850,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _evaluate_smart_charge(self, *, skip_plan_rebuild: bool = False) -> None:
         from .smart_charge import current_plan_slot, evaluate_smart_charge
 
+        blocked = self._smart_charge_evaluation_blocked()
+        if blocked:
+            if blocked in ("outage", "storm"):
+                await self._disarm_smart_charge_export()
+            return
         cfg = self.plant.smart_charge
-        if not cfg.enabled or not self.plant.control_active:
-            return
-        if self.plant.outage_prep.enabled and self._active_outage_triggers:
-            await self._disarm_smart_charge_export()
-            return
-        if self.plant.storm_prep.enabled and self._active_storm_triggers:
-            await self._disarm_smart_charge_export()
-            return
 
         if not skip_plan_rebuild:
             await self._rebuild_smart_charge_daily_plan()
