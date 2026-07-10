@@ -2916,6 +2916,31 @@ function renderSmartChargePlannedTable(slots) {
 </table></div>`;
 }
 
+function renderSmartChargeHemsAuditTable(audit) {
+  const events = Array.isArray(audit?.events) ? audit.events : [];
+  if (!events.length) {
+    return `<p class="octopus-greener-empty">No HEMS audit events logged for this period yet. Events are recorded when SmartCharge rebuilds its daily plan, arms export, detects a plunge price, or pairs spread slots.</p>`;
+  }
+  const rows = events
+    .map(
+      (ev) => `<tr>
+<td>${esc(ev.local_label || ev.ts || "—")}</td>
+<td>${esc(ev.event_label || ev.event_type || "—")}</td>
+<td>${esc(ev.summary || "")}</td>
+</tr>`
+    )
+    .join("");
+  const counts = audit?.by_type || {};
+  const countBits = Object.entries(counts)
+    .map(([k, n]) => `${n} ${k.replace("smart_charge_", "").replace(/_/g, " ")}`)
+    .join(" · ");
+  return `<p class="field-hint">${esc(countBits || `${events.length} events`)}</p>
+<div class="fox-sc-analysis-table-wrap"><table class="fox-sc-analysis-table">
+<thead><tr><th>When</th><th>Event</th><th>Summary</th></tr></thead>
+<tbody>${rows}</tbody>
+</table></div>`;
+}
+
 function renderSmartChargeAnalysisPage(report, { loading = false } = {}) {
   if (loading && !report) {
     return `<div data-smart-charge-analysis-main="1"><header class="header"><h1>SmartCharge Analysis</h1></header><p class="chart-loading">Loading SmartCharge analysis…</p></div>`;
@@ -2942,6 +2967,10 @@ ${renderSmartChargeSessionsTable(report.sessions)}
 <div class="card fox-report-details">
 <h3 class="fox-report-details-title">Planned slots (from daily plan history)</h3>
 ${renderSmartChargePlannedTable(report.planned_slots)}
+</div>
+<div class="card fox-report-details">
+<h3 class="fox-report-details-title">HEMS audit trail</h3>
+${renderSmartChargeHemsAuditTable(report.hems_audit)}
 </div>
 </div>`;
 }

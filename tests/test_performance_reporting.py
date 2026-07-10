@@ -28,6 +28,7 @@ financial = _load_module("perf_financial", "performance/financial.py")
 store_mod = _load_module("perf_store", "performance/store.py")
 solar_analysis = _load_module("perf_solar_analysis", "performance/solar_analysis.py")
 physics_insights = _load_module("perf_physics_insights", "performance/physics_insights.py")
+hems_audit = _load_module("perf_hems_audit", "performance/hems_audit.py")
 
 
 class VirtualPanelTempTests(unittest.TestCase):
@@ -208,6 +209,46 @@ class PhysicsInsightsTests(unittest.TestCase):
             ac_limit_kw=4.3,
         )
         self.assertTrue(any("cloud-edge" in n.lower() for n in notes))
+
+
+class HemsAuditTests(unittest.TestCase):
+    def test_daily_plan_signature_stable(self) -> None:
+        plan = [{"action": "export", "start": "14:00", "end": "15:00", "reason": "peak"}]
+        self.assertEqual(hems_audit.daily_plan_signature(plan), hems_audit.daily_plan_signature(plan))
+
+    def test_list_events_between(self) -> None:
+        import json
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "audit.db"
+            s = store_mod.PerformanceStore(db)
+            s.init_schema()
+            s.log_event(
+                ts="2026-07-10T12:00:00",
+                event_type=hems_audit.EVENT_EXPORT_ARMED,
+                payload_json=json.dumps({"reason": "test"}),
+            )
+            rows = s.list_events_between("2026-07-10T00:00:00", "2026-07-10T23:59:59")
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["payload"]["reason"], "test")
+
+    def test_audit_report_summary(self) -> None:
+        import json
+
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "audit.db"
+            s = store_mod.PerformanceStore(db)
+            s.init_schema()
+            s.log_event(
+                ts="2026-07-10T08:00:00",
+                event_type=hems_audit.EVENT_DAILY_PLAN,
+                payload_json=json.dumps({"slot_count": 3, "charge_slots": 1, "export_slots": 2}),
+            )
+            report = hems_audit.build_hems_audit_report(
+                s, start_date="2026-07-10", end_date="2026-07-10"
+            )
+            self.assertEqual(report["event_count"], 1)
+            self.assertIn("3 slots", report["events"][0]["summary"])
 
 
 if __name__ == "__main__":

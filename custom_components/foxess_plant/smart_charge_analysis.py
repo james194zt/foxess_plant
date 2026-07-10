@@ -635,6 +635,15 @@ async def async_build_smart_charge_analysis(
             "Armed sessions and daily plans are stored when the recorder keeps history "
             "for the smart charge sensors."
         )
+    store = getattr(coordinator, "_performance_store", None)
+    if store is not None:
+        from .performance.hems_audit import build_hems_audit_report
+
+        payload["hems_audit"] = build_hems_audit_report(
+            store,
+            start_date=dt_util.as_local(start_local).date().isoformat(),
+            end_date=dt_util.as_local(end_local).date().isoformat(),
+        )
     return payload
 
 

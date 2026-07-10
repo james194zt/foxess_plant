@@ -238,3 +238,47 @@ class PerformanceStore:
             (ts, event_type, payload_json),
         )
         conn.commit()
+
+    def list_events_between(
+        self,
+        start_ts: str,
+        end_ts: str,
+        *,
+        event_types: list[str] | None = None,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        import json
+
+        conn = self.connect()
+        if event_types:
+            placeholders = ",".join("?" for _ in event_types)
+            rows = conn.execute(
+                f"""
+                SELECT * FROM hems_events
+                WHERE ts >= ? AND ts <= ? AND event_type IN ({placeholders})
+                ORDER BY ts DESC
+                LIMIT ?
+                """,
+                (start_ts, end_ts, *event_types, int(limit)),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT * FROM hems_events
+                WHERE ts >= ? AND ts <= ?
+                ORDER BY ts DESC
+                LIMIT ?
+                """,
+                (start_ts, end_ts, int(limit)),
+            ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            raw = item.get("payload_json")
+            if raw:
+                try:
+                    item["payload"] = json.loads(raw)
+                except json.JSONDecodeError:
+                    item["payload"] = None
+            out.append(item)
+        return out

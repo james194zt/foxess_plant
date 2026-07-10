@@ -118,6 +118,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._smart_charge_daily_plan: list[dict[str, Any]] = []
         self._smart_charge_periods_sig = ""
         self._smart_charge_discharge_sig = ""
+        self._hems_audit_sigs: dict[str, str] = {}
         self._smart_charge_rates_snapshot: list[tuple[str, float]] = []
         self._storm_forecast_active = False
         self._storm_forecast_detail = {}
@@ -1743,6 +1744,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ]
             await self._persist()
             await self._enable_force_discharge()
+            self._audit_smart_charge_export_armed(decision)
             self._fire(
                 EVENT_SMART_CHARGE_ARMED,
                 {"reason": "smart_charge:export_discharge", "mode": MODE_SMART_CHARGE},
@@ -1752,6 +1754,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if sig != self._smart_charge_discharge_sig:
             self._smart_charge_discharge_sig = sig
             await self._enable_force_discharge()
+            self._audit_smart_charge_export_armed(decision)
             self._fire(
                 EVENT_SMART_CHARGE_ARMED,
                 {"reason": "smart_charge:export_discharge", "mode": MODE_SMART_CHARGE},
@@ -1830,6 +1833,82 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             greener_nights=greener_nights,
             tariff_type=tariff_type,
         )
+        self._audit_smart_charge_daily_plan()
+
+    def _audit_smart_charge_daily_plan(self) -> None:
+        from .performance.hems_audit import (
+            EVENT_DAILY_PLAN,
+            daily_plan_signature,
+            maybe_log_hems_event,
+            payload_daily_plan,
+        )
+
+        cfg = self.plant.smart_charge
+        plan = self._smart_charge_daily_plan or []
+        sig = daily_plan_signature(plan)
+        maybe_log_hems_event(
+            self,
+            EVENT_DAILY_PLAN,
+            payload_daily_plan(
+                plan,
+                horizon_hours=float(cfg.daily_plan_horizon_hours or 24),
+                operating_mode=cfg.operating_mode,
+            ),
+            sig,
+        )
+
+    def _audit_smart_charge_decision(self, decision: Any) -> None:
+        from .performance.hems_audit import (
+            EVENT_PLUNGE_OVERRIDE,
+            EVENT_SPREAD_PAIRS,
+            maybe_log_hems_event,
+            payload_plunge_override,
+            payload_spread_pairs,
+            plunge_signature,
+            spread_pairs_signature,
+        )
+
+        eval_tier = getattr(decision, "eval_tier", None) or (
+            decision.get("eval_tier") if isinstance(decision, dict) else None
+        )
+        reason = str(getattr(decision, "reason", None) or (decision.get("reason") if isinstance(decision, dict) else "") or "")
+        if eval_tier == "negative_interrupt" or "negative import" in reason.lower():
+            maybe_log_hems_event(
+                self,
+                EVENT_PLUNGE_OVERRIDE,
+                payload_plunge_override(decision),
+                plunge_signature(decision),
+            )
+
+        pairs = getattr(decision, "spread_pairs", None)
+        if pairs is None and isinstance(decision, dict):
+            pairs = decision.get("spread_pairs")
+        if pairs:
+            profit = getattr(decision, "planned_spread_profit_p", None)
+            if profit is None and isinstance(decision, dict):
+                profit = decision.get("planned_spread_profit_p")
+            maybe_log_hems_event(
+                self,
+                EVENT_SPREAD_PAIRS,
+                payload_spread_pairs(pairs, profit_p=profit),
+                spread_pairs_signature(pairs),
+            )
+
+    def _audit_smart_charge_export_armed(self, decision: Any) -> None:
+        from .performance.hems_audit import (
+            EVENT_EXPORT_ARMED,
+            export_armed_signature,
+            maybe_log_hems_event,
+            payload_export_armed,
+        )
+
+        sig = export_armed_signature(decision)
+        maybe_log_hems_event(
+            self,
+            EVENT_EXPORT_ARMED,
+            payload_export_armed(decision),
+            sig,
+        )
 
     def _smart_charge_evaluation_blocked(self) -> str | None:
         from .smart_charge import smart_charge_evaluation_blocked
@@ -1895,6 +1974,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self._smart_charge_decision = decision.to_dict()
         self._smart_charge_decision["current_plan_slot"] = current_plan_slot(self._smart_charge_daily_plan)
+        self._audit_smart_charge_decision(decision)
 
         if decision.action == "export_discharge":
             await self._arm_smart_charge_export(decision)
