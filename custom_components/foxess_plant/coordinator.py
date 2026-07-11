@@ -2492,6 +2492,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "net_grid_power_kw": sample.net_grid_power_kw,
             "virtual_panel_temp_c": sample.virtual_panel_temp_c,
             "wind_speed_ms": sample.wind_speed_ms,
+            "visibility_km": sample.visibility_km,
+            "dew_point_c": sample.dew_point_c,
+            "precipitation_mm": sample.precipitation_mm,
             "clipping_loss_kw": sample.clipping_loss_kw,
             "solcast_forecast_kw": sample.solcast_forecast_kw,
         }

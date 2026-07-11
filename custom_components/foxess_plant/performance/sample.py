@@ -18,6 +18,7 @@ class PerformanceSample:
     wind_speed_ms: float | None
     visibility_km: float | None
     dew_point_c: float | None
+    precipitation_mm: float | None
     solcast_forecast_kw: float | None
     clipping_loss_kw: float
     import_p_per_kwh: float | None
@@ -27,7 +28,7 @@ class PerformanceSample:
 
 
 def _entity_power_kw(coordinator: Any, key: str) -> float | None:
-    from .discovery import resolve_entity_id
+    from ..discovery import resolve_entity_id
 
     entity_id = resolve_entity_id(
         coordinator.hass,
@@ -49,22 +50,6 @@ def _entity_power_kw(coordinator: Any, key: str) -> float | None:
     return abs(value)
 
 
-def _weather_attrs(coordinator: Any) -> dict[str, Any]:
-    from .storm_weather import resolve_overview_weather_entities
-
-    entity_id = coordinator.plant.storm_prep.weather_entity_id
-    if not entity_id:
-        _, entity_id = resolve_overview_weather_entities(coordinator.hass, coordinator.plant.storm_prep)
-    if not entity_id:
-        return {}
-    state = coordinator.hass.states.get(entity_id)
-    if not state:
-        return {}
-    attrs = dict(state.attributes)
-    attrs["state"] = state.state
-    return attrs
-
-
 def _octopus_rates_p_per_kwh(coordinator: Any) -> tuple[float | None, float | None]:
     cache = coordinator._octopus_cache or {}
     imp = cache.get("current_import_p_per_kwh")
@@ -78,6 +63,7 @@ def _octopus_rates_p_per_kwh(coordinator: Any) -> tuple[float | None, float | No
 def collect_performance_sample(coordinator: Any) -> PerformanceSample:
     from .clipping import compute_clipping_loss_kw
     from .virtual_panel_temp import compute_virtual_panel_temp_c
+    from .weather import read_weather_metrics
 
     cfg = coordinator.plant.performance
     pv_kw = _entity_power_kw(coordinator, "pv_power")
@@ -113,10 +99,7 @@ def collect_performance_sample(coordinator: Any) -> PerformanceSample:
         temp_coefficient_v_per_c=cfg.temp_coefficient_v_per_c,
     )
 
-    weather = _weather_attrs(coordinator)
-    wind = parse_state_float(weather.get("wind_speed"))
-    visibility = parse_state_float(weather.get("visibility"))
-    dew = parse_state_float(weather.get("dew_point"))
+    weather = read_weather_metrics(coordinator.hass, coordinator)
 
     solcast_kw = None
     solcast_state = coordinator._solcast_state() if hasattr(coordinator, "_solcast_state") else {}
@@ -148,9 +131,10 @@ def collect_performance_sample(coordinator: Any) -> PerformanceSample:
         load_power_kw=load_kw,
         string_voltage_v=string_v,
         virtual_panel_temp_c=virtual_temp,
-        wind_speed_ms=wind,
-        visibility_km=visibility,
-        dew_point_c=dew,
+        wind_speed_ms=weather.get("wind_speed_ms"),
+        visibility_km=weather.get("visibility_km"),
+        dew_point_c=weather.get("dew_point_c"),
+        precipitation_mm=weather.get("precipitation_mm"),
         solcast_forecast_kw=solcast_kw,
         clipping_loss_kw=clipping,
         import_p_per_kwh=imp_p,

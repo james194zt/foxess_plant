@@ -320,7 +320,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.248";
+const PANEL_VERSION = "0.9.450";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -3008,10 +3008,14 @@ function renderPerformanceSummaryCards(chart) {
     live.forecast_accuracy_pct != null
       ? `${Number(live.forecast_accuracy_pct).toFixed(0)}% of Solcast`
       : "Forecast pending";
+  const tempIndex =
+    live.temp_adjusted_index_pct != null
+      ? `Temp index ${Number(live.temp_adjusted_index_pct).toFixed(0)}%`
+      : null;
   const clipSub =
     live.clipping_kwh_today != null && Number(live.clipping_kwh_today) > 0
       ? `Clipping ~${Number(live.clipping_kwh_today).toFixed(1)} kWh`
-      : accuracy;
+      : tempIndex || accuracy;
   const breakEven = formatPerformanceBreakEven(summary.break_even_date);
   const paybackSub =
     breakEven != null
@@ -3338,6 +3342,99 @@ ${windLine}
 </svg>`;
 }
 
+function renderPerformanceMicroclimateChartSvg(chart) {
+  const series = chart?.series || {};
+  const visibility = series.visibility_km || [];
+  const dew = series.dew_point_c || [];
+  const precip = series.precipitation_mm || [];
+  if (!visibility.length && !dew.length && !precip.length) {
+    return `<p class="placeholder chart-empty">Visibility, dew point, and precipitation will appear once weather samples are collected.</p>`;
+  }
+  const range = performanceChartRange(chart);
+  const xDomain = performanceZoomXDomain(range, visibility, dew, precip);
+  const W = 640;
+  const H = 160;
+  const padL = 42;
+  const padR = 38;
+  const padT = 10;
+  const padB = 24;
+  const w = W - padL - padR;
+  const h = H - padT - padB;
+  const span = Math.max(xDomain.tMax - xDomain.tMin, 60000);
+  const xScale = (t) => padL + ((t - xDomain.tMin) / span) * w;
+  const visPts = performanceClipPoints(visibility, xDomain.tMin, xDomain.tMax);
+  const dewPts = performanceClipPoints(dew, xDomain.tMin, xDomain.tMax);
+  const precipPts = performanceClipPoints(precip, xDomain.tMin, xDomain.tMax);
+  const visVals = visPts.map((p) => p.v).filter(Number.isFinite);
+  const dewVals = dewPts.map((p) => p.v).filter(Number.isFinite);
+  const precipMax = precipPts.length ? Math.max(...precipPts.map((p) => p.v), 0.1) : 1;
+  const vMin = visVals.length ? Math.max(0, Math.min(...visVals)) : 0;
+  const vMax = visVals.length ? Math.max(...visVals, vMin + 1) : 20;
+  const dMin = dewVals.length ? Math.min(...dewVals) : 0;
+  const dMax = dewVals.length ? Math.max(...dewVals, dMin + 1) : 20;
+  const yScaleVis = (v) => padT + h - ((v - vMin) / Math.max(vMax - vMin, 0.1)) * h;
+  const yScaleDew = (v) => padT + h - ((v - dMin) / Math.max(dMax - dMin, 0.1)) * h;
+  const yScalePrecip = (v) => padT + h - (Math.max(0, v) / precipMax) * (h * 0.35);
+  const axes = performanceChartAxesSvg({
+    padL,
+    padT,
+    w,
+    h,
+    xDomain,
+    xScale,
+    yScale: yScaleVis,
+    yTicks: performanceYTicks(vMin, vMax),
+    yUnit: " km",
+  });
+  const visLine = visibility.length
+    ? performanceSeriesSvg(visibility, xDomain, xScale, yScaleVis, "#FA8C16", { width: 2 })
+    : "";
+  const dewLine = dew.length
+    ? performanceSeriesSvg(dew, xDomain, xScale, yScaleDew, "#597EF7", { width: 1.6, dash: "4 2" })
+    : "";
+  const precipBars = precipPts
+    .map((p) => {
+      if (!Number.isFinite(p.v) || p.v <= 0) return "";
+      const x = xScale(p.t) - 2;
+      const y = yScalePrecip(p.v);
+      const barH = padT + h - y;
+      return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="4" height="${barH.toFixed(1)}" fill="#69C0FF" opacity="0.55" rx="1" />`;
+    })
+    .join("");
+  const hint = performanceSparseHint(Math.max(visPts.length, dewPts.length), xDomain);
+  return `<div class="fox-perf-chart-legend">
+<span><i style="background:#FA8C16"></i> Visibility km</span>
+<span><i style="background:#597EF7"></i> Dew point °C</span>
+<span><i style="background:#69C0FF"></i> Precip mm</span>
+</div>
+${hint}
+<svg class="fox-perf-chart-svg fox-perf-chart-svg--microclimate" viewBox="0 0 ${W} ${H}" role="img" aria-label="Visibility dew and precipitation chart">
+${axes}
+${precipBars}
+${visLine}
+${dewLine}
+</svg>`;
+}
+
+function renderOverviewPanelTempPill(plantState) {
+  if (!performanceEnabled(plantState)) return "";
+  const live = plantState?.performance?.live_metrics || {};
+  const temp = live.virtual_panel_temp_c;
+  if (temp == null || !Number.isFinite(Number(temp))) return "";
+  const wind =
+    live.wind_speed_ms != null && Number.isFinite(Number(live.wind_speed_ms))
+      ? ` · ${Number(live.wind_speed_ms).toFixed(1)} m/s wind`
+      : "";
+  return `<span class="overview-panel-temp-pill" title="Virtual panel temperature from string voltage">Panel ${Number(temp).toFixed(0)}°C${wind}</span>`;
+}
+
+function listWeatherEntityOptions(hass) {
+  if (!hass?.states) return [];
+  return Object.keys(hass.states)
+    .filter((id) => id.startsWith("weather."))
+    .sort((a, b) => a.localeCompare(b));
+}
+
 function renderPerformancePeriodSummaryCards(report) {
   const s = report?.summary || {};
   const cards = [
@@ -3489,6 +3586,10 @@ ${renderPerformancePowerChartSvg(chart)}
 <h3 class="fox-analysis-summary-title fox-analysis-chart-title">Panel cooling — virtual temperature vs wind</h3>
 ${renderPerformancePhysicsChartSvg(chart)}
 ${renderPerformancePhysicsInsights(chart)}
+</div>
+<div class="card fox-perf-chart-card">
+<h3 class="fox-analysis-summary-title fox-analysis-chart-title">Microclimate — visibility, dew &amp; rain</h3>
+${renderPerformanceMicroclimateChartSvg(chart)}
 </div>
 </div>`;
 }
@@ -11001,6 +11102,16 @@ const STYLES = `
 .overview-weather-block { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
 .overview-weather-block .overview-weather { margin-top: 0; }
 .overview-status-topline .overview-weather-block { margin-top: 0; }
+.overview-panel-temp-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  color: var(--secondary-text-color);
+  margin-top: 2px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(8, 151, 156, 0.12);
+}
 .overview-status-topline .overview-status-row { padding-top: 1px; }
 .overview-sun-times {
   display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px;
@@ -16609,6 +16720,7 @@ Reloading panel registration…
       system_install_cost_gbp: this._parsePerformanceInstallCost(cfg.system_install_cost_gbp),
       system_rte: Number(cfg.system_rte ?? 0.85),
       degradation_buffer_p_per_kwh: Number(cfg.degradation_buffer_p_per_kwh ?? 1),
+      weather_entity_id: cfg.weather_entity_id ?? "",
     };
   }
 
@@ -16640,6 +16752,10 @@ Reloading panel registration…
         String(installEl.value ?? "").trim()
       );
     }
+    const weatherEl = root.querySelector('[data-field="performance:weather_entity_id"]');
+    if (weatherEl) {
+      this._performanceDraft.weather_entity_id = String(weatherEl.value ?? "").trim();
+    }
   }
 
   _performanceInstallCostFromDom() {
@@ -16664,6 +16780,7 @@ Reloading panel registration…
       system_install_cost_gbp: installCost,
       system_rte: Number(d.system_rte) || 0.85,
       degradation_buffer_p_per_kwh: Number(d.degradation_buffer_p_per_kwh) || 1,
+      weather_entity_id: d.weather_entity_id ? String(d.weather_entity_id) : null,
     };
   }
 
@@ -19005,7 +19122,7 @@ ${note}
             : ""
         }</div>`
       : "";
-    return `<div class="overview-weather-block"><div class="overview-weather" role="img" aria-label="${esc(aria || "Weather")}">${icon}${temp}${label}</div>${sunRow}</div>`;
+    return `<div class="overview-weather-block"><div class="overview-weather" role="img" aria-label="${esc(aria || "Weather")}">${icon}${temp}${label}</div>${renderOverviewPanelTempPill(this._plantState)}${sunRow}</div>`;
   }
 
   _resolveOverviewWeatherEntity() {
@@ -23978,12 +24095,26 @@ ${brightApiFields}
     if (!this._performanceDraft) this._initPerformanceDraft();
     const draft = this._performanceDraft;
     const dbPath = this._plantState?.performance?.db_path;
+    const stormWeather = this._plantState?.storm_prep?.weather_entity_id || "";
+    const weatherOptions = listWeatherEntityOptions(this._hass);
+    const weatherSelect = `<div class="field"><label>Weather entity (optional)</label>
+<p class="field-hint">Overrides StormSafe weather for performance wind, visibility, dew, and rain. Falls back to StormSafe or auto-discovery when blank.</p>
+<select data-field="performance:weather_entity_id" ${this._busy ? "disabled" : ""}>
+<option value="">Use StormSafe / auto (${esc(stormWeather || "none linked")})</option>
+${weatherOptions
+  .map(
+    (id) =>
+      `<option value="${esc(id)}"${draft.weather_entity_id === id ? " selected" : ""}>${esc(id)}</option>`
+  )
+  .join("")}
+</select></div>`;
     return `<header class="header"><h1>Performance reporting</h1><p>Recorder-backed solar diagnostics, financial ledger, and payback tracking. Daily rows commit at midnight from 5-minute samples.</p></header>
 <div class="card">
 <p class="card-title">Enable</p>
 <div class="toggle-row"><span><strong>Performance reporting</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Creates diagnostic sensors and SQLite daily ledger</span></span>
 <input type="checkbox" data-field="performance:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 </div>
+${weatherSelect}
 <div class="card">
 <p class="card-title">Virtual panel temperature</p>
 <p class="field-hint">Calibrate against a cold morning reading when panels are near 25°C. Higher string voltage = colder panels.</p>

@@ -111,6 +111,7 @@ PERFORMANCE_SCHEMA = vol.Schema(
         vol.Optional("degradation_buffer_p_per_kwh"): vol.All(
             vol.Coerce(float), vol.Range(min=0, max=50)
         ),
+        vol.Optional("weather_entity_id"): vol.Any(None, str),
     }
 )
 

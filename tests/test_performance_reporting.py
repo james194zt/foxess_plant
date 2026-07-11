@@ -124,11 +124,15 @@ class PerformanceStoreTests(unittest.TestCase):
                     "solcast_forecast_kw": 1.1,
                     "import_p_per_kwh": 0.18,
                     "export_p_per_kwh": 0.12,
+                    "visibility_km": 12.0,
+                    "dew_point_c": 8.5,
+                    "precipitation_mm": 0.0,
                 }
             )
             rows = s.list_intraday_samples("2026-07-10T00:00:00", "2026-07-10T23:59:59")
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0]["pv_power_kw"], 1.25)
+            self.assertEqual(rows[0]["visibility_km"], 12.0)
 
     def test_ledger_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -156,6 +160,11 @@ class PerformanceStoreTests(unittest.TestCase):
                     "wind_correlation_note": None,
                     "solar_day_class": "under_forecast",
                     "insight_note": "113% of Solcast",
+                    "temp_adjusted_index_pct": 108.0,
+                    "soiling_recovery_note": None,
+                    "visibility_avg_km": 14.0,
+                    "dew_avg_c": 9.0,
+                    "precipitation_mm": 0.0,
                 }
             )
             row = s.get_daily_ledger("2026-07-10")
@@ -190,6 +199,11 @@ class PerformanceStoreTests(unittest.TestCase):
                         "wind_correlation_note": None,
                         "solar_day_class": "under_forecast",
                         "insight_note": "Above forecast",
+                        "temp_adjusted_index_pct": None,
+                        "soiling_recovery_note": None,
+                        "visibility_avg_km": None,
+                        "dew_avg_c": None,
+                        "precipitation_mm": None,
                     }
                 )
             agg = s.period_aggregate("2026-07-08", "2026-07-10")
@@ -241,6 +255,41 @@ class PhysicsInsightsTests(unittest.TestCase):
             ac_limit_kw=4.3,
         )
         self.assertTrue(any("cloud-edge" in n.lower() for n in notes))
+
+    def test_haze_insight_low_visibility(self) -> None:
+        visibility = [{"t": float(i * 300000), "v": 5.0} for i in range(5)]
+        pv = [{"t": float(i * 300000), "v": 0.5} for i in range(5)]
+        solcast = [{"t": float(i * 300000), "v": 1.0} for i in range(5)]
+        notes = physics_insights.build_intraday_physics_insights(
+            {"visibility_km": visibility, "pv_power_kw": pv, "solcast_forecast_kw": solcast},
+            ac_limit_kw=4.3,
+        )
+        self.assertTrue(any("haze" in n.lower() for n in notes))
+
+
+class SolarAdvancedTests(unittest.TestCase):
+    def test_temp_adjusted_index_hot_day(self) -> None:
+        idx = solar_analysis.compute_temp_adjusted_index_pct(
+            forecast_accuracy_pct=90.0,
+            avg_virtual_temp_c=35.0,
+        )
+        self.assertIsNotNone(idx)
+        assert idx is not None
+        self.assertGreater(idx, 90.0)
+
+    def test_soiling_recovery_after_rain(self) -> None:
+        note = solar_analysis.detect_soiling_recovery(
+            prev_row={
+                "forecast_accuracy_pct": 75.0,
+                "precipitation_mm": 2.0,
+                "visibility_avg_km": 8.0,
+            },
+            forecast_accuracy_pct=88.0,
+            precipitation_mm=0.0,
+        )
+        self.assertIsNotNone(note)
+        assert note is not None
+        self.assertIn("recovery", note.lower())
 
 
 class HemsAuditTests(unittest.TestCase):

@@ -90,6 +90,66 @@ def _clipping_insight(clipping_kw: list[dict[str, float]], *, ac_limit_kw: float
     return f"Inverter clipping ~{minutes / 60.0:.1f} h at {ac_limit_kw:.1f} kW AC limit"
 
 
+def _haze_insight(
+    visibility: list[dict[str, float]],
+    pv: list[dict[str, float]],
+    solcast: list[dict[str, float]],
+) -> str | None:
+    if len(visibility) < 3:
+        return None
+    low_vis = [p for p in visibility if p["v"] < 8.0]
+    if len(low_vis) < max(2, len(visibility) // 4):
+        return None
+    underperform = 0
+    compared = 0
+    for pt in low_vis:
+        nearest_pv = min(pv, key=lambda p: abs(p["t"] - pt["t"])) if pv else None
+        nearest_fc = min(solcast, key=lambda p: abs(p["t"] - pt["t"])) if solcast else None
+        if not nearest_pv or not nearest_fc:
+            continue
+        if abs(nearest_pv["t"] - pt["t"]) > 15 * 60 * 1000:
+            continue
+        if nearest_fc["v"] <= 0.05:
+            continue
+        compared += 1
+        if nearest_pv["v"] < nearest_fc["v"] * 0.85:
+            underperform += 1
+    if compared < 2 or underperform < 2:
+        return None
+    avg_vis = sum(p["v"] for p in low_vis) / len(low_vis)
+    return f"Haze correlation: PV below forecast during visibility ~{avg_vis:.0f} km"
+
+
+def _dew_insight(dew: list[dict[str, float]], temp: list[dict[str, float]]) -> str | None:
+    if len(dew) < 3 or len(temp) < 3:
+        return None
+    high_dew = [p for p in dew if p["v"] >= 14.0]
+    if len(high_dew) < 2:
+        return None
+    cold_mornings = 0
+    for pt in high_dew:
+        nearest = min(temp, key=lambda t: abs(t["t"] - pt["t"]))
+        if abs(nearest["t"] - pt["t"]) > 15 * 60 * 1000:
+            continue
+        if nearest["v"] <= pt["v"] + 2.0:
+            cold_mornings += 1
+    if cold_mornings < 2:
+        return None
+    return "High dew point: panel condensation risk in early hours"
+
+
+def _precip_insight(precip: list[dict[str, float]], visibility: list[dict[str, float]]) -> str | None:
+    wet = [p for p in precip if p["v"] > 0.02]
+    if len(wet) < 2:
+        return None
+    total = sum(p["v"] for p in wet)
+    vis_after = [v for v in visibility if any(abs(v["t"] - w["t"]) < 60 * 60 * 1000 for w in wet)]
+    clearer = [v for v in vis_after if v["v"] >= 12]
+    if len(clearer) >= 2:
+        return f"Rain event ~{total:.1f} mm then visibility improved — watch for yield recovery"
+    return f"Rain ~{total:.1f} mm logged — soiling wash possible"
+
+
 def build_intraday_physics_insights(
     series: dict[str, list[dict[str, Any]]],
     *,
@@ -100,12 +160,19 @@ def build_intraday_physics_insights(
     wind = _sorted_points(series.get("wind_speed_ms"))
     pv = _sorted_points(series.get("pv_power_kw"))
     clip = _sorted_points(series.get("clipping_loss_kw"))
+    visibility = _sorted_points(series.get("visibility_km"))
+    dew = _sorted_points(series.get("dew_point_c"))
+    precip = _sorted_points(series.get("precipitation_mm"))
+    solcast = _sorted_points(series.get("solcast_forecast_kw"))
 
     insights: list[str] = []
     for note in (
         _wind_cooling_insight(temp, wind),
         _cloud_flush_insight(temp, pv, ac_limit_kw=ac_limit_kw),
         _clipping_insight(clip, ac_limit_kw=ac_limit_kw),
+        _haze_insight(visibility, pv, solcast),
+        _dew_insight(dew, temp),
+        _precip_insight(precip, visibility),
     ):
         if note:
             insights.append(note)

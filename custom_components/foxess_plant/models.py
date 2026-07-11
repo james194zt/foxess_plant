@@ -532,6 +532,7 @@ class PerformanceConfig:
     system_install_cost_gbp: float | None = None
     system_rte: float = 0.85
     degradation_buffer_p_per_kwh: float = 1.0
+    weather_entity_id: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> PerformanceConfig:
@@ -550,6 +551,7 @@ class PerformanceConfig:
             system_install_cost_gbp=install_cost,
             system_rte=float(data.get("system_rte", 0.85) or 0.85),
             degradation_buffer_p_per_kwh=float(data.get("degradation_buffer_p_per_kwh", 1.0) or 1.0),
+            weather_entity_id=data.get("weather_entity_id") or None,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -563,6 +565,7 @@ class PerformanceConfig:
             else None,
             "system_rte": round(self.system_rte, 2),
             "degradation_buffer_p_per_kwh": round(self.degradation_buffer_p_per_kwh, 2),
+            "weather_entity_id": self.weather_entity_id,
         }
 
 

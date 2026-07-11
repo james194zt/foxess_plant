@@ -53,7 +53,10 @@ CREATE TABLE IF NOT EXISTS intraday_samples (
     clipping_loss_kw REAL,
     solcast_forecast_kw REAL,
     import_p_per_kwh REAL,
-    export_p_per_kwh REAL
+    export_p_per_kwh REAL,
+    visibility_km REAL,
+    dew_point_c REAL,
+    precipitation_mm REAL
 );
 
 CREATE INDEX IF NOT EXISTS idx_intraday_samples_ts ON intraday_samples(ts);
@@ -86,10 +89,26 @@ class PerformanceStore:
 
     def _migrate_schema(self, conn: sqlite3.Connection) -> None:
         cols = {row[1] for row in conn.execute("PRAGMA table_info(daily_ledger)")}
-        if "solar_day_class" not in cols:
-            conn.execute("ALTER TABLE daily_ledger ADD COLUMN solar_day_class TEXT")
-        if "insight_note" not in cols:
-            conn.execute("ALTER TABLE daily_ledger ADD COLUMN insight_note TEXT")
+        for col, ddl in (
+            ("solar_day_class", "ALTER TABLE daily_ledger ADD COLUMN solar_day_class TEXT"),
+            ("insight_note", "ALTER TABLE daily_ledger ADD COLUMN insight_note TEXT"),
+            ("temp_adjusted_index_pct", "ALTER TABLE daily_ledger ADD COLUMN temp_adjusted_index_pct REAL"),
+            ("soiling_recovery_note", "ALTER TABLE daily_ledger ADD COLUMN soiling_recovery_note TEXT"),
+            ("visibility_avg_km", "ALTER TABLE daily_ledger ADD COLUMN visibility_avg_km REAL"),
+            ("dew_avg_c", "ALTER TABLE daily_ledger ADD COLUMN dew_avg_c REAL"),
+            ("precipitation_mm", "ALTER TABLE daily_ledger ADD COLUMN precipitation_mm REAL"),
+        ):
+            if col not in cols:
+                conn.execute(ddl)
+
+        intraday_cols = {row[1] for row in conn.execute("PRAGMA table_info(intraday_samples)")}
+        for col, ddl in (
+            ("visibility_km", "ALTER TABLE intraday_samples ADD COLUMN visibility_km REAL"),
+            ("dew_point_c", "ALTER TABLE intraday_samples ADD COLUMN dew_point_c REAL"),
+            ("precipitation_mm", "ALTER TABLE intraday_samples ADD COLUMN precipitation_mm REAL"),
+        ):
+            if col not in intraday_cols:
+                conn.execute(ddl)
 
     def close(self) -> None:
         if self._conn is not None:
@@ -106,14 +125,16 @@ class PerformanceStore:
                 avoided_grid_cost_gbp, clipping_loss_kwh, clipping_loss_valuation_gbp,
                 net_daily_savings_gbp, peak_power_kw, peak_vs_rated_pct,
                 virtual_temp_min_c, virtual_temp_max_c, wind_correlation_note,
-                solar_day_class, insight_note
+                solar_day_class, insight_note, temp_adjusted_index_pct,
+                soiling_recovery_note, visibility_avg_km, dew_avg_c, precipitation_mm
             ) VALUES (
                 :date, :pv_kwh, :solcast_forecast_kwh, :forecast_accuracy_pct,
                 :export_kwh, :import_kwh, :export_earnings_gbp, :import_spend_gbp,
                 :avoided_grid_cost_gbp, :clipping_loss_kwh, :clipping_loss_valuation_gbp,
                 :net_daily_savings_gbp, :peak_power_kw, :peak_vs_rated_pct,
                 :virtual_temp_min_c, :virtual_temp_max_c, :wind_correlation_note,
-                :solar_day_class, :insight_note
+                :solar_day_class, :insight_note, :temp_adjusted_index_pct,
+                :soiling_recovery_note, :visibility_avg_km, :dew_avg_c, :precipitation_mm
             )
             ON CONFLICT(date) DO UPDATE SET
                 pv_kwh=excluded.pv_kwh,
@@ -133,7 +154,12 @@ class PerformanceStore:
                 virtual_temp_max_c=excluded.virtual_temp_max_c,
                 wind_correlation_note=excluded.wind_correlation_note,
                 solar_day_class=excluded.solar_day_class,
-                insight_note=excluded.insight_note
+                insight_note=excluded.insight_note,
+                temp_adjusted_index_pct=excluded.temp_adjusted_index_pct,
+                soiling_recovery_note=excluded.soiling_recovery_note,
+                visibility_avg_km=excluded.visibility_avg_km,
+                dew_avg_c=excluded.dew_avg_c,
+                precipitation_mm=excluded.precipitation_mm
             """,
             row,
         )
@@ -252,11 +278,13 @@ class PerformanceStore:
             INSERT INTO intraday_samples (
                 ts, pv_power_kw, net_grid_power_kw, virtual_panel_temp_c,
                 wind_speed_ms, clipping_loss_kw, solcast_forecast_kw,
-                import_p_per_kwh, export_p_per_kwh
+                import_p_per_kwh, export_p_per_kwh, visibility_km, dew_point_c,
+                precipitation_mm
             ) VALUES (
                 :ts, :pv_power_kw, :net_grid_power_kw, :virtual_panel_temp_c,
                 :wind_speed_ms, :clipping_loss_kw, :solcast_forecast_kw,
-                :import_p_per_kwh, :export_p_per_kwh
+                :import_p_per_kwh, :export_p_per_kwh, :visibility_km, :dew_point_c,
+                :precipitation_mm
             )
             ON CONFLICT(ts) DO UPDATE SET
                 pv_power_kw=excluded.pv_power_kw,
@@ -266,7 +294,10 @@ class PerformanceStore:
                 clipping_loss_kw=excluded.clipping_loss_kw,
                 solcast_forecast_kw=excluded.solcast_forecast_kw,
                 import_p_per_kwh=excluded.import_p_per_kwh,
-                export_p_per_kwh=excluded.export_p_per_kwh
+                export_p_per_kwh=excluded.export_p_per_kwh,
+                visibility_km=excluded.visibility_km,
+                dew_point_c=excluded.dew_point_c,
+                precipitation_mm=excluded.precipitation_mm
             """,
             row,
         )

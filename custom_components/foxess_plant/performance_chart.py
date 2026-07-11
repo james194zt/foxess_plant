@@ -19,6 +19,9 @@ PERFORMANCE_SENSOR_KINDS = (
     "net_grid_power_kw",
     "virtual_panel_temp_c",
     "wind_speed_ms",
+    "visibility_km",
+    "dew_point_c",
+    "precipitation_mm",
     "clipping_loss_kw",
     "solcast_forecast_kw",
 )
@@ -32,6 +35,9 @@ SAMPLE_FIELD_TO_SERIES = {
     "net_grid_power_kw": "net_grid_power_kw",
     "virtual_panel_temp_c": "virtual_panel_temp_c",
     "wind_speed_ms": "wind_speed_ms",
+    "visibility_km": "visibility_km",
+    "dew_point_c": "dew_point_c",
+    "precipitation_mm": "precipitation_mm",
     "clipping_loss_kw": "clipping_loss_kw",
     "solcast_forecast_kw": "solcast_forecast_kw",
     "import_p_per_kwh": "import_rate_p_kwh",
@@ -325,6 +331,16 @@ async def async_build_performance_day_chart(
     if sample_count == 0 and any(series.get(k) for k in PERFORMANCE_SENSOR_KINDS):
         chart_source = "recorder_fallback"
 
+    sample = getattr(coordinator, "_last_performance_sample", None)
+    live_metrics: dict[str, Any] = {}
+    if sample is not None:
+        live_metrics = {
+            "virtual_panel_temp_c": sample.virtual_panel_temp_c,
+            "wind_speed_ms": sample.wind_speed_ms,
+            "visibility_km": sample.visibility_km,
+            "dew_point_c": sample.dew_point_c,
+        }
+
     return {
         "day": day_iso,
         "enabled": cfg.enabled,
@@ -341,9 +357,11 @@ async def async_build_performance_day_chart(
             "export_p_per_kwh": coordinator._octopus_cache.get("current_export_p_per_kwh"),
             "solar_day_class_label": today_summary.get("solar_day_class_label"),
             "insight_note": today_summary.get("insight_note"),
+            "temp_adjusted_index_pct": today_summary.get("temp_adjusted_index_pct"),
             "clipping_kwh_today": clipping_kwh_today,
             "sample_count": sample_count,
             "chart_source": chart_source,
+            **live_metrics,
         },
         "physics_insights": physics_insights,
         "chart_window": {

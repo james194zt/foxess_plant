@@ -56,6 +56,8 @@ async def async_build_performance_report(
             "import_spend_gbp": row.get("import_spend_gbp"),
             "avoided_grid_cost_gbp": row.get("avoided_grid_cost_gbp"),
             "forecast_accuracy_pct": row.get("forecast_accuracy_pct"),
+            "temp_adjusted_index_pct": row.get("temp_adjusted_index_pct"),
+            "soiling_recovery_note": row.get("soiling_recovery_note"),
             "solar_day_class": row.get("solar_day_class"),
             "solar_day_class_label": solar_day_class_label(row.get("solar_day_class")),
         }

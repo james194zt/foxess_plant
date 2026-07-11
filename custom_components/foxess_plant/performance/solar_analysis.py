@@ -44,6 +44,9 @@ def build_daily_insight(
     virtual_temp_min_c: float | None,
     virtual_temp_max_c: float | None,
     clipping_loss_kwh: float | None,
+    temp_adjusted_index_pct: float | None = None,
+    soiling_recovery_note: str | None = None,
+    visibility_avg_km: float | None = None,
 ) -> str | None:
     """One-line insight for ledger and panel."""
     parts: list[str] = []
@@ -53,6 +56,12 @@ def build_daily_insight(
         parts.append(f"{forecast_accuracy_pct:.0f}% of Solcast — persistent shade or haze")
     elif forecast_accuracy_pct is not None:
         parts.append(f"{forecast_accuracy_pct:.0f}% of Solcast")
+
+    if temp_adjusted_index_pct is not None:
+        parts.append(f"temp-adjusted index {temp_adjusted_index_pct:.0f}%")
+
+    if soiling_recovery_note:
+        parts.append(soiling_recovery_note)
 
     if peak_vs_rated_pct is not None and peak_vs_rated_pct > 100:
         parts.append(f"peak {peak_vs_rated_pct:.0f}% of inverter limit")
@@ -67,7 +76,52 @@ def build_daily_insight(
     ):
         parts.append(f"panel temp {virtual_temp_min_c:.0f}–{virtual_temp_max_c:.0f}°C")
 
+    if visibility_avg_km is not None and visibility_avg_km < 8:
+        parts.append(f"avg visibility {visibility_avg_km:.0f} km")
+
     return " · ".join(parts) if parts else None
+
+
+def compute_temp_adjusted_index_pct(
+    *,
+    forecast_accuracy_pct: float | None,
+    avg_virtual_temp_c: float | None,
+    reference_temp_c: float = 25.0,
+    power_temp_coeff_pct_per_c: float = 0.4,
+) -> float | None:
+    """Seasonal performance index normalised to 25°C panel temperature."""
+    if forecast_accuracy_pct is None or avg_virtual_temp_c is None:
+        return None
+    delta = float(avg_virtual_temp_c) - reference_temp_c
+    correction = 1.0 - (power_temp_coeff_pct_per_c / 100.0) * delta
+    if correction <= 0.05:
+        return None
+    return round(float(forecast_accuracy_pct) / correction, 1)
+
+
+def detect_soiling_recovery(
+    *,
+    prev_row: dict[str, Any] | None,
+    forecast_accuracy_pct: float | None,
+    precipitation_mm: float | None,
+) -> str | None:
+    """Flag yield bounce after a wet or hazy low-yield day."""
+    if not prev_row or forecast_accuracy_pct is None:
+        return None
+    prev_acc = prev_row.get("forecast_accuracy_pct")
+    if prev_acc is None:
+        return None
+    try:
+        prev_val = float(prev_acc)
+        today_val = float(forecast_accuracy_pct)
+    except (TypeError, ValueError):
+        return None
+    prev_precip = float(prev_row.get("precipitation_mm") or 0.0)
+    prev_vis = prev_row.get("visibility_avg_km")
+    was_dirty_day = prev_val < 88 and (prev_precip > 0.05 or (prev_vis is not None and float(prev_vis) < 10))
+    if was_dirty_day and today_val >= prev_val + 8:
+        return f"Post-rain recovery: {today_val:.0f}% vs {prev_val:.0f}% yesterday"
+    return None
 
 
 def estimate_break_even_date(

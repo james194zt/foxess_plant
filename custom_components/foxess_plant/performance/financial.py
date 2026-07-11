@@ -55,6 +55,27 @@ def accumulate_bucket_financials(acc: dict[str, Any], bucket: dict[str, float]) 
         acc["virtual_temp_max_c"] = max(float(acc.get("virtual_temp_max_c") or vtemp), float(vtemp))
 
 
+def accumulate_weather_metrics(acc: dict[str, Any], sample: Any) -> None:
+    """Track daily weather averages and precipitation sum for ledger analytics."""
+    vis = getattr(sample, "visibility_km", None)
+    if vis is not None:
+        acc["visibility_sum_km"] = float(acc.get("visibility_sum_km") or 0.0) + float(vis)
+        acc["visibility_count"] = int(acc.get("visibility_count") or 0) + 1
+    dew = getattr(sample, "dew_point_c", None)
+    if dew is not None:
+        acc["dew_sum_c"] = float(acc.get("dew_sum_c") or 0.0) + float(dew)
+        acc["dew_count"] = int(acc.get("dew_count") or 0) + 1
+    precip = getattr(sample, "precipitation_mm", None)
+    if precip is not None and float(precip) > 0:
+        acc["precipitation_mm"] = float(acc.get("precipitation_mm") or 0.0) + float(precip)
+    vtemp = getattr(sample, "virtual_panel_temp_c", None)
+    if vtemp is not None and getattr(sample, "pv_power_kw", None) and float(sample.pv_power_kw) > 0.1:
+        acc["virtual_temp_daylight_sum_c"] = float(acc.get("virtual_temp_daylight_sum_c") or 0.0) + float(
+            vtemp
+        )
+        acc["virtual_temp_daylight_count"] = int(acc.get("virtual_temp_daylight_count") or 0) + 1
+
+
 def estimate_bucket_energy_kwh(power_kw: float | None) -> float:
     if power_kw is None:
         return 0.0

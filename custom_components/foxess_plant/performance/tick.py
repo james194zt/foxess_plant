@@ -11,6 +11,7 @@ from homeassistant.util import dt as dt_util
 
 from .financial import (
     accumulate_bucket_financials,
+    accumulate_weather_metrics,
     bucket_financials_gbp,
     estimate_bucket_energy_kwh,
     net_daily_savings_gbp,
@@ -70,6 +71,7 @@ async def async_performance_tick(coordinator: Any) -> None:
         coordinator._performance_recent_peak_kw = 0.0
 
     sample = collect_performance_sample(coordinator)
+    coordinator._last_performance_sample = sample
     await coordinator.async_update_performance_sensors(sample)
 
     store = coordinator._performance_store
@@ -86,10 +88,14 @@ async def async_performance_tick(coordinator: Any) -> None:
                 "solcast_forecast_kw": sample.solcast_forecast_kw,
                 "import_p_per_kwh": sample.import_p_per_kwh,
                 "export_p_per_kwh": sample.export_p_per_kwh,
+                "visibility_km": sample.visibility_km,
+                "dew_point_c": sample.dew_point_c,
+                "precipitation_mm": sample.precipitation_mm,
             }
         )
 
     acc = coordinator._performance_daily
+    accumulate_weather_metrics(acc, sample)
     if sample.pv_kwh_today is not None:
         acc["pv_kwh_today"] = sample.pv_kwh_today
     if sample.solcast_forecast_kwh_today is not None:
@@ -130,7 +136,14 @@ async def async_performance_tick(coordinator: Any) -> None:
 
 async def async_commit_daily_ledger(coordinator: Any, date: str) -> None:
     """Flush accumulated daily metrics to SQLite."""
-    from .solar_analysis import build_daily_insight, classify_forecast_day
+    from datetime import datetime as dt_datetime
+
+    from .solar_analysis import (
+        build_daily_insight,
+        classify_forecast_day,
+        compute_temp_adjusted_index_pct,
+        detect_soiling_recovery,
+    )
 
     store: PerformanceStore | None = coordinator._performance_store
     if store is None:
@@ -155,6 +168,34 @@ async def async_commit_daily_ledger(coordinator: Any, date: str) -> None:
         peak_vs_rated_pct=peak_vs_rated,
     )
     clipping_kwh = float(acc.get("clipping_loss_kwh") or 0.0)
+
+    vis_count = int(acc.get("visibility_count") or 0)
+    visibility_avg = (
+        round(float(acc.get("visibility_sum_km") or 0.0) / vis_count, 1) if vis_count else None
+    )
+    dew_count = int(acc.get("dew_count") or 0)
+    dew_avg = round(float(acc.get("dew_sum_c") or 0.0) / dew_count, 1) if dew_count else None
+    precipitation_mm = round(float(acc.get("precipitation_mm") or 0.0), 2) if acc.get("precipitation_mm") else None
+
+    daylight_count = int(acc.get("virtual_temp_daylight_count") or 0)
+    avg_virtual_temp = (
+        float(acc.get("virtual_temp_daylight_sum_c") or 0.0) / daylight_count
+        if daylight_count
+        else None
+    )
+    temp_adjusted_index = compute_temp_adjusted_index_pct(
+        forecast_accuracy_pct=forecast_accuracy,
+        avg_virtual_temp_c=avg_virtual_temp,
+    )
+
+    prev_date = (dt_datetime.fromisoformat(date) - timedelta(days=1)).date().isoformat()
+    prev_row = store.get_daily_ledger(prev_date)
+    soiling_note = detect_soiling_recovery(
+        prev_row=prev_row,
+        forecast_accuracy_pct=forecast_accuracy,
+        precipitation_mm=precipitation_mm,
+    )
+
     insight_note = build_daily_insight(
         forecast_accuracy_pct=forecast_accuracy,
         peak_vs_rated_pct=peak_vs_rated,
@@ -162,6 +203,9 @@ async def async_commit_daily_ledger(coordinator: Any, date: str) -> None:
         virtual_temp_min_c=acc.get("virtual_temp_min_c"),
         virtual_temp_max_c=acc.get("virtual_temp_max_c"),
         clipping_loss_kwh=clipping_kwh,
+        temp_adjusted_index_pct=temp_adjusted_index,
+        soiling_recovery_note=soiling_note,
+        visibility_avg_km=visibility_avg,
     )
 
     row = {
@@ -184,6 +228,11 @@ async def async_commit_daily_ledger(coordinator: Any, date: str) -> None:
         "wind_correlation_note": insight_note,
         "solar_day_class": solar_day_class,
         "insight_note": insight_note,
+        "temp_adjusted_index_pct": temp_adjusted_index,
+        "soiling_recovery_note": soiling_note,
+        "visibility_avg_km": visibility_avg,
+        "dew_avg_c": dew_avg,
+        "precipitation_mm": precipitation_mm,
     }
     store.upsert_daily_ledger(row)
     _LOGGER.debug("Performance daily ledger committed for %s", date)
@@ -201,6 +250,9 @@ async def async_init_performance_store(coordinator: Any) -> None:
         install_date=coordinator.plant.solcast.installation_date,
         system_rte=cfg.system_rte,
     )
+    from .backfill import async_backfill_intraday_from_recorder
+
+    await async_backfill_intraday_from_recorder(coordinator)
 
 
 def performance_summary(coordinator: Any) -> dict[str, Any]:
@@ -231,10 +283,18 @@ def performance_summary(coordinator: Any) -> dict[str, Any]:
             **today_row,
             "solar_day_class_label": solar_day_class_label(today_row.get("solar_day_class")),
         }
+    sample = getattr(coordinator, "_last_performance_sample", None)
+    live_metrics = {
+        "virtual_panel_temp_c": sample.virtual_panel_temp_c if sample else None,
+        "wind_speed_ms": sample.wind_speed_ms if sample else None,
+        "visibility_km": sample.visibility_km if sample else None,
+        "dew_point_c": sample.dew_point_c if sample else None,
+    }
     return {
         "enabled": cfg.enabled,
         "config": cfg.to_dict(),
         "today": today_row,
+        "live_metrics": live_metrics,
         **payback,
         "db_path": str(store.path) if store else None,
     }

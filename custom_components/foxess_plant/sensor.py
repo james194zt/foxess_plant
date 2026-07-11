@@ -8,7 +8,7 @@ from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import PERCENTAGE, UnitOfEnergy, UnitOfPower, UnitOfSpeed, UnitOfTemperature
+from homeassistant.const import PERCENTAGE, UnitOfEnergy, UnitOfLength, UnitOfPower, UnitOfSpeed, UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -197,6 +197,9 @@ PERFORMANCE_SENSORS: tuple[tuple[str, str, str, str, SensorDeviceClass | None, S
     ("net_grid_power_kw", UnitOfPower.KILO_WATT, "Performance net grid power", "mdi:transmission-tower", SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT),
     ("virtual_panel_temp_c", UnitOfTemperature.CELSIUS, "Virtual panel temperature", "mdi:thermometer", SensorDeviceClass.TEMPERATURE, SensorStateClass.MEASUREMENT),
     ("wind_speed_ms", UnitOfSpeed.METERS_PER_SECOND, "Performance wind speed", "mdi:weather-windy", SensorDeviceClass.WIND_SPEED, SensorStateClass.MEASUREMENT),
+    ("visibility_km", UnitOfLength.KILOMETERS, "Performance visibility", "mdi:eye", None, SensorStateClass.MEASUREMENT),
+    ("dew_point_c", UnitOfTemperature.CELSIUS, "Performance dew point", "mdi:water-opacity", SensorDeviceClass.TEMPERATURE, SensorStateClass.MEASUREMENT),
+    ("precipitation_mm", "mm", "Performance precipitation", "mdi:weather-rainy", None, SensorStateClass.MEASUREMENT),
     ("clipping_loss_kw", UnitOfPower.KILO_WATT, "Performance clipping loss", "mdi:chart-bell-curve-cumulative", SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT),
     ("solcast_forecast_kw", UnitOfPower.KILO_WATT, "Performance Solcast forecast", "mdi:solar-power", SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT),
 )
