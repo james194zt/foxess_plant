@@ -369,5 +369,16 @@ class PvInstallCostMigrationTests(unittest.TestCase):
         self.assertEqual(merged.system_install_cost_gbp, 12000.0)
 
 
+class PerformanceWeatherEntityTests(unittest.TestCase):
+    def test_local_entity_config_round_trip(self) -> None:
+        cfg = models.PerformanceConfig.from_dict(
+            {
+                "wind_speed_entity_id": "sensor.istoke81_wind_speed",
+                "precipitation_entity_id": "sensor.istoke81_precipitation_rate",
+            }
+        )
+        self.assertEqual(cfg.wind_speed_entity_id, "sensor.istoke81_wind_speed")
+
+
 if __name__ == "__main__":
     unittest.main()

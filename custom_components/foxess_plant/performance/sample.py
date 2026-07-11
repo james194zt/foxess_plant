@@ -100,6 +100,7 @@ def collect_performance_sample(coordinator: Any) -> PerformanceSample:
     )
 
     weather = read_weather_metrics(coordinator.hass, coordinator)
+    coordinator._last_weather_sources = weather.get("sources")
 
     solcast_kw = None
     solcast_state = coordinator._solcast_state() if hasattr(coordinator, "_solcast_state") else {}

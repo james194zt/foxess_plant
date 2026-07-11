@@ -320,7 +320,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.450";
+const PANEL_VERSION = "0.9.451";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -3433,6 +3433,33 @@ function listWeatherEntityOptions(hass) {
   return Object.keys(hass.states)
     .filter((id) => id.startsWith("weather."))
     .sort((a, b) => a.localeCompare(b));
+}
+
+function listPerformanceSensorEntityOptions(hass, { deviceClass = null, keyword = null } = {}) {
+  if (!hass?.states) return [];
+  const kw = keyword ? String(keyword).toLowerCase() : null;
+  return Object.keys(hass.states)
+    .filter((id) => id.startsWith("sensor."))
+    .filter((id) => {
+      const st = hass.states[id];
+      const dc = st?.attributes?.device_class || "";
+      if (deviceClass && dc === deviceClass) return true;
+      if (kw && id.toLowerCase().includes(kw)) return true;
+      const name = String(st?.attributes?.friendly_name || "").toLowerCase();
+      if (kw && name.includes(kw)) return true;
+      return !deviceClass && !kw;
+    })
+    .sort((a, b) => a.localeCompare(b))
+    .slice(0, 200);
+}
+
+function renderPerformanceEntityPickerField(label, hint, fieldKey, value, options, listId) {
+  const opts = Array.isArray(options) ? options : [];
+  return `<div class="field"><label>${esc(label)}</label>
+<p class="field-hint">${hint}</p>
+<input type="text" list="${esc(listId)}" data-field="performance:${esc(fieldKey)}" value="${esc(String(value ?? ""))}" placeholder="sensor.my_wind_speed" ${opts.length ? "" : ""} spellcheck="false" autocapitalize="off">
+<datalist id="${esc(listId)}">${opts.map((id) => `<option value="${esc(id)}"></option>`).join("")}</datalist>
+</div>`;
 }
 
 function renderPerformancePeriodSummaryCards(report) {
@@ -16721,6 +16748,10 @@ Reloading panel registration…
       system_rte: Number(cfg.system_rte ?? 0.85),
       degradation_buffer_p_per_kwh: Number(cfg.degradation_buffer_p_per_kwh ?? 1),
       weather_entity_id: cfg.weather_entity_id ?? "",
+      wind_speed_entity_id: cfg.wind_speed_entity_id ?? "",
+      visibility_entity_id: cfg.visibility_entity_id ?? "",
+      dew_point_entity_id: cfg.dew_point_entity_id ?? "",
+      precipitation_entity_id: cfg.precipitation_entity_id ?? "",
     };
   }
 
@@ -16756,6 +16787,15 @@ Reloading panel registration…
     if (weatherEl) {
       this._performanceDraft.weather_entity_id = String(weatherEl.value ?? "").trim();
     }
+    for (const key of [
+      "wind_speed_entity_id",
+      "visibility_entity_id",
+      "dew_point_entity_id",
+      "precipitation_entity_id",
+    ]) {
+      const el = root.querySelector(`[data-field="performance:${key}"]`);
+      if (el) this._performanceDraft[key] = String(el.value ?? "").trim();
+    }
   }
 
   _performanceInstallCostFromDom() {
@@ -16781,6 +16821,10 @@ Reloading panel registration…
       system_rte: Number(d.system_rte) || 0.85,
       degradation_buffer_p_per_kwh: Number(d.degradation_buffer_p_per_kwh) || 1,
       weather_entity_id: d.weather_entity_id ? String(d.weather_entity_id) : null,
+      wind_speed_entity_id: d.wind_speed_entity_id ? String(d.wind_speed_entity_id) : null,
+      visibility_entity_id: d.visibility_entity_id ? String(d.visibility_entity_id) : null,
+      dew_point_entity_id: d.dew_point_entity_id ? String(d.dew_point_entity_id) : null,
+      precipitation_entity_id: d.precipitation_entity_id ? String(d.precipitation_entity_id) : null,
     };
   }
 
@@ -24097,8 +24141,17 @@ ${brightApiFields}
     const dbPath = this._plantState?.performance?.db_path;
     const stormWeather = this._plantState?.storm_prep?.weather_entity_id || "";
     const weatherOptions = listWeatherEntityOptions(this._hass);
-    const weatherSelect = `<div class="field"><label>Weather entity (optional)</label>
-<p class="field-hint">Overrides StormSafe weather for performance wind, visibility, dew, and rain. Falls back to StormSafe or auto-discovery when blank.</p>
+    const windOptions = listPerformanceSensorEntityOptions(this._hass, {
+      deviceClass: "wind_speed",
+      keyword: "wind",
+    });
+    const precipOptions = listPerformanceSensorEntityOptions(this._hass, {
+      keyword: "precip",
+    });
+    const visOptions = listPerformanceSensorEntityOptions(this._hass, { keyword: "visibility" });
+    const dewOptions = listPerformanceSensorEntityOptions(this._hass, { keyword: "dew" });
+    const weatherSelect = `<div class="field"><label>Forecast weather entity (fallback)</label>
+<p class="field-hint">Optional <code>weather.*</code> fallback when local sensor overrides are blank. StormSafe Google Weather is used when unset.</p>
 <select data-field="performance:weather_entity_id" ${this._busy ? "disabled" : ""}>
 <option value="">Use StormSafe / auto (${esc(stormWeather || "none linked")})</option>
 ${weatherOptions
@@ -24108,12 +24161,49 @@ ${weatherOptions
   )
   .join("")}
 </select></div>`;
+    const localStationCard = `<div class="card">
+<p class="card-title">Local weather station sensors</p>
+<p class="field-hint">Point Performance at PWS or local station entities (Ecowitt, Wunderground Scraper, Tempest UDP, etc.). Fox Plant reads the <strong>current HA state</strong> every 5 minutes — set your integration or an automation to poll as fast as you need (1–2 min is ideal).</p>
+${renderPerformanceEntityPickerField(
+  "Wind speed sensor",
+  "e.g. Wunderground Scraper wind speed for ISTOKE81. Converts mph, km/h, and m/s automatically.",
+  "wind_speed_entity_id",
+  draft.wind_speed_entity_id,
+  windOptions,
+  "perf-wind-sensors"
+)}
+${renderPerformanceEntityPickerField(
+  "Precipitation rate sensor",
+  "Use a rate sensor (in/hr or mm/hr), not daily accumulation. Mapped into each 5-minute bucket.",
+  "precipitation_entity_id",
+  draft.precipitation_entity_id,
+  precipOptions,
+  "perf-precip-sensors"
+)}
+${renderPerformanceEntityPickerField(
+  "Visibility sensor (optional)",
+  "Leave blank if unavailable on your PWS.",
+  "visibility_entity_id",
+  draft.visibility_entity_id,
+  visOptions,
+  "perf-vis-sensors"
+)}
+${renderPerformanceEntityPickerField(
+  "Dew point sensor (optional)",
+  "Leave blank to use forecast weather entity when available.",
+  "dew_point_entity_id",
+  draft.dew_point_entity_id,
+  dewOptions,
+  "perf-dew-sensors"
+)}
+</div>`;
     return `<header class="header"><h1>Performance reporting</h1><p>Recorder-backed solar diagnostics, financial ledger, and payback tracking. Daily rows commit at midnight from 5-minute samples.</p></header>
 <div class="card">
 <p class="card-title">Enable</p>
 <div class="toggle-row"><span><strong>Performance reporting</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Creates diagnostic sensors and SQLite daily ledger</span></span>
 <input type="checkbox" data-field="performance:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 </div>
+${localStationCard}
 ${weatherSelect}
 <div class="card">
 <p class="card-title">Virtual panel temperature</p>

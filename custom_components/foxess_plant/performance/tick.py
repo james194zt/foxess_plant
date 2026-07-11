@@ -289,6 +289,7 @@ def performance_summary(coordinator: Any) -> dict[str, Any]:
         "wind_speed_ms": sample.wind_speed_ms if sample else None,
         "visibility_km": sample.visibility_km if sample else None,
         "dew_point_c": sample.dew_point_c if sample else None,
+        "weather_sources": getattr(coordinator, "_last_weather_sources", None),
     }
     return {
         "enabled": cfg.enabled,

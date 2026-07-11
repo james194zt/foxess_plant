@@ -533,6 +533,10 @@ class PerformanceConfig:
     system_rte: float = 0.85
     degradation_buffer_p_per_kwh: float = 1.0
     weather_entity_id: str | None = None
+    wind_speed_entity_id: str | None = None
+    visibility_entity_id: str | None = None
+    dew_point_entity_id: str | None = None
+    precipitation_entity_id: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> PerformanceConfig:
@@ -552,6 +556,10 @@ class PerformanceConfig:
             system_rte=float(data.get("system_rte", 0.85) or 0.85),
             degradation_buffer_p_per_kwh=float(data.get("degradation_buffer_p_per_kwh", 1.0) or 1.0),
             weather_entity_id=data.get("weather_entity_id") or None,
+            wind_speed_entity_id=data.get("wind_speed_entity_id") or None,
+            visibility_entity_id=data.get("visibility_entity_id") or None,
+            dew_point_entity_id=data.get("dew_point_entity_id") or None,
+            precipitation_entity_id=data.get("precipitation_entity_id") or None,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -566,6 +574,10 @@ class PerformanceConfig:
             "system_rte": round(self.system_rte, 2),
             "degradation_buffer_p_per_kwh": round(self.degradation_buffer_p_per_kwh, 2),
             "weather_entity_id": self.weather_entity_id,
+            "wind_speed_entity_id": self.wind_speed_entity_id,
+            "visibility_entity_id": self.visibility_entity_id,
+            "dew_point_entity_id": self.dew_point_entity_id,
+            "precipitation_entity_id": self.precipitation_entity_id,
         }
 
 
