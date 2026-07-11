@@ -108,6 +108,28 @@ class FinancialTests(unittest.TestCase):
 
 
 class PerformanceStoreTests(unittest.TestCase):
+    def test_intraday_sample_roundtrip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "perf.db"
+            s = store_mod.PerformanceStore(db)
+            s.init_schema()
+            s.insert_intraday_sample(
+                {
+                    "ts": "2026-07-10T10:00:00",
+                    "pv_power_kw": 1.25,
+                    "net_grid_power_kw": -0.4,
+                    "virtual_panel_temp_c": 32.5,
+                    "wind_speed_ms": 4.2,
+                    "clipping_loss_kw": 0.0,
+                    "solcast_forecast_kw": 1.1,
+                    "import_p_per_kwh": 0.18,
+                    "export_p_per_kwh": 0.12,
+                }
+            )
+            rows = s.list_intraday_samples("2026-07-10T00:00:00", "2026-07-10T23:59:59")
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["pv_power_kw"], 1.25)
+
     def test_ledger_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "test.db"

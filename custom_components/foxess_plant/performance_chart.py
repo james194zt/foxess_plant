@@ -1,4 +1,4 @@
-"""Performance day chart — recorder statistics for panel UI."""
+"""Performance day chart — SQLite intraday samples with recorder fallbacks."""
 
 from __future__ import annotations
 
@@ -22,6 +22,21 @@ PERFORMANCE_SENSOR_KINDS = (
     "clipping_loss_kw",
     "solcast_forecast_kw",
 )
+
+MODBUS_FALLBACK_KEYS: dict[str, str] = {
+    "pv_power_kw": "pv_power",
+}
+
+SAMPLE_FIELD_TO_SERIES = {
+    "pv_power_kw": "pv_power_kw",
+    "net_grid_power_kw": "net_grid_power_kw",
+    "virtual_panel_temp_c": "virtual_panel_temp_c",
+    "wind_speed_ms": "wind_speed_ms",
+    "clipping_loss_kw": "clipping_loss_kw",
+    "solcast_forecast_kw": "solcast_forecast_kw",
+    "import_p_per_kwh": "import_rate_p_kwh",
+    "export_p_per_kwh": "export_rate_p_kwh",
+}
 
 
 def performance_entity_id(hass: HomeAssistant, entry_id: str, kind: str) -> str | None:
@@ -72,6 +87,121 @@ def _stats_to_points(rows: list[dict[str, Any]], *, scale: float = 1.0) -> list[
     return sorted(points, key=lambda p: p["t"])
 
 
+def _sample_ts_to_ms(raw_ts: str) -> float | None:
+    parsed = dt_util.parse_datetime(str(raw_ts))
+    if parsed is None:
+        return None
+    return dt_util.as_local(parsed).timestamp() * 1000
+
+
+def _samples_to_series(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, float]]]:
+    series: dict[str, list[dict[str, float]]] = {kind: [] for kind in PERFORMANCE_SENSOR_KINDS}
+    series["import_rate_p_kwh"] = []
+    series["export_rate_p_kwh"] = []
+    for row in rows:
+        t_ms = _sample_ts_to_ms(row.get("ts", ""))
+        if t_ms is None:
+            continue
+        for field, series_key in SAMPLE_FIELD_TO_SERIES.items():
+            raw = row.get(field)
+            if raw is None:
+                continue
+            try:
+                value = float(raw)
+            except (TypeError, ValueError):
+                continue
+            if series_key.endswith("_p_kwh"):
+                value *= 100.0
+            series[series_key].append({"t": t_ms, "v": round(value, 4)})
+    for key in series:
+        series[key].sort(key=lambda p: p["t"])
+    return series
+
+
+def _merge_series(
+    primary: dict[str, list[dict[str, float]]],
+    secondary: dict[str, list[dict[str, float]]],
+) -> dict[str, list[dict[str, float]]]:
+    merged = {key: list(primary.get(key) or []) for key in set(primary) | set(secondary)}
+    for key, pts in secondary.items():
+        if len(merged.get(key) or []) >= len(pts or []):
+            continue
+        merged[key] = list(pts or [])
+    return merged
+
+
+def _resolve_modbus_entity(hass: HomeAssistant, coordinator: Any, key: str) -> str | None:
+    from .discovery import resolve_entity_id
+
+    return resolve_entity_id(
+        hass,
+        coordinator.plant.entity_map,
+        key,
+        device_id=coordinator.plant.device_id,
+    )
+
+
+def _modbus_fallback_series(
+    hass: HomeAssistant,
+    coordinator: Any,
+    *,
+    start_utc: datetime,
+    end_utc: datetime,
+) -> dict[str, list[dict[str, float]]]:
+    from .websocket_api import _fetch_statistics_points
+
+    series: dict[str, list[dict[str, float]]] = {kind: [] for kind in PERFORMANCE_SENSOR_KINDS}
+    for kind, map_key in MODBUS_FALLBACK_KEYS.items():
+        entity_id = _resolve_modbus_entity(hass, coordinator, map_key)
+        if not entity_id:
+            continue
+        stats = _fetch_statistics_points(
+            hass,
+            start_utc,
+            end_utc,
+            [entity_id],
+            period="5minute",
+            statistic="mean",
+        )
+        pts = _stats_to_points(stats.get(entity_id, []))
+        if pts and max(p["v"] for p in pts) > 50:
+            for point in pts:
+                point["v"] = round(point["v"] / 1000.0, 4)
+        if pts:
+            series[kind] = pts
+    return series
+
+
+def _recorder_series(
+    hass: HomeAssistant,
+    entry_id: str,
+    *,
+    start_utc: datetime,
+    end_utc: datetime,
+) -> dict[str, list[dict[str, float]]]:
+    from .websocket_api import _fetch_statistics_points
+
+    entities = resolve_performance_entities(hass, entry_id)
+    entity_ids = [entities[k] for k in PERFORMANCE_SENSOR_KINDS if k in entities]
+    if not entity_ids:
+        return {kind: [] for kind in PERFORMANCE_SENSOR_KINDS}
+
+    stats = _fetch_statistics_points(
+        hass,
+        start_utc,
+        end_utc,
+        entity_ids,
+        period="5minute",
+        statistic="mean",
+    )
+    kind_to_entity = {kind: entities[kind] for kind in PERFORMANCE_SENSOR_KINDS if kind in entities}
+    series: dict[str, list[dict[str, float]]] = {}
+    for kind in PERFORMANCE_SENSOR_KINDS:
+        eid = kind_to_entity.get(kind)
+        series[kind] = _stats_to_points(stats.get(eid, [])) if eid else []
+    return series
+
+
 def _day_bounds(target_day: date) -> tuple[datetime, datetime]:
     day_start = dt_util.start_of_local_day(
         dt_util.as_local(datetime.combine(target_day, time.min))
@@ -86,9 +216,8 @@ async def async_build_performance_day_chart(
     *,
     day: date | None = None,
 ) -> dict[str, Any]:
-    """Build recorder-backed intraday series for the Performance report."""
+    """Build intraday series for the Performance report."""
     from .performance.tick import performance_summary
-    from .websocket_api import _fetch_statistics_points
 
     entry_id = coordinator.config_entry.entry_id
     target_day = day or dt_util.as_local(dt_util.now()).date()
@@ -96,39 +225,55 @@ async def async_build_performance_day_chart(
     start_utc = dt_util.as_utc(day_start)
     end_utc = dt_util.as_utc(day_end)
 
+    store = getattr(coordinator, "_performance_store", None)
+    sqlite_rows: list[dict[str, Any]] = []
+    if store is not None:
+        sqlite_rows = store.list_intraday_samples(day_start.isoformat(), day_end.isoformat())
+
+    series = _samples_to_series(sqlite_rows)
+    sample_count = len(sqlite_rows)
+
+    recorder_series = _recorder_series(hass, entry_id, start_utc=start_utc, end_utc=end_utc)
+    series = _merge_series(series, recorder_series)
+
+    if sample_count < 6:
+        modbus_series = _modbus_fallback_series(
+            hass, coordinator, start_utc=start_utc, end_utc=end_utc
+        )
+        series = _merge_series(series, modbus_series)
+
     entities = resolve_performance_entities(hass, entry_id)
-    entity_ids = list(entities.values())
+    kind_to_entity = {kind: eid for kind, eid in entities.items()}
     stats: dict[str, list[dict[str, Any]]] = {}
-    if entity_ids:
+    rate_entity_ids = [
+        eid for key in ("import_rate", "export_rate") if (eid := kind_to_entity.get(key))
+    ]
+    if rate_entity_ids:
+        from .websocket_api import _fetch_statistics_points
+
         stats = _fetch_statistics_points(
             hass,
             start_utc,
             end_utc,
-            entity_ids,
+            rate_entity_ids,
             period="5minute",
             statistic="mean",
         )
 
-    kind_to_entity = {kind: eid for kind, eid in entities.items()}
-    series: dict[str, list[dict[str, float]]] = {}
-    for kind in PERFORMANCE_SENSOR_KINDS:
-        eid = kind_to_entity.get(kind)
-        if eid:
-            series[kind] = _stats_to_points(stats.get(eid, []))
-
-    import_eid = kind_to_entity.get("import_rate")
-    if import_eid:
-        series["import_rate_p_kwh"] = _stats_to_points(stats.get(import_eid, []), scale=100.0)
-    export_eid = kind_to_entity.get("export_rate")
-    if export_eid:
-        series["export_rate_p_kwh"] = _stats_to_points(stats.get(export_eid, []), scale=100.0)
+    if not series.get("import_rate_p_kwh"):
+        import_eid = kind_to_entity.get("import_rate")
+        if import_eid:
+            series["import_rate_p_kwh"] = _stats_to_points(stats.get(import_eid, []), scale=100.0)
+    if not series.get("export_rate_p_kwh"):
+        export_eid = kind_to_entity.get("export_rate")
+        if export_eid:
+            series["export_rate_p_kwh"] = _stats_to_points(stats.get(export_eid, []), scale=100.0)
 
     from .performance.solar_analysis import payback_summary, solar_day_class_label
 
     cfg = coordinator.plant.performance
     day_iso = target_day.isoformat()
     is_today = target_day == dt_util.as_local(dt_util.now()).date()
-    store = getattr(coordinator, "_performance_store", None)
     ledger_row = store.get_daily_ledger(day_iso) if store else None
 
     if ledger_row:
@@ -176,6 +321,10 @@ async def async_build_performance_day_chart(
         acc = getattr(coordinator, "_performance_daily", None) or {}
         clipping_kwh_today = acc.get("clipping_loss_kwh")
 
+    chart_source = "sqlite" if sample_count >= 6 else "mixed"
+    if sample_count == 0 and any(series.get(k) for k in PERFORMANCE_SENSOR_KINDS):
+        chart_source = "recorder_fallback"
+
     return {
         "day": day_iso,
         "enabled": cfg.enabled,
@@ -193,6 +342,8 @@ async def async_build_performance_day_chart(
             "solar_day_class_label": today_summary.get("solar_day_class_label"),
             "insight_note": today_summary.get("insight_note"),
             "clipping_kwh_today": clipping_kwh_today,
+            "sample_count": sample_count,
+            "chart_source": chart_source,
         },
         "physics_insights": physics_insights,
         "chart_window": {

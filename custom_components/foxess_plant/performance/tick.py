@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.util import dt as dt_util
@@ -58,12 +58,36 @@ async def async_performance_tick(coordinator: Any) -> None:
     if coordinator._performance_day != local_date:
         if coordinator._performance_day:
             await async_commit_daily_ledger(coordinator, coordinator._performance_day)
+        store: PerformanceStore | None = coordinator._performance_store
+        if store is not None:
+            try:
+                purge_before = (local_now - timedelta(days=8)).isoformat()
+                store.purge_intraday_before(purge_before)
+            except Exception as err:
+                _LOGGER.debug("Intraday sample purge skipped: %s", err)
         coordinator._performance_day = local_date
         coordinator._performance_daily = new_daily_accumulator()
         coordinator._performance_recent_peak_kw = 0.0
 
     sample = collect_performance_sample(coordinator)
     await coordinator.async_update_performance_sensors(sample)
+
+    store = coordinator._performance_store
+    if store is not None:
+        bucket_ts = local_now.replace(second=0, microsecond=0)
+        store.insert_intraday_sample(
+            {
+                "ts": bucket_ts.isoformat(),
+                "pv_power_kw": sample.pv_power_kw,
+                "net_grid_power_kw": sample.net_grid_power_kw,
+                "virtual_panel_temp_c": sample.virtual_panel_temp_c,
+                "wind_speed_ms": sample.wind_speed_ms,
+                "clipping_loss_kw": sample.clipping_loss_kw,
+                "solcast_forecast_kw": sample.solcast_forecast_kw,
+                "import_p_per_kwh": sample.import_p_per_kwh,
+                "export_p_per_kwh": sample.export_p_per_kwh,
+            }
+        )
 
     acc = coordinator._performance_daily
     if sample.pv_kwh_today is not None:

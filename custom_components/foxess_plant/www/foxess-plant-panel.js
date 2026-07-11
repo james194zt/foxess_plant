@@ -3064,20 +3064,113 @@ function performanceChartRange(chart) {
   return { tMin, tMax, nowMs };
 }
 
-function performancePolyline(points, range, xScale, yScale) {
-  const { tMin, nowMs } = range;
-  const pts = (points || [])
-    .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.t >= tMin && p.t <= nowMs)
-    .map((p) => `${xScale(p.t).toFixed(1)},${yScale(p.v).toFixed(1)}`);
-  return pts.length >= 2 ? `<polyline fill="none" points="${pts.join(" ")}" />` : "";
+function performanceClipPoints(points, tMin, tMax) {
+  return (points || []).filter(
+    (p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.t >= tMin && p.t <= tMax
+  );
 }
 
-function performanceClippingHatchSvg(pv, range, xScale, yScaleP, acLimit) {
+function performanceDataTimeSpan(...seriesArrays) {
+  let dataMin = Infinity;
+  let dataMax = -Infinity;
+  for (const pts of seriesArrays) {
+    for (const p of pts || []) {
+      if (!Number.isFinite(p.t)) continue;
+      dataMin = Math.min(dataMin, p.t);
+      dataMax = Math.max(dataMax, p.t);
+    }
+  }
+  if (!Number.isFinite(dataMin)) return null;
+  return { dataMin, dataMax, dataSpan: Math.max(dataMax - dataMin, 60000) };
+}
+
+/** Zoom X when samples are sparse so 5-min points are not drawn as vertical spikes. */
+function performanceZoomXDomain(range, ...seriesArrays) {
+  const dayStart = range.tMin;
+  const nowMs = range.nowMs;
+  const stats = performanceDataTimeSpan(...seriesArrays);
+  if (!stats) return { tMin: dayStart, tMax: nowMs, zoomed: false };
+  const daySpan = Math.max(nowMs - dayStart, 60000);
+  const minZoomSpanMs = 3 * 3600000;
+  if (stats.dataSpan >= daySpan * 0.45 || stats.dataSpan >= 6 * 3600000) {
+    return { tMin: dayStart, tMax: nowMs, zoomed: false };
+  }
+  const desiredSpan = Math.max(minZoomSpanMs, stats.dataSpan + 60 * 60000);
+  let tMax = Math.min(nowMs, stats.dataMax + 30 * 60000);
+  let tMin = Math.max(dayStart, tMax - desiredSpan);
+  if (tMax - tMin < desiredSpan) tMin = Math.max(dayStart, tMax - desiredSpan);
+  return { tMin, tMax, zoomed: true };
+}
+
+function performanceYTicks(yMin, yMax, { maxTicks = 5 } = {}) {
+  const span = Math.max(yMax - yMin, 0.1);
+  let step = 0.5;
+  if (span > 16) step = 4;
+  else if (span > 8) step = 2;
+  else if (span > 4) step = 1;
+  else if (span <= 1.2) step = 0.2;
+  if (span / step > maxTicks) step = Math.ceil(span / maxTicks / step) * step;
+  const start = Math.floor(yMin / step) * step;
+  const ticks = [];
+  for (let v = start; v <= yMax + step * 0.01; v += step) {
+    if (v >= yMin - step * 0.01) ticks.push(Math.round(v * 100) / 100);
+  }
+  if (!ticks.length) ticks.push(yMin, yMax);
+  return ticks;
+}
+
+function performanceChartAxesSvg({ padL, padT, w, h, xDomain, xScale, yScale, yTicks, yUnit = "" }) {
+  const grid = yTicks
+    .map((yv) => {
+      const y = yScale(yv);
+      return `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + w}" y2="${y.toFixed(1)}" class="statistics-grid"/>`;
+    })
+    .join("");
+  const plotBottom = padT + h;
+  const yLabels = yTicks
+    .map((yv) => {
+      const y = yScale(yv);
+      const isBottom = Math.abs(y - plotBottom) < 1.5;
+      if (isBottom && yTicks.length > 2) return "";
+      const label = Number.isInteger(yv) ? String(yv) : yv.toFixed(1);
+      return `<text x="${padL - 8}" y="${(y + 4).toFixed(1)}" text-anchor="end" class="statistics-axis-y">${esc(label)}${yUnit ? esc(yUnit) : ""}</text>`;
+    })
+    .join("");
+  const xTicks = forecastAccuracyXTicks(xDomain.tMin, xDomain.tMax, { maxTicks: 6 });
+  const xLabels = xTicks
+    .map((xt) => {
+      const x = xScale(xt);
+      return `<text x="${x.toFixed(1)}" y="${(plotBottom + 18).toFixed(1)}" text-anchor="middle" class="statistics-axis-x">${esc(formatChartTimeLabel(xt))}</text>`;
+    })
+    .join("");
+  return `${grid}${yLabels}${xLabels}`;
+}
+
+function performanceSeriesSvg(points, xDomain, xScale, yScale, stroke, { width = 2, dash = null } = {}) {
+  const clipped = performanceClipPoints(points, xDomain.tMin, xDomain.tMax);
+  if (!clipped.length) return "";
+  const pts = clipped.map((p) => ({ x: xScale(p.t), y: yScale(p.v) }));
+  const line =
+    pts.length >= 2
+      ? `<polyline fill="none" points="${pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}" />`
+      : "";
+  const dots = pts
+    .map((p) => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="${stroke}" />`)
+    .join("");
+  const dashAttr = dash ? ` stroke-dasharray="${dash}"` : "";
+  return `<g stroke="${stroke}" stroke-width="${width}"${dashAttr} fill="none">${line}${dots}</g>`;
+}
+
+function performanceSparseHint(pointCount, xDomain) {
+  if (pointCount >= 12) return "";
+  const zoom = xDomain.zoomed ? " — chart zoomed to recent samples" : "";
+  return `<p class="field-hint fox-perf-chart-hint">${pointCount} sample${pointCount === 1 ? "" : "s"} so far${zoom}. New points every 5 minutes.</p>`;
+}
+
+function performanceClippingHatchSvg(pv, xDomain, xScale, yScaleP, acLimit) {
   if (!Number.isFinite(acLimit) || acLimit <= 0) return "";
   const threshold = acLimit * 0.98;
-  const pts = (pv || [])
-    .filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.t >= range.tMin && p.t <= range.nowMs)
-    .sort((a, b) => a.t - b.t);
+  const pts = performanceClipPoints(pv, xDomain.tMin, xDomain.tMax).sort((a, b) => a.t - b.t);
   if (pts.length < 2) return "";
   const polys = [];
   for (let i = 0; i < pts.length - 1; i++) {
@@ -3115,6 +3208,8 @@ function renderPerformancePowerChartSvg(chart) {
   if (!pv.length && !grid.length && !rate.length) {
     return `<p class="placeholder chart-empty">No performance recorder data yet. Sensors update every 5 minutes.</p>`;
   }
+  const xDomain = performanceZoomXDomain(range, pv, grid, clip);
+  const primaryCount = performanceClipPoints(pv, xDomain.tMin, xDomain.tMax).length;
   const W = 640;
   const H = 200;
   const padL = 42;
@@ -3123,36 +3218,44 @@ function renderPerformancePowerChartSvg(chart) {
   const padB = 28;
   const w = W - padL - padR;
   const h = H - padT - padB;
-  const span = Math.max(range.tMax - range.tMin, 1);
-  const xScale = (t) => padL + ((t - range.tMin) / span) * w;
-  const powerVals = [...pv, ...grid, ...clip].map((p) => p.v).filter(Number.isFinite);
+  const span = Math.max(xDomain.tMax - xDomain.tMin, 60000);
+  const xScale = (t) => padL + ((t - xDomain.tMin) / span) * w;
+  const powerVals = performanceClipPoints([...pv, ...grid, ...clip], xDomain.tMin, xDomain.tMax).map((p) => p.v);
   const pMin = Math.min(0, ...(powerVals.length ? powerVals : [0]));
   const pMax = Math.max(0.5, ...(powerVals.length ? powerVals : [1]));
   const yScaleP = (v) => padT + h - ((v - pMin) / Math.max(pMax - pMin, 0.1)) * h;
-  const rateVals = rate.map((p) => p.v).filter(Number.isFinite);
+  const rateVals = performanceClipPoints(rate, xDomain.tMin, xDomain.tMax).map((p) => p.v);
   const rMin = rateVals.length ? Math.min(...rateVals) : 0;
   const rMax = rateVals.length ? Math.max(...rateVals, rMin + 1) : 50;
   const yScaleR = (v) => padT + h - ((v - rMin) / Math.max(rMax - rMin, 0.1)) * h;
+  const yTicks = performanceYTicks(pMin, pMax);
+  const axes = performanceChartAxesSvg({
+    padL,
+    padT,
+    w,
+    h,
+    xDomain,
+    xScale,
+    yScale: yScaleP,
+    yTicks,
+  });
   const acLimit = Number(chart?.ac_limit_kw);
   let limitLine = "";
   let clipHatch = "";
   if (Number.isFinite(acLimit) && acLimit > 0 && acLimit >= pMin && acLimit <= pMax * 1.2) {
     const y = yScaleP(acLimit);
     limitLine = `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + w}" y2="${y.toFixed(1)}" stroke="#f59e0b" stroke-dasharray="4 3" stroke-width="1" />`;
-    clipHatch = performanceClippingHatchSvg(pv, range, xScale, yScaleP, acLimit);
+    clipHatch = performanceClippingHatchSvg(pv, xDomain, xScale, yScaleP, acLimit);
   }
   const lines = [
     { pts: pv, color: "#19D4DE", width: 2 },
     { pts: grid, color: "#2F6BFF", width: 1.8 },
     { pts: clip, color: "#ef4444", width: 1.4 },
   ]
-    .map(
-      (s) =>
-        `<g stroke="${s.color}" stroke-width="${s.width}" stroke-linejoin="round" stroke-linecap="round">${performancePolyline(s.pts, range, xScale, yScaleP)}</g>`
-    )
+    .map((s) => performanceSeriesSvg(s.pts, xDomain, xScale, yScaleP, s.color, { width: s.width }))
     .join("");
   const rateLine = rate.length
-    ? `<g stroke="#8A4DFF" stroke-width="1.6" stroke-dasharray="3 2" fill="none">${performancePolyline(rate, range, xScale, yScaleR)}</g>`
+    ? performanceSeriesSvg(rate, xDomain, xScale, yScaleR, "#8A4DFF", { width: 1.6, dash: "3 2" })
     : "";
   const legend = `<div class="fox-perf-chart-legend">
 <span><i style="background:#19D4DE"></i> PV kW</span>
@@ -3161,7 +3264,14 @@ function renderPerformancePowerChartSvg(chart) {
 <span><i style="background:repeating-linear-gradient(45deg,#ef4444,#ef4444 2px,transparent 2px,transparent 4px)"></i> Clipped region</span>
 ${rate.length ? `<span><i style="background:#8A4DFF"></i> Import p/kWh</span>` : ""}
 </div>`;
-  return `${legend}<svg class="fox-perf-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Performance power and price chart">
+  const hint = performanceSparseHint(
+    Number.isFinite(Number(chart?.live?.sample_count)) && Number(chart.live.sample_count) > 0
+      ? Number(chart.live.sample_count)
+      : primaryCount || performanceClipPoints(rate, xDomain.tMin, xDomain.tMax).length,
+    xDomain
+  );
+  return `${legend}${hint}<svg class="fox-perf-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Performance power and price chart">
+${axes}
 ${clipHatch}
 ${limitLine}
 ${lines}
@@ -3173,10 +3283,14 @@ function renderPerformancePhysicsChartSvg(chart) {
   const series = chart?.series || {};
   const temp = series.virtual_panel_temp_c || [];
   const wind = series.wind_speed_ms || [];
-  if (temp.length < 2 && wind.length < 2) {
+  if (temp.length < 1 && wind.length < 1) {
     return `<p class="placeholder chart-empty">Virtual panel temperature and wind data will appear after sunny or windy periods.</p>`;
   }
   const range = performanceChartRange(chart);
+  const xDomain = performanceZoomXDomain(range, temp, wind);
+  const sampleCount =
+    performanceClipPoints(temp, xDomain.tMin, xDomain.tMax).length +
+    performanceClipPoints(wind, xDomain.tMin, xDomain.tMax).length;
   const W = 640;
   const H = 160;
   const padL = 42;
@@ -3185,23 +3299,40 @@ function renderPerformancePhysicsChartSvg(chart) {
   const padB = 24;
   const w = W - padL - padR;
   const h = H - padT - padB;
-  const span = Math.max(range.tMax - range.tMin, 1);
-  const xScale = (t) => padL + ((t - range.tMin) / span) * w;
-  const tVals = temp.map((p) => p.v).filter(Number.isFinite);
-  const wVals = wind.map((p) => p.v).filter(Number.isFinite);
+  const span = Math.max(xDomain.tMax - xDomain.tMin, 60000);
+  const xScale = (t) => padL + ((t - xDomain.tMin) / span) * w;
+  const tempPts = performanceClipPoints(temp, xDomain.tMin, xDomain.tMax);
+  const windPts = performanceClipPoints(wind, xDomain.tMin, xDomain.tMax);
+  const tVals = tempPts.map((p) => p.v).filter(Number.isFinite);
+  const wVals = windPts.map((p) => p.v).filter(Number.isFinite);
   const tMin = tVals.length ? Math.min(...tVals) : 0;
-  const tMax = tVals.length ? Math.max(...tVals) : 40;
+  const tMax = tVals.length ? Math.max(...tVals, tMin + 1) : 40;
   const wMin = 0;
   const wMax = wVals.length ? Math.max(...wVals, 1) : 10;
   const yScaleT = (v) => padT + h - ((v - tMin) / Math.max(tMax - tMin, 1)) * h;
   const yScaleW = (v) => padT + h - ((v - wMin) / Math.max(wMax - wMin, 0.1)) * h;
-  const tempLine = `<g stroke="#08979C" stroke-width="2" fill="none">${performancePolyline(temp, range, xScale, yScaleT)}</g>`;
-  const windLine = `<g stroke="#52C41A" stroke-width="1.6" stroke-dasharray="4 2" fill="none">${performancePolyline(wind, range, xScale, yScaleW)}</g>`;
+  const yTicks = performanceYTicks(tMin, tMax);
+  const axes = performanceChartAxesSvg({
+    padL,
+    padT,
+    w,
+    h,
+    xDomain,
+    xScale,
+    yScale: yScaleT,
+    yTicks,
+    yUnit: "°",
+  });
+  const tempLine = performanceSeriesSvg(temp, xDomain, xScale, yScaleT, "#08979C", { width: 2 });
+  const windLine = performanceSeriesSvg(wind, xDomain, xScale, yScaleW, "#52C41A", { width: 1.6, dash: "4 2" });
+  const hint = performanceSparseHint(Math.max(tempPts.length, windPts.length), xDomain);
   return `<div class="fox-perf-chart-legend">
 <span><i style="background:#08979C"></i> Virtual panel °C</span>
 <span><i style="background:#52C41A"></i> Wind m/s</span>
 </div>
+${hint}
 <svg class="fox-perf-chart-svg fox-perf-chart-svg--physics" viewBox="0 0 ${W} ${H}" role="img" aria-label="Panel temperature and wind chart">
+${axes}
 ${tempLine}
 ${windLine}
 </svg>`;
@@ -12154,6 +12285,7 @@ const STYLES = `
 .fox-perf-chart-legend i {
   display: inline-block; width: 10px; height: 10px; border-radius: 2px;
 }
+.fox-perf-chart-hint { margin: 0 0 8px; font-size: 12px; opacity: 0.8; }
 .fox-perf-badge {
   display: inline-block;
   margin-left: 8px;

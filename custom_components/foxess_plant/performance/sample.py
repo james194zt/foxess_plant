@@ -27,7 +27,14 @@ class PerformanceSample:
 
 
 def _entity_power_kw(coordinator: Any, key: str) -> float | None:
-    entity_id = coordinator.plant.entity_map.get(key)
+    from .discovery import resolve_entity_id
+
+    entity_id = resolve_entity_id(
+        coordinator.hass,
+        coordinator.plant.entity_map,
+        key,
+        device_id=coordinator.plant.device_id,
+    )
     if not entity_id:
         return None
     state = coordinator.hass.states.get(entity_id)
@@ -43,7 +50,11 @@ def _entity_power_kw(coordinator: Any, key: str) -> float | None:
 
 
 def _weather_attrs(coordinator: Any) -> dict[str, Any]:
+    from .storm_weather import resolve_overview_weather_entities
+
     entity_id = coordinator.plant.storm_prep.weather_entity_id
+    if not entity_id:
+        _, entity_id = resolve_overview_weather_entities(coordinator.hass, coordinator.plant.storm_prep)
     if not entity_id:
         return {}
     state = coordinator.hass.states.get(entity_id)

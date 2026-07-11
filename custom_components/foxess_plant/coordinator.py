@@ -2481,6 +2481,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._performance_sensors[kind] = sensor
 
     async def async_update_performance_sensors(self, sample: Any) -> None:
+        always_numeric = {
+            "pv_power_kw",
+            "net_grid_power_kw",
+            "clipping_loss_kw",
+            "solcast_forecast_kw",
+        }
         mapping = {
             "pv_power_kw": sample.pv_power_kw,
             "net_grid_power_kw": sample.net_grid_power_kw,
@@ -2493,7 +2499,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             sensor = self._performance_sensors.get(kind)
             if sensor is None:
                 continue
-            sensor.set_value(float(value) if value is not None else None)
+            if value is None and kind in always_numeric:
+                sensor.set_value(0.0)
+            else:
+                sensor.set_value(float(value) if value is not None else None)
             await sensor.async_publish()
 
     async def _async_init_performance(self) -> None:
@@ -2506,6 +2515,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._performance_day = dt_util.as_local(dt_util.now()).date().isoformat()
             self._performance_daily = new_daily_accumulator()
             self._setup_performance_timer()
+            await async_performance_tick(self)
         except Exception as err:
             _LOGGER.warning("Performance store init failed: %s", err)
 

@@ -587,9 +587,7 @@ class FoxessPlantPerformanceSensor(CoordinatorEntity[FoxessPlantCoordinator], Se
 
     @property
     def available(self) -> bool:
-        if not self.coordinator.plant.performance.enabled:
-            return False
-        return self._value is not None
+        return bool(self.coordinator.plant.performance.enabled)
 
     @property
     def native_value(self) -> float | None:

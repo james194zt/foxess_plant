@@ -43,6 +43,20 @@ CREATE TABLE IF NOT EXISTS hems_events (
 
 CREATE INDEX IF NOT EXISTS idx_hems_events_ts ON hems_events(ts);
 CREATE INDEX IF NOT EXISTS idx_hems_events_type ON hems_events(event_type);
+
+CREATE TABLE IF NOT EXISTS intraday_samples (
+    ts TEXT PRIMARY KEY,
+    pv_power_kw REAL,
+    net_grid_power_kw REAL,
+    virtual_panel_temp_c REAL,
+    wind_speed_ms REAL,
+    clipping_loss_kw REAL,
+    solcast_forecast_kw REAL,
+    import_p_per_kwh REAL,
+    export_p_per_kwh REAL
+);
+
+CREATE INDEX IF NOT EXISTS idx_intraday_samples_ts ON intraday_samples(ts);
 """
 
 
@@ -230,6 +244,50 @@ class PerformanceStore:
         conn = self.connect()
         row = conn.execute("SELECT * FROM payback_config WHERE id = 1").fetchone()
         return dict(row) if row else {}
+
+    def insert_intraday_sample(self, row: dict[str, Any]) -> None:
+        conn = self.connect()
+        conn.execute(
+            """
+            INSERT INTO intraday_samples (
+                ts, pv_power_kw, net_grid_power_kw, virtual_panel_temp_c,
+                wind_speed_ms, clipping_loss_kw, solcast_forecast_kw,
+                import_p_per_kwh, export_p_per_kwh
+            ) VALUES (
+                :ts, :pv_power_kw, :net_grid_power_kw, :virtual_panel_temp_c,
+                :wind_speed_ms, :clipping_loss_kw, :solcast_forecast_kw,
+                :import_p_per_kwh, :export_p_per_kwh
+            )
+            ON CONFLICT(ts) DO UPDATE SET
+                pv_power_kw=excluded.pv_power_kw,
+                net_grid_power_kw=excluded.net_grid_power_kw,
+                virtual_panel_temp_c=excluded.virtual_panel_temp_c,
+                wind_speed_ms=excluded.wind_speed_ms,
+                clipping_loss_kw=excluded.clipping_loss_kw,
+                solcast_forecast_kw=excluded.solcast_forecast_kw,
+                import_p_per_kwh=excluded.import_p_per_kwh,
+                export_p_per_kwh=excluded.export_p_per_kwh
+            """,
+            row,
+        )
+        conn.commit()
+
+    def list_intraday_samples(self, start_ts: str, end_ts: str) -> list[dict[str, Any]]:
+        conn = self.connect()
+        rows = conn.execute(
+            """
+            SELECT * FROM intraday_samples
+            WHERE ts >= ? AND ts <= ?
+            ORDER BY ts ASC
+            """,
+            (start_ts, end_ts),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def purge_intraday_before(self, cutoff_ts: str) -> None:
+        conn = self.connect()
+        conn.execute("DELETE FROM intraday_samples WHERE ts < ?", (cutoff_ts,))
+        conn.commit()
 
     def log_event(self, *, ts: str, event_type: str, payload_json: str | None = None) -> None:
         conn = self.connect()
