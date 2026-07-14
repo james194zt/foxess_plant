@@ -369,15 +369,62 @@ class PvInstallCostMigrationTests(unittest.TestCase):
         self.assertEqual(merged.system_install_cost_gbp, 12000.0)
 
 
+class LocalWeatherDetectTests(unittest.TestCase):
+    def test_detects_ecowitt_gw2000a_roles(self) -> None:
+        detect = _load_module("perf_local_weather_detect", "performance/local_weather_detect.py")
+
+        class FakeState:
+            def __init__(self, entity_id: str, *, name: str = "", state: str = "1.0") -> None:
+                self.entity_id = entity_id
+                self.state = state
+                self.attributes = {"friendly_name": name or entity_id}
+
+        class FakeHass:
+            def __init__(self, states: list) -> None:
+                self.states = self
+
+            def async_all(self, domain: str):
+                return [s for s in self._all if s.entity_id.startswith(f"{domain}.")]
+
+            def __init_states(self, states: list) -> None:
+                self._all = states
+
+        hass = FakeHass.__new__(FakeHass)
+        hass.states = hass
+        hass._all = [
+                FakeState("sensor.gw2000a_wind_speed", name="Wind Speed"),
+                FakeState("sensor.gw2000a_wind_gust", name="Wind Gust"),
+                FakeState("sensor.gw2000a_rain_rate_piezo", name="Rain Rate Piezo"),
+                FakeState("sensor.gw2000a_daily_rain_piezo", name="Daily Rain Piezo"),
+                FakeState("sensor.gw2000a_dewpoint", name="Dewpoint"),
+                FakeState("sensor.gw2000a_indoor_dewpoint", name="Indoor Dewpoint"),
+                FakeState("sensor.gw2000a_outdoor_temperature", name="Outdoor Temperature"),
+                FakeState("sensor.gw2000a_humidity", name="Humidity"),
+                FakeState("sensor.gw2000a_indoor_humidity", name="Indoor Humidity"),
+                FakeState("sensor.gw2000a_solar_radiation", name="Solar Radiation"),
+        ]
+        found = detect.detect_local_weather_entities(hass)
+        self.assertEqual(found["wind_speed_entity_id"], "sensor.gw2000a_wind_speed")
+        self.assertEqual(found["precipitation_entity_id"], "sensor.gw2000a_rain_rate_piezo")
+        self.assertEqual(found["dew_point_entity_id"], "sensor.gw2000a_dewpoint")
+        self.assertEqual(found["outdoor_temp_entity_id"], "sensor.gw2000a_outdoor_temperature")
+        self.assertEqual(found["humidity_entity_id"], "sensor.gw2000a_humidity")
+        self.assertEqual(found["solar_radiation_entity_id"], "sensor.gw2000a_solar_radiation")
+        self.assertEqual(found["wind_gust_entity_id"], "sensor.gw2000a_wind_gust")
+        self.assertIsNone(found["visibility_entity_id"])
+
+
 class PerformanceWeatherEntityTests(unittest.TestCase):
     def test_local_entity_config_round_trip(self) -> None:
         cfg = models.PerformanceConfig.from_dict(
             {
-                "wind_speed_entity_id": "sensor.istoke81_wind_speed",
-                "precipitation_entity_id": "sensor.istoke81_precipitation_rate",
+                "wind_speed_entity_id": "sensor.gw2000a_wind_speed",
+                "precipitation_entity_id": "sensor.gw2000a_rain_rate_piezo",
+                "dew_point_entity_id": "sensor.gw2000a_dewpoint",
             }
         )
-        self.assertEqual(cfg.wind_speed_entity_id, "sensor.istoke81_wind_speed")
+        self.assertEqual(cfg.wind_speed_entity_id, "sensor.gw2000a_wind_speed")
+        self.assertEqual(cfg.dew_point_entity_id, "sensor.gw2000a_dewpoint")
 
 
 if __name__ == "__main__":

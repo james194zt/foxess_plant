@@ -147,7 +147,59 @@ const SETTINGS_NAV = [
   { id: "solcast", label: "Solcast" },
   { id: "glow", label: "Glow meter" },
   { id: "tariff", label: "Tariff" },
+  { id: "weather", label: "Weather" },
   { id: "performance", label: "Performance" },
+];
+
+const PERFORMANCE_WEATHER_ROLE_FIELDS = [
+  {
+    key: "wind_speed_entity_id",
+    label: "Wind speed",
+    hint: "Primary cooling / microclimate signal. Ecowitt: Wind Speed.",
+    required: true,
+  },
+  {
+    key: "precipitation_entity_id",
+    label: "Precipitation rate",
+    hint: "Use rain rate (not daily/weekly totals). Ecowitt: Rain Rate Piezo.",
+    required: true,
+  },
+  {
+    key: "dew_point_entity_id",
+    label: "Dew point",
+    hint: "Outdoor dewpoint. Ecowitt: Dewpoint (not Indoor Dewpoint).",
+    required: false,
+  },
+  {
+    key: "visibility_entity_id",
+    label: "Visibility",
+    hint: "Usually not on Ecowitt — leave blank or map another sensor if you have one.",
+    required: false,
+  },
+  {
+    key: "wind_gust_entity_id",
+    label: "Wind gust",
+    hint: "Optional. Ecowitt: Wind Gust.",
+    required: false,
+  },
+  {
+    key: "outdoor_temp_entity_id",
+    label: "Outdoor temperature",
+    hint: "Optional ambient air temp. Ecowitt: Outdoor Temperature.",
+    required: false,
+  },
+  {
+    key: "humidity_entity_id",
+    label: "Humidity",
+    hint: "Optional outdoor humidity. Ecowitt: Humidity (not Indoor).",
+    required: false,
+  },
+  {
+    key: "solar_radiation_entity_id",
+    label: "Solar radiation",
+    hint: "Optional irradiance. Ecowitt: Solar Radiation.",
+    required: false,
+  },
 ];
 
 function smartChargeOwnsPlantControls(plantState) {
@@ -320,7 +372,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.451";
+const PANEL_VERSION = "0.9.452";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -14284,6 +14336,8 @@ class FoxessPlantPanel extends HTMLElement {
     this._performancePeriodReportLoading = false;
     this._performancePeriodReportKey = undefined;
     this._performanceDraft = null;
+    this._weatherDraft = null;
+    this._weatherPickerMountGen = 0;
     this._energyReport = null;
     this._energyReportLoading = false;
     this._energyReportPlantId = undefined;
@@ -14873,6 +14927,8 @@ Reloading panel registration…
     if (t?.matches?.('input[type="range"][data-field^="pv:"]')) this._rangeDrag = true;
     const saveBtn = t?.closest?.('[data-action="save-performance-settings"]');
     if (saveBtn && this._performanceDraft) this._syncPerformanceDraftFromDom();
+    const saveWeatherBtn = t?.closest?.('[data-action="save-weather-settings"]');
+    if (saveWeatherBtn && this._weatherDraft) this._syncWeatherDraftFromPickers();
   }
 
   _onPointerUp() {
@@ -16748,11 +16804,154 @@ Reloading panel registration…
       system_rte: Number(cfg.system_rte ?? 0.85),
       degradation_buffer_p_per_kwh: Number(cfg.degradation_buffer_p_per_kwh ?? 1),
       weather_entity_id: cfg.weather_entity_id ?? "",
+    };
+  }
+
+  _weatherConfigFromState() {
+    return this._performanceConfigFromState();
+  }
+
+  _initWeatherDraft() {
+    const cfg = this._weatherConfigFromState();
+    const detected = this._plantState?.performance?.local_weather?.detected || {};
+    this._weatherDraft = {
+      weather_entity_id: cfg.weather_entity_id ?? "",
       wind_speed_entity_id: cfg.wind_speed_entity_id ?? "",
+      wind_gust_entity_id: cfg.wind_gust_entity_id ?? "",
       visibility_entity_id: cfg.visibility_entity_id ?? "",
       dew_point_entity_id: cfg.dew_point_entity_id ?? "",
       precipitation_entity_id: cfg.precipitation_entity_id ?? "",
+      outdoor_temp_entity_id: cfg.outdoor_temp_entity_id ?? "",
+      humidity_entity_id: cfg.humidity_entity_id ?? "",
+      solar_radiation_entity_id: cfg.solar_radiation_entity_id ?? "",
+      detected,
     };
+  }
+
+  _enterWeatherSettings() {
+    if (!this._weatherDraft) this._initWeatherDraft();
+    const hasCore =
+      Boolean(this._weatherDraft.wind_speed_entity_id) ||
+      Boolean(this._weatherDraft.precipitation_entity_id);
+    if (!hasCore) this._applyDetectedWeatherMappings({ onlyEmpty: true });
+  }
+
+  _weatherSettingsSubtitle() {
+    const cfg = this._weatherConfigFromState();
+    const mapped = PERFORMANCE_WEATHER_ROLE_FIELDS.filter((r) => cfg[r.key]).length;
+    const hint = this._plantState?.performance?.local_weather?.station_hint;
+    if (mapped >= 2) {
+      return hint ? `${mapped} sensors mapped · ${hint}` : `${mapped} sensors mapped`;
+    }
+    if (hint) return `Local station detected · ${hint} — map sensors`;
+    return "Map local PWS / Ecowitt sensors for Performance";
+  }
+
+  _applyDetectedWeatherMappings({ onlyEmpty = true } = {}) {
+    if (!this._weatherDraft) this._initWeatherDraft();
+    const detected =
+      this._plantState?.performance?.local_weather?.detected || this._weatherDraft.detected || {};
+    let applied = 0;
+    for (const role of PERFORMANCE_WEATHER_ROLE_FIELDS) {
+      const suggested = detected[role.key];
+      if (!suggested) continue;
+      if (onlyEmpty && this._weatherDraft[role.key]) continue;
+      this._weatherDraft[role.key] = suggested;
+      applied += 1;
+    }
+    return applied;
+  }
+
+  _syncWeatherDraftFromPickers() {
+    if (!this._weatherDraft) return;
+    for (const role of PERFORMANCE_WEATHER_ROLE_FIELDS) {
+      const picker = this._root.querySelector(`[data-weather-picker="${role.key}"] ha-entity-picker`);
+      if (picker) this._weatherDraft[role.key] = picker.value || "";
+    }
+    const weatherEl = this._root.querySelector('[data-field="weather:weather_entity_id"]');
+    if (weatherEl) this._weatherDraft.weather_entity_id = String(weatherEl.value ?? "").trim();
+  }
+
+  _buildWeatherSavePayload() {
+    if (!this._weatherDraft) return null;
+    this._syncWeatherDraftFromPickers();
+    const d = this._weatherDraft;
+    const out = {
+      weather_entity_id: d.weather_entity_id ? String(d.weather_entity_id) : null,
+    };
+    for (const role of PERFORMANCE_WEATHER_ROLE_FIELDS) {
+      out[role.key] = d[role.key] ? String(d[role.key]) : null;
+    }
+    return out;
+  }
+
+  async _saveWeatherSettings() {
+    const plant = this._getPlant();
+    if (!plant || !this._weatherDraft) return;
+    const payload = this._buildWeatherSavePayload();
+    if (!payload) return;
+    this._busy = true;
+    this._render();
+    try {
+      const state = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/update_performance",
+        plant_id: plant.entry_id,
+        performance: payload,
+      });
+      if (state) this._plantState = state;
+      this._initWeatherDraft();
+      this._showToast("Weather sensor mappings saved");
+    } catch (err) {
+      this._showToast(err?.message || "Save failed", "err");
+    } finally {
+      this._busy = false;
+      this._render();
+    }
+  }
+
+  async _syncWeatherEntityPickers() {
+    if (this._settingsView !== "weather" || !this._weatherDraft || !this._hass) return;
+    const gen = ++this._weatherPickerMountGen;
+    for (const role of PERFORMANCE_WEATHER_ROLE_FIELDS) {
+      const host = this._root.querySelector(`[data-weather-picker="${role.key}"]`);
+      if (!host) continue;
+      if (!host.querySelector("ha-entity-picker")) {
+        host.innerHTML = `<p class="field-hint tariff-entity-picker-loading">Loading entity picker…</p>`;
+      }
+    }
+    try {
+      await ensureHaEntityPickerLoaded();
+    } catch (err) {
+      if (gen !== this._weatherPickerMountGen) return;
+      for (const role of PERFORMANCE_WEATHER_ROLE_FIELDS) {
+        const host = this._root.querySelector(`[data-weather-picker="${role.key}"]`);
+        if (!host) continue;
+        host.innerHTML = `<p class="tariff-entity-picker-error">${esc(err?.message || "Entity picker unavailable")}</p>`;
+      }
+      return;
+    }
+    if (gen !== this._weatherPickerMountGen) return;
+    for (const role of PERFORMANCE_WEATHER_ROLE_FIELDS) {
+      const host = this._root.querySelector(`[data-weather-picker="${role.key}"]`);
+      if (!host) continue;
+      let picker = host.querySelector("ha-entity-picker");
+      if (!picker) {
+        host.replaceChildren();
+        picker = document.createElement("ha-entity-picker");
+        picker.setAttribute("allow-custom-entity", "");
+        if (this._hass.userData?.showEntityIdPicker) picker.setAttribute("show-entity-id", "");
+        picker.includeDomains = ["sensor"];
+        picker.addEventListener("value-changed", (ev) => {
+          if (this._busy || !this._weatherDraft) return;
+          this._weatherDraft[role.key] = ev.detail?.value || "";
+        });
+        host.appendChild(picker);
+      }
+      picker.hass = this._hass;
+      picker.disabled = this._busy;
+      const value = this._weatherDraft[role.key] || "";
+      if (picker.value !== value) picker.value = value || undefined;
+    }
   }
 
   _enterPerformanceSettings() {
@@ -16787,15 +16986,6 @@ Reloading panel registration…
     if (weatherEl) {
       this._performanceDraft.weather_entity_id = String(weatherEl.value ?? "").trim();
     }
-    for (const key of [
-      "wind_speed_entity_id",
-      "visibility_entity_id",
-      "dew_point_entity_id",
-      "precipitation_entity_id",
-    ]) {
-      const el = root.querySelector(`[data-field="performance:${key}"]`);
-      if (el) this._performanceDraft[key] = String(el.value ?? "").trim();
-    }
   }
 
   _performanceInstallCostFromDom() {
@@ -16820,11 +17010,6 @@ Reloading panel registration…
       system_install_cost_gbp: installCost,
       system_rte: Number(d.system_rte) || 0.85,
       degradation_buffer_p_per_kwh: Number(d.degradation_buffer_p_per_kwh) || 1,
-      weather_entity_id: d.weather_entity_id ? String(d.weather_entity_id) : null,
-      wind_speed_entity_id: d.wind_speed_entity_id ? String(d.wind_speed_entity_id) : null,
-      visibility_entity_id: d.visibility_entity_id ? String(d.visibility_entity_id) : null,
-      dew_point_entity_id: d.dew_point_entity_id ? String(d.dew_point_entity_id) : null,
-      precipitation_entity_id: d.precipitation_entity_id ? String(d.precipitation_entity_id) : null,
     };
   }
 
@@ -17522,6 +17707,10 @@ Reloading panel registration…
       if (btn.dataset.sub !== "smart") this._smartChargeDraft = null;
       if (btn.dataset.sub !== "glow") this._glowDraft = null;
       if (btn.dataset.sub !== "performance") this._performanceDraft = null;
+      if (btn.dataset.sub !== "weather") {
+        this._weatherDraft = null;
+        this._weatherPickerMountGen += 1;
+      }
       if (btn.dataset.sub !== "fox-api") this._foxCloudDraft = null;
       if (btn.dataset.sub !== "warmup") this._warmupDraft = null;
       this._settingsView = sub;
@@ -17529,6 +17718,7 @@ Reloading panel registration…
       if (btn.dataset.sub === "solcast") this._enterSolcastSettings();
       if (btn.dataset.sub === "glow") this._enterGlowSettings();
       if (btn.dataset.sub === "tariff") this._enterTariffSettings();
+      if (btn.dataset.sub === "weather") this._enterWeatherSettings();
       if (btn.dataset.sub === "performance") this._enterPerformanceSettings();
       this._render();
       return;
@@ -17571,6 +17761,10 @@ Reloading panel registration…
       if (btn.dataset.sub !== "smart") this._smartChargeDraft = null;
       if (btn.dataset.sub !== "glow") this._glowDraft = null;
       if (btn.dataset.sub !== "performance") this._performanceDraft = null;
+      if (btn.dataset.sub !== "weather") {
+        this._weatherDraft = null;
+        this._weatherPickerMountGen += 1;
+      }
       if (btn.dataset.sub !== "fox-api") this._foxCloudDraft = null;
       if (btn.dataset.sub !== "warmup") this._warmupDraft = null;
       this._settingsView = sub;
@@ -17578,6 +17772,7 @@ Reloading panel registration…
       if (btn.dataset.sub === "solcast") this._enterSolcastSettings();
       if (btn.dataset.sub === "glow") this._enterGlowSettings();
       if (btn.dataset.sub === "tariff") this._enterTariffSettings();
+      if (btn.dataset.sub === "weather") this._enterWeatherSettings();
       if (btn.dataset.sub === "performance") this._enterPerformanceSettings();
       this._render();
       return;
@@ -17635,6 +17830,23 @@ Reloading panel registration…
     }
     if (action === "save-performance-settings") {
       await this._savePerformanceSettings();
+      return;
+    }
+    if (action === "save-weather-settings") {
+      await this._saveWeatherSettings();
+      return;
+    }
+    if (action === "weather-detect" || action === "weather-detect-overwrite") {
+      if (!this._weatherDraft) this._initWeatherDraft();
+      const applied = this._applyDetectedWeatherMappings({
+        onlyEmpty: action === "weather-detect",
+      });
+      this._showToast(
+        applied
+          ? `Filled ${applied} sensor mapping${applied === 1 ? "" : "s"} from local station`
+          : "No local weather sensors detected"
+      );
+      this._render();
       return;
     }
     if (action === "save-glow-settings") {
@@ -22527,6 +22739,7 @@ ${note}${via}${forecastHint}${activeBadge}
       glow: this._glowSettingsSubtitle(),
       tariff: tariffSettingsSummary(this._plantState?.tariff),
       performance: this._performanceSettingsSubtitle(),
+      weather: this._weatherSettingsSubtitle(),
     };
   }
 
@@ -22588,6 +22801,7 @@ ${renderListButton({ action: "settings-sub", sub: "fox-api" }, "Fox API", subs["
 ${renderListButton({ action: "settings-sub", sub: "solcast" }, "Solcast", subs.solcast)}
 ${renderListButton({ action: "settings-sub", sub: "glow" }, "Glow smart meter", subs.glow)}
 ${renderListButton({ action: "settings-sub", sub: "tariff" }, "Tariff", subs.tariff)}
+${renderListButton({ action: "settings-sub", sub: "weather" }, "Weather", subs.weather)}
 ${renderListButton({ action: "settings-sub", sub: "performance" }, "Performance", subs.performance)}
 </div></div>`;
   }
@@ -24139,72 +24353,20 @@ ${brightApiFields}
     if (!this._performanceDraft) this._initPerformanceDraft();
     const draft = this._performanceDraft;
     const dbPath = this._plantState?.performance?.db_path;
-    const stormWeather = this._plantState?.storm_prep?.weather_entity_id || "";
-    const weatherOptions = listWeatherEntityOptions(this._hass);
-    const windOptions = listPerformanceSensorEntityOptions(this._hass, {
-      deviceClass: "wind_speed",
-      keyword: "wind",
-    });
-    const precipOptions = listPerformanceSensorEntityOptions(this._hass, {
-      keyword: "precip",
-    });
-    const visOptions = listPerformanceSensorEntityOptions(this._hass, { keyword: "visibility" });
-    const dewOptions = listPerformanceSensorEntityOptions(this._hass, { keyword: "dew" });
-    const weatherSelect = `<div class="field"><label>Forecast weather entity (fallback)</label>
-<p class="field-hint">Optional <code>weather.*</code> fallback when local sensor overrides are blank. StormSafe Google Weather is used when unset.</p>
-<select data-field="performance:weather_entity_id" ${this._busy ? "disabled" : ""}>
-<option value="">Use StormSafe / auto (${esc(stormWeather || "none linked")})</option>
-${weatherOptions
-  .map(
-    (id) =>
-      `<option value="${esc(id)}"${draft.weather_entity_id === id ? " selected" : ""}>${esc(id)}</option>`
-  )
-  .join("")}
-</select></div>`;
-    const localStationCard = `<div class="card">
-<p class="card-title">Local weather station sensors</p>
-<p class="field-hint">Point Performance at PWS or local station entities (Ecowitt, Wunderground Scraper, Tempest UDP, etc.). Fox Plant reads the <strong>current HA state</strong> every 5 minutes — set your integration or an automation to poll as fast as you need (1–2 min is ideal).</p>
-${renderPerformanceEntityPickerField(
-  "Wind speed sensor",
-  "e.g. Wunderground Scraper wind speed for ISTOKE81. Converts mph, km/h, and m/s automatically.",
-  "wind_speed_entity_id",
-  draft.wind_speed_entity_id,
-  windOptions,
-  "perf-wind-sensors"
-)}
-${renderPerformanceEntityPickerField(
-  "Precipitation rate sensor",
-  "Use a rate sensor (in/hr or mm/hr), not daily accumulation. Mapped into each 5-minute bucket.",
-  "precipitation_entity_id",
-  draft.precipitation_entity_id,
-  precipOptions,
-  "perf-precip-sensors"
-)}
-${renderPerformanceEntityPickerField(
-  "Visibility sensor (optional)",
-  "Leave blank if unavailable on your PWS.",
-  "visibility_entity_id",
-  draft.visibility_entity_id,
-  visOptions,
-  "perf-vis-sensors"
-)}
-${renderPerformanceEntityPickerField(
-  "Dew point sensor (optional)",
-  "Leave blank to use forecast weather entity when available.",
-  "dew_point_entity_id",
-  draft.dew_point_entity_id,
-  dewOptions,
-  "perf-dew-sensors"
-)}
-</div>`;
+    const weatherCfg = this._weatherConfigFromState();
+    const weatherMapped = PERFORMANCE_WEATHER_ROLE_FIELDS.filter((r) => weatherCfg[r.key]).length;
     return `<header class="header"><h1>Performance reporting</h1><p>Recorder-backed solar diagnostics, financial ledger, and payback tracking. Daily rows commit at midnight from 5-minute samples.</p></header>
 <div class="card">
 <p class="card-title">Enable</p>
 <div class="toggle-row"><span><strong>Performance reporting</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Creates diagnostic sensors and SQLite daily ledger</span></span>
 <input type="checkbox" data-field="performance:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 </div>
-${localStationCard}
-${weatherSelect}
+<div class="card">
+<p class="card-title">Weather sensors</p>
+<p class="field-hint">Map your local station (Ecowitt GW2000A, etc.) under Settings → Weather. Wind and rain from a local PWS drive microclimate charts; Google Weather stays available as forecast fallback.</p>
+<p class="field-hint">${weatherMapped ? `${weatherMapped} local sensor(s) mapped.` : "No local sensors mapped yet."}</p>
+<button type="button" class="btn btn-secondary" data-action="settings-sub" data-sub="weather">Open Weather settings</button>
+</div>
 <div class="card">
 <p class="card-title">Virtual panel temperature</p>
 <p class="field-hint">Calibrate against a cold morning reading when panels are near 25°C. Higher string voltage = colder panels.</p>
@@ -24231,6 +24393,67 @@ ${dbPath ? `<p class="field-hint">Ledger database: <code>${esc(String(dbPath))}<
 </div>`;
   }
 
+  _renderSettingsWeather() {
+    if (!this._weatherDraft) this._initWeatherDraft();
+    const draft = this._weatherDraft;
+    const lw = this._plantState?.performance?.local_weather || {};
+    const detected = lw.detected || draft.detected || {};
+    const station = lw.station_hint ? String(lw.station_hint) : null;
+    const weatherOptions = listWeatherEntityOptions(this._hass);
+    const roleRows = PERFORMANCE_WEATHER_ROLE_FIELDS.map((role) => {
+      const suggested = detected[role.key];
+      const current = draft[role.key] || "";
+      const suggestNote = suggested
+        ? suggested === current
+          ? `<p class="field-hint">Detected: <code>${esc(suggested)}</code></p>`
+          : `<p class="field-hint">Suggested: <code>${esc(suggested)}</code>${
+              current ? "" : " — use Auto-detect or search below"
+            }</p>`
+        : role.key === "visibility_entity_id"
+          ? `<p class="field-hint">Not found on typical Ecowitt stations.</p>`
+          : `<p class="field-hint">No automatic match — search Home Assistant entities below.</p>`;
+      return `<div class="field">
+<label>${esc(role.label)}${role.required ? " *" : ""}</label>
+<p class="field-hint">${esc(role.hint)}</p>
+${suggestNote}
+<div class="tariff-entity-picker-host" data-weather-picker="${esc(role.key)}"></div>
+</div>`;
+    }).join("");
+    return `<header class="header"><h1>Weather</h1><p>Map local weather station sensors for Performance microclimate (wind cooling, rain, dew). Forecast weather from StormSafe / Google remains available as a fallback.</p></header>
+<div class="card">
+<p class="card-title">Local station</p>
+<p class="field-hint">${
+      station
+        ? `Detected station prefix: <strong>${esc(station)}</strong> (${Number(lw.mapped_count || 0)} candidate sensors).`
+        : "Looking for Ecowitt / GW2000A / WH90-style sensors. If nothing is detected, use the entity search on each row."
+    }</p>
+<div class="btn-row" style="margin-top:8px">
+<button type="button" class="btn btn-secondary" data-action="weather-detect" ${this._busy ? "disabled" : ""}>Auto-detect &amp; fill empty</button>
+<button type="button" class="btn btn-secondary" data-action="weather-detect-overwrite" ${this._busy ? "disabled" : ""}>Auto-detect &amp; overwrite</button>
+</div>
+</div>
+<div class="card">
+<p class="card-title">Sensor mapping</p>
+${roleRows}
+</div>
+<div class="card">
+<p class="card-title">Forecast weather entity (fallback)</p>
+<p class="field-hint">Optional <code>weather.*</code> used when a mapped sensor is blank. Defaults to StormSafe / Google Weather.</p>
+<select data-field="weather:weather_entity_id" ${this._busy ? "disabled" : ""}>
+<option value="">Use StormSafe / auto</option>
+${weatherOptions
+  .map(
+    (id) =>
+      `<option value="${esc(id)}"${draft.weather_entity_id === id ? " selected" : ""}>${esc(id)}</option>`
+  )
+  .join("")}
+</select>
+</div>
+<div class="btn-row">
+<button type="button" class="btn btn-primary" data-action="save-weather-settings" ${this._busy ? "disabled" : ""}>Save</button>
+</div>`;
+  }
+
   _renderSettings(plant) {
     this._ensureSettingsViewAllowed();
     switch (this._settingsView) {
@@ -24242,6 +24465,8 @@ ${dbPath ? `<p class="field-hint">Ledger database: <code>${esc(String(dbPath))}<
         return this._renderSettingsSolcast();
       case "glow":
         return this._renderSettingsGlow();
+      case "weather":
+        return this._renderSettingsWeather();
       case "performance":
         return this._renderSettingsPerformance();
       default:
@@ -24371,6 +24596,9 @@ ${dbPath ? `<p class="field-hint">Ledger database: <code>${esc(String(dbPath))}<
     }
     if (this._view === "settings" && this._settingsView === "tariff" && this._tariffDraft) {
       void this._syncTariffEntityPickers();
+    }
+    if (this._view === "settings" && this._settingsView === "weather" && this._weatherDraft) {
+      void this._syncWeatherEntityPickers();
     }
     if (
       this._view === "settings" &&

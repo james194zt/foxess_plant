@@ -291,11 +291,18 @@ def performance_summary(coordinator: Any) -> dict[str, Any]:
         "dew_point_c": sample.dew_point_c if sample else None,
         "weather_sources": getattr(coordinator, "_last_weather_sources", None),
     }
+    from .local_weather_detect import detect_local_weather_entities, detection_summary
+
+    try:
+        local_weather = detection_summary(detect_local_weather_entities(coordinator.hass))
+    except Exception:
+        local_weather = {"detected": {}, "mapped_count": 0, "station_hint": None}
     return {
         "enabled": cfg.enabled,
         "config": cfg.to_dict(),
         "today": today_row,
         "live_metrics": live_metrics,
+        "local_weather": local_weather,
         **payback,
         "db_path": str(store.path) if store else None,
     }

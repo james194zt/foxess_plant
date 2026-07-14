@@ -534,9 +534,13 @@ class PerformanceConfig:
     degradation_buffer_p_per_kwh: float = 1.0
     weather_entity_id: str | None = None
     wind_speed_entity_id: str | None = None
+    wind_gust_entity_id: str | None = None
     visibility_entity_id: str | None = None
     dew_point_entity_id: str | None = None
     precipitation_entity_id: str | None = None
+    outdoor_temp_entity_id: str | None = None
+    humidity_entity_id: str | None = None
+    solar_radiation_entity_id: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> PerformanceConfig:
@@ -557,9 +561,13 @@ class PerformanceConfig:
             degradation_buffer_p_per_kwh=float(data.get("degradation_buffer_p_per_kwh", 1.0) or 1.0),
             weather_entity_id=data.get("weather_entity_id") or None,
             wind_speed_entity_id=data.get("wind_speed_entity_id") or None,
+            wind_gust_entity_id=data.get("wind_gust_entity_id") or None,
             visibility_entity_id=data.get("visibility_entity_id") or None,
             dew_point_entity_id=data.get("dew_point_entity_id") or None,
             precipitation_entity_id=data.get("precipitation_entity_id") or None,
+            outdoor_temp_entity_id=data.get("outdoor_temp_entity_id") or None,
+            humidity_entity_id=data.get("humidity_entity_id") or None,
+            solar_radiation_entity_id=data.get("solar_radiation_entity_id") or None,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -575,9 +583,13 @@ class PerformanceConfig:
             "degradation_buffer_p_per_kwh": round(self.degradation_buffer_p_per_kwh, 2),
             "weather_entity_id": self.weather_entity_id,
             "wind_speed_entity_id": self.wind_speed_entity_id,
+            "wind_gust_entity_id": self.wind_gust_entity_id,
             "visibility_entity_id": self.visibility_entity_id,
             "dew_point_entity_id": self.dew_point_entity_id,
             "precipitation_entity_id": self.precipitation_entity_id,
+            "outdoor_temp_entity_id": self.outdoor_temp_entity_id,
+            "humidity_entity_id": self.humidity_entity_id,
+            "solar_radiation_entity_id": self.solar_radiation_entity_id,
         }
 
 

@@ -113,9 +113,13 @@ PERFORMANCE_SCHEMA = vol.Schema(
         ),
         vol.Optional("weather_entity_id"): vol.Any(None, str),
         vol.Optional("wind_speed_entity_id"): vol.Any(None, str),
+        vol.Optional("wind_gust_entity_id"): vol.Any(None, str),
         vol.Optional("visibility_entity_id"): vol.Any(None, str),
         vol.Optional("dew_point_entity_id"): vol.Any(None, str),
         vol.Optional("precipitation_entity_id"): vol.Any(None, str),
+        vol.Optional("outdoor_temp_entity_id"): vol.Any(None, str),
+        vol.Optional("humidity_entity_id"): vol.Any(None, str),
+        vol.Optional("solar_radiation_entity_id"): vol.Any(None, str),
     }
 )
 
