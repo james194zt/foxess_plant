@@ -74,6 +74,20 @@ async def async_performance_tick(coordinator: Any) -> None:
     coordinator._last_performance_sample = sample
     await coordinator.async_update_performance_sensors(sample)
 
+    seeded_baseline = getattr(coordinator, "_performance_baseline_autoseed", None)
+    if seeded_baseline is not None:
+        coordinator._performance_baseline_autoseed = None
+        try:
+            await coordinator.async_save_performance(
+                performance={"baseline_v_at_25c": float(seeded_baseline)}
+            )
+            _LOGGER.info(
+                "Auto-calibrated virtual panel baseline to %.1f V from live string voltage",
+                float(seeded_baseline),
+            )
+        except Exception as err:
+            _LOGGER.debug("Baseline auto-seed save skipped: %s", err)
+
     store = coordinator._performance_store
     if store is not None:
         bucket_ts = local_now.replace(second=0, microsecond=0)

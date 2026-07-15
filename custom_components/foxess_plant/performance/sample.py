@@ -90,9 +90,85 @@ def _ambient_temp_c(hass: Any, coordinator: Any) -> float | None:
     return float(temp) if temp is not None else None
 
 
+def _string_voltage_v(coordinator: Any) -> float | None:
+    """Average live string voltages (ignore dead/idle strings)."""
+    vals: list[float] = []
+    for key in ("pv1_voltage", "pv2_voltage", "pv1_volts", "pv2_volts"):
+        value = coordinator._entity_float(key)
+        if value is not None and float(value) > 50.0:
+            vals.append(float(value))
+    if not vals:
+        return None
+    return round(sum(vals) / len(vals), 1)
+
+
+def _resolve_virtual_panel_temp(
+    coordinator: Any,
+    *,
+    string_v: float | None,
+    pv_kw: float | None,
+    ambient: float | None,
+) -> float | None:
+    """Estimate panel temp; auto-seed baseline when factory/wrong baseline rejects live V."""
+    from .virtual_panel_temp import (
+        MIN_PV_KW_FOR_TEMP,
+        compute_virtual_panel_temp_c,
+        suggest_baseline_v_at_25c,
+        voltage_out_of_baseline_band,
+    )
+
+    cfg = coordinator.plant.performance
+    baseline = float(cfg.baseline_v_at_25c)
+    coeff = float(cfg.temp_coefficient_v_per_c)
+    ac_limit = cfg.inverter_ac_limit_kw
+
+    virtual_temp = compute_virtual_panel_temp_c(
+        string_voltage_v=string_v,
+        pv_power_kw=pv_kw,
+        baseline_v_at_25c=baseline,
+        temp_coefficient_v_per_c=coeff,
+        inverter_ac_limit_kw=ac_limit,
+        ambient_temp_c=ambient,
+    )
+    if virtual_temp is not None or string_v is None or pv_kw is None:
+        return virtual_temp
+    if float(pv_kw) < MIN_PV_KW_FOR_TEMP:
+        return None
+    # Only auto-seed the factory placeholder — never overwrite a saved calibration.
+    if abs(baseline - 400.0) >= 0.51:
+        return None
+    if not voltage_out_of_baseline_band(live_v=float(string_v), baseline_v=baseline):
+        return None
+
+    seeded = suggest_baseline_v_at_25c(
+        string_voltage_v=float(string_v),
+        ambient_temp_c=ambient,
+        pv_power_kw=float(pv_kw),
+        inverter_ac_limit_kw=ac_limit,
+        temp_coefficient_v_per_c=coeff,
+    )
+    if seeded is None:
+        return None
+
+    virtual_temp = compute_virtual_panel_temp_c(
+        string_voltage_v=string_v,
+        pv_power_kw=pv_kw,
+        baseline_v_at_25c=seeded,
+        temp_coefficient_v_per_c=coeff,
+        inverter_ac_limit_kw=ac_limit,
+        ambient_temp_c=ambient,
+    )
+    if virtual_temp is None:
+        return None
+
+    if abs(seeded - baseline) >= 1.0:
+        cfg.baseline_v_at_25c = seeded
+        coordinator._performance_baseline_autoseed = seeded
+    return virtual_temp
+
+
 def collect_performance_sample(coordinator: Any) -> PerformanceSample:
     from .clipping import compute_clipping_loss_kw
-    from .virtual_panel_temp import compute_virtual_panel_temp_c
     from .weather import read_weather_metrics
 
     cfg = coordinator.plant.performance
@@ -118,18 +194,13 @@ def collect_performance_sample(coordinator: Any) -> PerformanceSample:
 
     load_kw = _entity_power_kw(coordinator, "load_power")
 
-    string_v = coordinator._entity_float("pv1_voltage")
-    if string_v is None:
-        string_v = coordinator._entity_float("pv1_volts")
-
+    string_v = _string_voltage_v(coordinator)
     ambient = _ambient_temp_c(coordinator.hass, coordinator)
-    virtual_temp = compute_virtual_panel_temp_c(
-        string_voltage_v=string_v,
-        pv_power_kw=pv_kw,
-        baseline_v_at_25c=cfg.baseline_v_at_25c,
-        temp_coefficient_v_per_c=cfg.temp_coefficient_v_per_c,
-        inverter_ac_limit_kw=cfg.inverter_ac_limit_kw,
-        ambient_temp_c=ambient,
+    virtual_temp = _resolve_virtual_panel_temp(
+        coordinator,
+        string_v=string_v,
+        pv_kw=pv_kw,
+        ambient=ambient,
     )
 
     weather = read_weather_metrics(coordinator.hass, coordinator)

@@ -116,6 +116,30 @@ class VirtualPanelTempTests(unittest.TestCase):
             )
         )
 
+    def test_suggest_baseline_recovers_factory_mismatch(self) -> None:
+        # Live ~328 V vs factory 400 V — seed a plant-specific baseline.
+        seeded = virtual_temp.suggest_baseline_v_at_25c(
+            string_voltage_v=328.0,
+            ambient_temp_c=18.0,
+            pv_power_kw=0.877,
+            inverter_ac_limit_kw=4.3,
+        )
+        self.assertIsNotNone(seeded)
+        assert seeded is not None
+        self.assertGreater(seeded, 300.0)
+        self.assertLess(seeded, 360.0)
+        temp = virtual_temp.compute_virtual_panel_temp_c(
+            string_voltage_v=328.0,
+            pv_power_kw=0.877,
+            baseline_v_at_25c=seeded,
+            inverter_ac_limit_kw=4.3,
+            ambient_temp_c=18.0,
+        )
+        self.assertIsNotNone(temp)
+        assert temp is not None
+        self.assertGreater(temp, 18.0)
+        self.assertLess(temp, 45.0)
+
 
 class ClippingTests(unittest.TestCase):
     def test_no_clipping_below_threshold(self) -> None:
