@@ -372,7 +372,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.452";
+const PANEL_VERSION = "0.9.453";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -3477,7 +3477,7 @@ function renderOverviewPanelTempPill(plantState) {
     live.wind_speed_ms != null && Number.isFinite(Number(live.wind_speed_ms))
       ? ` · ${Number(live.wind_speed_ms).toFixed(1)} m/s wind`
       : "";
-  return `<span class="overview-panel-temp-pill" title="Virtual panel temperature from string voltage">Panel ${Number(temp).toFixed(0)}°C${wind}</span>`;
+  return `<span class="overview-panel-temp-pill" title="Estimated from string voltage near MPP — only shown when irradiance and calibration look valid">Panel ${Number(temp).toFixed(0)}°C${wind}</span>`;
 }
 
 function listWeatherEntityOptions(hass) {
@@ -24369,7 +24369,7 @@ ${brightApiFields}
 </div>
 <div class="card">
 <p class="card-title">Virtual panel temperature</p>
-<p class="field-hint">Calibrate against a cold morning reading when panels are near 25°C. Higher string voltage = colder panels.</p>
+<p class="field-hint">Calibrate against a cold morning reading when panels are near MPP (good sun, not dawn/dusk). Baseline must match live operating voltage at ~25°C — not open-circuit Voc. The estimate is hidden when power is weak or voltage is far from baseline.</p>
 <div class="field"><label>Baseline string voltage at 25°C (V)</label>
 <input type="number" step="0.1" data-field="performance:baseline_v_at_25c" value="${esc(String(draft.baseline_v_at_25c))}" ${this._busy ? "disabled" : ""}></div>
 <div class="field"><label>Temperature coefficient (V/°C)</label>

@@ -60,6 +60,36 @@ def _octopus_rates_p_per_kwh(coordinator: Any) -> tuple[float | None, float | No
     )
 
 
+def _ambient_temp_c(hass: Any, coordinator: Any) -> float | None:
+    """Prefer mapped outdoor weather sensor; fall back to weather.* temperature."""
+    from ..smart_charge.battery_metrics import parse_state_float
+    from .weather import (
+        _read_entity_state,
+        _normalize_entity_id,
+        resolve_performance_weather_entity_id,
+    )
+
+    outdoor_id = _normalize_entity_id(
+        getattr(coordinator.plant.performance, "outdoor_temp_entity_id", None)
+    )
+    if outdoor_id:
+        value, unit = _read_entity_state(hass, outdoor_id)
+        if value is not None:
+            token = str(unit or "").strip().lower().replace(" ", "")
+            if token in ("f", "°f", "fahrenheit"):
+                value = (value - 32.0) * 5.0 / 9.0
+            return round(value, 1)
+
+    weather_id = resolve_performance_weather_entity_id(coordinator)
+    if not weather_id:
+        return None
+    state = hass.states.get(weather_id)
+    if not state:
+        return None
+    temp = parse_state_float(state.attributes.get("temperature"))
+    return float(temp) if temp is not None else None
+
+
 def collect_performance_sample(coordinator: Any) -> PerformanceSample:
     from .clipping import compute_clipping_loss_kw
     from .virtual_panel_temp import compute_virtual_panel_temp_c
@@ -92,11 +122,14 @@ def collect_performance_sample(coordinator: Any) -> PerformanceSample:
     if string_v is None:
         string_v = coordinator._entity_float("pv1_volts")
 
+    ambient = _ambient_temp_c(coordinator.hass, coordinator)
     virtual_temp = compute_virtual_panel_temp_c(
         string_voltage_v=string_v,
         pv_power_kw=pv_kw,
         baseline_v_at_25c=cfg.baseline_v_at_25c,
         temp_coefficient_v_per_c=cfg.temp_coefficient_v_per_c,
+        inverter_ac_limit_kw=cfg.inverter_ac_limit_kw,
+        ambient_temp_c=ambient,
     )
 
     weather = read_weather_metrics(coordinator.hass, coordinator)

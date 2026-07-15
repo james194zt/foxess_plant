@@ -73,6 +73,49 @@ class VirtualPanelTempTests(unittest.TestCase):
             )
         )
 
+    def test_none_at_dawn_weak_power(self) -> None:
+        # 393 W is below 0.5 kW floor / 12% of 4.3 kW AC.
+        self.assertIsNone(
+            virtual_temp.compute_virtual_panel_temp_c(
+                string_voltage_v=330.0,
+                pv_power_kw=0.393,
+                baseline_v_at_25c=400.0,
+                inverter_ac_limit_kw=4.3,
+            )
+        )
+
+    def test_none_when_voltage_far_below_baseline(self) -> None:
+        # Classic miscalibration: Voc-ish baseline vs loaded Vmp (~18% lower).
+        self.assertIsNone(
+            virtual_temp.compute_virtual_panel_temp_c(
+                string_voltage_v=328.0,
+                pv_power_kw=2.5,
+                baseline_v_at_25c=400.0,
+            )
+        )
+
+    def test_none_when_exceeds_ambient_rise(self) -> None:
+        # ~12% below baseline → ~65°C; ambient 16°C cannot support that rise.
+        self.assertIsNone(
+            virtual_temp.compute_virtual_panel_temp_c(
+                string_voltage_v=352.0,
+                pv_power_kw=2.5,
+                baseline_v_at_25c=400.0,
+                ambient_temp_c=16.0,
+            )
+        )
+
+    def test_none_when_would_hit_clamp(self) -> None:
+        # Softer coeff lets a mid-band voltage delta hit the old 85°C ceiling.
+        self.assertIsNone(
+            virtual_temp.compute_virtual_panel_temp_c(
+                string_voltage_v=352.0,
+                pv_power_kw=3.0,
+                baseline_v_at_25c=400.0,
+                temp_coefficient_v_per_c=-0.002,
+            )
+        )
+
 
 class ClippingTests(unittest.TestCase):
     def test_no_clipping_below_threshold(self) -> None:
