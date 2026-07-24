@@ -372,7 +372,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.457";
+const PANEL_VERSION = "0.9.458";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -7672,9 +7672,58 @@ function smartChargeTimelineSlotTip(slot) {
     slot.export_p_per_kwh != null && Number.isFinite(Number(slot.export_p_per_kwh))
       ? `${Number(slot.export_p_per_kwh).toFixed(1)}p`
       : "—";
-  const aria = `${start}-${end} - ${action}, Import: ${importP}, Export: ${exportP}`;
-  const html = `<span class="sc-timeline-tip" role="tooltip"><span>${esc(`${start}-${end} - ${action}`)}</span><span>Import: ${esc(importP)}</span><span>Export: ${esc(exportP)}</span></span>`;
-  return { aria, html };
+  const title = `${start}-${end} - ${action}`;
+  const aria = `${title}, Import: ${importP}, Export: ${exportP}`;
+  return { title, importP, exportP, aria };
+}
+
+function bindSmartChargeTimelineTips(root) {
+  const wraps = root?.querySelectorAll?.(".sc-timeline-wrap[data-sc-timeline]");
+  if (!wraps?.length) return;
+  wraps.forEach((wrap) => {
+    if (wrap.dataset.tipBound === "1") return;
+    wrap.dataset.tipBound = "1";
+    const floatTip = wrap.querySelector(".sc-timeline-float-tip");
+    if (!floatTip) return;
+    const hide = () => {
+      floatTip.hidden = true;
+      floatTip.innerHTML = "";
+      wrap.querySelectorAll(".sc-timeline-seg--tip-active").forEach((el) => {
+        el.classList.remove("sc-timeline-seg--tip-active");
+      });
+    };
+    const show = (seg) => {
+      const title = seg.getAttribute("data-tip-title") || "";
+      const importLine = seg.getAttribute("data-tip-import") || "—";
+      const exportLine = seg.getAttribute("data-tip-export") || "—";
+      floatTip.innerHTML = `<span>${esc(title)}</span><span>Import: ${esc(importLine)}</span><span>Export: ${esc(exportLine)}</span>`;
+      floatTip.hidden = false;
+      wrap.querySelectorAll(".sc-timeline-seg--tip-active").forEach((el) => {
+        el.classList.remove("sc-timeline-seg--tip-active");
+      });
+      seg.classList.add("sc-timeline-seg--tip-active");
+      const wrapRect = wrap.getBoundingClientRect();
+      const segRect = seg.getBoundingClientRect();
+      const tipWidth = floatTip.offsetWidth || 140;
+      const tipHeight = floatTip.offsetHeight || 64;
+      let left = segRect.left - wrapRect.left + segRect.width / 2 - tipWidth / 2;
+      left = Math.max(4, Math.min(left, Math.max(4, wrapRect.width - tipWidth - 4)));
+      let top = segRect.top - wrapRect.top - tipHeight - 8;
+      if (top < 0) top = segRect.bottom - wrapRect.top + 8;
+      floatTip.style.left = `${Math.round(left)}px`;
+      floatTip.style.top = `${Math.round(top)}px`;
+    };
+    wrap.addEventListener(
+      "pointerover",
+      (ev) => {
+        const seg = ev.target?.closest?.(".sc-timeline-seg");
+        if (!seg || !wrap.contains(seg)) return;
+        show(seg);
+      },
+      { passive: true }
+    );
+    wrap.addEventListener("pointerleave", hide, { passive: true });
+  });
 }
 
 function smartChargeTimelineHourMarks(slots) {
@@ -7716,7 +7765,7 @@ function renderSmartChargePlanTimeline(dailyPlan, currentSlot) {
       const tone = smartChargePlanActionTone(s.action);
       const isNow = nowKey === `${s.start}-${s.end}`;
       const tip = smartChargeTimelineSlotTip(s);
-      return `<div class="sc-timeline-seg sc-timeline-seg--${tone}${isNow ? " sc-timeline-seg--now" : ""}" aria-label="${esc(tip.aria)}">${tip.html}</div>`;
+      return `<div class="sc-timeline-seg sc-timeline-seg--${tone}${isNow ? " sc-timeline-seg--now" : ""}" data-tip-title="${esc(tip.title)}" data-tip-import="${esc(tip.importP)}" data-tip-export="${esc(tip.exportP)}" aria-label="${esc(tip.aria)}"></div>`;
     })
     .join("");
   const hourMarks = smartChargeTimelineHourMarks(slots);
@@ -7728,12 +7777,13 @@ function renderSmartChargePlanTimeline(dailyPlan, currentSlot) {
       return `<span class="sc-timeline-hour sc-timeline-hour--label">${esc(label)}</span>`;
     })
     .join("");
-  return `<div class="sc-timeline-wrap">
+  return `<div class="sc-timeline-wrap" data-sc-timeline>
 <p class="sc-timeline-range">${esc(rangeLabel)}</p>
 <div class="sc-timeline-scroll" style="--sc-slot-count:${slots.length}">
 <div class="sc-timeline" role="img" aria-label="Full ${esc(String(slots.length))}-slot charge and export plan from ${esc(first.start)} to ${esc(last.end)}">${segments}</div>
 <div class="sc-timeline-hours" aria-hidden="true">${hourRow}</div>
 </div>
+<div class="sc-timeline-float-tip" hidden role="tooltip"></div>
 <div class="sc-timeline-legend">
 <span><i class="sc-legend-dot sc-legend-dot--charge"></i>Charge</span>
 <span><i class="sc-legend-dot sc-legend-dot--export"></i>Export</span>
@@ -14052,6 +14102,9 @@ const STYLES = `
   border-radius: 14px; padding: 16px; margin-bottom: 14px;
   border: 1px solid var(--divider-color);
   background: linear-gradient(145deg, color-mix(in srgb, var(--fp-accent) 8%, var(--card-background-color)), var(--card-background-color));
+  overflow: visible;
+  position: relative;
+  z-index: 1;
 }
 .sc-status-card--exporting {
   background: linear-gradient(145deg, color-mix(in srgb, var(--fp-amber,#f9a825) 14%, var(--card-background-color)), var(--card-background-color));
@@ -14078,13 +14131,11 @@ const STYLES = `
 .sc-stat-value { font-size: 18px; font-weight: 700; line-height: 1.2; }
 .sc-gauge-track { margin-top: 8px; height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--divider-color) 70%, transparent); overflow: hidden; }
 .sc-gauge-fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--fp-accent), var(--fp-green,#4caf50)); }
-.sc-timeline-wrap { margin-top: 4px; }
+.sc-timeline-wrap { margin-top: 4px; position: relative; z-index: 5; overflow: visible; }
 .sc-timeline-range { margin: 0 0 6px; font-size: 11px; color: var(--secondary-text-color); }
 .sc-timeline-scroll {
   overflow-x: auto;
-  overflow-y: visible;
   -webkit-overflow-scrolling: touch;
-  padding-top: 4px;
   padding-bottom: 2px;
 }
 .sc-timeline {
@@ -14093,21 +14144,20 @@ const STYLES = `
   height: 28px;
   align-items: stretch;
   min-width: min(100%, calc(var(--sc-slot-count, 24) * 6px));
-  overflow: visible;
 }
-.sc-timeline-seg { flex: 1 1 0; min-width: 4px; border-radius: 2px; opacity: 0.88; position: relative; }
+.sc-timeline-seg { flex: 1 1 0; min-width: 4px; border-radius: 2px; position: relative; }
 .sc-timeline-seg--charge { background: var(--fp-green,#4caf50); }
 .sc-timeline-seg--export { background: var(--fp-amber,#f9a825); }
 .sc-timeline-seg--candidate { background: color-mix(in srgb, var(--fp-accent) 70%, var(--fp-green,#4caf50)); }
 .sc-timeline-seg--idle { background: color-mix(in srgb, var(--secondary-text-color) 35%, transparent); }
-.sc-timeline-seg--now { box-shadow: 0 0 0 2px var(--primary-text-color); opacity: 1; z-index: 1; }
-.sc-timeline-tip {
+.sc-timeline-seg--now { box-shadow: 0 0 0 2px var(--primary-text-color); }
+.sc-timeline-seg--tip-active { box-shadow: 0 0 0 2px var(--fp-accent); z-index: 2; }
+.sc-timeline-float-tip {
   position: absolute;
-  left: 50%;
-  top: calc(100% + 8px);
-  bottom: auto;
-  transform: translateX(-50%);
-  display: none;
+  left: 0;
+  top: 0;
+  z-index: 50;
+  display: flex;
   flex-direction: column;
   gap: 2px;
   padding: 8px 10px;
@@ -14118,16 +14168,12 @@ const STYLES = `
   text-align: left;
   white-space: nowrap;
   color: var(--primary-text-color);
-  background: var(--card-background-color);
+  background: var(--card-background-color, #1e1e1e);
   border: 1px solid var(--divider-color);
-  box-shadow: 0 6px 18px color-mix(in srgb, #000 35%, transparent);
+  box-shadow: 0 8px 22px color-mix(in srgb, #000 45%, transparent);
   pointer-events: none;
-  z-index: 20;
 }
-.sc-timeline-seg:hover .sc-timeline-tip,
-.sc-timeline-seg:focus-visible .sc-timeline-tip {
-  display: flex;
-}
+.sc-timeline-float-tip[hidden] { display: none !important; }
 .sc-timeline-hours {
   display: flex;
   gap: 1px;
@@ -14139,7 +14185,14 @@ const STYLES = `
 }
 .sc-timeline-hour { flex: 1 1 0; min-width: 4px; overflow: visible; white-space: nowrap; }
 .sc-timeline-hour--label { transform: translateX(-40%); }
-.sc-timeline-legend { display: flex; flex-wrap: wrap; gap: 10px 14px; margin-top: 8px; font-size: 11px; color: var(--secondary-text-color); }
+.sc-timeline-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--secondary-text-color);
+}
 .sc-legend-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
 .sc-legend-dot--charge { background: var(--fp-green,#4caf50); }
 .sc-legend-dot--export { background: var(--fp-amber,#f9a825); }
@@ -23551,6 +23604,7 @@ ${body}
     if (!liveEl || !this._smartChargeDraft?.enabled) return false;
     const { live, decision, dailyPlan, spreadPairs, planSummary } = this._smartChargeLivePlanContext();
     liveEl.innerHTML = this._renderSmartChargeStatusCard(live, decision, dailyPlan, spreadPairs, planSummary);
+    bindSmartChargeTimelineTips(liveEl);
     return true;
   }
 
@@ -24728,6 +24782,7 @@ ${weatherOptions
     }
     if (this._isSmartChargeView()) {
       this._bindSmartChargeDetailsOpen();
+      bindSmartChargeTimelineTips(this._root);
     }
     if (
       (this._view === "overview" ||
