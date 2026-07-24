@@ -372,7 +372,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.456";
+const PANEL_VERSION = "0.9.457";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -7643,6 +7643,40 @@ function smartChargePlanActionTone(action) {
   return "idle";
 }
 
+function smartChargePlanActionLabel(action) {
+  const key = String(action || "idle");
+  const labels = {
+    idle: "Idle",
+    hold: "Hold",
+    charge: "Charge",
+    charge_candidate: "Candidate",
+    spread_charge: "Charge",
+    winter_fill: "Charge",
+    solar_gap_fill: "Charge",
+    export: "Export",
+    spread_export: "Export",
+    arbitrage: "Candidate",
+  };
+  return labels[key] || key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function smartChargeTimelineSlotTip(slot) {
+  const start = String(slot.start || "?");
+  const end = String(slot.end || "?");
+  const action = smartChargePlanActionLabel(slot.action);
+  const importP =
+    slot.import_p_per_kwh != null && Number.isFinite(Number(slot.import_p_per_kwh))
+      ? `${Number(slot.import_p_per_kwh).toFixed(1)}p`
+      : "—";
+  const exportP =
+    slot.export_p_per_kwh != null && Number.isFinite(Number(slot.export_p_per_kwh))
+      ? `${Number(slot.export_p_per_kwh).toFixed(1)}p`
+      : "—";
+  const aria = `${start}-${end} - ${action}, Import: ${importP}, Export: ${exportP}`;
+  const html = `<span class="sc-timeline-tip" role="tooltip"><span>${esc(`${start}-${end} - ${action}`)}</span><span>Import: ${esc(importP)}</span><span>Export: ${esc(exportP)}</span></span>`;
+  return { aria, html };
+}
+
 function smartChargeTimelineHourMarks(slots) {
   /** Hour tick under the full plan bar — label every 3 hours + first/last. */
   const marks = [];
@@ -7681,10 +7715,8 @@ function renderSmartChargePlanTimeline(dailyPlan, currentSlot) {
     .map((s) => {
       const tone = smartChargePlanActionTone(s.action);
       const isNow = nowKey === `${s.start}-${s.end}`;
-      const imp = Number(s.import_p_per_kwh ?? 0).toFixed(1);
-      const exp = s.export_p_per_kwh != null ? Number(s.export_p_per_kwh).toFixed(1) : null;
-      const title = `${s.start}–${s.end} ${s.action}${exp != null ? ` · ${exp}p exp` : ` · ${imp}p imp`}`;
-      return `<div class="sc-timeline-seg sc-timeline-seg--${tone}${isNow ? " sc-timeline-seg--now" : ""}" title="${esc(title)}" aria-label="${esc(title)}"></div>`;
+      const tip = smartChargeTimelineSlotTip(s);
+      return `<div class="sc-timeline-seg sc-timeline-seg--${tone}${isNow ? " sc-timeline-seg--now" : ""}" aria-label="${esc(tip.aria)}">${tip.html}</div>`;
     })
     .join("");
   const hourMarks = smartChargeTimelineHourMarks(slots);
@@ -14050,7 +14082,9 @@ const STYLES = `
 .sc-timeline-range { margin: 0 0 6px; font-size: 11px; color: var(--secondary-text-color); }
 .sc-timeline-scroll {
   overflow-x: auto;
+  overflow-y: visible;
   -webkit-overflow-scrolling: touch;
+  padding-top: 4px;
   padding-bottom: 2px;
 }
 .sc-timeline {
@@ -14059,13 +14093,41 @@ const STYLES = `
   height: 28px;
   align-items: stretch;
   min-width: min(100%, calc(var(--sc-slot-count, 24) * 6px));
+  overflow: visible;
 }
-.sc-timeline-seg { flex: 1 1 0; min-width: 4px; border-radius: 2px; opacity: 0.88; }
+.sc-timeline-seg { flex: 1 1 0; min-width: 4px; border-radius: 2px; opacity: 0.88; position: relative; }
 .sc-timeline-seg--charge { background: var(--fp-green,#4caf50); }
 .sc-timeline-seg--export { background: var(--fp-amber,#f9a825); }
 .sc-timeline-seg--candidate { background: color-mix(in srgb, var(--fp-accent) 70%, var(--fp-green,#4caf50)); }
 .sc-timeline-seg--idle { background: color-mix(in srgb, var(--secondary-text-color) 35%, transparent); }
 .sc-timeline-seg--now { box-shadow: 0 0 0 2px var(--primary-text-color); opacity: 1; z-index: 1; }
+.sc-timeline-tip {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 8px);
+  bottom: auto;
+  transform: translateX(-50%);
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.35;
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+  color: var(--primary-text-color);
+  background: var(--card-background-color);
+  border: 1px solid var(--divider-color);
+  box-shadow: 0 6px 18px color-mix(in srgb, #000 35%, transparent);
+  pointer-events: none;
+  z-index: 20;
+}
+.sc-timeline-seg:hover .sc-timeline-tip,
+.sc-timeline-seg:focus-visible .sc-timeline-tip {
+  display: flex;
+}
 .sc-timeline-hours {
   display: flex;
   gap: 1px;
