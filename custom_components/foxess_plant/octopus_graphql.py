@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -91,7 +92,17 @@ class OctopusGraphqlClient:
                 headers=headers,
                 timeout=aiohttp.ClientTimeout(total=45),
             ) as resp:
-                body = await resp.json(content_type=None)
+                text = await resp.text()
+                if resp.status >= 500:
+                    from .octopus_api import summarise_octopus_http_error
+
+                    raise OctopusGraphqlError(summarise_octopus_http_error(resp.status, text))
+                if resp.status >= 400:
+                    raise OctopusGraphqlError(f"Octopus GraphQL HTTP {resp.status}")
+                try:
+                    body = json.loads(text) if text else {}
+                except json.JSONDecodeError as err:
+                    raise OctopusGraphqlError("Unexpected GraphQL response") from err
                 if not isinstance(body, dict):
                     raise OctopusGraphqlError("Unexpected GraphQL response")
                 errors = body.get("errors")
@@ -122,6 +133,86 @@ class OctopusGraphqlClient:
             raise
         except aiohttp.ClientError as err:
             raise OctopusGraphqlError(f"Octopus GraphQL network error: {err}") from err
+
+    async def fetch_account_as_rest(self, account_number: str) -> dict[str, Any]:
+        """Account payload shaped like REST /accounts/{id}/ for meter discovery."""
+        account_number = account_number.strip().upper()
+        query = """
+        query FoxAccount($accountNumber: String!) {
+          account(accountNumber: $accountNumber) {
+            number
+            properties {
+              id
+              electricityMeterPoints {
+                mpan
+                direction
+                meters {
+                  serialNumber
+                }
+                agreements {
+                  validFrom
+                  validTo
+                  tariff {
+                    ... on TariffType {
+                      tariffCode
+                      productCode
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+        """
+        data = await self._request(query, variables={"accountNumber": account_number}, auth=True)
+        account = data.get("account")
+        if not isinstance(account, dict):
+            raise OctopusGraphqlError("Octopus GraphQL account missing")
+        properties_out: list[dict[str, Any]] = []
+        for prop in account.get("properties") or []:
+            if not isinstance(prop, dict):
+                continue
+            points_out: list[dict[str, Any]] = []
+            for point in prop.get("electricityMeterPoints") or []:
+                if not isinstance(point, dict):
+                    continue
+                mpan = str(point.get("mpan") or "").strip()
+                if not mpan:
+                    continue
+                direction = str(point.get("direction") or "").upper()
+                meters_out: list[dict[str, Any]] = []
+                for meter in point.get("meters") or []:
+                    if not isinstance(meter, dict):
+                        continue
+                    serial = str(meter.get("serialNumber") or "").strip()
+                    if serial:
+                        meters_out.append({"serial_number": serial})
+                agreements_out: list[dict[str, Any]] = []
+                for agreement in point.get("agreements") or []:
+                    if not isinstance(agreement, dict):
+                        continue
+                    tariff = agreement.get("tariff") if isinstance(agreement.get("tariff"), dict) else {}
+                    tariff_code = str((tariff or {}).get("tariffCode") or "").strip() or None
+                    agreements_out.append(
+                        {
+                            "tariff_code": tariff_code,
+                            "valid_from": agreement.get("validFrom"),
+                            "valid_to": agreement.get("validTo"),
+                        }
+                    )
+                points_out.append(
+                    {
+                        "mpan": mpan,
+                        "is_export": direction == "EXPORT",
+                        "meters": meters_out,
+                        "agreements": agreements_out,
+                    }
+                )
+            properties_out.append({"electricity_meter_points": points_out})
+        return {
+            "number": account.get("number") or account_number,
+            "properties": properties_out,
+        }
 
     async def fetch_greener_nights_forecast(self) -> list[dict[str, Any]]:
         """Public greener nights forecast (no auth)."""

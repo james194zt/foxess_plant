@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 from typing import Any
 from urllib.parse import urlencode
@@ -13,10 +15,33 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 _LOGGER = logging.getLogger(__name__)
 
 OCTOPUS_BASE_URL = "https://api.octopus.energy/v1"
+_MAX_SERVER_RETRIES = 3
 
 
 class OctopusApiError(Exception):
     """Octopus API request failed."""
+
+
+def summarise_octopus_http_error(status: int, body: str) -> str:
+    """Turn Octopus HTML/JSON failure bodies into a short UI-safe message."""
+    text = (body or "").strip()
+    lower = text.lower()
+    if status >= 500 or "<html" in lower or "<!doctype" in lower or "server error" in lower:
+        return (
+            f"Octopus API temporary server error (HTTP {status}). "
+            "This is on Octopus's side — wait a minute and try again."
+        )
+    if text.startswith("{"):
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            payload = None
+        if isinstance(payload, dict):
+            detail = payload.get("detail") or payload.get("message")
+            if detail:
+                return f"Octopus API HTTP {status}: {detail}"
+    clipped = text[:180].replace("\n", " ")
+    return f"Octopus API HTTP {status}: {clipped or 'empty response'}"
 
 
 class OctopusApiClient:
@@ -47,28 +72,46 @@ class OctopusApiClient:
         url = f"{self._base_url}{path}{suffix}"
         auth_tuple = aiohttp.BasicAuth(self._api_key, "") if auth else None
         headers = {"User-Agent": "FoxESS-Plant/1.0", "Accept": "application/json"}
-        try:
-            async with self._session.get(
-                url,
-                headers=headers,
-                auth=auth_tuple,
-                timeout=aiohttp.ClientTimeout(total=45),
-            ) as resp:
-                body = await resp.text()
-                if resp.status == 401:
-                    raise OctopusApiError("Invalid Octopus API key")
-                if resp.status == 404:
-                    raise OctopusApiError(f"Octopus resource not found: {path}")
-                if resp.status != 200:
-                    raise OctopusApiError(f"Octopus API HTTP {resp.status}: {body[:240]}")
-                data = await resp.json(content_type=None)
-                if not isinstance(data, dict):
-                    raise OctopusApiError("Unexpected Octopus API response")
-                return data
-        except OctopusApiError:
-            raise
-        except aiohttp.ClientError as err:
-            raise OctopusApiError(f"Octopus network error: {err}") from err
+        last_error: Exception | None = None
+        for attempt in range(_MAX_SERVER_RETRIES):
+            try:
+                async with self._session.get(
+                    url,
+                    headers=headers,
+                    auth=auth_tuple,
+                    timeout=aiohttp.ClientTimeout(total=45),
+                ) as resp:
+                    body = await resp.text()
+                    if resp.status == 401:
+                        raise OctopusApiError("Invalid Octopus API key")
+                    if resp.status == 404:
+                        raise OctopusApiError(f"Octopus resource not found: {path}")
+                    if resp.status >= 500:
+                        last_error = OctopusApiError(summarise_octopus_http_error(resp.status, body))
+                        if attempt + 1 < _MAX_SERVER_RETRIES:
+                            await asyncio.sleep(1.5 * (attempt + 1))
+                            continue
+                        raise last_error
+                    if resp.status != 200:
+                        raise OctopusApiError(summarise_octopus_http_error(resp.status, body))
+                    try:
+                        data = json.loads(body) if body else {}
+                    except json.JSONDecodeError as err:
+                        raise OctopusApiError("Unexpected Octopus API response") from err
+                    if not isinstance(data, dict):
+                        raise OctopusApiError("Unexpected Octopus API response")
+                    return data
+            except OctopusApiError:
+                raise
+            except aiohttp.ClientError as err:
+                last_error = OctopusApiError(f"Octopus network error: {err}")
+                if attempt + 1 < _MAX_SERVER_RETRIES:
+                    await asyncio.sleep(1.5 * (attempt + 1))
+                    continue
+                raise last_error from err
+        if last_error is not None:
+            raise last_error
+        raise OctopusApiError("Octopus API request failed")
 
     async def _paginate(self, path: str, *, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
@@ -86,10 +129,12 @@ class OctopusApiClient:
                         auth=aiohttp.BasicAuth(self._api_key, ""),
                         timeout=aiohttp.ClientTimeout(total=45),
                     ) as resp:
+                        text = await resp.text()
+                        if resp.status >= 500:
+                            raise OctopusApiError(summarise_octopus_http_error(resp.status, text))
                         if resp.status != 200:
-                            text = await resp.text()
-                            raise OctopusApiError(f"Octopus API HTTP {resp.status}: {text[:240]}")
-                        payload = await resp.json(content_type=None)
+                            raise OctopusApiError(summarise_octopus_http_error(resp.status, text))
+                        payload = json.loads(text) if text else {}
                 else:
                     payload = await self._request(next_url)
             if not isinstance(payload, dict):
@@ -105,7 +150,22 @@ class OctopusApiClient:
         account = account_number.strip().upper()
         if not account:
             raise OctopusApiError("Octopus account number is required")
-        return await self._request(f"/accounts/{account}/")
+        try:
+            return await self._request(f"/accounts/{account}/")
+        except OctopusApiError as err:
+            message = str(err)
+            if "temporary server error" not in message and "HTTP 5" not in message:
+                raise
+            _LOGGER.warning("Octopus REST account failed (%s); trying GraphQL fallback", message)
+            from .octopus_graphql import OctopusGraphqlClient, OctopusGraphqlError
+
+            gql = OctopusGraphqlClient(self._hass, api_key=self._api_key)
+            try:
+                return await gql.fetch_account_as_rest(account)
+            except OctopusGraphqlError as gql_err:
+                raise OctopusApiError(
+                    f"{message} GraphQL fallback also failed: {gql_err}"
+                ) from gql_err
 
     async def get_products(self, *, force_refresh: bool = False) -> list[dict[str, Any]]:
         if self._products_cache is not None and not force_refresh:
