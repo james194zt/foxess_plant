@@ -372,7 +372,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.455";
+const PANEL_VERSION = "0.9.456";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -7643,6 +7643,74 @@ function smartChargePlanActionTone(action) {
   return "idle";
 }
 
+function smartChargeTimelineHourMarks(slots) {
+  /** Hour tick under the full plan bar — label every 3 hours + first/last. */
+  const marks = [];
+  let lastHour = null;
+  slots.forEach((s, index) => {
+    const start = String(s.start || "");
+    const hour = Number.parseInt(start.slice(0, 2), 10);
+    if (!Number.isFinite(hour) || hour === lastHour) return;
+    lastHour = hour;
+    const isEdge = index === 0 || index === slots.length - 1;
+    const isMajor = hour % 3 === 0;
+    if (!isEdge && !isMajor) return;
+    marks.push({ index, label: `${String(hour).padStart(2, "0")}:00`, hour });
+  });
+  return marks;
+}
+
+function renderSmartChargePlanTimeline(dailyPlan, currentSlot) {
+  const slots = (dailyPlan || []).filter((s) => s.start && s.end && s.reason !== "no_slots");
+  if (!slots.length) {
+    const horizon = dailyPlan?.[0]?.plan_horizon;
+    const hint =
+      horizon === "rest_of_today"
+        ? "Rest-of-today plan from current Agile rates — no charge or export slots in the window. Full 24h plan (incl. tomorrow) refreshes at 16:00 UK when Octopus publishes new rates."
+        : horizon === "24h"
+          ? "24h plan from current Agile rates — no charge or export slots in the window."
+          : "Building plan from current Agile rates and Solcast forecast…";
+    return `<p class="sc-empty-hint">${esc(hint)}</p>`;
+  }
+  const nowKey =
+    currentSlot?.start && currentSlot?.end ? `${currentSlot.start}-${currentSlot.end}` : null;
+  const first = slots[0];
+  const last = slots[slots.length - 1];
+  const rangeLabel = `${first.start} → ${last.end} · ${slots.length} half-hours`;
+  const segments = slots
+    .map((s) => {
+      const tone = smartChargePlanActionTone(s.action);
+      const isNow = nowKey === `${s.start}-${s.end}`;
+      const imp = Number(s.import_p_per_kwh ?? 0).toFixed(1);
+      const exp = s.export_p_per_kwh != null ? Number(s.export_p_per_kwh).toFixed(1) : null;
+      const title = `${s.start}–${s.end} ${s.action}${exp != null ? ` · ${exp}p exp` : ` · ${imp}p imp`}`;
+      return `<div class="sc-timeline-seg sc-timeline-seg--${tone}${isNow ? " sc-timeline-seg--now" : ""}" title="${esc(title)}" aria-label="${esc(title)}"></div>`;
+    })
+    .join("");
+  const hourMarks = smartChargeTimelineHourMarks(slots);
+  const hourByIndex = new Map(hourMarks.map((m) => [m.index, m.label]));
+  const hourRow = slots
+    .map((_, index) => {
+      const label = hourByIndex.get(index);
+      if (!label) return `<span class="sc-timeline-hour" aria-hidden="true"></span>`;
+      return `<span class="sc-timeline-hour sc-timeline-hour--label">${esc(label)}</span>`;
+    })
+    .join("");
+  return `<div class="sc-timeline-wrap">
+<p class="sc-timeline-range">${esc(rangeLabel)}</p>
+<div class="sc-timeline-scroll" style="--sc-slot-count:${slots.length}">
+<div class="sc-timeline" role="img" aria-label="Full ${esc(String(slots.length))}-slot charge and export plan from ${esc(first.start)} to ${esc(last.end)}">${segments}</div>
+<div class="sc-timeline-hours" aria-hidden="true">${hourRow}</div>
+</div>
+<div class="sc-timeline-legend">
+<span><i class="sc-legend-dot sc-legend-dot--charge"></i>Charge</span>
+<span><i class="sc-legend-dot sc-legend-dot--export"></i>Export</span>
+<span><i class="sc-legend-dot sc-legend-dot--candidate"></i>Candidate</span>
+<span><i class="sc-legend-dot sc-legend-dot--idle"></i>Hold</span>
+</div>
+</div>`;
+}
+
 function smartChargeLiveStatusPresentation(live, decision) {
   const action = decision?.action;
   const reason = decision?.reason;
@@ -7680,41 +7748,6 @@ function smartChargeLiveStatusPresentation(live, decision) {
     tone: "idle",
     cardClass: "sc-status-card",
   };
-}
-
-function renderSmartChargePlanTimeline(dailyPlan, currentSlot) {
-  const slots = (dailyPlan || []).filter((s) => s.start && s.end && s.reason !== "no_slots").slice(0, 24);
-  if (!slots.length) {
-    const horizon = dailyPlan?.[0]?.plan_horizon;
-    const hint =
-      horizon === "rest_of_today"
-        ? "Rest-of-today plan from current Agile rates — no charge or export slots in the window. Full 24h plan (incl. tomorrow) refreshes at 16:00 UK when Octopus publishes new rates."
-        : horizon === "24h"
-          ? "24h plan from current Agile rates — no charge or export slots in the window."
-          : "Building plan from current Agile rates and Solcast forecast…";
-    return `<p class="sc-empty-hint">${esc(hint)}</p>`;
-  }
-  const nowKey =
-    currentSlot?.start && currentSlot?.end ? `${currentSlot.start}-${currentSlot.end}` : null;
-  const segments = slots
-    .map((s) => {
-      const tone = smartChargePlanActionTone(s.action);
-      const isNow = nowKey === `${s.start}-${s.end}`;
-      const imp = Number(s.import_p_per_kwh ?? 0).toFixed(1);
-      const exp = s.export_p_per_kwh != null ? Number(s.export_p_per_kwh).toFixed(1) : null;
-      const title = `${s.start}–${s.end} ${s.action}${exp != null ? ` · ${exp}p exp` : ` · ${imp}p imp`}`;
-      return `<div class="sc-timeline-seg sc-timeline-seg--${tone}${isNow ? " sc-timeline-seg--now" : ""}" title="${esc(title)}" aria-label="${esc(title)}"></div>`;
-    })
-    .join("");
-  return `<div class="sc-timeline-wrap">
-<div class="sc-timeline" role="img" aria-label="Daily charge and export plan">${segments}</div>
-<div class="sc-timeline-legend">
-<span><i class="sc-legend-dot sc-legend-dot--charge"></i>Charge</span>
-<span><i class="sc-legend-dot sc-legend-dot--export"></i>Export</span>
-<span><i class="sc-legend-dot sc-legend-dot--candidate"></i>Candidate</span>
-<span><i class="sc-legend-dot sc-legend-dot--idle"></i>Hold</span>
-</div>
-</div>`;
 }
 
 function renderSmartChargeStatTiles(decision) {
@@ -14014,13 +14047,36 @@ const STYLES = `
 .sc-gauge-track { margin-top: 8px; height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--divider-color) 70%, transparent); overflow: hidden; }
 .sc-gauge-fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--fp-accent), var(--fp-green,#4caf50)); }
 .sc-timeline-wrap { margin-top: 4px; }
-.sc-timeline { display: flex; gap: 2px; height: 28px; align-items: stretch; }
-.sc-timeline-seg { flex: 1 1 0; min-width: 2px; border-radius: 3px; opacity: 0.85; }
+.sc-timeline-range { margin: 0 0 6px; font-size: 11px; color: var(--secondary-text-color); }
+.sc-timeline-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 2px;
+}
+.sc-timeline {
+  display: flex;
+  gap: 1px;
+  height: 28px;
+  align-items: stretch;
+  min-width: min(100%, calc(var(--sc-slot-count, 24) * 6px));
+}
+.sc-timeline-seg { flex: 1 1 0; min-width: 4px; border-radius: 2px; opacity: 0.88; }
 .sc-timeline-seg--charge { background: var(--fp-green,#4caf50); }
 .sc-timeline-seg--export { background: var(--fp-amber,#f9a825); }
 .sc-timeline-seg--candidate { background: color-mix(in srgb, var(--fp-accent) 70%, var(--fp-green,#4caf50)); }
 .sc-timeline-seg--idle { background: color-mix(in srgb, var(--secondary-text-color) 35%, transparent); }
-.sc-timeline-seg--now { box-shadow: 0 0 0 2px var(--primary-text-color); opacity: 1; }
+.sc-timeline-seg--now { box-shadow: 0 0 0 2px var(--primary-text-color); opacity: 1; z-index: 1; }
+.sc-timeline-hours {
+  display: flex;
+  gap: 1px;
+  margin-top: 4px;
+  min-width: min(100%, calc(var(--sc-slot-count, 24) * 6px));
+  font-size: 10px;
+  line-height: 1.2;
+  color: var(--secondary-text-color);
+}
+.sc-timeline-hour { flex: 1 1 0; min-width: 4px; overflow: visible; white-space: nowrap; }
+.sc-timeline-hour--label { transform: translateX(-40%); }
 .sc-timeline-legend { display: flex; flex-wrap: wrap; gap: 10px 14px; margin-top: 8px; font-size: 11px; color: var(--secondary-text-color); }
 .sc-legend-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; vertical-align: middle; }
 .sc-legend-dot--charge { background: var(--fp-green,#4caf50); }
