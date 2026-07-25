@@ -879,7 +879,11 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             )
         except Exception as err:
             _LOGGER.exception("fetch_smart_charge_analysis failed")
-            connection.send_error(msg["id"], "smart_charge_analysis_failed", str(err))
+            connection.send_error(
+                msg["id"],
+                "smart_charge_analysis_failed",
+                f"{type(err).__name__}: {err}",
+            )
             return
         connection.send_result(
             msg["id"],

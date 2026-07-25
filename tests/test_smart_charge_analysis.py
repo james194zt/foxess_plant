@@ -62,6 +62,19 @@ class TestIntegratePower(unittest.TestCase):
         pts = [{"t": 0, "v": 0}, {"t": 3_600_000, "v": 4.0}]
         self.assertAlmostEqual(sca.integrate_power_kwh(pts, 0, 1_800_000), 1.0, places=2)
 
+    def test_accepts_statistics_start_mean_rows(self):
+        # Recorder stats from _fetch_statistics_points use start/mean, not t/v.
+        pts = [{"start": 0, "mean": 2.0}, {"start": 3600, "mean": 2.0}]
+        self.assertAlmostEqual(sca.integrate_power_kwh(pts, 0, 3_600_000), 2.0, places=3)
+
+    def test_stats_rows_to_power_points(self):
+        rows = [{"start": 1_700_000_000, "mean": 1.5}, {"start": 1_700_000_300, "mean": 2.0}]
+        pts = sca.stats_rows_to_power_points(rows)
+        self.assertEqual(len(pts), 2)
+        self.assertIn("t", pts[0])
+        self.assertIn("v", pts[0])
+        self.assertEqual(pts[0]["v"], 1.5)
+
 
 class TestPairBinary(unittest.TestCase):
     def test_on_off_pair(self):

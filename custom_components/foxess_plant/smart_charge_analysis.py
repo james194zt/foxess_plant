@@ -153,10 +153,14 @@ def integrate_power_kwh(
     """Trapezoidal integration of kW samples → kWh within [start_ms, end_ms]."""
     if end_ms <= start_ms or not points:
         return 0.0
-    clipped = [p for p in points if start_ms <= p["t"] <= end_ms]
+    normalized = [_normalize_power_point(p) for p in points]
+    normalized = [p for p in normalized if p is not None]
+    if not normalized:
+        return 0.0
+    clipped = [p for p in normalized if start_ms <= p["t"] <= end_ms]
     if not clipped:
-        before = [p for p in points if p["t"] < start_ms]
-        after = [p for p in points if p["t"] > end_ms]
+        before = [p for p in normalized if p["t"] < start_ms]
+        after = [p for p in normalized if p["t"] > end_ms]
         if not before:
             return 0.0
         v0 = before[-1]["v"]
@@ -164,10 +168,10 @@ def integrate_power_kwh(
         hours = (end_ms - start_ms) / 3_600_000
         return max(0.0, ((v0 + v1) / 2) * hours)
     seq = list(clipped)
-    before = [p for p in points if p["t"] < start_ms]
+    before = [p for p in normalized if p["t"] < start_ms]
     if before and seq[0]["t"] > start_ms:
         seq.insert(0, {"t": start_ms, "v": before[-1]["v"]})
-    after = [p for p in points if p["t"] > end_ms]
+    after = [p for p in normalized if p["t"] > end_ms]
     if after and seq[-1]["t"] < end_ms:
         seq.append({"t": end_ms, "v": after[0]["v"]})
     elif seq[-1]["t"] < end_ms:
@@ -178,9 +182,41 @@ def integrate_power_kwh(
         t1, v1 = seq[i + 1]["t"], max(0.0, float(seq[i + 1]["v"]))
         if t1 <= t0:
             continue
-        hours = (t1 - t0) / 3_600_000
-        total += ((v0 + v1) / 2) * hours
-    return round(total, 3)
+        total += ((v0 + v1) / 2.0) * ((t1 - t0) / 3_600_000.0)
+    return round(max(0.0, total), 3)
+
+
+def _normalize_power_point(point: dict[str, Any] | None) -> dict[str, float] | None:
+    """Accept {t,v} chart points or recorder stats rows {start, mean}."""
+    if not isinstance(point, dict):
+        return None
+    if "t" in point and "v" in point:
+        try:
+            return {"t": float(point["t"]), "v": float(point["v"])}
+        except (TypeError, ValueError):
+            return None
+    raw_start = point.get("start")
+    raw_mean = point.get("mean")
+    if raw_start is None or raw_mean is None:
+        return None
+    try:
+        t_ms = float(raw_start)
+        if t_ms < 1e12:
+            t_ms *= 1000.0
+        return {"t": t_ms, "v": float(raw_mean)}
+    except (TypeError, ValueError):
+        return None
+
+
+def stats_rows_to_power_points(rows: list[dict[str, Any]] | None) -> list[dict[str, float]]:
+    """Convert _fetch_statistics_points rows into integrate_power_kwh points."""
+    out: list[dict[str, float]] = []
+    for row in rows or []:
+        pt = _normalize_power_point(row)
+        if pt is not None:
+            out.append(pt)
+    out.sort(key=lambda p: p["t"])
+    return out
 
 
 def resolve_slot_range_ms(anchor: datetime, start_s: str, end_s: str) -> tuple[int, int] | None:
@@ -602,7 +638,7 @@ async def async_build_smart_charge_analysis(
             stats = _fetch_statistics_points(hass, start_utc, fetch_end, stat_ids, period="5minute", statistic="mean")
             for key, eid in power_ids.items():
                 if eid:
-                    power_pts[key] = stats.get(eid) or []
+                    power_pts[key] = stats_rows_to_power_points(stats.get(eid) or [])
         except Exception as err:
             _LOGGER.warning("SmartCharge analysis statistics failed: %s", err)
 

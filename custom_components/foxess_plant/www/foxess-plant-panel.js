@@ -372,7 +372,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.458";
+const PANEL_VERSION = "0.9.460";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -3690,6 +3690,7 @@ function octopusConsumptionDailyTotals(consumption, days = 14) {
 function renderOctopusGenericBarChartSvg(rows, {
   valueKey,
   maxValue = null,
+  minValue = null,
   colorFn = () => "#4caf50",
   emptyHint = "No data available.",
   ariaLabel = "Chart",
@@ -3713,8 +3714,22 @@ function renderOctopusGenericBarChartSvg(rows, {
     const v = r[valueKey];
     return v != null && Number.isFinite(Number(v)) ? Number(v) : 0;
   });
-  const peak =
-    maxValue != null && Number.isFinite(Number(maxValue)) ? Number(maxValue) : Math.max(...values, 0.01);
+  const dataMin = Math.min(...values);
+  const dataMax = Math.max(...values);
+  let yMin =
+    minValue != null && Number.isFinite(Number(minValue)) ? Number(minValue) : Math.min(0, dataMin);
+  let yMax =
+    maxValue != null && Number.isFinite(Number(maxValue)) ? Number(maxValue) : Math.max(0, dataMax);
+  if (yMax <= yMin) {
+    yMax = yMin + 0.01;
+  } else {
+    const pad = (yMax - yMin) * 0.06;
+    if (minValue == null) yMin -= dataMin < 0 ? pad : 0;
+    if (maxValue == null) yMax += pad;
+  }
+  const ySpan = Math.max(yMax - yMin, 0.01);
+  const yScale = (v) => padT + chartH * (1 - (v - yMin) / ySpan);
+  const y0 = yScale(0);
   const barsMeta = data.map((row, i) => {
     const base = {
       start_ms: row.start_ms,
@@ -3726,12 +3741,17 @@ function renderOctopusGenericBarChartSvg(rows, {
     const extra = barsMetaFn ? barsMetaFn(row, values[i]) : row;
     return { ...base, ...extra };
   });
+  const zeroLine =
+    yMin < 0 && yMax > 0
+      ? `<line x1="${padL}" y1="${y0.toFixed(1)}" x2="${(padL + chartW).toFixed(1)}" y2="${y0.toFixed(1)}" stroke="var(--secondary-text-color,#888)" stroke-opacity="0.45" stroke-dasharray="3 3" />`
+      : "";
   const bars = data
     .map((row, i) => {
       const v = values[i];
-      const h = Math.max(2, (v / peak) * chartH);
+      const yVal = yScale(v);
+      const y = Math.min(yVal, y0);
+      const h = Math.max(1.5, Math.abs(yVal - y0));
       const x = padL + i * slotW + (slotW - barW) / 2;
-      const y = padT + chartH - h;
       const color = colorFn(row, v);
       return `<rect class="octopus-greener-bar" data-bar-index="${i}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" fill="${color}" rx="2" />`;
     })
@@ -3750,7 +3770,7 @@ function renderOctopusGenericBarChartSvg(rows, {
   const barsJson = encodeURIComponent(JSON.stringify(barsMeta));
   const hitLeftPct = ((padL / W) * 100).toFixed(3);
   return `<div class="octopus-greener-chart-plot" data-octopus-greener-plot="1" data-chart-mode="${esc(chartMode)}" data-chart-w="${W}" data-pad-l="${padL}" data-pad-t="${padT}" data-pad-b="${padB}" data-chart-inner-w="${chartW}" data-slot-w="${slotW}" data-bars="${barsJson}" style="--octopus-hit-left:${hitLeftPct}%">
-<svg class="octopus-greener-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(ariaLabel)}">${bars}${overlaySvg}${labels.join("")}</svg>
+<svg class="octopus-greener-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(ariaLabel)}">${zeroLine}${bars}${overlaySvg}${labels.join("")}</svg>
 <div class="octopus-greener-hit" aria-hidden="true"></div>
 <div class="octopus-greener-tooltip" hidden role="tooltip"></div>
 </div>`;
@@ -3776,13 +3796,14 @@ function renderOctopusRateChartSvg(slots, { kind = "import" } = {}) {
   return `${chart}<p class="octopus-analysis-chart-hint"><i class="octopus-analysis-swatch" style="background:${color}"></i> ${esc(legendLabel)} — hover bars for time and price</p>`;
 }
 
-function octopusDualPriceLinePoints(rows, rateKey, maxRate, padL, padT, chartH, slotW) {
+function octopusDualPriceLinePoints(rows, rateKey, yMin, yMax, padL, padT, chartH, slotW) {
+  const span = Math.max(yMax - yMin, 0.01);
   return rows
     .map((row, i) => {
       const rate = row[rateKey];
       if (rate == null || !Number.isFinite(Number(rate))) return null;
       const x = padL + i * slotW + slotW / 2;
-      const y = padT + chartH - (Number(rate) / Math.max(0.01, maxRate)) * chartH;
+      const y = padT + chartH * (1 - (Number(rate) - yMin) / span);
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     })
     .filter(Boolean)
@@ -3798,7 +3819,11 @@ function renderOctopusDualChartSvg(dualPeriods) {
     .flatMap((r) => [r.p_per_kwh, r.export_p_per_kwh])
     .map((v) => (v != null ? Number(v) : null))
     .filter((v) => v != null && Number.isFinite(v));
-  const maxRate = rates.length ? Math.max(...rates) : 1;
+  const rateMin = rates.length ? Math.min(...rates, 0) : 0;
+  const rateMax = rates.length ? Math.max(...rates, 0) : 1;
+  const rateSpan = Math.max(rateMax - rateMin, 0.01);
+  const yMin = rateMin - rateSpan * 0.06;
+  const yMax = rateMax + rateSpan * 0.06;
   const W = 640;
   const H = 168;
   const padL = 28;
@@ -3808,11 +3833,12 @@ function renderOctopusDualChartSvg(dualPeriods) {
   const chartW = W - padL - padR;
   const chartH = H - padT - padB;
   const slotW = chartW / rows.length;
-  const importPoints = octopusDualPriceLinePoints(rows, "p_per_kwh", maxRate, padL, padT, chartH, slotW);
+  const importPoints = octopusDualPriceLinePoints(rows, "p_per_kwh", yMin, yMax, padL, padT, chartH, slotW);
   const exportPoints = octopusDualPriceLinePoints(
     rows,
     "export_p_per_kwh",
-    maxRate,
+    yMin,
+    yMax,
     padL,
     padT,
     chartH,
