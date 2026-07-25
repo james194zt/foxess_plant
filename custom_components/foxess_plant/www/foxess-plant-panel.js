@@ -372,7 +372,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.462";
+const PANEL_VERSION = "0.9.463";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -3175,6 +3175,33 @@ function performanceYTicks(yMin, yMax, { maxTicks = 5 } = {}) {
   return ticks;
 }
 
+/** Expand nearly-constant series so a flat line does not glue to the chart baseline. */
+function performanceValueDomain(vals, { floor = null, minSpan = 1, padRatio = 0.12 } = {}) {
+  const nums = (vals || []).filter(Number.isFinite);
+  if (!nums.length) {
+    const lo = floor != null ? floor : 0;
+    return { min: lo, max: lo + minSpan };
+  }
+  let lo = Math.min(...nums);
+  let hi = Math.max(...nums);
+  if (floor != null) lo = Math.min(lo, floor);
+  if (hi - lo < minSpan) {
+    const mid = (lo + hi) / 2;
+    lo = mid - minSpan / 2;
+    hi = mid + minSpan / 2;
+    if (floor != null && lo < floor) {
+      lo = floor;
+      hi = floor + minSpan;
+    }
+  }
+  const pad = Math.max((hi - lo) * padRatio, minSpan * 0.05);
+  let min = lo - (floor != null && lo <= floor + 1e-9 ? 0 : pad);
+  let max = hi + pad;
+  if (floor != null) min = Math.max(min, floor);
+  if (max <= min) max = min + minSpan;
+  return { min, max };
+}
+
 function performanceChartAxesSvg({ padL, padT, w, h, xDomain, xScale, yScale, yTicks, yUnit = "" }) {
   const grid = yTicks
     .map((yv) => {
@@ -3371,8 +3398,9 @@ function renderPerformancePhysicsChartSvg(chart) {
   const windPts = performanceClipPoints(wind, xDomain.tMin, xDomain.tMax);
   const tVals = tempPts.map((p) => p.v).filter(Number.isFinite);
   const wVals = windPts.map((p) => p.v).filter(Number.isFinite);
-  const tMin = tVals.length ? Math.min(...tVals) : 0;
-  const tMax = tVals.length ? Math.max(...tVals, tMin + 1) : 40;
+  const tempDomain = performanceValueDomain(tVals, { minSpan: 8 });
+  const tMin = tempDomain.min;
+  const tMax = tempDomain.max;
   const wMin = 0;
   const wMax = wVals.length ? Math.max(...wVals, 1) : 10;
   const yScaleT = (v) => padT + h - ((v - tMin) / Math.max(tMax - tMin, 1)) * h;
@@ -3436,10 +3464,13 @@ function renderPerformanceMicroclimateChartSvg(chart) {
   const visVals = visPts.map((p) => p.v).filter(Number.isFinite);
   const dewVals = dewPts.map((p) => p.v).filter(Number.isFinite);
   const precipMax = precipPts.length ? Math.max(...precipPts.map((p) => p.v), 0.1) : 1;
-  const vMin = visVals.length ? Math.max(0, Math.min(...visVals)) : 0;
-  const vMax = visVals.length ? Math.max(...visVals, vMin + 1) : 20;
-  const dMin = dewVals.length ? Math.min(...dewVals) : 0;
-  const dMax = dewVals.length ? Math.max(...dewVals, dMin + 1) : 20;
+  // Visibility is often steady (e.g. 16 km all day). Auto min≈max pinned the line to the baseline.
+  const visDomain = performanceValueDomain(visVals, { floor: 0, minSpan: 10 });
+  const dewDomain = performanceValueDomain(dewVals, { minSpan: 4 });
+  const vMin = visDomain.min;
+  const vMax = visDomain.max;
+  const dMin = dewDomain.min;
+  const dMax = dewDomain.max;
   const yScaleVis = (v) => padT + h - ((v - vMin) / Math.max(vMax - vMin, 0.1)) * h;
   const yScaleDew = (v) => padT + h - ((v - dMin) / Math.max(dMax - dMin, 0.1)) * h;
   const yScalePrecip = (v) => padT + h - (Math.max(0, v) / precipMax) * (h * 0.35);
@@ -3454,6 +3485,10 @@ function renderPerformanceMicroclimateChartSvg(chart) {
     yTicks: performanceYTicks(vMin, vMax),
     yUnit: " km",
   });
+  const visSteady =
+    visVals.length >= 2 && Math.max(...visVals) - Math.min(...visVals) < 0.05
+      ? `<p class="field-hint fox-perf-chart-hint">Visibility steady at ${Number(visVals[visVals.length - 1]).toFixed(1)} km</p>`
+      : "";
   const visLine = visibility.length
     ? performanceSeriesSvg(visibility, xDomain, xScale, yScaleVis, "#FA8C16", { width: 2 })
     : "";
@@ -3475,7 +3510,7 @@ function renderPerformanceMicroclimateChartSvg(chart) {
 <span><i style="background:#597EF7"></i> Dew point °C</span>
 <span><i style="background:#69C0FF"></i> Precip mm</span>
 </div>
-${hint}
+${hint}${visSteady}
 <svg class="fox-perf-chart-svg fox-perf-chart-svg--microclimate" viewBox="0 0 ${W} ${H}" role="img" aria-label="Visibility dew and precipitation chart">
 ${axes}
 ${precipBars}
