@@ -92,9 +92,35 @@ def _ambient_temp_c(hass: Any, coordinator: Any) -> float | None:
 
 def _string_voltage_v(coordinator: Any) -> float | None:
     """Average live string voltages (ignore dead/idle strings)."""
+    from ..discovery import resolve_entity_id
+    from ..smart_charge.battery_metrics import parse_state_float
+
     vals: list[float] = []
-    for key in ("pv1_voltage", "pv2_voltage", "pv1_volts", "pv2_volts"):
-        value = coordinator._entity_float(key)
+    keys = (
+        "pv1_voltage",
+        "pv2_voltage",
+        "pv3_voltage",
+        "pv4_voltage",
+        "pv1_volts",
+        "pv2_volts",
+    )
+    for key in keys:
+        entity_id = resolve_entity_id(
+            coordinator.hass,
+            coordinator.plant.entity_map,
+            key,
+            device_id=coordinator.plant.device_id,
+        )
+        if not entity_id:
+            # Fall back to mapped float helper for aliases already in the entity map.
+            value = coordinator._entity_float(key)
+            if value is not None and float(value) > 50.0:
+                vals.append(float(value))
+            continue
+        state = coordinator.hass.states.get(entity_id)
+        if not state or state.state in ("unknown", "unavailable", ""):
+            continue
+        value = parse_state_float(state.state)
         if value is not None and float(value) > 50.0:
             vals.append(float(value))
     if not vals:
@@ -109,7 +135,7 @@ def _resolve_virtual_panel_temp(
     pv_kw: float | None,
     ambient: float | None,
 ) -> float | None:
-    """Estimate panel temp; auto-seed baseline when factory/wrong baseline rejects live V."""
+    """Estimate panel temp; auto-seed baseline when stored baseline rejects live V."""
     from .virtual_panel_temp import (
         MIN_PV_KW_FOR_TEMP,
         compute_virtual_panel_temp_c,
@@ -130,13 +156,22 @@ def _resolve_virtual_panel_temp(
         inverter_ac_limit_kw=ac_limit,
         ambient_temp_c=ambient,
     )
+    # Ambient clamp can reject a usable estimate when outdoor mapping is off —
+    # retry without ambient before giving up on seeding.
+    if virtual_temp is None and ambient is not None and string_v is not None and pv_kw is not None:
+        virtual_temp = compute_virtual_panel_temp_c(
+            string_voltage_v=string_v,
+            pv_power_kw=pv_kw,
+            baseline_v_at_25c=baseline,
+            temp_coefficient_v_per_c=coeff,
+            inverter_ac_limit_kw=ac_limit,
+            ambient_temp_c=None,
+        )
     if virtual_temp is not None or string_v is None or pv_kw is None:
         return virtual_temp
     if float(pv_kw) < MIN_PV_KW_FOR_TEMP:
         return None
-    # Only auto-seed the factory placeholder — never overwrite a saved calibration.
-    if abs(baseline - 400.0) >= 0.51:
-        return None
+    # Stored baseline incompatible with live string voltage — re-seed from Vmp.
     if not voltage_out_of_baseline_band(live_v=float(string_v), baseline_v=baseline):
         return None
 
@@ -161,7 +196,8 @@ def _resolve_virtual_panel_temp(
     if virtual_temp is None:
         return None
 
-    if abs(seeded - baseline) >= 1.0:
+    # Persist factory placeholder or any baseline that was clearly wrong (>5%).
+    if abs(seeded - baseline) >= max(1.0, abs(baseline) * 0.05):
         cfg.baseline_v_at_25c = seeded
         coordinator._performance_baseline_autoseed = seeded
     return virtual_temp

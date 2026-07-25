@@ -339,6 +339,94 @@ def _mapped_local_weather_series(
     return series
 
 
+def _points_to_lookup(points: list[dict[str, float]], *, bucket_ms: int = 5 * 60 * 1000) -> dict[int, float]:
+    lookup: dict[int, float] = {}
+    for point in _downsample_points(points, bucket_ms=bucket_ms):
+        bucket = int(point["t"] - (point["t"] % bucket_ms))
+        lookup[bucket] = float(point["v"])
+    return lookup
+
+
+def _virtual_panel_temp_from_inverter_history(
+    hass: HomeAssistant,
+    coordinator: Any,
+    *,
+    start_utc: datetime,
+    end_utc: datetime,
+) -> list[dict[str, float]]:
+    """Rebuild virtual panel °C from PV voltage + power history when samples are empty."""
+    from .discovery import resolve_entity_id
+    from .performance.virtual_panel_temp import compute_virtual_panel_temp_c
+    from .websocket_api import _fetch_history_points, _fetch_statistics_points
+
+    cfg = coordinator.plant.performance
+    device_id = coordinator.plant.device_id
+    entity_map = coordinator.plant.entity_map
+
+    volt_ids: list[str] = []
+    for key in ("pv1_voltage", "pv2_voltage", "pv3_voltage", "pv4_voltage"):
+        eid = resolve_entity_id(hass, entity_map, key, device_id=device_id)
+        if eid and eid not in volt_ids:
+            volt_ids.append(eid)
+
+    power_id = resolve_entity_id(hass, entity_map, "pv_power", device_id=device_id)
+    if not power_id:
+        for key in ("pv1_power", "pv_power_total"):
+            power_id = resolve_entity_id(hass, entity_map, key, device_id=device_id)
+            if power_id:
+                break
+    if not volt_ids or not power_id:
+        return []
+
+    entity_ids = [*volt_ids, power_id]
+    stats = _fetch_statistics_points(
+        hass, start_utc, end_utc, entity_ids, period="5minute", statistic="mean"
+    )
+    history_needed = [
+        eid for eid in entity_ids if len(_stats_to_points(stats.get(eid, []))) < 2
+    ]
+    history_map: dict[str, list[dict[str, float]]] = {}
+    if history_needed:
+        try:
+            history_map = _fetch_history_points(
+                hass, start_utc, end_utc, history_needed, significant_changes_only=False
+            )
+        except Exception as err:
+            _LOGGER.debug("Virtual panel temp history fallback failed: %s", err)
+
+    def series_for(entity_id: str) -> list[dict[str, float]]:
+        pts = _stats_to_points(stats.get(entity_id, []))
+        if len(pts) < 2:
+            pts = _downsample_points(history_map.get(entity_id) or [])
+        return pts
+
+    power_lookup = _points_to_lookup(series_for(power_id))
+    volt_lookups = [_points_to_lookup(series_for(eid)) for eid in volt_ids]
+    buckets = sorted(set(power_lookup) | {b for lu in volt_lookups for b in lu})
+    out: list[dict[str, float]] = []
+    for bucket in buckets:
+        voltages = [lu[bucket] for lu in volt_lookups if bucket in lu and lu[bucket] > 50]
+        if not voltages or bucket not in power_lookup:
+            continue
+        pv_kw = float(power_lookup[bucket])
+        # Stats/history may be in W for some entities.
+        if pv_kw > 50:
+            pv_kw /= 1000.0
+        string_v = sum(voltages) / len(voltages)
+        temp = compute_virtual_panel_temp_c(
+            string_voltage_v=string_v,
+            pv_power_kw=pv_kw,
+            baseline_v_at_25c=float(cfg.baseline_v_at_25c),
+            temp_coefficient_v_per_c=float(cfg.temp_coefficient_v_per_c),
+            inverter_ac_limit_kw=cfg.inverter_ac_limit_kw,
+            ambient_temp_c=None,
+        )
+        if temp is None:
+            continue
+        out.append({"t": float(bucket), "v": float(temp)})
+    return out
+
+
 def _append_live_weather_point(
     series: dict[str, list[dict[str, float]]],
     coordinator: Any,
@@ -410,6 +498,14 @@ async def async_build_performance_day_chart(
         hass, coordinator, start_utc=start_utc, end_utc=end_utc
     )
     series = _merge_series(series, local_weather_series)
+    if len(series.get("virtual_panel_temp_c") or []) < 3:
+        temp_from_inverter = _virtual_panel_temp_from_inverter_history(
+            hass, coordinator, start_utc=start_utc, end_utc=end_utc
+        )
+        if temp_from_inverter:
+            series = _merge_series(
+                series, {"virtual_panel_temp_c": temp_from_inverter}
+            )
     _append_live_weather_point(series, coordinator, is_today=target_day == dt_util.as_local(dt_util.now()).date())
 
     if sample_count < 6:

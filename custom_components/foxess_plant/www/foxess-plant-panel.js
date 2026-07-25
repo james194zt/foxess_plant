@@ -372,7 +372,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.463";
+const PANEL_VERSION = "0.9.464";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -3405,7 +3405,8 @@ function renderPerformancePhysicsChartSvg(chart) {
   const wMax = wVals.length ? Math.max(...wVals, 1) : 10;
   const yScaleT = (v) => padT + h - ((v - tMin) / Math.max(tMax - tMin, 1)) * h;
   const yScaleW = (v) => padT + h - ((v - wMin) / Math.max(wMax - wMin, 0.1)) * h;
-  const yTicks = performanceYTicks(tMin, tMax);
+  const axisIsWind = !tVals.length && wVals.length > 0;
+  const yTicks = performanceYTicks(axisIsWind ? wMin : tMin, axisIsWind ? wMax : tMax);
   const axes = performanceChartAxesSvg({
     padL,
     padT,
@@ -3413,18 +3414,22 @@ function renderPerformancePhysicsChartSvg(chart) {
     h,
     xDomain,
     xScale,
-    yScale: yScaleT,
+    yScale: axisIsWind ? yScaleW : yScaleT,
     yTicks,
-    yUnit: "°",
+    yUnit: axisIsWind ? " m/s" : "°",
   });
   const tempLine = performanceSeriesSvg(temp, xDomain, xScale, yScaleT, "#08979C", { width: 2 });
   const windLine = performanceSeriesSvg(wind, xDomain, xScale, yScaleW, "#52C41A", { width: 1.6, dash: "4 2" });
   const hint = performanceSparseHint(Math.max(tempPts.length, windPts.length), xDomain);
+  const tempMissing =
+    !tempPts.length && windPts.length
+      ? `<p class="field-hint fox-perf-chart-hint">Virtual panel °C needs daytime PV above ~0.5 kW plus string voltage (PV1/PV2). It auto-calibrates the 25°C baseline once sun is strong enough — overnight / low irradiance stays blank.</p>`
+      : "";
   return `<div class="fox-perf-chart-legend">
 <span><i style="background:#08979C"></i> Virtual panel °C</span>
 <span><i style="background:#52C41A"></i> Wind m/s</span>
 </div>
-${hint}
+${hint}${tempMissing}
 <svg class="fox-perf-chart-svg fox-perf-chart-svg--physics" viewBox="0 0 ${W} ${H}" role="img" aria-label="Panel temperature and wind chart">
 ${axes}
 ${tempLine}
