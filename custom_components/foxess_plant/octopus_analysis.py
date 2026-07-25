@@ -146,21 +146,53 @@ def carbon_extremes(periods: list[dict[str, Any]], *, now_ms: int | None = None)
     }
 
 
+def _carbon_period_for_slot(
+    start_ms: int | float | None,
+    carbon_periods: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Find the carbon half-hour that contains slot start (interval match, not exact key)."""
+    if start_ms is None or not carbon_periods:
+        return None
+    try:
+        when_ms = int(start_ms)
+    except (TypeError, ValueError):
+        return None
+    for row in carbon_periods:
+        raw_start = row.get("start_ms")
+        raw_end = row.get("end_ms")
+        if raw_start is None:
+            continue
+        try:
+            period_start = int(raw_start)
+            period_end = int(raw_end) if raw_end is not None else period_start + 30 * 60 * 1000
+        except (TypeError, ValueError):
+            continue
+        if period_start <= when_ms < period_end:
+            return row
+    return None
+
+
 def merge_price_and_carbon(
     rate_slots: list[dict[str, Any]],
     carbon_periods: list[dict[str, Any]],
     export_slots: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Align half-hour import/export rates with carbon intensity for dual-axis charts."""
-    carbon_by_start = {p["start_ms"]: p for p in carbon_periods if p.get("start_ms") is not None}
     export_by_start = {
-        p["start_ms"]: p for p in (export_slots or []) if p.get("start_ms") is not None
+        int(p["start_ms"]): p
+        for p in (export_slots or [])
+        if p.get("start_ms") is not None
     }
     merged: list[dict[str, Any]] = []
     for slot in rate_slots:
         start_ms = slot.get("start_ms")
-        carbon = carbon_by_start.get(start_ms) if start_ms is not None else None
-        export_slot = export_by_start.get(start_ms) if start_ms is not None else None
+        carbon = _carbon_period_for_slot(start_ms, carbon_periods)
+        export_slot = None
+        if start_ms is not None:
+            try:
+                export_slot = export_by_start.get(int(start_ms))
+            except (TypeError, ValueError):
+                export_slot = None
         gco2 = carbon.get("gco2_per_kwh") if carbon else None
         score = carbon.get("low_carbon_score") if carbon else None
         if score is None and gco2 is not None:
@@ -522,10 +554,21 @@ def octopus_analysis_dashboard_payload(
     if not isinstance(snapshot, dict):
         return None
     greener = greener_payload if isinstance(greener_payload, dict) else {}
+    carbon_periods = list(
+        greener.get("carbon_periods") or snapshot.get("carbon_periods") or []
+    )
+    # Always rebuild overlay rows from the latest greener carbon forecast so the
+    # price/carbon chart does not stay stuck at score 0 when carbon arrives later.
+    dual_periods = merge_price_and_carbon(
+        list(snapshot.get("import_rate_slots") or []),
+        carbon_periods,
+        list(snapshot.get("export_rate_slots") or []),
+    )
     return {
         **snapshot,
         "greener_title": greener.get("title"),
-        "carbon_periods": greener.get("carbon_periods") or snapshot.get("carbon_periods") or [],
+        "carbon_periods": carbon_periods,
+        "dual_periods": dual_periods or snapshot.get("dual_periods") or [],
         "timeline": greener.get("timeline") or [],
         "green_threshold_gco2": greener.get("green_threshold_gco2") or GREEN_THRESHOLD_GCO2,
         "rewards": greener.get("rewards"),
