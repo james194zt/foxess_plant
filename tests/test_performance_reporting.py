@@ -480,6 +480,31 @@ class LocalWeatherDetectTests(unittest.TestCase):
         self.assertEqual(found["wind_gust_entity_id"], "sensor.gw2000a_wind_gust")
         self.assertIsNone(found["visibility_entity_id"])
 
+    def test_ignores_browser_mod_visibility(self) -> None:
+        detect = _load_module("perf_local_weather_detect2", "performance/local_weather_detect.py")
+
+        class FakeState:
+            def __init__(self, entity_id: str, *, name: str = "", state: str = "1.0") -> None:
+                self.entity_id = entity_id
+                self.state = state
+                self.attributes = {"friendly_name": name or entity_id}
+
+        class FakeHass:
+            pass
+
+        hass = FakeHass()
+        hass.states = hass
+        hass.async_all = lambda domain: [
+            FakeState(
+                "sensor.browser_mod_c618c6db_eee8d1bf_browser_visibility",
+                name="Visibility",
+            ),
+            FakeState("sensor.gw2000a_wind_speed", name="Wind Speed"),
+        ]
+        found = detect.detect_local_weather_entities(hass)
+        self.assertIsNone(found["visibility_entity_id"])
+        self.assertEqual(found["wind_speed_entity_id"], "sensor.gw2000a_wind_speed")
+
 
 class PerformanceWeatherEntityTests(unittest.TestCase):
     def test_local_entity_config_round_trip(self) -> None:

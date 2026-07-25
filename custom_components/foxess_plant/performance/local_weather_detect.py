@@ -110,8 +110,14 @@ def _score_candidate(role: str, entity_id: str, state: Any) -> int:
         return score
 
     if role == "visibility_entity_id":
-        if "visibility" in blob:
+        # Exclude browser_mod / UI visibility entities — not meteorological visibility.
+        if "browser_mod" in low_id or "browser_visibility" in low_id:
+            return -1
+        if "visibility" in blob and ("weather" in blob or "km" in blob or _station_boost(entity_id)):
             score += 100
+            return score
+        if low_id.endswith("_visibility") and "browser" not in low_id:
+            score += 80
             return score
         return -1
 

@@ -372,7 +372,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.461";
+const PANEL_VERSION = "0.9.462";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -3339,8 +3339,18 @@ function renderPerformancePhysicsChartSvg(chart) {
   const series = chart?.series || {};
   const temp = series.virtual_panel_temp_c || [];
   const wind = series.wind_speed_ms || [];
+  const cfg = chart?.config || chart?.summary?.config || {};
+  const windMapped = Boolean(cfg.wind_speed_entity_id);
+  const liveWind = chart?.live?.wind_speed_ms;
   if (temp.length < 1 && wind.length < 1) {
-    return `<p class="placeholder chart-empty">Virtual panel temperature and wind data will appear after sunny or windy periods.</p>`;
+    if (windMapped) {
+      const liveNote =
+        liveWind != null && Number.isFinite(Number(liveWind))
+          ? ` Live wind ${Number(liveWind).toFixed(1)} m/s — chart points appear every 5 minutes.`
+          : " Mapped wind sensor has no readable history yet — check the entity is available.";
+      return `<p class="placeholder chart-empty">Waiting for panel-cooling samples.${liveNote}</p>`;
+    }
+    return `<p class="placeholder chart-empty">Map a wind speed sensor under Settings → Weather. Virtual panel temperature appears after sunny periods with a valid voltage baseline.</p>`;
   }
   const range = performanceChartRange(chart);
   const xDomain = performanceZoomXDomain(range, temp, wind);
@@ -3399,8 +3409,14 @@ function renderPerformanceMicroclimateChartSvg(chart) {
   const visibility = series.visibility_km || [];
   const dew = series.dew_point_c || [];
   const precip = series.precipitation_mm || [];
+  const cfg = chart?.config || chart?.summary?.config || {};
   if (!visibility.length && !dew.length && !precip.length) {
-    return `<p class="placeholder chart-empty">Visibility, dew point, and precipitation will appear once weather samples are collected.</p>`;
+    const mapped = ["visibility_entity_id", "dew_point_entity_id", "precipitation_entity_id"].some(
+      (key) => cfg[key]
+    );
+    return mapped
+      ? `<p class="placeholder chart-empty">Mapped microclimate sensors have no samples in this day yet — new points every 5 minutes, or check entity history in Home Assistant.</p>`
+      : `<p class="placeholder chart-empty">Map dew point and rain-rate sensors under Settings → Weather (visibility is optional on Ecowitt).</p>`;
   }
   const range = performanceChartRange(chart);
   const xDomain = performanceZoomXDomain(range, visibility, dew, precip);
@@ -17108,10 +17124,17 @@ Reloading panel registration…
     if (!this._weatherDraft) return;
     for (const role of PERFORMANCE_WEATHER_ROLE_FIELDS) {
       const picker = this._root.querySelector(`[data-weather-picker="${role.key}"] ha-entity-picker`);
-      if (picker) this._weatherDraft[role.key] = picker.value || "";
+      if (!picker) continue;
+      // Never overwrite a draft mapping with an empty picker value — ha-entity-picker
+      // often reports "" before its value is applied, which previously wiped saves.
+      const pickerVal = picker.value || "";
+      if (pickerVal) this._weatherDraft[role.key] = pickerVal;
     }
     const weatherEl = this._root.querySelector('[data-field="weather:weather_entity_id"]');
-    if (weatherEl) this._weatherDraft.weather_entity_id = String(weatherEl.value ?? "").trim();
+    if (weatherEl) {
+      const weatherVal = String(weatherEl.value ?? "").trim();
+      if (weatherVal) this._weatherDraft.weather_entity_id = weatherVal;
+    }
   }
 
   _buildWeatherSavePayload() {

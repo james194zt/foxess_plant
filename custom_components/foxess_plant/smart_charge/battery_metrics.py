@@ -6,12 +6,26 @@ from typing import Any, Callable
 
 
 def parse_state_float(raw: Any) -> float | None:
-    """Parse HA entity state to float (handles trailing % and commas)."""
+    """Parse HA entity state to float (handles trailing %, units, and commas)."""
     if raw in (None, "unavailable", "unknown", ""):
         return None
     text = str(raw).strip().replace(",", ".")
     if text.endswith("%"):
         text = text[:-1].strip()
+    # Strip trailing unit tokens ("3.2 km/h", "1.5m/s") that some integrations embed.
+    cleaned = []
+    for ch in text:
+        if ch.isdigit() or ch in ".-+eE":
+            cleaned.append(ch)
+        elif cleaned and ch in (" ", "\t"):
+            break
+        elif cleaned:
+            break
+        else:
+            continue
+    text = "".join(cleaned)
+    if not text or text in ("-", "+", ".", "-.", "+."):
+        return None
     try:
         return float(text)
     except (TypeError, ValueError):

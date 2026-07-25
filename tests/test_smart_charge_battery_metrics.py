@@ -60,6 +60,11 @@ class BatteryMetricsTests(unittest.TestCase):
     def test_parse_percent_state(self) -> None:
         self.assertEqual(bm.parse_state_float("87%"), 87.0)
 
+    def test_parse_state_with_trailing_unit(self) -> None:
+        self.assertEqual(bm.parse_state_float("3.2 km/h"), 3.2)
+        self.assertEqual(bm.parse_state_float("1.5m/s"), 1.5)
+        self.assertEqual(bm.parse_state_float("12,5"), 12.5)
+
 
 if __name__ == "__main__":
     unittest.main()

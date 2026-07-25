@@ -4071,6 +4071,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 system_rte=cfg.system_rte,
             )
         self._setup_performance_timer()
+        if cfg.enabled:
+            try:
+                await self._async_performance_tick()
+            except Exception as err:
+                _LOGGER.debug("Performance tick after settings save skipped: %s", err)
         await self.async_request_refresh()
 
     async def async_save_smart_charge(self, *, smart_charge: dict[str, Any]) -> None:

@@ -40,7 +40,14 @@ def _weather_state(hass: Any, entity_id: str | None) -> dict[str, Any]:
 
 
 def _unit_token(unit: str | None) -> str:
-    return str(unit or "").strip().lower().replace(" ", "")
+    return (
+        str(unit or "")
+        .strip()
+        .lower()
+        .replace(" ", "")
+        .replace("⁄", "/")
+        .replace("·", "")
+    )
 
 
 def _read_entity_state(hass: Any, entity_id: str | None) -> tuple[float | None, str | None]:
@@ -59,11 +66,11 @@ def _read_entity_state(hass: Any, entity_id: str | None) -> tuple[float | None, 
 
 def _to_wind_speed_ms(value: float, unit: str | None) -> float:
     token = _unit_token(unit)
-    if token in ("m/s", "mps", "meter/s", "meterspersecond", "ms"):
+    if token in ("m/s", "mps", "meter/s", "meterspersecond", "ms", "mpersec", "metrespersecond"):
         return value
-    if token in ("km/h", "kmh", "kph"):
+    if token in ("km/h", "kmh", "kph", "kmph", "kilometersperhour", "kilometresperhour"):
         return value / 3.6
-    if token in ("mph", "mi/h"):
+    if token in ("mph", "mi/h", "milesperhour", "mile/h"):
         return value * 0.44704
     if token in ("kn", "kt", "knot", "knots"):
         return value * 0.514444

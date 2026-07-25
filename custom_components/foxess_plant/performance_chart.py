@@ -208,6 +208,171 @@ def _recorder_series(
     return series
 
 
+def _entity_unit(hass: HomeAssistant, entity_id: str | None) -> str | None:
+    if not entity_id:
+        return None
+    state = hass.states.get(entity_id)
+    if not state:
+        return None
+    unit = state.attributes.get("unit_of_measurement")
+    return str(unit) if unit else None
+
+
+def _convert_weather_points(
+    points: list[dict[str, float]],
+    *,
+    kind: str,
+    unit: str | None,
+) -> list[dict[str, float]]:
+    from .performance.weather import (
+        _rate_to_bucket_mm,
+        _to_dew_point_c,
+        _to_visibility_km,
+        _to_wind_speed_ms,
+    )
+
+    out: list[dict[str, float]] = []
+    for point in points:
+        try:
+            raw = float(point["v"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        if kind == "wind_speed_ms":
+            value = _to_wind_speed_ms(raw, unit)
+        elif kind == "visibility_km":
+            value = _to_visibility_km(raw, unit)
+        elif kind == "dew_point_c":
+            value = _to_dew_point_c(raw, unit)
+        elif kind == "precipitation_mm":
+            value = _rate_to_bucket_mm(raw, unit)
+        else:
+            value = raw
+        out.append({"t": point["t"], "v": round(float(value), 4)})
+    return out
+
+
+def _downsample_points(
+    points: list[dict[str, float]],
+    *,
+    bucket_ms: int = 5 * 60 * 1000,
+) -> list[dict[str, float]]:
+    """Keep ~one point per bucket so raw history does not overwhelm the chart."""
+    if not points:
+        return []
+    ordered = sorted(points, key=lambda p: p["t"])
+    out: list[dict[str, float]] = []
+    bucket_start = None
+    bucket_point: dict[str, float] | None = None
+    for point in ordered:
+        t_ms = float(point["t"])
+        start = t_ms - (t_ms % bucket_ms)
+        if bucket_start is None or start != bucket_start:
+            if bucket_point is not None:
+                out.append(bucket_point)
+            bucket_start = start
+            bucket_point = {"t": t_ms, "v": float(point["v"])}
+        else:
+            bucket_point = {"t": t_ms, "v": float(point["v"])}
+    if bucket_point is not None:
+        out.append(bucket_point)
+    return out
+
+
+def _mapped_local_weather_series(
+    hass: HomeAssistant,
+    coordinator: Any,
+    *,
+    start_utc: datetime,
+    end_utc: datetime,
+) -> dict[str, list[dict[str, float]]]:
+    """Pull chart history directly from mapped PWS sensors (not only foxess_plant sensors)."""
+    from .websocket_api import _fetch_history_points, _fetch_statistics_points
+
+    cfg = coordinator.plant.performance
+    role_to_kind = (
+        ("wind_speed_entity_id", "wind_speed_ms"),
+        ("visibility_entity_id", "visibility_km"),
+        ("dew_point_entity_id", "dew_point_c"),
+        ("precipitation_entity_id", "precipitation_mm"),
+    )
+    series: dict[str, list[dict[str, float]]] = {kind: [] for kind in PERFORMANCE_SENSOR_KINDS}
+    entity_by_kind: dict[str, str] = {}
+    for role, kind in role_to_kind:
+        entity_id = getattr(cfg, role, None)
+        if entity_id:
+            entity_by_kind[kind] = str(entity_id)
+    if not entity_by_kind:
+        return series
+
+    entity_ids = list(entity_by_kind.values())
+    stats = _fetch_statistics_points(
+        hass,
+        start_utc,
+        end_utc,
+        entity_ids,
+        period="5minute",
+        statistic="mean",
+    )
+    # Ecowitt / PWS entities often have state history but no short-term statistics yet.
+    need_history = [
+        eid for eid in entity_ids if len(_stats_to_points(stats.get(eid, []))) < 2
+    ]
+    history_map: dict[str, list[dict[str, float]]] = {}
+    if need_history:
+        try:
+            history_map = _fetch_history_points(
+                hass,
+                start_utc,
+                end_utc,
+                need_history,
+                significant_changes_only=False,
+            )
+        except Exception as err:
+            _LOGGER.debug("Local weather history fallback failed: %s", err)
+
+    for kind, entity_id in entity_by_kind.items():
+        pts = _stats_to_points(stats.get(entity_id, []))
+        if len(pts) < 2:
+            pts = _downsample_points(history_map.get(entity_id) or [])
+        unit = _entity_unit(hass, entity_id)
+        series[kind] = _convert_weather_points(pts, kind=kind, unit=unit)
+    return series
+
+
+def _append_live_weather_point(
+    series: dict[str, list[dict[str, float]]],
+    coordinator: Any,
+    *,
+    is_today: bool,
+) -> None:
+    if not is_today:
+        return
+    sample = getattr(coordinator, "_last_performance_sample", None)
+    if sample is None:
+        return
+    now_ms = dt_util.now().timestamp() * 1000
+    live_map = {
+        "virtual_panel_temp_c": sample.virtual_panel_temp_c,
+        "wind_speed_ms": sample.wind_speed_ms,
+        "visibility_km": sample.visibility_km,
+        "dew_point_c": sample.dew_point_c,
+        "precipitation_mm": sample.precipitation_mm,
+    }
+    for key, value in live_map.items():
+        if value is None:
+            continue
+        try:
+            point = {"t": now_ms, "v": round(float(value), 4)}
+        except (TypeError, ValueError):
+            continue
+        pts = series.setdefault(key, [])
+        if pts and abs(pts[-1]["t"] - now_ms) < 60_000:
+            pts[-1] = point
+        else:
+            pts.append(point)
+        pts.sort(key=lambda p: p["t"])
+
+
 def _day_bounds(target_day: date) -> tuple[datetime, datetime]:
     day_start = dt_util.start_of_local_day(
         dt_util.as_local(datetime.combine(target_day, time.min))
@@ -241,6 +406,11 @@ async def async_build_performance_day_chart(
 
     recorder_series = _recorder_series(hass, entry_id, start_utc=start_utc, end_utc=end_utc)
     series = _merge_series(series, recorder_series)
+    local_weather_series = _mapped_local_weather_series(
+        hass, coordinator, start_utc=start_utc, end_utc=end_utc
+    )
+    series = _merge_series(series, local_weather_series)
+    _append_live_weather_point(series, coordinator, is_today=target_day == dt_util.as_local(dt_util.now()).date())
 
     if sample_count < 6:
         modbus_series = _modbus_fallback_series(
@@ -344,6 +514,7 @@ async def async_build_performance_day_chart(
     return {
         "day": day_iso,
         "enabled": cfg.enabled,
+        "config": cfg.to_dict(),
         "entities": entities,
         "series": series,
         "ac_limit_kw": cfg.inverter_ac_limit_kw,

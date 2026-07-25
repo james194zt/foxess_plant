@@ -261,6 +261,8 @@ def _plant_summary(hass: HomeAssistant, entry_id: str) -> dict[str, Any]:
 
 def _history_state_to_point(state) -> dict[str, float] | None:
     """Recorder history row as {t, v}; handles State objects and minimal_response dicts."""
+    from .smart_charge.battery_metrics import parse_state_float
+
     if isinstance(state, dict):
         raw = state.get("state", state.get("s"))
         ts_raw = (
@@ -274,11 +276,8 @@ def _history_state_to_point(state) -> dict[str, float] | None:
         raw = getattr(state, "state", None)
         ts_raw = getattr(state, "last_updated", None) or getattr(state, "last_changed", None)
 
-    if raw in (None, "unknown", "unavailable"):
-        return None
-    try:
-        value = float(raw)
-    except (TypeError, ValueError):
+    value = parse_state_float(raw)
+    if value is None:
         return None
 
     if ts_raw is None:
