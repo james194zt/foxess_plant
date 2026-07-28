@@ -720,6 +720,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "last_error": cache.get("last_error"),
             "current_import_p_per_kwh": cache.get("current_import_p_per_kwh"),
             "current_export_p_per_kwh": cache.get("current_export_p_per_kwh"),
+            "import_rates_count": cache.get("import_rates_count"),
+            "export_rates_count": cache.get("export_rates_count"),
             "schedule_ready": bool(cache.get("schedule")),
             "import_meters": import_meters,
             "export_meters": export_meters,
@@ -4150,9 +4152,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             except OctopusApiError:
                 pass
             _LOGGER.debug(
-                "Octopus tariff refreshed (%s, import %s)",
+                "Octopus tariff refreshed (%s, import %s, export %s rates=%s)",
                 snapshot.tariff_type,
                 snapshot.import_meter.tariff_code if snapshot.import_meter else "—",
+                snapshot.export_meter.tariff_code if snapshot.export_meter else "—",
+                len(snapshot.export_rates),
             )
             await self._async_auto_apply_octopus_schedule()
         except OctopusApiError as err:

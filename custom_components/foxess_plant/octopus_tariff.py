@@ -118,6 +118,17 @@ def is_tracker_tariff_type(tariff_type: str | None) -> bool:
     return str(tariff_type or "") == TARIFF_TYPE_TRACKER
 
 
+def _meter_looks_like_export(meter_point: dict[str, Any], tariff_code: str | None) -> bool:
+    """True for SEG / Outgoing export MPAN points (REST flag or tariff-code heuristic)."""
+    if bool(meter_point.get("is_export")):
+        return True
+    code = str(tariff_code or "").upper()
+    # REST sometimes omits is_export; Outgoing / SEG agreements are always export.
+    if "OUTGOING" in code or "-SEG-" in code or code.startswith("E-1R-SEG"):
+        return True
+    return False
+
+
 def list_account_meters(account: dict[str, Any]) -> tuple[list[OctopusMeterSummary], list[OctopusMeterSummary]]:
     """Split import and export electricity meter points from an account payload."""
     import_meters: list[OctopusMeterSummary] = []
@@ -137,7 +148,7 @@ def list_account_meters(account: dict[str, Any]) -> tuple[list[OctopusMeterSumma
             meters = mp.get("meters") or []
             if meters and isinstance(meters[0], dict):
                 serial = str(meters[0].get("serial_number") or "").strip() or None
-            is_export = bool(mp.get("is_export"))
+            is_export = _meter_looks_like_export(mp, tariff_code)
             label_bits = [mpan[-4:] if len(mpan) >= 4 else mpan]
             if tariff_code:
                 label_bits.append(tariff_code)
@@ -370,6 +381,29 @@ def _iso_period(dt: datetime) -> str:
     return dt_util.as_utc(dt).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _pick_meter(
+    meters: list[OctopusMeterSummary],
+    mpan: str | None,
+    *,
+    role: str = "import",
+    allow_first: bool = False,
+) -> OctopusMeterSummary:
+    if mpan:
+        target = str(mpan).strip()
+        for meter in meters:
+            if meter.mpan == target:
+                return meter
+        raise OctopusApiError(f"Meter MPAN {target} was not found on this account")
+    if len(meters) == 1:
+        return meters[0]
+    if allow_first and meters:
+        with_tariff = [m for m in meters if m.tariff_code]
+        return (with_tariff or meters)[0]
+    raise OctopusApiError(
+        f"Multiple {role} electricity meters found — select an {role} MPAN in Octopus settings"
+    )
+
+
 async def fetch_octopus_tariff_snapshot(
     client: OctopusApiClient,
     *,
@@ -382,8 +416,13 @@ async def fetch_octopus_tariff_snapshot(
     if not import_meters:
         raise OctopusApiError("No import electricity meter found on this Octopus account")
 
-    import_meter = _pick_meter(import_meters, import_mpan)
-    export_meter = _pick_meter(export_meters, export_mpan) if export_meters else None
+    import_meter = _pick_meter(import_meters, import_mpan, role="import")
+    # Auto-pick when unset so a missing export MPAN never blocks import Agile rates.
+    export_meter = (
+        _pick_meter(export_meters, export_mpan, role="export", allow_first=True)
+        if export_meters
+        else None
+    )
 
     if import_meter.tariff_code is None:
         raise OctopusApiError("Import meter has no active tariff agreement")
@@ -394,9 +433,23 @@ async def fetch_octopus_tariff_snapshot(
     import_meter.product_code = import_product
 
     export_product = None
-    if export_meter and export_meter.tariff_code:
+    # Soft warnings only when an export meter exists but rates cannot be loaded.
+    # Accounts without SEG simply have no export rates — not an error.
+    export_warning: str | None = None
+    if export_meter is None:
+        _LOGGER.info(
+            "Octopus: no export/SEG meter on account %s — Outgoing rates unavailable",
+            account_number.strip().upper(),
+        )
+    elif not export_meter.tariff_code:
+        export_warning = f"Export meter {export_meter.mpan} has no active tariff agreement"
+    else:
         export_product = await find_product_for_tariff(client, export_meter.tariff_code)
         export_meter.product_code = export_product
+        if export_product is None:
+            export_warning = (
+                f"Could not resolve Octopus product for export tariff {export_meter.tariff_code}"
+            )
 
     tariff_type = classify_tariff_code(import_meter.tariff_code)
     now = dt_util.utcnow()
@@ -415,12 +468,23 @@ async def fetch_octopus_tariff_snapshot(
     )
     export_rates: list[dict[str, Any]] = []
     if export_meter and export_meter.tariff_code and export_product:
-        export_rates = await client.get_unit_rates(
-            export_product,
-            export_meter.tariff_code,
-            period_from=period_from,
-            period_to=period_to,
-        )
+        try:
+            export_rates = await client.get_unit_rates(
+                export_product,
+                export_meter.tariff_code,
+                period_from=period_from,
+                period_to=period_to,
+            )
+        except OctopusApiError as err:
+            export_warning = f"Export unit rates failed: {err}"
+            _LOGGER.warning("Octopus export rates failed: %s", err)
+        if not export_rates and not export_warning:
+            export_warning = (
+                f"Export tariff {export_meter.tariff_code} returned no unit rates for the window"
+            )
+
+    if export_warning:
+        _LOGGER.info("Octopus export: %s", export_warning)
 
     import_standing_rows = await client.get_standing_charges(
         import_product,
@@ -445,23 +509,9 @@ async def fetch_octopus_tariff_snapshot(
         current_export_p_per_kwh=rate_at(now, export_rates) if export_rates else None,
         schedule=schedule,
         last_fetch_at=now.isoformat(),
-        last_error=None,
+        last_error=export_warning,
     )
     return snapshot
-
-
-def _pick_meter(meters: list[OctopusMeterSummary], mpan: str | None) -> OctopusMeterSummary:
-    if mpan:
-        target = str(mpan).strip()
-        for meter in meters:
-            if meter.mpan == target:
-                return meter
-        raise OctopusApiError(f"Meter MPAN {target} was not found on this account")
-    if len(meters) == 1:
-        return meters[0]
-    raise OctopusApiError(
-        "Multiple electricity meters found — select an import MPAN in Octopus settings"
-    )
 
 
 async def test_octopus_connection(

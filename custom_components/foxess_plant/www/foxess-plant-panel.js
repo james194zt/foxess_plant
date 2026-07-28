@@ -372,7 +372,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.464";
+const PANEL_VERSION = "0.9.465";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -16869,8 +16869,13 @@ Reloading panel registration…
       const octopus = this._plantState?.tariff?.octopus ?? {};
       const tariffType = octopus.tariff_type ? String(octopus.tariff_type) : "";
       const agile = tariffType === "agile" || tariffType === "tracker";
+      const impN = octopus.import_rates_count ?? 0;
+      const expN = octopus.export_rates_count ?? 0;
+      const errHint = octopus.last_error ? ` — ${String(octopus.last_error).slice(0, 80)}` : "";
       this._showToast(
-        agile ? "Octopus rates refreshed" : "Octopus rates refreshed — daily schedule updated"
+        agile
+          ? `Octopus rates refreshed (import ${impN}, export ${expN})${errHint}`
+          : `Octopus rates refreshed — daily schedule updated (import ${impN}, export ${expN})${errHint}`
       );
     } catch (err) {
       this._showToast(tariffSaveErrorMessage(err), "err");
@@ -24446,6 +24451,13 @@ ${detailBlock}
     }
     if (live.export_tariff_code) {
       statusLines.push(`Export tariff: ${esc(live.export_tariff_code)}`);
+    } else if (connected && native && exportMeters.length === 0) {
+      statusLines.push("Export: no SEG/Outgoing meter on this Octopus account");
+    }
+    if (live.import_rates_count != null || live.export_rates_count != null) {
+      statusLines.push(
+        `Rates loaded: import ${esc(String(live.import_rates_count ?? 0))} · export ${esc(String(live.export_rates_count ?? 0))}`
+      );
     }
     if (tariffType) {
       statusLines.push(`Type: ${esc(tariffType)}${agile ? " — live half-hourly plugin sensors" : " — daily schedule"}`);
@@ -24453,6 +24465,13 @@ ${detailBlock}
     if (rateBits.length) statusLines.push(`Current: ${esc(rateBits.join(" · "))}`);
     statusLines.push(`Last fetch: ${lastFetch}`);
     if (lastErr) statusLines.push(`Error: ${lastErr}`);
+    const exportMpanField =
+      exportMeters.length > 0
+        ? `<div class="field"><label>Export MPAN (SEG / Outgoing)</label><select data-field="octopus:export_mpan" ${this._busy ? "disabled" : ""}><option value="">Auto (${esc((exportMeters[0] && (exportMeters[0].display_name || exportMeters[0].mpan)) || "first")})</option>${exportOptions}</select>
+<p class="field-hint">Export rates come from your Outgoing/SEG agreement — separate from Agile import.</p></div>`
+        : native && draft.enabled
+          ? `<p class="field-hint" style="margin:8px 0 0;color:var(--fp-amber)">No export meter detected. If you have Outgoing Agile/SEG, run Test connection after Save — or check the export MPAN is on this account.</p>`
+          : "";
     const entityBlock =
       draft.source === "entity"
         ? `<div class="field"><label>External import rate sensor</label>
@@ -24470,7 +24489,7 @@ ${detailBlock}
 <input type="text" data-field="octopus:account_number" value="${esc(String(draft.account_number || ""))}" placeholder="A-12345678" ${this._busy ? "disabled" : ""}>
 </div>
 ${importMeters.length > 1 ? `<div class="field"><label>Import MPAN</label><select data-field="octopus:import_mpan" ${this._busy ? "disabled" : ""}><option value="">Select meter…</option>${importOptions}</select></div>` : ""}
-${exportMeters.length > 1 ? `<div class="field"><label>Export MPAN (SEG)</label><select data-field="octopus:export_mpan" ${this._busy ? "disabled" : ""}><option value="">None / auto</option>${exportOptions}</select></div>` : ""}`;
+${exportMpanField}`;
     const scheduleAutoHint =
       native && draft.enabled && connected && !agile
         ? "Fixed tariffs update the daily schedule automatically when rates are fetched."
