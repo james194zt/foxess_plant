@@ -752,6 +752,13 @@ async def refresh_octopus_consumption(
             "Export meter listed on the account but MPAN/serial incomplete — re-test Octopus connection"
         )
 
+    if exp_mpan and exp_serial and export_rows is not None and not export_rows:
+        # API succeeded but Octopus has not published half-hours yet (often batched ~daily).
+        result["errors"]["export_consumption"] = (
+            "Export meter polled OK but Octopus returned no half-hourly readings yet "
+            "(export data often arrives in a daily batch) — falling back to Glow/Fox when available"
+        )
+
     if import_rows or export_rows:
         stored = await store.async_merge_rows(
             import_rows=import_rows,
@@ -785,6 +792,36 @@ async def refresh_octopus_consumption(
     return result
 
 
+async def apply_hybrid_export_to_consumption(
+    hass: Any,
+    consumption_data: dict[str, Any],
+    *,
+    glow_export_cumulative_entity_id: str | None = None,
+    fox_export_today_entity_id: str | None = None,
+    days: int = METER_COST_DAYS,
+) -> dict[str, Any]:
+    """Overlay export half-hours from Octopus → Glow → Fox for charts and £ join."""
+    from .export_energy_hybrid import async_resolve_hybrid_export_rows
+
+    hybrid_rows, source, note = await async_resolve_hybrid_export_rows(
+        hass,
+        octopus_export_rows=list(consumption_data.get("export") or []),
+        glow_export_cumulative_entity_id=glow_export_cumulative_entity_id,
+        fox_export_today_entity_id=fox_export_today_entity_id,
+        days=days,
+    )
+    consumption_data["export_kwh_source"] = source
+    consumption_data["export_hybrid_note"] = note
+    if source and source != "octopus" and hybrid_rows:
+        consumption_data["export_display"] = hybrid_rows
+    else:
+        consumption_data["export_display"] = list(consumption_data.get("export") or [])
+    if note and source != "octopus":
+        # Soft hint — keep prior hard errors, don't mask serial/API failures.
+        consumption_data.setdefault("errors", {}).setdefault("export_hybrid", note)
+    return consumption_data
+
+
 async def build_octopus_analysis_snapshot(
     hass: Any,
     *,
@@ -793,6 +830,8 @@ async def build_octopus_analysis_snapshot(
     greener_cache: dict[str, Any],
     greener_history: list[dict[str, Any]],
     consumption_data: dict[str, Any] | None = None,
+    glow_export_cumulative_entity_id: str | None = None,
+    fox_export_today_entity_id: str | None = None,
 ) -> dict[str, Any]:
     """Build the Octopus Energy Analysis payload for the panel."""
     now = dt_util.now(UK_TZ)
@@ -827,6 +866,8 @@ async def build_octopus_analysis_snapshot(
         "history": history_insights,
         "consumption": [],
         "export_consumption": [],
+        "export_kwh_source": None,
+        "export_hybrid_note": None,
         "daily_costs": None,
         "compliance": None,
         "consumption_fetched_at": None,
@@ -834,8 +875,25 @@ async def build_octopus_analysis_snapshot(
     }
 
     cons = consumption_data if isinstance(consumption_data, dict) else {}
+    if cons:
+        try:
+            await apply_hybrid_export_to_consumption(
+                hass,
+                cons,
+                glow_export_cumulative_entity_id=glow_export_cumulative_entity_id,
+                fox_export_today_entity_id=fox_export_today_entity_id,
+                days=METER_COST_DAYS,
+            )
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Hybrid export resolve failed: %s", err)
+            cons.setdefault("errors", {})["export_hybrid"] = str(err)
+
     snapshot["consumption"] = list(cons.get("import") or [])
-    snapshot["export_consumption"] = list(cons.get("export") or [])
+    snapshot["export_consumption"] = list(
+        cons.get("export_display") or cons.get("export") or []
+    )
+    snapshot["export_kwh_source"] = cons.get("export_kwh_source")
+    snapshot["export_hybrid_note"] = cons.get("export_hybrid_note")
     snapshot["compliance"] = cons.get("compliance")
     snapshot["consumption_fetched_at"] = cons.get("last_fetch_at")
     if cons.get("errors"):
@@ -851,17 +909,22 @@ async def build_octopus_analysis_snapshot(
             "Smart-meter consumption will populate after the next half-hourly Octopus poll"
         )
 
-    if cons and (cons.get("import") or cons.get("export")):
+    # Re-run cost join against display export rows (hybrid may replace empty Octopus export).
+    if cons and (cons.get("import") or cons.get("export_display") or cons.get("export")):
+        cost_input = dict(cons)
+        cost_input["export"] = list(cons.get("export_display") or cons.get("export") or [])
         try:
             costs = await refresh_meter_daily_costs(
                 hass,
                 api_key=api_key,
                 octopus_cache=octopus_cache,
-                consumption_data=cons,
+                consumption_data=cost_input,
                 days=METER_COST_DAYS,
-                force=False,
+                force=True,
             )
-            snapshot["daily_costs"] = costs or cons.get("daily_costs")
+            snapshot["daily_costs"] = costs or cost_input.get("daily_costs")
+            if costs:
+                costs["export_kwh_source"] = cons.get("export_kwh_source")
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Octopus meter cost join failed: %s", err)
             snapshot["daily_costs"] = cons.get("daily_costs")

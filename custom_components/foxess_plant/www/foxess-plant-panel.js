@@ -372,7 +372,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.477";
+const PANEL_VERSION = "0.9.478";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -4008,15 +4008,18 @@ ${chart}
 </div>`;
 }
 
-function renderOctopusConsumptionChartSvg(consumption, { kind = "import", tariffCode = null, error = null } = {}) {
+function renderOctopusConsumptionChartSvg(consumption, { kind = "import", tariffCode = null, error = null, source = null, hybridNote = null } = {}) {
   const isExport = kind === "export";
   const daily = octopusConsumptionDailyTotals(consumption, 14);
   if (!daily.length) {
     if (error) {
       return `<p class="octopus-greener-empty">${esc(String(error))}</p>`;
     }
+    if (hybridNote) {
+      return `<p class="octopus-greener-empty">${esc(String(hybridNote))}</p>`;
+    }
     if (isExport && tariffCode) {
-      return `<p class="octopus-greener-empty">Export tariff ${esc(String(tariffCode))} is linked, but no half-hourly export readings yet. Re-test the Octopus connection (to refresh the export meter serial) or wait for the next 30-minute meter poll.</p>`;
+      return `<p class="octopus-greener-empty">Export tariff ${esc(String(tariffCode))} is linked, but no half-hourly export readings yet. Re-test the Octopus connection (to refresh the export meter serial) or wait for the next 30-minute meter poll. Until Octopus publishes export half-hours, Fox Plant falls back to Glow cumulative export (then Fox feed-in).</p>`;
     }
     return isExport
       ? `<p class="octopus-greener-empty">Smart-meter export unavailable. Needs an Outgoing/SEG meter on the Octopus account — export is polled with import every 30 minutes when connected.</p>`
@@ -4037,8 +4040,19 @@ function renderOctopusConsumptionChartSvg(consumption, { kind = "import", tariff
     barsMetaFn: (row) => ({ kwh: row.kwh }),
   });
   if (!chart.includes("octopus-greener-chart-plot")) return chart;
+  const sourceLabel =
+    source === "glow"
+      ? "Glow cumulative (daily delta)"
+      : source === "fox"
+        ? "Fox feed-in today"
+        : source === "octopus"
+          ? "Octopus smart-meter half-hours"
+          : null;
   const hint = isExport ? "Daily export — hover bars for kWh" : "Daily import — hover bars for kWh";
-  return `${chart}<p class="octopus-analysis-chart-hint"><i class="octopus-analysis-swatch" style="background:${barColor}"></i> ${esc(hint)}</p>`;
+  const sourceHtml = sourceLabel
+    ? `<p class="octopus-greener-hint" style="margin-top:6px">Source: ${esc(sourceLabel)}</p>`
+    : "";
+  return `${chart}<p class="octopus-analysis-chart-hint"><i class="octopus-analysis-swatch" style="background:${barColor}"></i> ${esc(hint)}</p>${sourceHtml}`;
 }
 
 function renderOctopusMeterCostChartSvg(meterCosts) {
@@ -4115,6 +4129,18 @@ function renderOctopusMeterCostChartSvg(meterCosts) {
   const earnTotal =
     totals.export_earnings_gbp != null ? formatPerformanceGbp(totals.export_earnings_gbp) : "—";
   const netTotal = totals.net_gbp != null ? formatPerformanceGbp(totals.net_gbp) : "—";
+  const exportSource = meterCosts?.export_kwh_source;
+  const exportSourceLabel =
+    exportSource === "glow"
+      ? "Glow cumulative"
+      : exportSource === "fox"
+        ? "Fox feed-in"
+        : exportSource === "octopus"
+          ? "Octopus half-hours"
+          : null;
+  const exportSourceHtml = exportSourceLabel
+    ? `<p class="octopus-greener-hint" style="margin-top:6px">Export kWh source: ${esc(exportSourceLabel)}</p>`
+    : "";
   return `<div class="octopus-analysis-metrics" style="margin-bottom:8px">
 <div class="octopus-analysis-metric"><label>Import spend</label><strong>${esc(spendTotal)}</strong></div>
 <div class="octopus-analysis-metric"><label>Export earned</label><strong>${esc(earnTotal)}</strong></div>
@@ -4125,7 +4151,7 @@ function renderOctopusMeterCostChartSvg(meterCosts) {
 <div class="octopus-greener-hit" aria-hidden="true"></div>
 <div class="octopus-greener-tooltip" hidden role="tooltip"></div>
 </div>
-<p class="octopus-analysis-chart-hint"><i class="octopus-analysis-swatch" style="background:${importColor}"></i> Import spend <i class="octopus-analysis-swatch" style="background:${exportColor};margin-left:10px"></i> Export earned — half-hourly meter kWh × Octopus unit rate at the time</p>`;
+<p class="octopus-analysis-chart-hint"><i class="octopus-analysis-swatch" style="background:${importColor}"></i> Import spend <i class="octopus-analysis-swatch" style="background:${exportColor};margin-left:10px"></i> Export earned — half-hourly meter kWh × Octopus unit rate at the time</p>${exportSourceHtml}`;
 }
 
 function renderOctopusComplianceCard(compliance) {
@@ -4243,6 +4269,8 @@ ${renderOctopusComplianceCard(payload.compliance)}
   kind: "export",
   tariffCode: payload.export_tariff_code,
   error: payload.errors?.export_consumption,
+  source: payload.export_kwh_source,
+  hybridNote: payload.export_hybrid_note,
 })}</div>
 </div>
 <div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Import spend &amp; export earnings (14 days)</h3><p class="octopus-greener-intro">Smart-meter half-hours priced at the Octopus unit rate that applied when the energy was used.</p>${renderOctopusMeterCostChartSvg(payload.daily_costs)}</div>

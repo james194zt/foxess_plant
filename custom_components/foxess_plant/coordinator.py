@@ -2764,6 +2764,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "import_power": live.get("import_kw"),
             "import_today": live.get("import_kwh_today"),
             "import_cumulative": live.get("import_kwh_cumulative"),
+            "export_cumulative": live.get("export_kwh_cumulative"),
         }
         for kind, value in values.items():
             sensor = self._glow_sensors.get(kind)
@@ -4486,6 +4487,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         dyn = self.plant.tariff.dynamic
         api_key = str(dyn.api_key) if dyn.api_key_configured() else None
+        glow_export_id = None
+        glow_sensor = self._glow_sensors.get("export_cumulative")
+        if glow_sensor is not None and getattr(glow_sensor, "entity_id", None):
+            glow_export_id = glow_sensor.entity_id
+        fox_export_id = (self.plant.entity_map or {}).get("feed_in_energy_today")
         try:
             self._octopus_analysis_cache = await build_octopus_analysis_snapshot(
                 self.hass,
@@ -4494,6 +4500,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 greener_cache=self._octopus_greener_cache,
                 greener_history=self._octopus_greener_history,
                 consumption_data=self._octopus_consumption_data,
+                glow_export_cumulative_entity_id=glow_export_id,
+                fox_export_today_entity_id=fox_export_id,
             )
         except Exception as err:
             _LOGGER.warning("Octopus analysis refresh failed: %s", err)

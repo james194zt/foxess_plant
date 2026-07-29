@@ -190,6 +190,7 @@ GLOW_SENSORS: tuple[tuple[str, str, str, str, SensorDeviceClass | None, SensorSt
     ("import_power", UnitOfPower.KILO_WATT, "Glow grid import power", "mdi:transmission-tower-import", SensorDeviceClass.POWER, SensorStateClass.MEASUREMENT),
     ("import_today", UnitOfEnergy.KILO_WATT_HOUR, "Glow grid import today", "mdi:home-import-outline", SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
     ("import_cumulative", UnitOfEnergy.KILO_WATT_HOUR, "Glow grid import total", "mdi:counter", SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
+    ("export_cumulative", UnitOfEnergy.KILO_WATT_HOUR, "Glow grid export total", "mdi:transmission-tower-export", SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
 )
 
 PERFORMANCE_SENSORS: tuple[tuple[str, str, str, str, SensorDeviceClass | None, SensorStateClass | None], ...] = (
@@ -608,7 +609,7 @@ class FoxessPlantPerformanceSensor(CoordinatorEntity[FoxessPlantCoordinator], Se
 
 
 class FoxessPlantGlowSensor(CoordinatorEntity[FoxessPlantCoordinator], SensorEntity):
-    """Live Glow smart-meter readings for grid import (electricity only)."""
+    """Live Glow smart-meter readings for grid import/export."""
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
