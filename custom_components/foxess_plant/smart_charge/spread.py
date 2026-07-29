@@ -10,7 +10,9 @@ from .carbon_slots import carbon_for_instant, greener_night_active
 from .context import config_float
 from .export_limits import export_allowed_for_mode, mode_export_limits
 from .export_peak import planned_export_kwh, solcast_covers_export_recharge
+from .export_slot_pick import peak_export_price
 from .grid_charge import _fmt_hhmm, _merge_slots
+from .import_slot_pick import trough_import_price
 from .solcast_remaining import solcast_forecast_kwh_for_horizon
 from .spread_math import (
     OPERATING_MODE_MAX_GREEN,
@@ -169,35 +171,58 @@ def optimize_spread_plan(
         if entry["action"] != "idle":
             continue
         import_p = slot.import_p_per_kwh
-        export_p = slot.export_p_per_kwh
         if import_p < 0:
+            # Defer marking — only the deepest plunge becomes charge below.
+            continue
+        if import_p <= cheap_import_p and not _slot_is_peak(slot, config):
+            entry["action"] = "charge_candidate"
+            entry["reason"] = "cheap_import"
+
+    # Mark only the deepest negative plunge(s) — not every below-zero half-hour.
+    trough_neg = trough_import_price(merged, require_negative=True)
+    if trough_neg is not None:
+        for i, slot in enumerate(merged):
+            entry = plan[i]
+            if entry["action"] not in ("idle", "charge_candidate"):
+                continue
+            if slot.import_p_per_kwh is None or slot.import_p_per_kwh > trough_neg + 0.05:
+                continue
             entry["action"] = "charge"
-            entry["reason"] = "negative_import"
-        elif allow_export and export_p is not None and export_p >= min_export_p:
-            export_kwh = planned_export_kwh(
-                exportable_kwh=exportable,
-                slot=slot,
-                operating_mode=operating_mode,
-                config=config,
-            )
-            if export_kwh:
+            entry["reason"] = "negative_import_trough"
+            entry["trough_import_p_per_kwh"] = round(trough_neg, 4)
+
+    # Mark only the peak export half-hour(s) — not every slot above the threshold.
+    # E.g. 18p at 18:00 must not steal the window when 21p arrives at 19:00.
+    if allow_export:
+        peak_p = peak_export_price(merged, min_export_p=min_export_p)
+        if peak_p is not None:
+            for i, slot in enumerate(merged):
+                entry = plan[i]
+                if entry["action"] not in ("idle", "charge_candidate"):
+                    continue
+                export_p = slot.export_p_per_kwh
+                if export_p is None or export_p < min_export_p:
+                    continue
+                if export_p < peak_p - 0.05:
+                    continue
+                export_kwh = planned_export_kwh(
+                    exportable_kwh=exportable,
+                    slot=slot,
+                    operating_mode=operating_mode,
+                    config=config,
+                )
+                if not export_kwh:
+                    continue
                 solar_ok = solcast_covers_export_recharge(
                     forecast_rows,
                     export_kwh=export_kwh,
                     solar_safety_margin=margin,
                     horizon_hours=horizon_hours,
                 )
-                # Mark high export even without full Solcast recharge — surplus above
-                # the export floor is still worth selling (e.g. 24p evening peaks).
                 entry["action"] = "export"
-                entry["reason"] = "high_export" if solar_ok else "high_export_surplus"
+                entry["reason"] = "high_export_peak" if solar_ok else "high_export_peak_surplus"
                 entry["planned_export_kwh"] = export_kwh
-            elif import_p <= cheap_import_p and not _slot_is_peak(slot, config):
-                entry["action"] = "charge_candidate"
-                entry["reason"] = "cheap_import"
-        elif import_p <= cheap_import_p and not _slot_is_peak(slot, config):
-            entry["action"] = "charge_candidate"
-            entry["reason"] = "cheap_import"
+                entry["peak_export_p_per_kwh"] = round(peak_p, 2)
 
     if bool(getattr(config, "winter_fill_enabled", True)):
         forecast_kwh = solcast_forecast_kwh_for_horizon(forecast_rows, horizon_hours=horizon_hours) or 0.0
@@ -207,13 +232,35 @@ def optimize_spread_plan(
             solar_margin=margin,
         )
         if fill_count > 0:
+            peak_start_h, _peak_end_h = _peak_hours(config)
+
+            def _daytime_before_peak(slot: RateSlot) -> bool:
+                """Prefer daylight / pre-peak hours so evening expensive import is avoided."""
+                if _slot_is_peak(slot, config):
+                    return False
+                local = dt_util.as_local(slot.start)
+                # Morning overnight troughs are fine; prefer finishing before evening peak.
+                return local.hour < peak_start_h
+
             candidates = [
                 (i, plan[i], merged[i])
                 for i in range(len(plan))
                 if plan[i]["action"] in ("idle", "charge_candidate")
-                and not _slot_is_peak(merged[i], config)
+                and _daytime_before_peak(merged[i])
             ]
-            candidates.sort(key=lambda row: row[2].import_p_per_kwh)
+            if len(candidates) < fill_count:
+                # Fall back to any non-peak slot if daytime windows are scarce.
+                used = {i for i, _, _ in candidates}
+                extra = [
+                    (i, plan[i], merged[i])
+                    for i in range(len(plan))
+                    if i not in used
+                    and plan[i]["action"] in ("idle", "charge_candidate")
+                    and not _slot_is_peak(merged[i], config)
+                ]
+                candidates.extend(extra)
+            # Cheapest first, then earlier in the day.
+            candidates.sort(key=lambda row: (row[2].import_p_per_kwh, row[2].start))
             for i, entry, _slot in candidates[:fill_count]:
                 entry["action"] = "charge"
                 entry["reason"] = "solar_gap_fill"

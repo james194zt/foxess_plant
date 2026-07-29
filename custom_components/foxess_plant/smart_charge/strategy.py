@@ -15,6 +15,7 @@ from .grid_charge import (
     _periods_from_block,
     battery_deficit_kwh,
     evaluate_grid_charge,
+    find_cheapest_import_slot,
     find_negative_import_slot,
 )
 from .types import RateSlot, SmartChargeDecision
@@ -163,7 +164,7 @@ def _negative_import_decision(
     if decision.action in ("skip", "idle"):
         return SmartChargeDecision(
             action="arbitrage",
-            reason=f"Negative import interrupt {import_p:.2f}p/kWh",
+            reason=f"Negative import trough {import_p:.2f}p/kWh",
             charge_periods=periods,
             target_max_soc=decision.target_max_soc,
             deficit_kwh=decision.deficit_kwh,
@@ -185,7 +186,7 @@ def _negative_import_decision(
             eval_tier="negative_interrupt",
         )
     decision.action = "arbitrage"
-    decision.reason = f"Negative import interrupt {import_p:.2f}p/kWh ({decision.deficit_kwh or 0:.1f} kWh deficit)"
+    decision.reason = f"Negative import trough {import_p:.2f}p/kWh ({decision.deficit_kwh or 0:.1f} kWh deficit)"
     decision.charge_periods = periods
     decision.windows = [
         {
@@ -222,15 +223,27 @@ def _try_export_decision(
         return None
 
     min_export_p, _ = mode_export_limits(ctx["operating_mode"], config)
-    slot: RateSlot | None = None
+    # Always target the highest export slot in lookahead — never settle for a weaker
+    # above-threshold half-hour just because the daily plan marks "now" as export.
+    best = find_export_slot(import_slots, min_export_p=min_export_p)
+    if best is None:
+        return None
+
+    slot = best
     eval_tier = "tactical"
     if plan_slot and plan_slot.get("action") in EXPORT_PLAN_ACTIONS:
-        slot = _slot_from_plan_entry(plan_slot, import_slots)
-        eval_tier = "daily_plan"
-    if slot is None:
-        slot = find_export_slot(import_slots, min_export_p=min_export_p)
-    if slot is None:
-        return None
+        plan_as_slot = _slot_from_plan_entry(plan_slot, import_slots)
+        plan_p = plan_as_slot.export_p_per_kwh if plan_as_slot is not None else None
+        best_p = best.export_p_per_kwh
+        if (
+            plan_as_slot is not None
+            and plan_p is not None
+            and best_p is not None
+            and plan_p >= best_p - 0.05
+        ):
+            slot = plan_as_slot
+            eval_tier = "daily_plan"
+
     return evaluate_export_discharge(
         config=config,
         slot=slot,
@@ -290,6 +303,15 @@ def evaluate_smart_charge(
 
     if plan_slot and plan_slot.get("action") in CHARGE_PLAN_ACTIONS:
         charge_slot = _slot_from_plan_entry(plan_slot, import_slots)
+        # Prefer the deepest plunge / cheapest trough over a weaker "now" plan slot
+        # (same rule as export peaks: -0.04 must not beat a later -0.05).
+        trough = find_negative_import_slot(import_slots)
+        if trough is None:
+            cheap_cap = float(getattr(config, "cheap_import_p_per_kwh", 8.0) or 8.0)
+            trough = find_cheapest_import_slot(import_slots, max_import_p=cheap_cap)
+        if trough is not None:
+            if charge_slot is None or trough.import_p_per_kwh < charge_slot.import_p_per_kwh - 0.01:
+                charge_slot = trough
         if charge_slot is not None:
             templates = list(getattr(config, "charge_periods", []) or [])
             if len(templates) < 2:

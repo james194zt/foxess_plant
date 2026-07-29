@@ -8,6 +8,7 @@ from typing import Any
 from homeassistant.util import dt as dt_util
 
 from .export_limits import export_allowed_for_mode, mode_export_limits
+from .export_slot_pick import pick_best_export_slot
 from .grid_charge import _fmt_hhmm, _merge_slots
 from .solcast_remaining import solcast_forecast_kwh_for_horizon
 from .types import RateSlot, SmartChargeDecision
@@ -59,22 +60,22 @@ def find_export_slot(
     *,
     min_export_p: float,
     now: datetime | None = None,
-    lookahead_minutes: int = 180,
+    lookahead_minutes: int = 720,
 ) -> RateSlot | None:
+    """Pick the highest export-priced half-hour above the threshold in the lookahead.
+
+    Threshold alone is not enough — if 18:00 is 18p and 19:00 is 21p (both above
+    min_export_p), we wait for 19:00 rather than exporting early at the weaker rate.
+    Default lookahead is 12h so evening peaks are visible from the afternoon.
+    """
     current = dt_util.utcnow() if now is None else dt_util.as_utc(now)
     horizon = current + timedelta(minutes=max(30, lookahead_minutes))
-    best: RateSlot | None = None
-    best_p = -999.0
-    for slot in _merge_slots(slots):
-        if slot.end <= current or slot.start >= horizon:
-            continue
-        export_p = slot.export_p_per_kwh
-        if export_p is None or export_p < min_export_p:
-            continue
-        if export_p > best_p:
-            best_p = export_p
-            best = slot
-    return best
+    return pick_best_export_slot(
+        _merge_slots(slots),
+        min_export_p=min_export_p,
+        current=current,
+        horizon=horizon,
+    )
 
 
 def slot_window_dict(slot: RateSlot) -> dict[str, Any]:

@@ -271,19 +271,41 @@ def _periods_from_block(
 def find_negative_import_slot(
     slots: list[RateSlot],
     *,
-    lookahead_minutes: int = 180,
+    now: datetime | None = None,
+    lookahead_minutes: int = 720,
 ) -> RateSlot | None:
-    now = dt_util.utcnow()
-    horizon = now + timedelta(minutes=max(30, lookahead_minutes))
-    for slot in slots:
-        if slot.end <= now:
-            continue
-        if slot.start >= horizon:
-            break
-        if slot.import_p_per_kwh < 0:
-            return slot
-    return None
+    """Most negative import half-hour in the lookahead (not merely the first plunge)."""
+    from .import_slot_pick import pick_best_import_slot
 
+    current = dt_util.utcnow() if now is None else dt_util.as_utc(now)
+    horizon = current + timedelta(minutes=max(30, lookahead_minutes))
+    return pick_best_import_slot(
+        _merge_slots(slots),
+        current=current,
+        horizon=horizon,
+        require_negative=True,
+    )
+
+
+def find_cheapest_import_slot(
+    slots: list[RateSlot],
+    *,
+    now: datetime | None = None,
+    lookahead_minutes: int = 720,
+    max_import_p: float | None = None,
+) -> RateSlot | None:
+    """Cheapest import half-hour in the lookahead (negative or positive)."""
+    from .import_slot_pick import pick_best_import_slot
+
+    current = dt_util.utcnow() if now is None else dt_util.as_utc(now)
+    horizon = current + timedelta(minutes=max(30, lookahead_minutes))
+    return pick_best_import_slot(
+        _merge_slots(slots),
+        current=current,
+        horizon=horizon,
+        require_negative=False,
+        max_import_p=max_import_p,
+    )
 
 def evaluate_grid_charge(
     *,
@@ -393,8 +415,30 @@ def evaluate_grid_charge(
     ]
     max_export_p = max(export_values) if export_values else 0.0
 
+    # Prefer the import trough (most negative / cheapest) — do not settle for a
+    # weaker contiguous block that happens to start earlier.
+    from .import_slot_pick import trough_import_price
+
+    trough_neg = trough_import_price(merged, require_negative=True)
+    block_slots = merged
+    if trough_neg is not None:
+        block_slots = [
+            s
+            for s in merged
+            if s.import_p_per_kwh is not None and s.import_p_per_kwh <= trough_neg + 0.05
+        ] or merged
+    else:
+        cheap_cap = float(getattr(config, "cheap_import_p_per_kwh", 8.0) or 8.0)
+        trough_pos = trough_import_price(merged, max_import_p=cheap_cap)
+        if trough_pos is not None:
+            block_slots = [
+                s
+                for s in merged
+                if s.import_p_per_kwh is not None and s.import_p_per_kwh <= trough_pos + 0.5
+            ] or merged
+
     block_result = _best_contiguous_block(
-        merged,
+        block_slots,
         max_export_p=max_export_p,
         round_trip_efficiency=float(getattr(config, "round_trip_efficiency", 0.9) or 0.9),
         min_arbitrage_p_per_kwh=float(getattr(config, "min_arbitrage_p_per_kwh", 0.5) or 0.5),
