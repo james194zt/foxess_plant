@@ -741,6 +741,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "last_error": cache.get("last_error"),
             "current_import_p_per_kwh": cache.get("current_import_p_per_kwh"),
             "current_export_p_per_kwh": cache.get("current_export_p_per_kwh"),
+            "import_standing_p_per_day": cache.get("import_standing_p_per_day"),
             "import_rates_count": cache.get("import_rates_count"),
             "export_rates_count": cache.get("export_rates_count"),
             "schedule_ready": bool(cache.get("schedule")),
@@ -789,8 +790,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 updates["export"] = (None, None)
 
         if tariff.standing_source == TARIFF_SOURCE_PLUGIN:
+            # Prefer live Octopus standing when native rates are loaded (Agile included).
+            standing = self._octopus_cache.get("import_standing_p_per_day")
+            if standing is None:
+                standing = tariff.standing_charge_p_per_day or 0
             updates["standing"] = (
-                max(0.0, float(tariff.standing_charge_p_per_day or 0)),
+                max(0.0, float(standing)),
                 None,
             )
         else:
@@ -4362,11 +4367,50 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 snapshot.export_meter.tariff_code if snapshot.export_meter else "—",
                 len(snapshot.export_rates),
             )
+            await self._async_sync_octopus_standing_charge()
             await self._async_auto_apply_octopus_schedule()
         except OctopusApiError as err:
             self._note_octopus_rate_limit(str(err))
             self._octopus_cache["last_error"] = str(err)
             _LOGGER.warning("Octopus tariff fetch failed: %s", err)
+
+    async def _async_sync_octopus_standing_charge(self) -> bool:
+        """Persist Octopus standing charge into plugin tariff when it changes.
+
+        Agile/Tracker skip schedule apply, so standing used to stay at the last manual
+        save. Refresh it whenever the API returns a different daily standing charge.
+        """
+        from .const import CONF_TARIFF
+        from .tariff_rates import TARIFF_SOURCE_PLUGIN
+
+        standing = self._octopus_cache.get("import_standing_p_per_day")
+        if standing is None:
+            return False
+        tariff = self.plant.tariff
+        if not tariff.dynamic.native_octopus():
+            return False
+        if tariff.standing_source != TARIFF_SOURCE_PLUGIN:
+            return False
+        new_v = max(0.0, float(standing))
+        old_v = float(tariff.standing_charge_p_per_day or 0.0)
+        if abs(new_v - old_v) < 0.0001:
+            return False
+        cfg = TariffConfig.from_dict(tariff.to_dict(include_secrets=True))
+        cfg.standing_charge_p_per_day = new_v
+        from homeassistant.util import dt as dt_util
+
+        cfg.last_updated_at = dt_util.utcnow().isoformat()
+        data = dict(self.config_entry.data)
+        data[CONF_TARIFF] = cfg.to_dict(include_secrets=True)
+        self.hass.config_entries.async_update_entry(self.config_entry, data=data)
+        self.update_plant_config(PlantConfig.from_entry_data(data))
+        _LOGGER.info(
+            "Octopus standing charge updated %.4f → %.4f p/day",
+            old_v,
+            new_v,
+        )
+        await self.async_update_tariff_sensors(record_history=True)
+        return True
 
     async def _async_refresh_octopus_greener(self, *, force: bool = False) -> None:
         if not self._octopus_greener_enabled():

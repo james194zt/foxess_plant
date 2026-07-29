@@ -372,7 +372,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.470";
+const PANEL_VERSION = "0.9.471";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -4270,10 +4270,15 @@ function octopusNativeManagesSchedule(tariff, octopusDraft) {
   return true;
 }
 
-/** True when a native tariff API (e.g. Octopus fixed tariff) owns the plugin standing charge. */
+/** True when native Octopus owns the plugin standing charge (Agile + fixed). */
 function tariffApiLocksStandingCharge(tariff, octopusDraft) {
   if (normalizeTariffStandingSource(tariff?.standing_source) !== "plugin") return false;
-  return octopusNativeManagesSchedule(tariff, octopusDraft);
+  const draft = octopusDraft && typeof octopusDraft === "object" ? octopusDraft : {};
+  const dyn = tariff?.dynamic && typeof tariff.dynamic === "object" ? tariff.dynamic : {};
+  const enabled = draft.enabled !== undefined ? draft.enabled : dyn.enabled;
+  const source = draft.source !== undefined ? draft.source : dyn.source;
+  if (!enabled || source === "entity") return false;
+  return true;
 }
 
 function normalizeOctopusDraft(raw, octopusLive) {
@@ -24596,6 +24601,9 @@ ${detailBlock}
     }
     if (live.current_export_p_per_kwh != null) {
       rateBits.push(`Export ${formatTariffMoney(live.current_export_p_per_kwh, currency)}/kWh`);
+    }
+    if (live.import_standing_p_per_day != null) {
+      rateBits.push(`Standing ${formatTariffMoney(live.import_standing_p_per_day, currency)}/day`);
     }
     const statusLines = [];
     if (connected && live.import_tariff_code) {
