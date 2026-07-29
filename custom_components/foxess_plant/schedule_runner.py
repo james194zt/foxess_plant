@@ -36,6 +36,7 @@ class ScheduleApplyBundle:
     max_soc: int
     force_charge: bool
     charge_from_grid: bool
+    force_discharge: bool = False
     source: str = SOURCE_SEGMENT
     label: str = ""
 
@@ -211,6 +212,27 @@ def resolve_desired_bundle(coordinator: FoxESSPlantCoordinator) -> ScheduleApply
         elif mode == "outage":
             target_max = plant.outage_prep.target_max_soc
         current = read_soc_current(coordinator.hass, plant.entity_map)
+        # SmartCharge export must keep Remote Control on Force Discharge. The override
+        # periods are baseline Self Use (no force charge) — without this branch the
+        # minute scheduler would Disable Remote Control and cancel the export.
+        export_armed = mode == "smart_charge" and (
+            bool(getattr(coordinator, "_smart_charge_discharge_armed", False))
+            or str(plant.override.reason or "").startswith("smart_charge:export")
+        )
+        if export_armed:
+            has_rc = bool(plant.entity_map.get("remote_control"))
+            max_v = int(round(target_max)) if target_max is not None else current.get("max_soc", 100)
+            return ScheduleApplyBundle(
+                work_mode="Self Use" if has_rc else "Force Discharge",
+                min_soc=current.get("min_soc", 10),
+                min_soc_on_grid=current.get("min_soc_on_grid", 10),
+                max_soc=max_v,
+                force_charge=False,
+                charge_from_grid=False,
+                force_discharge=True,
+                source=SOURCE_OVERRIDE,
+                label="smart_charge_export",
+            )
         return bundle_from_override_periods(
             plant.override.periods,
             target_max_soc=target_max,
@@ -299,7 +321,10 @@ async def apply_schedule_bundle(
     rc_entity = entity_map.get("remote_control")
     if rc_entity:
         live_rc = coordinator._entity_state("remote_control")
-        if bundle.force_charge:
+        if bundle.force_discharge:
+            if live_rc != "Force Discharge":
+                await set_remote_control_mode(coordinator.hass, entity_map, "Force Discharge")
+        elif bundle.force_charge:
             if live_rc != "Force Charge":
                 await set_remote_control_mode(coordinator.hass, entity_map, "Force Charge")
         elif is_remote_control_active(live_rc):
@@ -308,12 +333,14 @@ async def apply_schedule_bundle(
     if device_is_evo(coordinator.hass, plant.device_id, entity_map):
         _LOGGER.info(
             "Applied HA schedule bundle (%s / %s): work_mode=%s max_soc=%s "
-            "force_charge=%s charge_from_grid=%s (uses Remote Control, not 480xx charge periods)",
+            "force_charge=%s force_discharge=%s charge_from_grid=%s "
+            "(uses Remote Control, not 480xx charge periods)",
             bundle.source,
             bundle.label,
             bundle.work_mode,
             bundle.max_soc,
             bundle.force_charge,
+            bundle.force_discharge,
             bundle.charge_from_grid,
         )
 

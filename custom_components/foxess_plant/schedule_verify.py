@@ -70,6 +70,8 @@ def _work_mode_matches(expected: str, actual: str | None, options: list[str]) ->
 
 
 def _remote_control_matches(bundle: ScheduleApplyBundle, actual: str | None) -> bool:
+    if bundle.force_discharge:
+        return actual == "Force Discharge"
     if bundle.force_charge:
         return actual == "Force Charge"
     return not is_remote_control_active(actual)
@@ -130,7 +132,13 @@ def _bundle_matches_live(
 
     actual_rc = live.get("remote_control")
     rc_ok = _remote_control_matches(bundle, actual_rc)
-    if bundle.force_charge:
+    if bundle.force_discharge:
+        rc_msg = (
+            "Force Discharge"
+            if rc_ok
+            else f"Want Force Discharge — inverter has {actual_rc!r}"
+        )
+    elif bundle.force_charge:
         rc_msg = (
             "Force Charge"
             if rc_ok

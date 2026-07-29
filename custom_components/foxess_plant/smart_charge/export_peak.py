@@ -87,6 +87,42 @@ def slot_window_dict(slot: RateSlot) -> dict[str, Any]:
     }
 
 
+def discharge_window_active_now(
+    window: dict[str, Any] | None,
+    when: datetime | None = None,
+    *,
+    early_minutes: int = 1,
+) -> bool:
+    """True when local clock is inside (or just before) an export HH:MM window.
+
+    Force Discharge is applied immediately when armed — only arm while this is True
+    so a future peak slot is not discharged early.
+    """
+    if not window:
+        return False
+    start_s = str(window.get("start") or "").strip()
+    end_s = str(window.get("end") or "").strip()
+    if not start_s or not end_s:
+        return False
+    try:
+        start_h, start_m = (int(x) for x in start_s.split(":")[:2])
+        end_h, end_m = (int(x) for x in end_s.split(":")[:2])
+    except (TypeError, ValueError):
+        return False
+    local_now = dt_util.as_local(when or dt_util.now())
+    early = timedelta(minutes=max(0, int(early_minutes)))
+    start = local_now.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
+    end = local_now.replace(hour=end_h, minute=end_m, second=0, microsecond=0)
+    if start_s == end_s:
+        end = start + timedelta(minutes=30)
+    elif end <= start:
+        end += timedelta(days=1)
+    if end <= local_now - early:
+        start += timedelta(days=1)
+        end += timedelta(days=1)
+    return start - early <= local_now < end
+
+
 def evaluate_export_discharge(
     *,
     config: Any,

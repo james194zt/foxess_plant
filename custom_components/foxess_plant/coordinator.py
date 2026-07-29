@@ -1741,7 +1741,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._fire(EVENT_SMART_CHARGE_DISARMED, {"reason": "export_complete"})
 
     async def _arm_smart_charge_export(self, decision: Any) -> None:
+        from .schedule_runner import apply_current_schedule_state
         from .smart_charge import discharge_window_signature
+        from .smart_charge.export_peak import discharge_window_active_now
         from .smart_charge.reserve import export_floor_reached
 
         soc_pct, _, _ = self._smart_charge_battery_metrics()
@@ -1757,6 +1759,19 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
 
         window = decision.discharge_window or (decision.windows[0] if decision.windows else None)
+        # Force Discharge is applied immediately — only arm inside the HH:MM window
+        # (same pattern as grid-charge arming).
+        if not discharge_window_active_now(window):
+            if self._smart_charge_discharge_armed:
+                await self._disarm_smart_charge_export()
+            start = (window or {}).get("start") or "?"
+            end = (window or {}).get("end") or "?"
+            decision.reason = f"Waiting for {start}-{end} export — {decision.reason}"
+            if isinstance(self._smart_charge_decision, dict):
+                self._smart_charge_decision["reason"] = decision.reason
+                self._smart_charge_decision["window_active"] = False
+            return
+
         sig = discharge_window_signature(window)
         if self._smart_charge_armed:
             self._smart_charge_armed = False
@@ -1769,6 +1784,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self.plant.override.active and self.plant.override.mode not in AUTOMATION_MODES:
             return
 
+        newly_armed = False
         if not self._smart_charge_discharge_armed:
             self._smart_charge_discharge_armed = True
             self._smart_charge_discharge_sig = sig
@@ -1781,20 +1797,38 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ]
             await self._persist()
             await self._enable_force_discharge()
+            newly_armed = True
             self._audit_smart_charge_export_armed(decision)
             self._fire(
                 EVENT_SMART_CHARGE_ARMED,
                 {"reason": "smart_charge:export_discharge", "mode": MODE_SMART_CHARGE},
             )
-            return
-
-        if sig != self._smart_charge_discharge_sig:
+        elif sig != self._smart_charge_discharge_sig:
             self._smart_charge_discharge_sig = sig
             await self._enable_force_discharge()
+            newly_armed = True
             self._audit_smart_charge_export_armed(decision)
             self._fire(
                 EVENT_SMART_CHARGE_ARMED,
                 {"reason": "smart_charge:export_discharge", "mode": MODE_SMART_CHARGE},
+            )
+        else:
+            # Re-assert Remote Control each eval — schedule tick must not leave us idle.
+            await self._enable_force_discharge()
+
+        if isinstance(self._smart_charge_decision, dict):
+            self._smart_charge_decision["window_active"] = True
+
+        # Force the HA schedule bundle to the export Force-Discharge state immediately
+        # so the next minute tick does not Disable Remote Control.
+        self._last_schedule_bundle_sig = None
+        try:
+            await apply_current_schedule_state(self, force=True)
+        except Exception as err:
+            _LOGGER.warning(
+                "SmartCharge export schedule re-apply failed after arm%s: %s",
+                " (new)" if newly_armed else "",
+                err,
             )
 
     def _read_meter_import_rate_sensor(self) -> tuple[float | None, str | None, str | None]:
@@ -2136,10 +2170,21 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "utc_now": dt_util.utcnow().isoformat(),
             "local_now": dt_util.now().isoformat(),
             "current_import_p_per_kwh": self._octopus_cache.get("current_import_p_per_kwh"),
-            "window_active": charge_periods_active_now(decision.charge_periods)
-            if decision.charge_periods
-            else False,
+            "window_active": (
+                charge_periods_active_now(decision.charge_periods)
+                if decision.charge_periods
+                else False
+            ),
         }
+        if decision.action == "export_discharge":
+            from .smart_charge.export_peak import discharge_window_active_now
+
+            export_win = decision.discharge_window or (
+                decision.windows[0] if decision.windows else None
+            )
+            self._smart_charge_decision["rate_clock"]["window_active"] = discharge_window_active_now(
+                export_win
+            )
         self._audit_smart_charge_decision(decision)
 
         if decision.action == "export_discharge":

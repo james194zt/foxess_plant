@@ -53,6 +53,7 @@ async def _read_live_bundle_state(coordinator: Any) -> dict[str, Any]:
 def _bundle_from_live(live: dict[str, Any], *, label: str = "snapshot") -> ScheduleApplyBundle:
     rc = live.get("remote_control")
     force = rc == "Force Charge"
+    force_discharge = rc == "Force Discharge"
     max_soc = live.get("virtual_max_soc")
     if max_soc is None:
         max_soc = live.get("max_soc")
@@ -63,6 +64,7 @@ def _bundle_from_live(live: dict[str, Any], *, label: str = "snapshot") -> Sched
         max_soc=int(max_soc or 100),
         force_charge=force,
         charge_from_grid=force,
+        force_discharge=force_discharge,
         source="restore",
         label=label,
     )
