@@ -59,7 +59,7 @@ def find_export_slot(
     *,
     min_export_p: float,
     now: datetime | None = None,
-    lookahead_minutes: int = 35,
+    lookahead_minutes: int = 180,
 ) -> RateSlot | None:
     current = dt_util.utcnow() if now is None else dt_util.as_utc(now)
     horizon = current + timedelta(minutes=max(30, lookahead_minutes))
@@ -96,9 +96,19 @@ def evaluate_export_discharge(
     horizon_hours: float,
     eval_tier: str,
     daily_plan: list[dict[str, Any]] | None = None,
+    soc_pct: float | None = None,
 ) -> SmartChargeDecision | None:
     operating_mode = ctx["operating_mode"]
     if not export_allowed_for_mode(operating_mode, config):
+        return None
+
+    from .reserve import export_floor_reached
+
+    export_min_soc = ctx.get("export_min_soc")
+    if export_min_soc is None:
+        export_min_soc = _config_float(config, "export_min_soc", 40.0)
+    live_soc = soc_pct if soc_pct is not None else ctx.get("soc_pct")
+    if export_floor_reached(soc_pct=live_soc, export_min_soc=export_min_soc):
         return None
 
     min_export_p, _fraction = mode_export_limits(operating_mode, config)
@@ -116,20 +126,24 @@ def evaluate_export_discharge(
         return None
 
     margin = _config_float(config, "solar_safety_margin", 1.15)
-    if not solcast_covers_export_recharge(
+    solar_covers = solcast_covers_export_recharge(
         forecast_rows,
         export_kwh=export_kwh,
         solar_safety_margin=margin,
         horizon_hours=horizon_hours,
-    ):
+    )
+    # Peak/surplus export: allow when SOC is above the virtual floor even if Solcast
+    # will not fully recharge the exported energy today (avoids missing 24p+ windows).
+    if not solar_covers and live_soc is None:
         return None
 
     window = slot_window_dict(slot)
+    reason_suffix = "solar can recharge" if solar_covers else "surplus above export floor"
     return SmartChargeDecision(
         action="export_discharge",
         reason=(
             f"Export {window['start']}-{window['end']} at {export_p:.2f}p/kWh "
-            f"({export_kwh:.1f} kWh above reserve)"
+            f"({export_kwh:.1f} kWh, {reason_suffix})"
         ),
         windows=[window],
         discharge_window=window,

@@ -180,14 +180,17 @@ def optimize_spread_plan(
                 operating_mode=operating_mode,
                 config=config,
             )
-            if export_kwh and solcast_covers_export_recharge(
-                forecast_rows,
-                export_kwh=export_kwh,
-                solar_safety_margin=margin,
-                horizon_hours=horizon_hours,
-            ):
+            if export_kwh:
+                solar_ok = solcast_covers_export_recharge(
+                    forecast_rows,
+                    export_kwh=export_kwh,
+                    solar_safety_margin=margin,
+                    horizon_hours=horizon_hours,
+                )
+                # Mark high export even without full Solcast recharge — surplus above
+                # the export floor is still worth selling (e.g. 24p evening peaks).
                 entry["action"] = "export"
-                entry["reason"] = "high_export"
+                entry["reason"] = "high_export" if solar_ok else "high_export_surplus"
                 entry["planned_export_kwh"] = export_kwh
             elif import_p <= cheap_import_p and not _slot_is_peak(slot, config):
                 entry["action"] = "charge_candidate"

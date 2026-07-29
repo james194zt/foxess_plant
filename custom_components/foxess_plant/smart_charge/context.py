@@ -54,7 +54,13 @@ def build_context(
         operating_mode=operating_mode,
         safety_reserve_multiplier=config_float(config, "safety_reserve_multiplier", 1.5),
     )
-    exportable_kwh = compute_exportable_kwh(kwh_remaining=kwh_remaining, reserve_kwh=reserve_kwh)
+    exportable_kwh = compute_exportable_kwh(
+        kwh_remaining=kwh_remaining,
+        reserve_kwh=reserve_kwh,
+        capacity_kwh=capacity_kwh,
+        export_min_soc=config_float(config, "export_min_soc", 40.0),
+        soc_pct=soc_pct,
+    )
     budget = compute_house_energy_budget(
         forecast_rows=forecast_rows,
         avg_home_load_kw=load_kw,
@@ -69,6 +75,8 @@ def build_context(
         "operating_mode": operating_mode,
         "reserve_kwh": round(reserve_kwh, 2),
         "exportable_kwh": round(exportable_kwh, 2) if exportable_kwh is not None else None,
+        "export_min_soc": round(config_float(config, "export_min_soc", 40.0), 1),
+        "soc_pct": soc_pct,
         "target_soc_pct": budget.target_soc_pct,
         "grid_gap_kwh": budget.grid_gap_kwh,
         "dark_hours_kwh": budget.dark_hours_kwh,

@@ -37,13 +37,37 @@ def compute_outage_reserve_kwh(
     return load_kw * hours * margin * mode_mult
 
 
-def compute_exportable_kwh(*, kwh_remaining: float | None, reserve_kwh: float) -> float | None:
+def compute_exportable_kwh(
+    *,
+    kwh_remaining: float | None,
+    reserve_kwh: float,
+    capacity_kwh: float | None = None,
+    export_min_soc: float | None = None,
+    soc_pct: float | None = None,
+) -> float | None:
+    """Energy above the higher of outage reserve and virtual export-floor SOC."""
     if kwh_remaining is None:
         return None
-    return max(0.0, kwh_remaining - max(0.0, reserve_kwh))
+    floor_kwh = max(0.0, float(reserve_kwh or 0.0))
+    if (
+        capacity_kwh is not None
+        and capacity_kwh > 0
+        and export_min_soc is not None
+    ):
+        floor_kwh = max(floor_kwh, capacity_kwh * max(0.0, float(export_min_soc)) / 100.0)
+    if soc_pct is not None and export_min_soc is not None and float(soc_pct) <= float(export_min_soc):
+        return 0.0
+    return max(0.0, float(kwh_remaining) - floor_kwh)
 
 
 def compute_min_reserve_soc(*, reserve_kwh: float, capacity_kwh: float | None) -> float | None:
     if capacity_kwh is None or capacity_kwh <= 0:
         return None
     return min(100.0, max(0.0, reserve_kwh / capacity_kwh * 100.0))
+
+
+def export_floor_reached(*, soc_pct: float | None, export_min_soc: float | None) -> bool:
+    """True when live SOC is at/below the virtual export floor."""
+    if soc_pct is None or export_min_soc is None:
+        return False
+    return float(soc_pct) <= float(export_min_soc)

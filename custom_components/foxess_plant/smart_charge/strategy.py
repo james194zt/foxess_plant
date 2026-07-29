@@ -239,6 +239,7 @@ def _try_export_decision(
         horizon_hours=horizon_hours,
         eval_tier=eval_tier,
         daily_plan=daily_plan,
+        soc_pct=soc_pct,
     )
 
 

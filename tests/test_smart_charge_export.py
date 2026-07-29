@@ -46,5 +46,42 @@ class ExportModeTests(unittest.TestCase):
         self.assertFalse(export_peak.export_allowed_for_mode(reserve.OPERATING_MODE_MAX_GREEN, cfg))
 
 
+class ExportFloorTests(unittest.TestCase):
+    def test_exportable_respects_export_min_soc(self) -> None:
+        # 10 kWh remaining on 10 kWh pack at 100% SOC; floor 40% => 4 kWh reserved
+        kwh = reserve.compute_exportable_kwh(
+            kwh_remaining=10.0,
+            reserve_kwh=0.0,
+            capacity_kwh=10.0,
+            export_min_soc=40.0,
+            soc_pct=100.0,
+        )
+        self.assertAlmostEqual(kwh, 6.0)
+
+    def test_exportable_zero_at_floor(self) -> None:
+        kwh = reserve.compute_exportable_kwh(
+            kwh_remaining=4.0,
+            reserve_kwh=0.0,
+            capacity_kwh=10.0,
+            export_min_soc=40.0,
+            soc_pct=40.0,
+        )
+        self.assertEqual(kwh, 0.0)
+        self.assertTrue(reserve.export_floor_reached(soc_pct=40.0, export_min_soc=40.0))
+        self.assertTrue(reserve.export_floor_reached(soc_pct=39.0, export_min_soc=40.0))
+        self.assertFalse(reserve.export_floor_reached(soc_pct=41.0, export_min_soc=40.0))
+
+    def test_export_floor_higher_than_outage_reserve(self) -> None:
+        # Outage reserve 1 kWh but export floor 50% of 10 kWh => 5 kWh floor
+        kwh = reserve.compute_exportable_kwh(
+            kwh_remaining=8.0,
+            reserve_kwh=1.0,
+            capacity_kwh=10.0,
+            export_min_soc=50.0,
+            soc_pct=80.0,
+        )
+        self.assertAlmostEqual(kwh, 3.0)
+
+
 if __name__ == "__main__":
     unittest.main()

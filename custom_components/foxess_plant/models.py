@@ -414,6 +414,7 @@ class SmartChargeConfig:
     green_export_spread_multiplier: float = 2.0
     cheap_import_p_per_kwh: float = 8.0
     peak_import_penalty_p_per_kwh: float = 5.0
+    export_min_soc: float = 40.0
     meter_rate_verify_enabled: bool = True
     meter_rate_entity_id: str | None = None
     meter_rate_tolerance_p_per_kwh: float = 0.5
@@ -477,6 +478,7 @@ class SmartChargeConfig:
             ),
             cheap_import_p_per_kwh=float(data.get("cheap_import_p_per_kwh", 8.0) or 8.0),
             peak_import_penalty_p_per_kwh=float(data.get("peak_import_penalty_p_per_kwh", 5.0) or 5.0),
+            export_min_soc=float(data.get("export_min_soc", 40.0) or 40.0),
             meter_rate_verify_enabled=bool(data.get("meter_rate_verify_enabled", True)),
             meter_rate_entity_id=(
                 str(data["meter_rate_entity_id"]).strip()
@@ -531,6 +533,7 @@ class SmartChargeConfig:
             "green_export_spread_multiplier": round(self.green_export_spread_multiplier, 2),
             "cheap_import_p_per_kwh": round(self.cheap_import_p_per_kwh, 2),
             "peak_import_penalty_p_per_kwh": round(self.peak_import_penalty_p_per_kwh, 2),
+            "export_min_soc": round(self.export_min_soc, 1),
             "meter_rate_verify_enabled": self.meter_rate_verify_enabled,
             "meter_rate_entity_id": self.meter_rate_entity_id,
             "meter_rate_tolerance_p_per_kwh": round(self.meter_rate_tolerance_p_per_kwh, 2),

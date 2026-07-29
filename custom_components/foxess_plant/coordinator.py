@@ -1742,6 +1742,19 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _arm_smart_charge_export(self, decision: Any) -> None:
         from .smart_charge import discharge_window_signature
+        from .smart_charge.reserve import export_floor_reached
+
+        soc_pct, _, _ = self._smart_charge_battery_metrics()
+        export_min = float(getattr(self.plant.smart_charge, "export_min_soc", 40.0) or 40.0)
+        if export_floor_reached(soc_pct=soc_pct, export_min_soc=export_min):
+            _LOGGER.info(
+                "SmartCharge export blocked — SOC %.1f%% at/below export floor %.1f%%",
+                soc_pct if soc_pct is not None else -1,
+                export_min,
+            )
+            if self._smart_charge_discharge_armed:
+                await self._disarm_smart_charge_export()
+            return
 
         window = decision.discharge_window or (decision.windows[0] if decision.windows else None)
         sig = discharge_window_signature(window)
@@ -2089,7 +2102,20 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             tariff_type=tariff_type,
         )
         from .smart_charge.grid_charge import charge_periods_active_now
+        from .smart_charge.reserve import export_floor_reached
         from homeassistant.util import dt as dt_util
+
+        export_min = float(getattr(cfg, "export_min_soc", 40.0) or 40.0)
+        if export_floor_reached(soc_pct=soc_pct, export_min_soc=export_min) and (
+            decision.action == "export_discharge" or self._smart_charge_discharge_armed
+        ):
+            decision.action = "idle"
+            decision.reason = (
+                f"Export floor reached ({export_min:.0f}% SOC) — returning to Self Use"
+            )
+            decision.work_mode_target = "Self Use"
+            decision.discharge_window = None
+            decision.planned_export_kwh = None
 
         if (
             decision.action in ("grid_charge", "arbitrage", "spread_plan")
@@ -2105,6 +2131,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         self._smart_charge_decision = decision.to_dict()
         self._smart_charge_decision["current_plan_slot"] = current_plan_slot(self._smart_charge_daily_plan)
+        self._smart_charge_decision["export_min_soc"] = export_min
         self._smart_charge_decision["rate_clock"] = {
             "utc_now": dt_util.utcnow().isoformat(),
             "local_now": dt_util.now().isoformat(),

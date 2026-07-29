@@ -372,7 +372,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.467";
+const PANEL_VERSION = "0.9.468";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -11078,7 +11078,14 @@ const SOC_THUMBS = [
   { key: "max_soc", label: "System max", short: "Max", color: "#2e7d32" },
 ];
 
-/** Enforce 10–100%, min ≤ system min ≤ max (inverter rejects below 10%). */
+const SOC_THUMBS_SMART = [
+  { key: "min_soc", label: "Off-grid min", short: "Off-grid", color: "#e53935" },
+  { key: "min_soc_on_grid", label: "System min", short: "On-grid", color: "#f9a825" },
+  { key: "export_min_soc", label: "Export floor", short: "Export", color: "#C06AFF" },
+  { key: "max_soc", label: "System max", short: "Max", color: "#2e7d32" },
+];
+
+/** Enforce 10–100%, min ≤ system min ≤ [export floor] ≤ max. */
 function clampSocDraft(d) {
   let min = Math.round(Number(d.min_soc) || SOC_MIN_PCT);
   let mid = Math.round(Number(d.min_soc_on_grid) || SOC_MIN_PCT);
@@ -11091,6 +11098,13 @@ function clampSocDraft(d) {
   d.min_soc = min;
   d.min_soc_on_grid = mid;
   d.max_soc = max;
+  if (d.export_min_soc != null && d.export_min_soc !== "") {
+    let exp = Math.round(Number(d.export_min_soc) || mid);
+    exp = Math.max(SOC_MIN_PCT, Math.min(100, exp));
+    if (exp < mid) exp = mid;
+    if (exp > max) exp = max;
+    d.export_min_soc = exp;
+  }
   return d;
 }
 
@@ -11116,22 +11130,32 @@ function validateSocLimits(draft, liveSoc, opts = {}) {
   const warnings = [];
   if (!draft) return { errors: ["SOC limits unavailable."], warnings: [] };
   const emulateMax = Boolean(opts.emulateMaxSoc);
+  const includeExport = Boolean(opts.includeExportFloor);
   const min = Math.round(Number(draft.min_soc));
   const mid = Math.round(Number(draft.min_soc_on_grid));
   const max = Math.round(Number(draft.max_soc));
-  if (![min, mid, max].every((v) => Number.isFinite(v))) {
+  const exp = includeExport ? Math.round(Number(draft.export_min_soc)) : null;
+  const values = includeExport ? [min, mid, exp, max] : [min, mid, max];
+  if (!values.every((v) => Number.isFinite(v))) {
     return { errors: ["Enter a whole-number percentage for each SOC limit."], warnings: [] };
   }
-  if (min < SOC_MIN_PCT || mid < SOC_MIN_PCT || max < SOC_MIN_PCT) {
+  if (values.some((v) => v < SOC_MIN_PCT)) {
     errors.push(`All SOC limits must be at least ${SOC_MIN_PCT}%.`);
   }
-  if (min > 100 || mid > 100 || max > 100) {
+  if (values.some((v) => v > 100)) {
     errors.push("SOC limits cannot exceed 100%.");
   }
   if (min > mid) {
     errors.push(`Off-grid min (${min}%) must be ≤ system min (${mid}%).`);
   }
-  if (mid > max) {
+  if (includeExport) {
+    if (mid > exp) {
+      errors.push(`System min (${mid}%) must be ≤ export floor (${exp}%).`);
+    }
+    if (exp > max) {
+      errors.push(`Export floor (${exp}%) must be ≤ system max (${max}%).`);
+    }
+  } else if (mid > max) {
     errors.push(`System min (${mid}%) must be ≤ system max (${max}%).`);
   }
   const live = Math.ceil(Number(liveSoc));
@@ -11205,17 +11229,32 @@ function socPctFromTrackPointer(clientX, trackRect, grabOffset = 0) {
 /** Apply drag to the active thumb first, then push siblings (Fox-app style). */
 function applySocDrag(d, thumb, pct) {
   const p = Math.max(SOC_MIN_PCT, Math.min(100, Math.round(pct)));
+  const hasExport = d.export_min_soc != null && d.export_min_soc !== "";
   if (thumb === "min_soc") {
     d.min_soc = p;
     if (d.min_soc_on_grid < p) d.min_soc_on_grid = p;
-    if (d.max_soc < d.min_soc_on_grid) d.max_soc = d.min_soc_on_grid;
+    if (hasExport && d.export_min_soc < d.min_soc_on_grid) d.export_min_soc = d.min_soc_on_grid;
+    if (d.max_soc < (hasExport ? d.export_min_soc : d.min_soc_on_grid)) {
+      d.max_soc = hasExport ? d.export_min_soc : d.min_soc_on_grid;
+    }
   } else if (thumb === "min_soc_on_grid") {
     d.min_soc_on_grid = p;
     if (d.min_soc > p) d.min_soc = p;
+    if (hasExport && d.export_min_soc < p) d.export_min_soc = p;
+    if (d.max_soc < (hasExport ? d.export_min_soc : p)) {
+      d.max_soc = hasExport ? d.export_min_soc : p;
+    }
+  } else if (thumb === "export_min_soc") {
+    d.export_min_soc = p;
+    if (d.min_soc_on_grid > p) d.min_soc_on_grid = p;
+    if (d.min_soc > d.min_soc_on_grid) d.min_soc = d.min_soc_on_grid;
     if (d.max_soc < p) d.max_soc = p;
   } else if (thumb === "max_soc") {
     d.max_soc = p;
-    if (d.min_soc_on_grid > p) d.min_soc_on_grid = p;
+    if (hasExport && d.export_min_soc > p) d.export_min_soc = p;
+    if (d.min_soc_on_grid > (hasExport ? d.export_min_soc : p)) {
+      d.min_soc_on_grid = hasExport ? d.export_min_soc : p;
+    }
     if (d.min_soc > d.min_soc_on_grid) d.min_soc = d.min_soc_on_grid;
   }
   return clampSocDraft(d);
@@ -14085,9 +14124,11 @@ const STYLES = `
   border-radius: 50%; border: 3px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.35);
   cursor: grab; padding: 0; transition: transform 0.1s;
 }
+.triple-soc-zone.exportable { background: color-mix(in srgb, #C06AFF 50%, var(--divider-color)); }
 .triple-soc-thumb[data-soc-thumb="min_soc"] { z-index: 3; }
 .triple-soc-thumb[data-soc-thumb="min_soc_on_grid"] { z-index: 4; }
-.triple-soc-thumb[data-soc-thumb="max_soc"] { z-index: 5; }
+.triple-soc-thumb[data-soc-thumb="export_min_soc"] { z-index: 5; }
+.triple-soc-thumb[data-soc-thumb="max_soc"] { z-index: 6; }
 .triple-soc-thumb.is-dragging { z-index: 10; transform: scale(1.1); transition: transform 0.1s; }
 .triple-soc-thumb:active { cursor: grabbing; }
 .triple-soc-scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--secondary-text-color); margin-top: 10px; padding: 0 4px; }
@@ -15633,6 +15674,7 @@ Reloading panel registration…
       green_export_spread_multiplier: sc.green_export_spread_multiplier ?? 2,
       cheap_import_p_per_kwh: sc.cheap_import_p_per_kwh ?? 8,
       peak_import_penalty_p_per_kwh: sc.peak_import_penalty_p_per_kwh ?? 5,
+      export_min_soc: sc.export_min_soc ?? 40,
       meter_rate_verify_enabled: sc.meter_rate_verify_enabled !== false,
       meter_rate_entity_id: sc.meter_rate_entity_id || "",
       meter_rate_tolerance_p_per_kwh: sc.meter_rate_tolerance_p_per_kwh ?? 0.5,
@@ -15654,6 +15696,7 @@ Reloading panel registration…
       min_soc: settings.min_soc ?? 10,
       min_soc_on_grid: settings.min_soc_on_grid ?? 10,
       max_soc: maxCap,
+      export_min_soc: sc.export_min_soc ?? Math.max(settings.min_soc_on_grid ?? 10, 40),
     });
     this._smartChargeSocSaveError = null;
     this._smartChargeSocSaveResults = null;
@@ -15664,7 +15707,7 @@ Reloading panel registration…
     const validation = validateSocLimits(
       this._smartChargeSocDraft,
       this._liveBatterySoc(this._getPlant()),
-      this._socValidateOpts()
+      { ...this._socValidateOpts(), includeExportFloor: true }
     );
     const wrap = this._root.querySelector('[data-triple-soc-context="smart"]');
     if (!wrap) return;
@@ -15787,7 +15830,10 @@ Reloading panel registration…
       const d = { ...this._smartChargeDraft };
       if (d.enabled && this._smartChargeSocDraft) {
         const soc = clampSocDraft({ ...this._smartChargeSocDraft });
-        const validation = validateSocLimits(soc, this._liveBatterySoc(plant), this._socValidateOpts());
+        const validation = validateSocLimits(soc, this._liveBatterySoc(plant), {
+          ...this._socValidateOpts(),
+          includeExportFloor: true,
+        });
         if (validation.errors.length) {
           this._showToast(validation.errors[0], "err");
           this._busy = false;
@@ -15796,6 +15842,7 @@ Reloading panel registration…
         }
         d.max_target_soc = soc.max_soc;
         d.target_max_soc = null;
+        d.export_min_soc = soc.export_min_soc ?? 40;
         const socResponse = await this._hass.connection.sendMessagePromise({
           type: "foxess_plant/set_soc_limits",
           plant_id: plant.entry_id,
@@ -15856,6 +15903,7 @@ Reloading panel registration…
         green_export_spread_multiplier: Number(d.green_export_spread_multiplier) || 2,
         cheap_import_p_per_kwh: Number(d.cheap_import_p_per_kwh) || 8,
         peak_import_penalty_p_per_kwh: Number(d.peak_import_penalty_p_per_kwh) || 5,
+        export_min_soc: Number(d.export_min_soc) || 40,
         meter_rate_verify_enabled: Boolean(d.meter_rate_verify_enabled),
         meter_rate_entity_id: String(d.meter_rate_entity_id || "").trim() || null,
         meter_rate_tolerance_p_per_kwh: Number(d.meter_rate_tolerance_p_per_kwh) || 0.5,
@@ -19319,22 +19367,34 @@ Reloading panel registration…
     const draft = this._tripleSocDraftForWrap(wrap);
     if (!draft) return;
     const fieldPrefix = this._tripleSocFieldPrefix(wrap);
+    const smart = wrap.dataset.tripleSocContext === "smart";
+    const thumbs = smart ? SOC_THUMBS_SMART : SOC_THUMBS;
     const d = clampSocDraft(draft);
     const min = d.min_soc;
     const mid = d.min_soc_on_grid;
     const max = d.max_soc;
+    const exp = smart ? d.export_min_soc ?? mid : mid;
     const zones = wrap.querySelector(".triple-soc-zones");
     if (zones) {
-      zones.innerHTML = `
+      if (smart) {
+        zones.innerHTML = `
+<div class="triple-soc-zone critical" style="width:${min}%"></div>
+<div class="triple-soc-zone reserve" style="width:${mid - min}%"></div>
+<div class="triple-soc-zone usable" style="width:${exp - mid}%"></div>
+<div class="triple-soc-zone exportable" style="width:${max - exp}%"></div>
+<div class="triple-soc-zone headroom" style="width:${100 - max}%"></div>`;
+      } else {
+        zones.innerHTML = `
 <div class="triple-soc-zone critical" style="width:${min}%"></div>
 <div class="triple-soc-zone reserve" style="width:${mid - min}%"></div>
 <div class="triple-soc-zone usable" style="width:${max - mid}%"></div>
 <div class="triple-soc-zone headroom" style="width:${100 - max}%"></div>`;
+      }
     }
-    SOC_THUMBS.forEach((t) => {
+    thumbs.forEach((t) => {
       const thumb = wrap.querySelector(`[data-soc-thumb="${t.key}"]`);
       const val = d[t.key];
-      if (thumb) {
+      if (thumb && val != null) {
         thumb.style.left = `${val}%`;
         thumb.style.background = t.color;
         thumb.title = `${t.label}: ${val}%`;
@@ -19345,21 +19405,32 @@ Reloading panel registration…
     const summary = wrap.querySelector(".triple-soc-summary");
     if (summary) {
       const live = wrap.querySelector(".triple-soc-battery-pct")?.textContent?.replace("%", "") ?? "0";
-      summary.innerHTML =
-        min === mid
-          ? `<strong>Reserve from</strong> ${min}%<br><strong>Usable to</strong> ${max}% · <strong>Now</strong> ${live}%`
-          : `<strong>Reserve band</strong> ${min}% – ${mid}%<br><strong>Usable to</strong> ${max}% · <strong>Now</strong> ${live}%`;
+      if (smart) {
+        summary.innerHTML = `<strong>Export floor</strong> ${exp}% · <strong>Usable to</strong> ${max}% · <strong>Now</strong> ${live}%<br><span style="font-size:12px;color:var(--secondary-text-color)">Force-export stops at the purple handle; Self Use resumes below it</span>`;
+      } else {
+        summary.innerHTML =
+          min === mid
+            ? `<strong>Reserve from</strong> ${min}%<br><strong>Usable to</strong> ${max}% · <strong>Now</strong> ${live}%`
+            : `<strong>Reserve band</strong> ${min}% – ${mid}%<br><strong>Usable to</strong> ${max}% · <strong>Now</strong> ${live}%`;
+      }
     }
-    if (wrap.dataset.tripleSocContext === "smart") this._syncSmartChargeSocValidationUi();
+    if (smart) this._syncSmartChargeSocValidationUi();
     else if (wrap.dataset.tripleSocContext !== "modbus-lab") this._syncSocValidationUi();
   }
 
   _renderTripleSoc(plant, d, liveSoc, opts = {}) {
     const context = opts.context || "quick";
+    const smart = context === "smart";
+    const thumbs = smart ? SOC_THUMBS_SMART : SOC_THUMBS;
     const clamped = clampSocDraft({ ...d });
+    if (smart && (clamped.export_min_soc == null || clamped.export_min_soc === "")) {
+      clamped.export_min_soc = Math.max(clamped.min_soc_on_grid, 40);
+      clampSocDraft(clamped);
+    }
     const min = clamped.min_soc;
     const mid = clamped.min_soc_on_grid;
     const max = clamped.max_soc;
+    const exp = smart ? clamped.export_min_soc ?? mid : mid;
     const live = Math.max(0, Math.min(100, Math.round(liveSoc ?? 0)));
     const fillMarkup = tripleSocBatteryFillMarkup(live);
     const fieldPrefix =
@@ -19373,23 +19444,28 @@ Reloading panel registration…
           : context === "quick" && virtual?.cap_source === "quick" && virtual?.hardware_max_supported === false
           ? `<p class="field-hint" style="margin-top:8px">System max is emulated on this inverter — Fox Plant stops charging at ${virtual.effective_cap ?? max}%.</p>`
           : "";
-    const note =
-      opts.note ||
-      (emulateMaxSocFromPlant(this._plantState)
-        ? `<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. On this inverter, system max is enforced by Fox Plant — you can save a cap below the current battery level.</p>`
-        : `<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. System max is written to inverter register <strong>46610</strong> (disable Fox app scheduler if writes fail).</p>`);
+    const note = smart
+      ? `<p class="soc-limit-note">Off-grid / system min / max write to the inverter. <strong>Export floor</strong> is virtual (SmartCharge only) — force-export stops there and returns to Self Use so you keep house battery.</p>`
+      : opts.note ||
+        (emulateMaxSocFromPlant(this._plantState)
+          ? `<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. On this inverter, system max is enforced by Fox Plant — you can save a cap below the current battery level.</p>`
+          : `<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. System max is written to inverter register <strong>46610</strong> (disable Fox app scheduler if writes fail).</p>`);
 
-    const thumbsHtml = SOC_THUMBS.map(
-      (t) =>
-        `<button type="button" class="triple-soc-thumb" data-soc-thumb="${t.key}" style="left:${clamped[t.key]}%;background:${t.color}" title="${esc(t.label)}: ${clamped[t.key]}%" aria-label="${esc(t.label)} ${clamped[t.key]}%"></button>`
-    ).join("");
+    const thumbsHtml = thumbs
+      .map(
+        (t) =>
+          `<button type="button" class="triple-soc-thumb" data-soc-thumb="${t.key}" style="left:${clamped[t.key]}%;background:${t.color}" title="${esc(t.label)}: ${clamped[t.key]}%" aria-label="${esc(t.label)} ${clamped[t.key]}%"></button>`
+      )
+      .join("");
 
-    const numericHtml = SOC_THUMBS.map(
-      (t) =>
-        `<div><label>${esc(t.label)}</label><input type="number" min="${SOC_MIN_PCT}" max="100" step="1" data-field="${fieldPrefix}:${t.key}" value="${clamped[t.key]}"></div>`
-    ).join("");
+    const numericHtml = thumbs
+      .map(
+        (t) =>
+          `<div><label>${esc(t.label)}</label><input type="number" min="${SOC_MIN_PCT}" max="100" step="1" data-field="${fieldPrefix}:${t.key}" value="${clamped[t.key]}"></div>`
+      )
+      .join("");
 
-    const socOpts = this._socValidateOpts();
+    const socOpts = { ...this._socValidateOpts(), includeExportFloor: smart };
     const feedback =
       context === "smart"
         ? renderSocFeedbackHtml(
@@ -19399,6 +19475,38 @@ Reloading panel registration…
           )
         : renderSocFeedbackHtml(validateSocLimits(clamped, live, socOpts), this._socSaveError, this._socSaveResults);
 
+    const zonesHtml = smart
+      ? `<div class="triple-soc-zone critical" style="width:${min}%"></div>
+<div class="triple-soc-zone reserve" style="width:${mid - min}%"></div>
+<div class="triple-soc-zone usable" style="width:${exp - mid}%"></div>
+<div class="triple-soc-zone exportable" style="width:${max - exp}%"></div>
+<div class="triple-soc-zone headroom" style="width:${100 - max}%"></div>`
+      : `<div class="triple-soc-zone critical" style="width:${min}%"></div>
+<div class="triple-soc-zone reserve" style="width:${mid - min}%"></div>
+<div class="triple-soc-zone usable" style="width:${max - mid}%"></div>
+<div class="triple-soc-zone headroom" style="width:${100 - max}%"></div>`;
+
+    const summaryHtml = smart
+      ? `<strong>Export floor</strong> ${exp}% · <strong>Usable to</strong> ${max}% · <strong>Now</strong> ${live}%<br><span style="font-size:12px;color:var(--secondary-text-color)">Force-export stops at the purple handle; Self Use resumes below it</span>`
+      : min === mid
+        ? `<strong>Reserve from</strong> ${min}%<br><strong>Usable to</strong> ${max}% · <strong>Now</strong> ${live}%`
+        : `<strong>Reserve band</strong> ${min}% – ${mid}%<br><strong>Usable to</strong> ${max}% · <strong>Now</strong> ${live}%`;
+
+    const legendHtml = smart
+      ? `<div class="soc-legend">
+<span><i style="background:#e53935"></i> Below off-grid min</span>
+<span><i style="background:#f9a825"></i> Off-grid reserve</span>
+<span><i style="background:#2e7d32"></i> House / Self Use</span>
+<span><i style="background:#C06AFF"></i> Exportable band</span>
+<span><i style="background:var(--fp-accent)"></i> Charge headroom</span>
+</div>`
+      : `<div class="soc-legend">
+<span><i style="background:#e53935"></i> Below off-grid min</span>
+<span><i style="background:#f9a825"></i> Off-grid reserve</span>
+<span><i style="background:#2e7d32"></i> Normal use</span>
+<span><i style="background:var(--fp-accent)"></i> Charge headroom</span>
+</div>`;
+
     return `<div class="triple-soc" data-triple-soc-context="${esc(context)}">
 <div class="triple-soc-head">
 <div class="triple-soc-battery" aria-hidden="true">
@@ -19407,32 +19515,20 @@ ${fillMarkup}
 <div class="triple-soc-battery-pct">${live}%</div>
 </div>
 <div class="triple-soc-summary">
-${
-      min === mid
-        ? `<strong>Reserve from</strong> ${min}%<br><strong>Usable to</strong> ${max}% · <strong>Now</strong> ${live}%`
-        : `<strong>Reserve band</strong> ${min}% – ${mid}%<br><strong>Usable to</strong> ${max}% · <strong>Now</strong> ${live}%`
-    }
+${summaryHtml}
 </div>
 </div>
 <div class="triple-soc-track-wrap">
 <div class="triple-soc-track">
 <div class="triple-soc-zones">
-<div class="triple-soc-zone critical" style="width:${min}%"></div>
-<div class="triple-soc-zone reserve" style="width:${mid - min}%"></div>
-<div class="triple-soc-zone usable" style="width:${max - mid}%"></div>
-<div class="triple-soc-zone headroom" style="width:${100 - max}%"></div>
+${zonesHtml}
 </div>
 <div class="triple-soc-live" style="left:${live}%"></div>
 ${thumbsHtml}
 </div>
 <div class="triple-soc-scale"><span>${SOC_MIN_PCT}%</span><span>100%</span></div>
 </div>
-<div class="soc-legend">
-<span><i style="background:#e53935"></i> Below off-grid min</span>
-<span><i style="background:#f9a825"></i> Off-grid reserve</span>
-<span><i style="background:#2e7d32"></i> Normal use</span>
-<span><i style="background:var(--fp-accent)"></i> Charge headroom</span>
-</div>
+${legendHtml}
 <div class="soc-numeric">${numericHtml}</div>
 ${feedback}
 ${capHint}
@@ -23855,16 +23951,18 @@ ${spreadHtml}
     const plant = this._getPlant();
     const liveSoc = this._liveBatterySoc(plant) ?? 0;
     const socValidation = this._smartChargeSocDraft
-      ? validateSocLimits(this._smartChargeSocDraft, liveSoc, this._socValidateOpts())
+      ? validateSocLimits(this._smartChargeSocDraft, liveSoc, {
+          ...this._socValidateOpts(),
+          includeExportFloor: true,
+        })
       : { errors: [] };
     const socSection =
       draft.enabled && this._smartChargeSocDraft
         ? `<div class="card" data-smart-charge-soc="1">
 <p class="card-title">SOC limits</p>
-<p class="field-hint" style="margin:0 0 12px">Same controls as Quick Settings — these values are used by SmartCharge (and override Quick Settings while automation is on). StormSafe can still charge above this cap when armed.</p>
+<p class="field-hint" style="margin:0 0 12px">Used by SmartCharge (overrides Quick Settings while automation is active). StormSafe can still charge above the system max when armed. The purple <strong>Export floor</strong> is virtual — SmartCharge stops force-export there and returns to Self Use.</p>
 ${this._renderTripleSoc(plant, this._smartChargeSocDraft, liveSoc, {
   context: "smart",
-  note: `<p class="soc-limit-note">Off-grid min, system min, and system max are written to the inverter (46609–46611).</p>`,
 })}
 </div>`
         : "";
