@@ -118,15 +118,83 @@ def is_tracker_tariff_type(tariff_type: str | None) -> bool:
     return str(tariff_type or "") == TARIFF_TYPE_TRACKER
 
 
+def tariff_looks_like_export(tariff_code: str | None) -> bool:
+    """True when a tariff code is an Outgoing / SEG / Flux export product."""
+    code = str(tariff_code or "").upper()
+    if not code:
+        return False
+    # Import Flux / Agile must not be treated as export.
+    if "IMPORT" in code and "EXPORT" not in code and "OUTGOING" not in code:
+        return False
+    return any(
+        marker in code
+        for marker in (
+            "OUTGOING",
+            "EXPORT",
+            "-SEG-",
+            "SEG-HH",
+            "E-1R-SEG",
+            "FLUX-EXPORT",
+            "INTELLI-FLUX",
+        )
+    )
+
+
+def _agreement_currently_valid(agreement: dict[str, Any], *, now: datetime | None = None) -> bool:
+    now = now or dt_util.utcnow()
+    valid_from = _parse_api_dt(agreement.get("valid_from"))
+    valid_to = _parse_api_dt(agreement.get("valid_to"))
+    if valid_from is None:
+        return False
+    return valid_from <= now and (valid_to is None or valid_to > now)
+
+
+def _pick_serial_from_meters(meters: list[Any], *, now: datetime | None = None) -> str | None:
+    """Prefer an active meter serial (skip closed meters when active_to is set)."""
+    now = now or dt_util.utcnow()
+    fallback: str | None = None
+    for raw in meters or []:
+        if not isinstance(raw, dict):
+            continue
+        serial = str(
+            raw.get("serial_number") or raw.get("serialNumber") or raw.get("serial") or ""
+        ).strip()
+        if not serial:
+            continue
+        active_to = _parse_api_dt(raw.get("active_to") or raw.get("activeTo"))
+        if active_to is not None and active_to <= now:
+            if fallback is None:
+                fallback = serial
+            continue
+        return serial
+    return fallback
+
+
+def _export_agreement(agreements: list[Any], *, now: datetime | None = None) -> dict[str, Any] | None:
+    """Prefer a currently valid export tariff agreement on the meter point."""
+    now = now or dt_util.utcnow()
+    fallback: dict[str, Any] | None = None
+    for raw in agreements or []:
+        if not isinstance(raw, dict):
+            continue
+        if not tariff_looks_like_export(raw.get("tariff_code")):
+            continue
+        if _agreement_currently_valid(raw, now=now):
+            return raw
+        if fallback is None:
+            fallback = raw
+    return fallback
+
+
 def _meter_looks_like_export(meter_point: dict[str, Any], tariff_code: str | None) -> bool:
-    """True for SEG / Outgoing export MPAN points (REST flag or tariff-code heuristic)."""
+    """True for SEG / Outgoing export MPAN points (REST flag, GraphQL direction, or tariff)."""
     if bool(meter_point.get("is_export")):
         return True
-    code = str(tariff_code or "").upper()
-    # REST sometimes omits is_export; Outgoing / SEG agreements are always export.
-    if "OUTGOING" in code or "-SEG-" in code or code.startswith("E-1R-SEG"):
+    if str(meter_point.get("direction") or "").upper() == "EXPORT":
         return True
-    return False
+    if tariff_looks_like_export(tariff_code):
+        return True
+    return _export_agreement(meter_point.get("agreements") or []) is not None
 
 
 def list_account_meters(account: dict[str, Any]) -> tuple[list[OctopusMeterSummary], list[OctopusMeterSummary]]:
@@ -142,13 +210,18 @@ def list_account_meters(account: dict[str, Any]) -> tuple[list[OctopusMeterSumma
             mpan = str(mp.get("mpan") or "").strip()
             if not mpan:
                 continue
-            agreement = _active_agreement(mp.get("agreements") or [])
+            agreements = mp.get("agreements") or []
+            active = _active_agreement(agreements)
+            export_agr = _export_agreement(agreements)
+            is_export = _meter_looks_like_export(
+                mp, (export_agr or active or {}).get("tariff_code") if (export_agr or active) else None
+            )
+            if is_export:
+                agreement = export_agr or active
+            else:
+                agreement = active
             tariff_code = str(agreement.get("tariff_code") or "").strip() if agreement else None
-            serial = None
-            meters = mp.get("meters") or []
-            if meters and isinstance(meters[0], dict):
-                serial = str(meters[0].get("serial_number") or "").strip() or None
-            is_export = _meter_looks_like_export(mp, tariff_code)
+            serial = _pick_serial_from_meters(mp.get("meters") or [])
             label_bits = [mpan[-4:] if len(mpan) >= 4 else mpan]
             if tariff_code:
                 label_bits.append(tariff_code)
@@ -165,6 +238,98 @@ def list_account_meters(account: dict[str, Any]) -> tuple[list[OctopusMeterSumma
             else:
                 import_meters.append(summary)
     return import_meters, export_meters
+
+
+def merge_export_meters(
+    rest_meters: list[OctopusMeterSummary],
+    gql_meters: list[OctopusMeterSummary],
+) -> list[OctopusMeterSummary]:
+    """Fill missing REST export serials from GraphQL and add GraphQL-only export MPANs."""
+    from dataclasses import replace
+
+    if not rest_meters:
+        return list(gql_meters)
+    by_mpan = {m.mpan: m for m in gql_meters}
+    out: list[OctopusMeterSummary] = []
+    seen: set[str] = set()
+    for meter in rest_meters:
+        seen.add(meter.mpan)
+        alt = by_mpan.get(meter.mpan)
+        if meter.serial or alt is None or not alt.serial:
+            out.append(meter)
+            continue
+        out.append(
+            replace(
+                meter,
+                serial=alt.serial,
+                tariff_code=meter.tariff_code or alt.tariff_code,
+                display_name=meter.display_name or alt.display_name,
+            )
+        )
+    for meter in gql_meters:
+        if meter.mpan not in seen:
+            out.append(meter)
+    return out
+
+
+async def enrich_export_meters_via_graphql(
+    client: OctopusApiClient,
+    account_number: str,
+    export_meters: list[OctopusMeterSummary],
+) -> list[OctopusMeterSummary]:
+    """Use GraphQL EXPORT direction when REST omits is_export or meter serials."""
+    needs_enrich = (not export_meters) or any(not m.serial for m in export_meters)
+    if not needs_enrich:
+        return export_meters
+    try:
+        from .octopus_graphql import OctopusGraphqlClient, OctopusGraphqlError
+    except ImportError:
+        return export_meters
+    gql = OctopusGraphqlClient(client._hass, api_key=client._api_key)
+    try:
+        gql_account = await gql.fetch_account_as_rest(account_number)
+    except OctopusGraphqlError as err:
+        _LOGGER.debug("GraphQL export meter enrich failed: %s", err)
+        return export_meters
+    _, gql_export = list_account_meters(gql_account)
+    if not gql_export:
+        return export_meters
+    merged = merge_export_meters(export_meters, gql_export)
+    if len(merged) != len(export_meters) or any(
+        (a.serial != b.serial) for a, b in zip(export_meters, merged)
+    ):
+        _LOGGER.info(
+            "Octopus export meters enriched via GraphQL (%s → %s, serials=%s)",
+            len(export_meters),
+            len(merged),
+            sum(1 for m in merged if m.serial),
+        )
+    return merged
+
+
+def resolve_meter_for_consumption(
+    octopus_cache: dict[str, Any],
+    *,
+    export: bool = False,
+) -> dict[str, Any]:
+    """Pick MPAN/serial for consumption polls from singular meter or meters list."""
+    prefix = "export" if export else "import"
+    meter = octopus_cache.get(f"{prefix}_meter")
+    if isinstance(meter, dict):
+        mpan = str(meter.get("mpan") or "").strip()
+        serial = str(meter.get("serial") or "").strip()
+        if mpan and serial:
+            return meter
+    for row in octopus_cache.get(f"{prefix}_meters") or []:
+        if not isinstance(row, dict):
+            continue
+        mpan = str(row.get("mpan") or "").strip()
+        serial = str(row.get("serial") or "").strip()
+        if mpan and serial:
+            return row
+    if isinstance(meter, dict) and str(meter.get("mpan") or "").strip():
+        return meter
+    return {}
 
 
 def _active_agreement(agreements: list[Any]) -> dict[str, Any] | None:
@@ -413,6 +578,7 @@ async def fetch_octopus_tariff_snapshot(
 ) -> OctopusTariffSnapshot:
     account = await client.get_account(account_number)
     import_meters, export_meters = list_account_meters(account)
+    export_meters = await enrich_export_meters_via_graphql(client, account_number, export_meters)
     if not import_meters:
         raise OctopusApiError("No import electricity meter found on this Octopus account")
 
@@ -521,6 +687,7 @@ async def test_octopus_connection(
 ) -> dict[str, Any]:
     account = await client.get_account(account_number)
     import_meters, export_meters = list_account_meters(account)
+    export_meters = await enrich_export_meters_via_graphql(client, account_number, export_meters)
     return {
         "account_number": account_number.strip().upper(),
         "import_meters": [_meter_to_dict(m) for m in import_meters],

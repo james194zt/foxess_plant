@@ -372,7 +372,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.475";
+const PANEL_VERSION = "0.9.477";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -2762,25 +2762,37 @@ function renderOctopusRewardsCard(payload, { compact = false } = {}) {
   const points = rewards.loyalty_points;
   const money = rewards.loyalty_monetary_amount;
   const balance = rewards.account_balance_pence;
-  const rate = rewards.current_import_p_per_kwh;
+  const importRate = rewards.current_import_p_per_kwh ?? payload?.current_import_p_per_kwh;
+  const exportRate = rewards.current_export_p_per_kwh ?? payload?.current_export_p_per_kwh;
   const hasPoints = points != null && Number.isFinite(Number(points));
-  const hasCost = rate != null || balance != null;
+  const hasImport = importRate != null && Number.isFinite(Number(importRate));
+  const hasExport = exportRate != null && Number.isFinite(Number(exportRate));
+  const hasCost = hasImport || hasExport || balance != null;
   if (!hasPoints && !hasCost) return "";
   const pointsVal = hasPoints ? `${Number(points).toLocaleString()} Octopoints` : "—";
   const moneyVal = formatOctopusPointsValue(points, money);
+  // Prefer a 3-pane row when we have rates: Octopoints | Import | Export
+  const useThree = hasImport || hasExport;
+  const importPane = `<div class="octopus-rewards-pane">
+<label>Current import rate</label>
+<strong>${esc(formatOctopusRate(importRate))}</strong>
+<span class="octopus-rewards-sub">Account balance ${esc(formatOctopusMoneyPence(balance))}</span>
+</div>`;
+  const exportPane = `<div class="octopus-rewards-pane">
+<label>Current export rate</label>
+<strong>${esc(formatOctopusRate(exportRate))}</strong>
+<span class="octopus-rewards-sub">${hasExport ? "What Outgoing pays now" : "No export tariff linked"}</span>
+</div>`;
   return `<div class="card octopus-rewards-card${compact ? " octopus-rewards-card--compact" : ""}" style="margin-top:14px" data-octopus-rewards-card="1">
 <p class="card-title">Octopus account</p>
-<div class="octopus-rewards-split">
+<div class="octopus-rewards-split${useThree ? " octopus-rewards-split--three" : ""}">
 <div class="octopus-rewards-pane">
 <label>Octopoints</label>
 <strong>${esc(pointsVal)}</strong>
 ${moneyVal ? `<span class="octopus-rewards-sub">${esc(moneyVal)}</span>` : ""}
 </div>
-<div class="octopus-rewards-pane">
-<label>Current energy cost</label>
-<strong>${esc(formatOctopusRate(rate))}</strong>
-<span class="octopus-rewards-sub">Account balance ${esc(formatOctopusMoneyPence(balance))}</span>
-</div>
+${importPane}
+${useThree ? exportPane : ""}
 </div>
 </div>`;
 }
@@ -3996,10 +4008,16 @@ ${chart}
 </div>`;
 }
 
-function renderOctopusConsumptionChartSvg(consumption, { kind = "import" } = {}) {
+function renderOctopusConsumptionChartSvg(consumption, { kind = "import", tariffCode = null, error = null } = {}) {
   const isExport = kind === "export";
   const daily = octopusConsumptionDailyTotals(consumption, 14);
   if (!daily.length) {
+    if (error) {
+      return `<p class="octopus-greener-empty">${esc(String(error))}</p>`;
+    }
+    if (isExport && tariffCode) {
+      return `<p class="octopus-greener-empty">Export tariff ${esc(String(tariffCode))} is linked, but no half-hourly export readings yet. Re-test the Octopus connection (to refresh the export meter serial) or wait for the next 30-minute meter poll.</p>`;
+    }
     return isExport
       ? `<p class="octopus-greener-empty">Smart-meter export unavailable. Needs an Outgoing/SEG meter on the Octopus account — export is polled with import every 30 minutes when connected.</p>`
       : `<p class="octopus-greener-empty">Smart-meter import unavailable. Consumption is polled every 30 minutes when Octopus is connected — check back after the next poll.</p>`;
@@ -4187,7 +4205,11 @@ function renderOctopusEnergyAnalysisPage(payload, { loading = false, greenerView
   if (!payload) {
     return `<div data-octopus-analysis-main="1"><header class="header"><h1>Octopus Energy Analysis</h1></header><p class="placeholder">Select Octopus as your energy provider under Settings → Tariff to use this report.</p></div>`;
   }
-  const err = payload.errors?.auth || payload.errors?.consumption || payload.errors?.carbon;
+  const err =
+    payload.errors?.auth ||
+    payload.errors?.consumption ||
+    payload.errors?.export_consumption ||
+    payload.errors?.carbon;
   const errHtml = err ? `<p class="octopus-greener-error">${esc(String(err))}</p>` : "";
   const rewardsHtml = renderOctopusRewardsCard(payload, { compact: false });
   const greenerCard = renderOctopusGreenerNightsCard(
@@ -4217,7 +4239,11 @@ ${renderOctopusCarbonInsightsCard(payload.carbon_extremes)}
 ${renderOctopusComplianceCard(payload.compliance)}
 <div class="octopus-analysis-grid">
 <div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Smart-meter import (14 days)</h3>${renderOctopusConsumptionChartSvg(payload.consumption, { kind: "import" })}</div>
-<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Smart-meter export (14 days)</h3>${renderOctopusConsumptionChartSvg(payload.export_consumption, { kind: "export" })}</div>
+<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Smart-meter export (14 days)</h3>${renderOctopusConsumptionChartSvg(payload.export_consumption, {
+  kind: "export",
+  tariffCode: payload.export_tariff_code,
+  error: payload.errors?.export_consumption,
+})}</div>
 </div>
 <div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Import spend &amp; export earnings (14 days)</h3><p class="octopus-greener-intro">Smart-meter half-hours priced at the Octopus unit rate that applied when the energy was used.</p>${renderOctopusMeterCostChartSvg(payload.daily_costs)}</div>
 ${renderOctopusForecastHistoryCard(payload.history, payload.greener_nights)}
@@ -12234,6 +12260,9 @@ const STYLES = `
 }
 .octopus-rewards-split {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 8px;
+}
+.octopus-rewards-split--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 .octopus-rewards-pane {
   padding: 12px 14px; border-radius: var(--fp-radius, 12px);

@@ -22,6 +22,7 @@ from .octopus_tariff import (
     _rate_value_inc_vat,
     is_variable_tariff_type,
     product_code_from_tariff_code,
+    resolve_meter_for_consumption,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -696,7 +697,17 @@ async def refresh_octopus_consumption(
         "daily_costs_fetched_at": None,
     }
     import_meter = octopus_cache.get("import_meter") or greener_cache.get("import_meter") or {}
-    export_meter = octopus_cache.get("export_meter") or greener_cache.get("export_meter") or {}
+    export_meter = resolve_meter_for_consumption(octopus_cache, export=True)
+    if not (export_meter.get("mpan") and export_meter.get("serial")):
+        greener_export = greener_cache.get("export_meter") if isinstance(greener_cache.get("export_meter"), dict) else {}
+        if greener_export.get("mpan") and greener_export.get("serial"):
+            export_meter = greener_export
+        elif not export_meter.get("mpan") and greener_export:
+            export_meter = greener_export
+    # Prefer fully resolved import meter (mpan+serial) from cache lists when singular is incomplete.
+    resolved_import = resolve_meter_for_consumption(octopus_cache, export=False)
+    if resolved_import.get("mpan") and resolved_import.get("serial"):
+        import_meter = resolved_import
     mpan = str(import_meter.get("mpan") or "").strip()
     serial = str(import_meter.get("serial") or "").strip()
     client = OctopusApiClient(hass, api_key=api_key)
@@ -725,6 +736,21 @@ async def refresh_octopus_consumption(
             )
         except OctopusApiError as err:
             result["errors"]["export_consumption"] = str(err)
+            _LOGGER.warning("Octopus export consumption fetch failed: %s", err)
+    elif exp_mpan and not exp_serial:
+        result["errors"]["export_consumption"] = (
+            f"Export MPAN {exp_mpan[-4:]} found but meter serial is missing — "
+            "re-test Octopus connection so GraphQL can fill the serial"
+        )
+        _LOGGER.warning("Octopus export consumption skipped: MPAN without serial")
+    elif octopus_cache.get("export_tariff_code") or octopus_cache.get("export_rates"):
+        result["errors"]["export_consumption"] = (
+            "Export tariff is linked but no export meter serial is available for smart-meter polling"
+        )
+    elif octopus_cache.get("export_meters"):
+        result["errors"]["export_consumption"] = (
+            "Export meter listed on the account but MPAN/serial incomplete — re-test Octopus connection"
+        )
 
     if import_rows or export_rows:
         stored = await store.async_merge_rows(

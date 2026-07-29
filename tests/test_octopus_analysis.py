@@ -93,6 +93,7 @@ _stub_sub(
     _rate_value_inc_vat=lambda row: None,
     is_variable_tariff_type=lambda raw: "agile" in str(raw).lower(),
     product_code_from_tariff_code=lambda raw: None,
+    resolve_meter_for_consumption=lambda cache, export=False: {},
 )
 
 _ensure_pkg()

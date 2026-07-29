@@ -555,6 +555,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             cache,
             history_count=self._octopus_greener_history_count,
             current_import_p_per_kwh=self._octopus_cache.get("current_import_p_per_kwh"),
+            current_export_p_per_kwh=self._octopus_cache.get("current_export_p_per_kwh"),
         )
 
     def _octopus_analysis_state(self) -> dict[str, Any] | None:
@@ -4338,8 +4339,13 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._octopus_cache["import_rates"] = snapshot.import_rates
             self._octopus_cache["export_rates"] = snapshot.export_rates
             try:
+                from .octopus_tariff import enrich_export_meters_via_graphql
+
                 account = await client.get_account(str(dyn.account_number))
                 import_meters, export_meters = list_account_meters(account)
+                export_meters = await enrich_export_meters_via_graphql(
+                    client, str(dyn.account_number), export_meters
+                )
                 self._octopus_cache["import_meters"] = [
                     {
                         "mpan": m.mpan,

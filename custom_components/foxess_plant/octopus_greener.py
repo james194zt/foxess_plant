@@ -457,6 +457,7 @@ def greener_dashboard_payload(
     *,
     history_count: int = 0,
     current_import_p_per_kwh: float | None = None,
+    current_export_p_per_kwh: float | None = None,
 ) -> dict[str, Any]:
     """Panel-friendly greener nights + rewards payload."""
     snap = snapshot if isinstance(snapshot, dict) else {}
@@ -480,5 +481,6 @@ def greener_dashboard_payload(
             "loyalty_monetary_amount": rewards.get("loyalty_monetary_amount"),
             "account_balance_pence": rewards.get("account_balance_pence"),
             "current_import_p_per_kwh": current_import_p_per_kwh,
+            "current_export_p_per_kwh": current_export_p_per_kwh,
         },
     }
