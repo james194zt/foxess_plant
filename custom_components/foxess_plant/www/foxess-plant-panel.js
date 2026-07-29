@@ -372,7 +372,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.465";
+const PANEL_VERSION = "0.9.467";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -7736,6 +7736,12 @@ function overviewSmartChargeStatusSummary(plantState) {
     return { label: "Armed", tone: "armed", detail: reason || "Grid charge in progress" };
   }
   const reason = sc.decision?.reason;
+  if (reason && String(reason).startsWith("Waiting for ")) {
+    return { label: "Waiting", tone: "watch", detail: reason };
+  }
+  if (reason && String(reason).startsWith("Meter check held")) {
+    return { label: "Meter check", tone: "watch", detail: reason };
+  }
   return { label: "Ready", tone: "idle", detail: reason || "Watching tariffs and solar" };
 }
 
@@ -15627,6 +15633,10 @@ Reloading panel registration…
       green_export_spread_multiplier: sc.green_export_spread_multiplier ?? 2,
       cheap_import_p_per_kwh: sc.cheap_import_p_per_kwh ?? 8,
       peak_import_penalty_p_per_kwh: sc.peak_import_penalty_p_per_kwh ?? 5,
+      meter_rate_verify_enabled: sc.meter_rate_verify_enabled !== false,
+      meter_rate_entity_id: sc.meter_rate_entity_id || "",
+      meter_rate_tolerance_p_per_kwh: sc.meter_rate_tolerance_p_per_kwh ?? 0.5,
+      meter_rate_recheck_minutes: sc.meter_rate_recheck_minutes ?? 5,
       charge_periods: periods,
     };
   }
@@ -15846,6 +15856,10 @@ Reloading panel registration…
         green_export_spread_multiplier: Number(d.green_export_spread_multiplier) || 2,
         cheap_import_p_per_kwh: Number(d.cheap_import_p_per_kwh) || 8,
         peak_import_penalty_p_per_kwh: Number(d.peak_import_penalty_p_per_kwh) || 5,
+        meter_rate_verify_enabled: Boolean(d.meter_rate_verify_enabled),
+        meter_rate_entity_id: String(d.meter_rate_entity_id || "").trim() || null,
+        meter_rate_tolerance_p_per_kwh: Number(d.meter_rate_tolerance_p_per_kwh) || 0.5,
+        meter_rate_recheck_minutes: Number(d.meter_rate_recheck_minutes) || 5,
         charge_periods: chargePeriodsFromAutomationBehaviour(SMART_CHARGE_GRID_BEHAVIOUR),
       });
       if (state) this._plantState = state;
@@ -18795,6 +18809,23 @@ Reloading panel registration…
       }
       if (field === "price_drop_interrupt_p_per_kwh") {
         this._smartChargeDraft.price_drop_interrupt_p_per_kwh = Math.max(0, parseFloat(el.value) || 2);
+        return;
+      }
+      if (field === "meter_rate_verify_enabled") {
+        this._smartChargeDraft.meter_rate_verify_enabled = el.checked;
+        this._scheduleRender();
+        return;
+      }
+      if (field === "meter_rate_entity_id") {
+        this._smartChargeDraft.meter_rate_entity_id = el.value || "";
+        return;
+      }
+      if (field === "meter_rate_tolerance_p_per_kwh") {
+        this._smartChargeDraft.meter_rate_tolerance_p_per_kwh = Math.max(0, Math.min(20, parseFloat(el.value) || 0.5));
+        return;
+      }
+      if (field === "meter_rate_recheck_minutes") {
+        this._smartChargeDraft.meter_rate_recheck_minutes = Math.max(1, Math.min(30, parseInt(el.value, 10) || 5));
         return;
       }
       if (field === "daily_plan_time") {
@@ -23780,6 +23811,11 @@ ${greenOnly ? "" : `<div class="field"><label>Min spread profit (p/kWh)</label>
         : live.armed
           ? "Grid charge armed on inverter"
           : "Waiting for first evaluation";
+    const meterVerify = decision.meter_verify;
+    const meterLine =
+      meterVerify && meterVerify.status && meterVerify.status !== "skipped"
+        ? `<p class="field-hint" style="margin:8px 0 0">Meter check: ${esc(String(meterVerify.detail || meterVerify.status))}</p>`
+        : "";
     const pillClass =
       status.tone === "export"
         ? "sc-status-pill sc-status-pill--export"
@@ -23797,7 +23833,7 @@ ${greenOnly ? "" : `<div class="field"><label>Min spread profit (p/kWh)</label>
       : "";
     return `<div class="${status.cardClass}">
 <div class="sc-status-head">
-<div><p class="sc-status-title">Live status</p><p class="sc-status-reason">${esc(statusLine)}</p>${status.hint ? `<p class="field-hint" style="margin:4px 0 0">${esc(status.hint)}</p>` : ""}</div>
+<div><p class="sc-status-title">Live status</p><p class="sc-status-reason">${esc(statusLine)}</p>${status.hint ? `<p class="field-hint" style="margin:4px 0 0">${esc(status.hint)}</p>` : ""}${meterLine}</div>
 <span class="${pillClass}">${esc(status.pill)}</span>
 </div>
 ${renderSmartChargeStatTiles(decision)}
@@ -23877,6 +23913,16 @@ ${draft.enabled ? `<details class="sc-section-details" data-sc-section="energy"$
 <input type="number" min="1" max="48" step="1" data-field="smart-charge:daily_plan_horizon_hours" value="${esc(String(draft.daily_plan_horizon_hours ?? 24))}" ${busy}></div>
 <div class="field"><label>Price-drop replan threshold (p/kWh)</label>
 <input type="number" min="0" max="50" step="0.5" data-field="smart-charge:price_drop_interrupt_p_per_kwh" value="${esc(String(draft.price_drop_interrupt_p_per_kwh ?? 2))}" ${busy}></div>
+<div class="toggle-row"><span><strong>Glow / smart-meter rate check</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Double-check live meter import rate against Octopus API before force-charging</span></span>
+<input type="checkbox" data-field="smart-charge:meter_rate_verify_enabled" ${draft.meter_rate_verify_enabled !== false ? "checked" : ""} ${busy}></div>
+${draft.meter_rate_verify_enabled !== false ? `<div class="field"><label>Import rate sensor (Glow / IHD)</label>
+<input type="text" data-field="smart-charge:meter_rate_entity_id" value="${esc(String(draft.meter_rate_entity_id || ""))}" placeholder="sensor.…_import_unit_rate" ${busy}>
+<p class="field-hint">Use your live Glow/Hildebrand import unit-rate sensor. £/kWh or p/kWh both work. Leave blank to skip the check.</p></div>
+<div class="field"><label>Agreement tolerance (p/kWh)</label>
+<input type="number" min="0" max="20" step="0.05" data-field="smart-charge:meter_rate_tolerance_p_per_kwh" value="${esc(String(draft.meter_rate_tolerance_p_per_kwh ?? 0.5))}" ${busy}>
+<p class="field-hint">e.g. API −0.037p and meter −0.04p are fine — only block when the gap is larger than this.</p></div>
+<div class="field"><label>Recheck after mismatch (minutes)</label>
+<input type="number" min="1" max="30" step="1" data-field="smart-charge:meter_rate_recheck_minutes" value="${esc(String(draft.meter_rate_recheck_minutes ?? 5))}" ${busy}></div>` : ""}
 </details>
 ${this._renderSmartChargeSpreadPanel(draft)}
 ${this._renderSmartChargeGridBehaviourInfo()}` : ""}

@@ -1071,6 +1071,14 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             vol.Optional("peak_import_penalty_p_per_kwh", default=5.0): vol.All(
                 vol.Coerce(float), vol.Range(min=0, max=50)
             ),
+            vol.Optional("meter_rate_verify_enabled", default=True): cv.boolean,
+            vol.Optional("meter_rate_entity_id"): vol.Any(cv.string, None),
+            vol.Optional("meter_rate_tolerance_p_per_kwh", default=0.5): vol.All(
+                vol.Coerce(float), vol.Range(min=0, max=20)
+            ),
+            vol.Optional("meter_rate_recheck_minutes", default=5): vol.All(
+                vol.Coerce(int), vol.Range(min=1, max=30)
+            ),
             vol.Required("charge_periods"): [PERIOD_SCHEMA],
         }
     )
@@ -1127,6 +1135,10 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
                 "green_export_spread_multiplier",
                 "cheap_import_p_per_kwh",
                 "peak_import_penalty_p_per_kwh",
+                "meter_rate_verify_enabled",
+                "meter_rate_entity_id",
+                "meter_rate_tolerance_p_per_kwh",
+                "meter_rate_recheck_minutes",
                 "charge_periods",
             )
             if key in msg

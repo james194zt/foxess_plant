@@ -414,6 +414,10 @@ class SmartChargeConfig:
     green_export_spread_multiplier: float = 2.0
     cheap_import_p_per_kwh: float = 8.0
     peak_import_penalty_p_per_kwh: float = 5.0
+    meter_rate_verify_enabled: bool = True
+    meter_rate_entity_id: str | None = None
+    meter_rate_tolerance_p_per_kwh: float = 0.5
+    meter_rate_recheck_minutes: int = 5
     charge_periods: list[ChargePeriodConfig] = field(default_factory=list)
 
     @classmethod
@@ -473,6 +477,16 @@ class SmartChargeConfig:
             ),
             cheap_import_p_per_kwh=float(data.get("cheap_import_p_per_kwh", 8.0) or 8.0),
             peak_import_penalty_p_per_kwh=float(data.get("peak_import_penalty_p_per_kwh", 5.0) or 5.0),
+            meter_rate_verify_enabled=bool(data.get("meter_rate_verify_enabled", True)),
+            meter_rate_entity_id=(
+                str(data["meter_rate_entity_id"]).strip()
+                if data.get("meter_rate_entity_id")
+                else None
+            ),
+            meter_rate_tolerance_p_per_kwh=float(
+                data.get("meter_rate_tolerance_p_per_kwh", 0.5) or 0.5
+            ),
+            meter_rate_recheck_minutes=int(data.get("meter_rate_recheck_minutes", 5) or 5),
             charge_periods=[ChargePeriodConfig.from_dict(p) for p in periods_raw],
         )
 
@@ -517,6 +531,10 @@ class SmartChargeConfig:
             "green_export_spread_multiplier": round(self.green_export_spread_multiplier, 2),
             "cheap_import_p_per_kwh": round(self.cheap_import_p_per_kwh, 2),
             "peak_import_penalty_p_per_kwh": round(self.peak_import_penalty_p_per_kwh, 2),
+            "meter_rate_verify_enabled": self.meter_rate_verify_enabled,
+            "meter_rate_entity_id": self.meter_rate_entity_id,
+            "meter_rate_tolerance_p_per_kwh": round(self.meter_rate_tolerance_p_per_kwh, 2),
+            "meter_rate_recheck_minutes": int(self.meter_rate_recheck_minutes),
             "charge_periods": [p.to_dict() for p in self.charge_periods],
         }
 

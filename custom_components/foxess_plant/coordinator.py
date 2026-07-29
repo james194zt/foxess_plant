@@ -120,6 +120,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._smart_charge_discharge_sig = ""
         self._hems_audit_sigs: dict[str, str] = {}
         self._smart_charge_rates_snapshot: list[tuple[str, float]] = []
+        self._unsub_smart_charge_meter_recheck: callable | None = None
         self._storm_forecast_active = False
         self._storm_forecast_detail = {}
         self._solcast_cache: dict[str, Any] = {}
@@ -674,6 +675,26 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._octopus_cache, "last_fetch_at", timedelta(minutes=55)
         )
 
+    def _sync_octopus_current_rates_from_cache(self) -> None:
+        """Advance current import/export from cached Agile rows (do not wait for next API fetch).
+
+        Octopus unit rates are published ahead of time; ``current_*`` must track the
+        half-hour containing utcnow even when the REST fetch is skipped for ~55 minutes.
+        """
+        from .octopus_tariff import rate_at
+        from homeassistant.util import dt as dt_util
+
+        cache = self._octopus_cache
+        import_rates = cache.get("import_rates") or []
+        if not import_rates:
+            return
+        now = dt_util.utcnow()
+        cache["current_import_p_per_kwh"] = rate_at(now, import_rates)
+        export_rates = cache.get("export_rates") or []
+        cache["current_export_p_per_kwh"] = (
+            rate_at(now, export_rates) if export_rates else None
+        )
+
     def _octopus_greener_refresh_due(self, *, force: bool = False) -> bool:
         if force:
             return True
@@ -845,6 +866,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         cfg = self.plant.smart_charge
         prev_rates = list(self._smart_charge_rates_snapshot)
         await self._async_refresh_octopus()
+        self._sync_octopus_current_rates_from_cache()
         self._setup_octopus_timer()
         if self._octopus_agile_active():
             await self.async_update_tariff_sensors(record_history=True)
@@ -1762,6 +1784,70 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 {"reason": "smart_charge:export_discharge", "mode": MODE_SMART_CHARGE},
             )
 
+    def _read_meter_import_rate_sensor(self) -> tuple[float | None, str | None, str | None]:
+        """Return (raw_value, unit, entity_id) for the configured Glow/live import rate sensor."""
+        cfg = self.plant.smart_charge
+        entity_id = str(getattr(cfg, "meter_rate_entity_id", None) or "").strip() or None
+        if not entity_id:
+            return None, None, None
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in ("unknown", "unavailable", "", None):
+            return None, None, entity_id
+        try:
+            raw = float(state.state)
+        except (TypeError, ValueError):
+            return None, None, entity_id
+        unit = state.attributes.get("unit_of_measurement")
+        return raw, str(unit) if unit is not None else None, entity_id
+
+    def _verify_meter_rate_before_charge(self) -> Any:
+        from .smart_charge.meter_rate_verify import verify_meter_import_rate
+
+        cfg = self.plant.smart_charge
+        meter_raw, meter_unit, entity_id = self._read_meter_import_rate_sensor()
+        api_p = self._octopus_cache.get("current_import_p_per_kwh")
+        if api_p is None:
+            # Fall back to rate_at(now) from cached rows if current_* was never set.
+            from .octopus_tariff import rate_at
+            from homeassistant.util import dt as dt_util
+
+            api_p = rate_at(dt_util.utcnow(), self._octopus_cache.get("import_rates") or [])
+        return verify_meter_import_rate(
+            enabled=bool(getattr(cfg, "meter_rate_verify_enabled", True)),
+            entity_id=entity_id or getattr(cfg, "meter_rate_entity_id", None),
+            api_p_per_kwh=float(api_p) if api_p is not None else None,
+            meter_raw=meter_raw,
+            meter_unit=meter_unit,
+            tolerance_p=float(getattr(cfg, "meter_rate_tolerance_p_per_kwh", 0.5) or 0.5),
+            recheck_minutes=int(getattr(cfg, "meter_rate_recheck_minutes", 5) or 5),
+        )
+
+    def _clear_smart_charge_meter_recheck(self) -> None:
+        if self._unsub_smart_charge_meter_recheck:
+            self._unsub_smart_charge_meter_recheck()
+            self._unsub_smart_charge_meter_recheck = None
+
+    def _schedule_smart_charge_meter_recheck(self, minutes: int) -> None:
+        from homeassistant.util import dt as dt_util
+
+        self._clear_smart_charge_meter_recheck()
+        when = dt_util.utcnow() + timedelta(minutes=max(1, int(minutes)))
+        self._unsub_smart_charge_meter_recheck = async_track_point_in_time(
+            self.hass, self._smart_charge_meter_recheck_callback, when
+        )
+        _LOGGER.info("SmartCharge meter rate recheck scheduled for %s", when.isoformat())
+
+    @callback
+    def _smart_charge_meter_recheck_callback(self, _now) -> None:
+        self._unsub_smart_charge_meter_recheck = None
+        self.hass.async_create_task(self._async_smart_charge_meter_recheck())
+
+    async def _async_smart_charge_meter_recheck(self) -> None:
+        try:
+            await self._evaluate_smart_charge()
+        except Exception as err:
+            _LOGGER.warning("SmartCharge meter rate recheck failed: %s", err)
+
     async def _arm_smart_charge_grid(self, decision: Any) -> None:
         from .smart_charge import charge_periods_signature
 
@@ -1769,6 +1855,34 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._disarm_smart_charge_export()
 
         should_arm = decision.action in ("grid_charge", "arbitrage", "spread_plan") and decision.charge_periods
+        if should_arm:
+            from .smart_charge.grid_charge import charge_periods_active_now
+
+            # Force-charge is applied immediately by the schedule runner — only arm
+            # while the local HH:MM window is active (otherwise we charge the wrong
+            # Agile half-hour while displaying a future cheap/plunge slot).
+            if not charge_periods_active_now(decision.charge_periods):
+                should_arm = False
+        meter_verify = None
+        if should_arm:
+            self._sync_octopus_current_rates_from_cache()
+            meter_verify = self._verify_meter_rate_before_charge()
+            if isinstance(self._smart_charge_decision, dict):
+                self._smart_charge_decision["meter_verify"] = meter_verify.to_dict()
+            if meter_verify.blocks_arm:
+                should_arm = False
+                decision.reason = f"Meter check held — {meter_verify.detail}"
+                if isinstance(self._smart_charge_decision, dict):
+                    self._smart_charge_decision["reason"] = decision.reason
+                self._schedule_smart_charge_meter_recheck(
+                    int(getattr(self.plant.smart_charge, "meter_rate_recheck_minutes", 5) or 5)
+                )
+            else:
+                self._clear_smart_charge_meter_recheck()
+                if meter_verify.status == "ok" and isinstance(self._smart_charge_decision, dict):
+                    # Keep the charge reason; append a short confirm for the UI.
+                    self._smart_charge_decision["meter_verify"] = meter_verify.to_dict()
+
         new_sig = charge_periods_signature(decision.charge_periods) if decision.charge_periods else ""
         if (
             should_arm
@@ -1974,8 +2088,31 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             horizon_hours=float(horizon),
             tariff_type=tariff_type,
         )
+        from .smart_charge.grid_charge import charge_periods_active_now
+        from homeassistant.util import dt as dt_util
+
+        if (
+            decision.action in ("grid_charge", "arbitrage", "spread_plan")
+            and decision.charge_periods
+            and not charge_periods_active_now(decision.charge_periods)
+        ):
+            primary = next(
+                (p for p in decision.charge_periods if p.enable_force_charge),
+                decision.charge_periods[0],
+            )
+            decision.reason = (
+                f"Waiting for {primary.start}-{primary.end} window — {decision.reason}"
+            )
         self._smart_charge_decision = decision.to_dict()
         self._smart_charge_decision["current_plan_slot"] = current_plan_slot(self._smart_charge_daily_plan)
+        self._smart_charge_decision["rate_clock"] = {
+            "utc_now": dt_util.utcnow().isoformat(),
+            "local_now": dt_util.now().isoformat(),
+            "current_import_p_per_kwh": self._octopus_cache.get("current_import_p_per_kwh"),
+            "window_active": charge_periods_active_now(decision.charge_periods)
+            if decision.charge_periods
+            else False,
+        }
         self._audit_smart_charge_decision(decision)
 
         if decision.action == "export_discharge":
@@ -4113,9 +4250,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         if not force and not self._octopus_tariff_refresh_due():
             _LOGGER.debug("Octopus tariff refresh skipped (cache fresh)")
+            self._sync_octopus_current_rates_from_cache()
             return
         if not force and self._octopus_rate_limited():
             _LOGGER.debug("Octopus tariff refresh skipped (rate limited)")
+            self._sync_octopus_current_rates_from_cache()
             return
         client = OctopusApiClient(self.hass, api_key=str(dyn.api_key))
         try:

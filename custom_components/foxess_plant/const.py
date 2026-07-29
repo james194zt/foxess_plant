@@ -428,6 +428,10 @@ DEFAULT_SMART_CHARGE = {
     "green_export_spread_multiplier": 2.0,
     "cheap_import_p_per_kwh": 8.0,
     "peak_import_penalty_p_per_kwh": 5.0,
+    "meter_rate_verify_enabled": True,
+    "meter_rate_entity_id": None,
+    "meter_rate_tolerance_p_per_kwh": 0.5,
+    "meter_rate_recheck_minutes": 5,
     "charge_periods": [
         {
             "enable_force_charge": True,

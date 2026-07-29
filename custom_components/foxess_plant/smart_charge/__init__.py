@@ -5,6 +5,7 @@ from __future__ import annotations
 from .guards import smart_charge_evaluation_blocked
 from .grid_charge import (
     battery_deficit_kwh,
+    charge_periods_active_now,
     evaluate_grid_charge,
     find_negative_import_slot,
     rate_slots_from_octopus,
@@ -35,6 +36,7 @@ __all__ = [
     "SmartChargeDecision",
     "battery_deficit_kwh",
     "build_daily_plan",
+    "charge_periods_active_now",
     "current_plan_slot",
     "charge_periods_signature",
     "discharge_window_signature",

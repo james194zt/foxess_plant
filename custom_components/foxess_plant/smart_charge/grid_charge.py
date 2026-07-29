@@ -49,16 +49,17 @@ def rate_slots_from_octopus(
             stop = end
         if stop <= now or start >= end:
             continue
-        seg_start = max(start, now)
+        # Keep API half-hour boundaries (UTC) for labels/matching. Truncating start to
+        # "now" produced odd HH:MM like 15:17 and looked like a timezone skew.
         seg_end = min(stop, end)
         try:
             import_p = float(row.get("value_inc_vat"))
         except (TypeError, ValueError):
             continue
-        export_p = rate_at(seg_start, export_rates or []) if export_rates else None
+        export_p = rate_at(max(start, now), export_rates or []) if export_rates else None
         slots.append(
             RateSlot(
-                start=seg_start,
+                start=start,
                 end=seg_end,
                 import_p_per_kwh=import_p,
                 export_p_per_kwh=export_p,
@@ -132,6 +133,48 @@ def rate_slots_from_schedule(
 
 def _fmt_hhmm(when: datetime) -> str:
     return dt_util.as_local(when).strftime("%H:%M")
+
+
+def charge_periods_active_now(
+    periods: list[ChargePeriodConfig],
+    when: datetime | None = None,
+    *,
+    early_minutes: int = 1,
+) -> bool:
+    """True when local clock is inside (or just before) a force-charge HH:MM window.
+
+    SmartCharge writes London-local start/end onto charge periods, but Modbus force
+    charge is applied immediately when armed. Callers must only arm while this is True
+    so a cheap overnight window is not force-charged during an afternoon period.
+    """
+    if not periods:
+        return False
+    local_now = dt_util.as_local(when or dt_util.now())
+    early = timedelta(minutes=max(0, int(early_minutes)))
+    for period in periods:
+        if not getattr(period, "enable_force_charge", False):
+            continue
+        start_s = str(getattr(period, "start", "") or "").strip()
+        end_s = str(getattr(period, "end", "") or "").strip()
+        if not start_s or not end_s:
+            continue
+        try:
+            start_h, start_m = (int(x) for x in start_s.split(":")[:2])
+            end_h, end_m = (int(x) for x in end_s.split(":")[:2])
+        except (TypeError, ValueError):
+            continue
+        start = local_now.replace(hour=start_h, minute=start_m, second=0, microsecond=0)
+        end = local_now.replace(hour=end_h, minute=end_m, second=0, microsecond=0)
+        if start_s == end_s:
+            end = start + timedelta(minutes=30)
+        elif end <= start:
+            end += timedelta(days=1)
+        if end <= local_now - early:
+            start += timedelta(days=1)
+            end += timedelta(days=1)
+        if start - early <= local_now < end:
+            return True
+    return False
 
 
 def _slot_score(
@@ -228,7 +271,7 @@ def _periods_from_block(
 def find_negative_import_slot(
     slots: list[RateSlot],
     *,
-    lookahead_minutes: int = 60,
+    lookahead_minutes: int = 180,
 ) -> RateSlot | None:
     now = dt_util.utcnow()
     horizon = now + timedelta(minutes=max(30, lookahead_minutes))
