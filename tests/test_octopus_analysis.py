@@ -92,6 +92,7 @@ _stub_sub(
     _parse_api_dt=lambda raw: None,
     _rate_value_inc_vat=lambda row: None,
     is_variable_tariff_type=lambda raw: "agile" in str(raw).lower(),
+    product_code_from_tariff_code=lambda raw: None,
 )
 
 _ensure_pkg()
@@ -165,6 +166,64 @@ class TestMergePriceAndCarbon(unittest.TestCase):
         payload = oa.octopus_analysis_dashboard_payload(snapshot, greener_payload=greener)
         self.assertEqual(payload["dual_periods"][0]["low_carbon_score"], 10)
         self.assertEqual(payload["carbon_periods"][0]["low_carbon_score"], 10)
+
+
+class TestDailyMeterCosts(unittest.TestCase):
+    def test_rate_p_at_ms_finds_window(self):
+        periods = [
+            {"start_ms": 0, "end_ms": 1_800_000, "p_per_kwh": 10.0},
+            {"start_ms": 1_800_000, "end_ms": 3_600_000, "p_per_kwh": 25.5},
+        ]
+        self.assertEqual(oa.rate_p_at_ms(900_000, periods), 10.0)
+        self.assertEqual(oa.rate_p_at_ms(1_800_000, periods), 25.5)
+        self.assertIsNone(oa.rate_p_at_ms(3_600_000, periods))
+
+    def test_compute_daily_meter_costs_joins_kwh_and_rates(self):
+        # Two half-hours on 2026-07-28 UK morning
+        day = datetime(2026, 7, 28, 1, 0, tzinfo=timezone.utc)
+        t0 = int(day.timestamp() * 1000)
+        t1 = t0 + 1_800_000
+        import_rows = [
+            {"start_ms": t0, "kwh": 2.0},
+            {"start_ms": t1, "kwh": 1.0},
+        ]
+        export_rows = [{"start_ms": t0, "kwh": 4.0}]
+        import_rates = [
+            {"start_ms": t0, "end_ms": t1, "p_per_kwh": 20.0},
+            {"start_ms": t1, "end_ms": t1 + 1_800_000, "p_per_kwh": 10.0},
+        ]
+        export_rates = [{"start_ms": t0, "end_ms": t1 + 1_800_000, "p_per_kwh": 15.0}]
+        result = oa.compute_daily_meter_costs(
+            import_rows,
+            export_rows,
+            import_rates,
+            export_rates,
+            days=14,
+            now=datetime(2026, 7, 29, 12, 0, tzinfo=timezone.utc),
+        )
+        self.assertEqual(len(result["days"]), 1)
+        day_row = result["days"][0]
+        # import: 2*0.20 + 1*0.10 = 0.50
+        self.assertAlmostEqual(day_row["import_spend_gbp"], 0.5, places=4)
+        # export: 4*0.15 = 0.60
+        self.assertAlmostEqual(day_row["export_earnings_gbp"], 0.6, places=4)
+        self.assertAlmostEqual(day_row["net_gbp"], 0.1, places=4)
+        self.assertEqual(result["priced_import_intervals"], 2)
+        self.assertEqual(result["priced_export_intervals"], 1)
+
+    def test_unpriced_intervals_counted(self):
+        t0 = int(datetime(2026, 7, 28, 12, 0, tzinfo=timezone.utc).timestamp() * 1000)
+        result = oa.compute_daily_meter_costs(
+            [{"start_ms": t0, "kwh": 1.0}],
+            [],
+            [],
+            [],
+            days=14,
+            now=datetime(2026, 7, 29, 12, 0, tzinfo=timezone.utc),
+        )
+        self.assertEqual(result["unpriced_import_intervals"], 1)
+        self.assertEqual(result["days"][0]["import_spend_gbp"], 0.0)
+        self.assertEqual(result["days"][0]["import_kwh"], 1.0)
 
 
 if __name__ == "__main__":

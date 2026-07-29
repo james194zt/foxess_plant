@@ -4515,7 +4515,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             # First poll after install: backfill ~35 days; thereafter incremental 3-day window.
             import_rows = list(self._octopus_consumption_data.get("import") or [])
+            export_rows = list(self._octopus_consumption_data.get("export") or [])
             import_days = 35 if len(import_rows) < 48 else 3
+            export_days = 35 if len(export_rows) < 48 else 3
             self._octopus_consumption_data = await refresh_octopus_consumption(
                 self.hass,
                 self._octopus_consumption_store,
@@ -4523,7 +4525,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 octopus_cache=self._octopus_cache,
                 greener_cache=self._octopus_greener_cache,
                 import_days=import_days,
-                export_days=3,
+                export_days=export_days,
             )
             await self._async_refresh_octopus_analysis()
             await self.async_update_octopus_consumption_sensors()

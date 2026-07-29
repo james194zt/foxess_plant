@@ -17,7 +17,12 @@ from .octopus_greener import (
     low_carbon_score_from_gco2,
     normalize_carbon_periods,
 )
-from .octopus_tariff import _parse_api_dt, _rate_value_inc_vat, is_variable_tariff_type
+from .octopus_tariff import (
+    _parse_api_dt,
+    _rate_value_inc_vat,
+    is_variable_tariff_type,
+    product_code_from_tariff_code,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -25,6 +30,9 @@ UK_TZ = ZoneInfo("Europe/London")
 
 GREENER_NIGHT_START = time(23, 0)
 GREENER_NIGHT_END = time(6, 0)
+
+METER_COST_DAYS = 14
+METER_COST_RATES_MAX_AGE = timedelta(hours=6)
 
 COMPLIANCE_TIERS = (
     (90, 2800, "90%"),
@@ -121,6 +129,288 @@ def expand_rates_to_half_hours(
             }
         )
     return out
+
+
+def rate_p_at_ms(start_ms: int, rate_periods: list[dict[str, Any]]) -> float | None:
+    """Return p/kWh for the rate window containing ``start_ms``."""
+    try:
+        when = int(start_ms)
+    except (TypeError, ValueError):
+        return None
+    for period in rate_periods or []:
+        try:
+            period_start = int(period["start_ms"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        end_raw = period.get("end_ms")
+        try:
+            period_end = int(end_raw) if end_raw is not None else None
+        except (TypeError, ValueError):
+            period_end = None
+        if period_start <= when and (period_end is None or when < period_end):
+            try:
+                return float(period["p_per_kwh"])
+            except (KeyError, TypeError, ValueError):
+                return None
+    return None
+
+
+def _uk_date_key(start_ms: int) -> str | None:
+    try:
+        local = datetime.fromtimestamp(int(start_ms) / 1000.0, tz=UK_TZ)
+    except (TypeError, ValueError, OSError, OverflowError):
+        return None
+    return local.date().isoformat()
+
+
+def compute_daily_meter_costs(
+    import_rows: list[dict[str, Any]],
+    export_rows: list[dict[str, Any]],
+    import_rate_periods: list[dict[str, Any]],
+    export_rate_periods: list[dict[str, Any]],
+    *,
+    days: int = METER_COST_DAYS,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Join half-hourly meter kWh with unit rates → daily import spend / export earnings."""
+    now = now or dt_util.now(UK_TZ)
+    cutoff = now - timedelta(days=max(1, int(days)))
+    cutoff_ms = int(cutoff.timestamp() * 1000)
+
+    buckets: dict[str, dict[str, float]] = {}
+
+    def _bucket(date_key: str) -> dict[str, float]:
+        if date_key not in buckets:
+            buckets[date_key] = {
+                "import_spend_gbp": 0.0,
+                "export_earnings_gbp": 0.0,
+                "import_kwh": 0.0,
+                "export_kwh": 0.0,
+            }
+        return buckets[date_key]
+
+    priced_import = unpriced_import = 0
+    priced_export = unpriced_export = 0
+
+    for row in import_rows or []:
+        try:
+            start_ms = int(row.get("start_ms") or 0)
+            kwh = float(row.get("kwh") or 0)
+        except (TypeError, ValueError):
+            continue
+        if start_ms < cutoff_ms or kwh <= 0:
+            continue
+        date_key = _uk_date_key(start_ms)
+        if not date_key:
+            continue
+        rate = rate_p_at_ms(start_ms, import_rate_periods)
+        bucket = _bucket(date_key)
+        bucket["import_kwh"] += kwh
+        if rate is None:
+            unpriced_import += 1
+            continue
+        priced_import += 1
+        bucket["import_spend_gbp"] += kwh * rate / 100.0
+
+    for row in export_rows or []:
+        try:
+            start_ms = int(row.get("start_ms") or 0)
+            kwh = float(row.get("kwh") or 0)
+        except (TypeError, ValueError):
+            continue
+        if start_ms < cutoff_ms or kwh <= 0:
+            continue
+        date_key = _uk_date_key(start_ms)
+        if not date_key:
+            continue
+        rate = rate_p_at_ms(start_ms, export_rate_periods)
+        bucket = _bucket(date_key)
+        bucket["export_kwh"] += kwh
+        if rate is None:
+            unpriced_export += 1
+            continue
+        priced_export += 1
+        bucket["export_earnings_gbp"] += kwh * rate / 100.0
+
+    day_rows: list[dict[str, Any]] = []
+    for date_key in sorted(buckets.keys())[-max(1, int(days)) :]:
+        b = buckets[date_key]
+        spend = round(b["import_spend_gbp"], 4)
+        earn = round(b["export_earnings_gbp"], 4)
+        day_rows.append(
+            {
+                "date": date_key,
+                "import_spend_gbp": spend,
+                "export_earnings_gbp": earn,
+                "import_kwh": round(b["import_kwh"], 3),
+                "export_kwh": round(b["export_kwh"], 3),
+                "net_gbp": round(earn - spend, 4),
+            }
+        )
+
+    total_spend = round(sum(d["import_spend_gbp"] for d in day_rows), 4)
+    total_earn = round(sum(d["export_earnings_gbp"] for d in day_rows), 4)
+    return {
+        "days": day_rows,
+        "totals": {
+            "import_spend_gbp": total_spend,
+            "export_earnings_gbp": total_earn,
+            "net_gbp": round(total_earn - total_spend, 4),
+            "import_kwh": round(sum(d["import_kwh"] for d in day_rows), 3),
+            "export_kwh": round(sum(d["export_kwh"] for d in day_rows), 3),
+        },
+        "priced_import_intervals": priced_import,
+        "unpriced_import_intervals": unpriced_import,
+        "priced_export_intervals": priced_export,
+        "unpriced_export_intervals": unpriced_export,
+        "days_window": max(1, int(days)),
+    }
+
+
+def _resolve_product_code(octopus_cache: dict[str, Any], *, export: bool = False) -> str | None:
+    prefix = "export" if export else "import"
+    code = str(octopus_cache.get(f"{prefix}_product_code") or "").strip() or None
+    if code:
+        return code
+    meter = octopus_cache.get(f"{prefix}_meter") or {}
+    if isinstance(meter, dict):
+        code = str(meter.get("product_code") or "").strip() or None
+        if code:
+            return code
+        tariff = str(meter.get("tariff_code") or "").strip()
+        if tariff:
+            return product_code_from_tariff_code(tariff)
+    tariff = str(octopus_cache.get(f"{prefix}_tariff_code") or "").strip()
+    return product_code_from_tariff_code(tariff) if tariff else None
+
+
+def _resolve_tariff_code(octopus_cache: dict[str, Any], *, export: bool = False) -> str | None:
+    prefix = "export" if export else "import"
+    code = str(octopus_cache.get(f"{prefix}_tariff_code") or "").strip() or None
+    if code:
+        return code
+    meter = octopus_cache.get(f"{prefix}_meter") or {}
+    if isinstance(meter, dict):
+        return str(meter.get("tariff_code") or "").strip() or None
+    return None
+
+
+def _costs_cache_fresh(consumption_data: dict[str, Any] | None, *, now: datetime) -> bool:
+    if not isinstance(consumption_data, dict):
+        return False
+    if not isinstance(consumption_data.get("daily_costs"), dict):
+        return False
+    raw = consumption_data.get("daily_costs_fetched_at")
+    if not raw:
+        return False
+    try:
+        fetched = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if fetched.tzinfo is None:
+        fetched = fetched.replace(tzinfo=dt_util.UTC)
+    return (now.astimezone(dt_util.UTC) - fetched.astimezone(dt_util.UTC)) < METER_COST_RATES_MAX_AGE
+
+
+async def fetch_historical_rate_periods(
+    client: OctopusApiClient,
+    *,
+    product_code: str,
+    tariff_code: str,
+    days: int = METER_COST_DAYS,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Fetch unit-rate windows covering the last ``days`` (bill rates at use time)."""
+    now = now or dt_util.utcnow()
+    local_now = dt_util.as_local(now)
+    period_from = _iso_period((local_now - timedelta(days=max(1, int(days)))).astimezone(dt_util.UTC))
+    period_to = _iso_period((local_now + timedelta(hours=1)).astimezone(dt_util.UTC))
+    rows = await client.get_unit_rates(
+        product_code,
+        tariff_code,
+        period_from=period_from,
+        period_to=period_to,
+    )
+    return normalize_rate_periods(rows)
+
+
+async def refresh_meter_daily_costs(
+    hass: Any,
+    *,
+    api_key: str,
+    octopus_cache: dict[str, Any],
+    consumption_data: dict[str, Any],
+    days: int = METER_COST_DAYS,
+    force: bool = False,
+) -> dict[str, Any] | None:
+    """Fetch historical unit rates and compute daily spend/earnings; cache on consumption_data."""
+    now = dt_util.utcnow()
+    if not force and _costs_cache_fresh(consumption_data, now=now):
+        return consumption_data.get("daily_costs")
+
+    import_rows = list(consumption_data.get("import") or [])
+    export_rows = list(consumption_data.get("export") or [])
+    if not import_rows and not export_rows:
+        return None
+
+    import_product = _resolve_product_code(octopus_cache, export=False)
+    import_tariff = _resolve_tariff_code(octopus_cache, export=False)
+    export_product = _resolve_product_code(octopus_cache, export=True)
+    export_tariff = _resolve_tariff_code(octopus_cache, export=True)
+
+    client = OctopusApiClient(hass, api_key=api_key)
+    import_periods: list[dict[str, Any]] = []
+    export_periods: list[dict[str, Any]] = []
+    errors: dict[str, str] = {}
+
+    if import_product and import_tariff:
+        try:
+            import_periods = await fetch_historical_rate_periods(
+                client,
+                product_code=import_product,
+                tariff_code=import_tariff,
+                days=days,
+                now=now,
+            )
+        except OctopusApiError as err:
+            errors["import_cost_rates"] = str(err)
+            _LOGGER.warning("Octopus historical import rates failed: %s", err)
+    else:
+        errors["import_cost_rates"] = "Import tariff/product required for spend chart"
+
+    if export_product and export_tariff:
+        try:
+            export_periods = await fetch_historical_rate_periods(
+                client,
+                product_code=export_product,
+                tariff_code=export_tariff,
+                days=days,
+                now=now,
+            )
+        except OctopusApiError as err:
+            errors["export_cost_rates"] = str(err)
+            _LOGGER.warning("Octopus historical export rates failed: %s", err)
+
+    if not import_periods and not export_periods:
+        if errors:
+            consumption_data.setdefault("errors", {}).update(errors)
+        return None
+
+    costs = compute_daily_meter_costs(
+        import_rows,
+        export_rows,
+        import_periods,
+        export_periods,
+        days=days,
+        now=dt_util.now(UK_TZ),
+    )
+    costs["fetched_at"] = now.isoformat()
+    if errors:
+        costs["errors"] = errors
+        consumption_data.setdefault("errors", {}).update(errors)
+    consumption_data["daily_costs"] = costs
+    consumption_data["daily_costs_fetched_at"] = now.isoformat()
+    return costs
 
 
 def carbon_extremes(periods: list[dict[str, Any]], *, now_ms: int | None = None) -> dict[str, Any]:
@@ -402,6 +692,8 @@ async def refresh_octopus_consumption(
         "compliance": None,
         "last_fetch_at": None,
         "errors": {},
+        "daily_costs": None,
+        "daily_costs_fetched_at": None,
     }
     import_meter = octopus_cache.get("import_meter") or greener_cache.get("import_meter") or {}
     export_meter = octopus_cache.get("export_meter") or greener_cache.get("export_meter") or {}
@@ -450,6 +742,20 @@ async def refresh_octopus_consumption(
     result["last_fetch_at"] = stored.get("last_fetch_at")
     if import_data:
         result["compliance"] = compute_greener_compliance(import_data, nights)
+
+    try:
+        await refresh_meter_daily_costs(
+            hass,
+            api_key=api_key,
+            octopus_cache=octopus_cache,
+            consumption_data=result,
+            days=METER_COST_DAYS,
+            force=True,
+        )
+    except Exception as err:  # noqa: BLE001 — keep meter poll success even if cost join fails
+        _LOGGER.warning("Octopus meter cost refresh failed: %s", err)
+        result["errors"]["meter_costs"] = str(err)
+
     return result
 
 
@@ -495,6 +801,7 @@ async def build_octopus_analysis_snapshot(
         "history": history_insights,
         "consumption": [],
         "export_consumption": [],
+        "daily_costs": None,
         "compliance": None,
         "consumption_fetched_at": None,
         "errors": {},
@@ -510,12 +817,31 @@ async def build_octopus_analysis_snapshot(
 
     if not api_key:
         snapshot["errors"]["auth"] = "Octopus API key required for live rates and meter polling"
+        snapshot["daily_costs"] = cons.get("daily_costs")
         return snapshot
 
     if not snapshot["consumption"] and not snapshot["errors"].get("consumption"):
         snapshot["errors"]["consumption"] = (
             "Smart-meter consumption will populate after the next half-hourly Octopus poll"
         )
+
+    if cons and (cons.get("import") or cons.get("export")):
+        try:
+            costs = await refresh_meter_daily_costs(
+                hass,
+                api_key=api_key,
+                octopus_cache=octopus_cache,
+                consumption_data=cons,
+                days=METER_COST_DAYS,
+                force=False,
+            )
+            snapshot["daily_costs"] = costs or cons.get("daily_costs")
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Octopus meter cost join failed: %s", err)
+            snapshot["daily_costs"] = cons.get("daily_costs")
+            snapshot["errors"]["meter_costs"] = str(err)
+    else:
+        snapshot["daily_costs"] = cons.get("daily_costs")
 
     return snapshot
 
