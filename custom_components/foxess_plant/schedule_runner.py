@@ -292,8 +292,14 @@ async def apply_schedule_bundle(
         if emulate_max:
             plant.virtual_soc.hardware_max_supported = False
 
+    # SOC writes disable Remote Control on EVO before block writes. Skip them while
+    # force charge/discharge is active so we do not clear the command we just armed.
     current_soc = read_soc_current(coordinator.hass, entity_map)
-    if _soc_bundle_needs_write(current_soc, bundle, emulate_max=emulate_max):
+    if (
+        not bundle.force_discharge
+        and not bundle.force_charge
+        and _soc_bundle_needs_write(current_soc, bundle, emulate_max=emulate_max)
+    ):
         try:
             await apply_soc_limits(
                 coordinator.hass,
@@ -322,11 +328,10 @@ async def apply_schedule_bundle(
     if rc_entity:
         live_rc = coordinator._entity_state("remote_control")
         if bundle.force_discharge:
-            if live_rc != "Force Discharge":
-                await set_remote_control_mode(coordinator.hass, entity_map, "Force Discharge")
+            # Always write — HA state can lag after SOC prep disabled Remote Control.
+            await set_remote_control_mode(coordinator.hass, entity_map, "Force Discharge")
         elif bundle.force_charge:
-            if live_rc != "Force Charge":
-                await set_remote_control_mode(coordinator.hass, entity_map, "Force Charge")
+            await set_remote_control_mode(coordinator.hass, entity_map, "Force Charge")
         elif is_remote_control_active(live_rc):
             await set_remote_control_mode(coordinator.hass, entity_map, "Disable")
 

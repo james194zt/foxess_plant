@@ -1723,6 +1723,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         self._smart_charge_discharge_armed = False
         self._smart_charge_discharge_sig = ""
+        self._last_schedule_bundle_sig = None
         saved_max_soc = self.plant.override.saved_max_soc
         saved_work_mode = self.plant.override.saved_work_mode
         if (
@@ -1741,7 +1742,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._fire(EVENT_SMART_CHARGE_DISARMED, {"reason": "export_complete"})
 
     async def _arm_smart_charge_export(self, decision: Any) -> None:
-        from .schedule_runner import apply_current_schedule_state
+        from .schedule_runner import resolve_desired_bundle
         from .smart_charge import discharge_window_signature
         from .smart_charge.export_peak import discharge_window_active_now
         from .smart_charge.reserve import export_floor_reached
@@ -1784,7 +1785,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self.plant.override.active and self.plant.override.mode not in AUTOMATION_MODES:
             return
 
-        newly_armed = False
         if not self._smart_charge_discharge_armed:
             self._smart_charge_discharge_armed = True
             self._smart_charge_discharge_sig = sig
@@ -1797,7 +1797,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ]
             await self._persist()
             await self._enable_force_discharge()
-            newly_armed = True
             self._audit_smart_charge_export_armed(decision)
             self._fire(
                 EVENT_SMART_CHARGE_ARMED,
@@ -1806,30 +1805,24 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         elif sig != self._smart_charge_discharge_sig:
             self._smart_charge_discharge_sig = sig
             await self._enable_force_discharge()
-            newly_armed = True
             self._audit_smart_charge_export_armed(decision)
             self._fire(
                 EVENT_SMART_CHARGE_ARMED,
                 {"reason": "smart_charge:export_discharge", "mode": MODE_SMART_CHARGE},
             )
         else:
-            # Re-assert Remote Control each eval — schedule tick must not leave us idle.
+            # Re-assert Remote Control each eval in case something else cleared it.
             await self._enable_force_discharge()
 
         if isinstance(self._smart_charge_decision, dict):
             self._smart_charge_decision["window_active"] = True
 
-        # Force the HA schedule bundle to the export Force-Discharge state immediately
-        # so the next minute tick does not Disable Remote Control.
-        self._last_schedule_bundle_sig = None
-        try:
-            await apply_current_schedule_state(self, force=True)
-        except Exception as err:
-            _LOGGER.warning(
-                "SmartCharge export schedule re-apply failed after arm%s: %s",
-                " (new)" if newly_armed else "",
-                err,
-            )
+        # Pin the export schedule signature so the minute tick does not apply a stale
+        # Self Use / Disable bundle. Do not force-apply here — SOC prep disables RC
+        # and can leave Force Discharge cleared with a stale HA state.
+        desired = resolve_desired_bundle(self)
+        if desired is not None:
+            self._last_schedule_bundle_sig = desired.signature()
 
     def _read_meter_import_rate_sensor(self) -> tuple[float | None, str | None, str | None]:
         """Return (raw_value, unit, entity_id) for the configured Glow/live import rate sensor."""
