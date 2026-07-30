@@ -133,7 +133,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._solcast_memory_snapshots: list[tuple[float, list[dict[str, Any]]]] = []
         self._solcast_refresh_lock = asyncio.Lock()
         self._solcast_store_lock = asyncio.Lock()
-        self._solcast_empty_fetch_attempted = False
         self._tariff_store = None
         self._tariff_history_count = 0
         self._tariff_rate_sensors: dict[str, Any] = {}
@@ -1179,8 +1178,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return True
         return (time.monotonic() - self._solcast_storage_last_fail_monotonic) >= 300.0
 
-    async def async_ensure_solcast_cache(self, *, allow_poll: bool = True) -> None:
-        """Load persisted forecast; poll only on the normal schedule (never force on empty cache)."""
+    async def async_ensure_solcast_cache(self, *, allow_poll: bool = False) -> None:
+        """Load persisted forecast; never hit the Solcast API unless explicitly allowed.
+
+        Restart / coordinator updates must stay cache-only. Automatic API polls belong on
+        the Solcast timer (and explicit user test/save actions), not here.
+        """
         if len(self._solcast_detailed_forecast_rows()) < 2:
             if self._solcast_storage_reload_due():
                 await self._async_load_solcast_storage()
@@ -1188,15 +1191,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._restore_solcast_cache_from_memory()
         if not allow_poll:
             return
-        if len(self._solcast_detailed_forecast_rows()) < 2 and self._solcast_pv_active():
-            if not self._solcast_empty_fetch_attempted:
-                self._solcast_empty_fetch_attempted = True
-                try:
-                    await self._async_refresh_solcast_pv(force=True)
-                except Exception:
-                    _LOGGER.exception("Initial Solcast PV forecast fetch failed")
-                if len(self._solcast_detailed_forecast_rows()) >= 2:
-                    return
+        # Opportunistic schedule poll only when a caller explicitly opts in — never force.
         if self._solcast_forecast_covers_now():
             return
         if self._solcast_poll_due():
@@ -3458,7 +3453,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_update_data(self) -> dict[str, Any]:
         await self._maybe_migrate_evo_max_soc_flag()
-        await self.async_ensure_solcast_cache()
+        # Cache only — Solcast API polls belong on the schedule timer, never on HA restart.
+        await self.async_ensure_solcast_cache(allow_poll=False)
         self._enrich_solcast_cache_metrics()
         try:
             await self._evaluate_smart_charge()
