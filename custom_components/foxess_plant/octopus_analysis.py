@@ -132,6 +132,17 @@ def expand_rates_to_half_hours(
     return out
 
 
+def trim_trailing_empty_rate_slots(slots: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop unpublished Agile half-hours at the right edge (usually after ~23:00)."""
+    if not slots:
+        return []
+    end = len(slots)
+    while end > 0 and slots[end - 1].get("p_per_kwh") is None:
+        end -= 1
+    # Keep at least one slot so empty-state messaging still works.
+    return slots[:end] if end else slots[:1]
+
+
 def rate_p_at_ms(start_ms: int, rate_periods: list[dict[str, Any]]) -> float | None:
     """Return p/kWh for the rate window containing ``start_ms``."""
     try:
@@ -853,8 +864,21 @@ async def build_octopus_analysis_snapshot(
 
     import_rates = normalize_rate_periods(octopus_cache.get("import_rates") or [])
     export_rates = normalize_rate_periods(octopus_cache.get("export_rates") or [])
-    import_slots = expand_rates_to_half_hours(import_rates, now_ms=now_ms)
-    export_slots = expand_rates_to_half_hours(export_rates, now_ms=now_ms) if export_rates else []
+    import_slots = trim_trailing_empty_rate_slots(
+        expand_rates_to_half_hours(import_rates, now_ms=now_ms)
+    )
+    export_slots = (
+        trim_trailing_empty_rate_slots(
+            expand_rates_to_half_hours(export_rates, now_ms=now_ms)
+        )
+        if export_rates
+        else []
+    )
+    # Align export chart window length with import when both exist.
+    if import_slots and export_slots and len(export_slots) != len(import_slots):
+        target = min(len(import_slots), len(export_slots))
+        import_slots = import_slots[:target]
+        export_slots = export_slots[:target]
     dual_periods = merge_price_and_carbon(import_slots, carbon_periods, export_slots)
 
     snapshot: dict[str, Any] = {

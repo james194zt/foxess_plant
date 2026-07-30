@@ -289,6 +289,7 @@ async def fetch_octopus_greener_snapshot(
     *,
     api_key: str | None,
     account_number: str | None,
+    fallback_postcode: str | None = None,
 ) -> dict[str, Any]:
     """Fetch greener nights (public) and optional carbon/rewards (authenticated)."""
     gql = OctopusGraphqlClient(hass, api_key=api_key)
@@ -296,7 +297,7 @@ async def fetch_octopus_greener_snapshot(
         "fetched_at": dt_util.utcnow().isoformat(),
         "greener_nights": [],
         "carbon_periods": [],
-        "postcode": None,
+        "postcode": fallback_postcode,
         "rewards": None,
         "errors": {},
     }
@@ -309,13 +310,23 @@ async def fetch_octopus_greener_snapshot(
         _LOGGER.warning("Greener nights fetch failed: %s", err)
 
     if not api_key or not account_number:
+        # Still try NESO with a cached postcode when we cannot hit the account API.
+        if snapshot.get("postcode"):
+            from .carbon_intensity_neso import ensure_neso_carbon_fill
+
+            filled, source = await ensure_neso_carbon_fill(
+                hass, snapshot.get("carbon_periods"), snapshot.get("postcode")
+            )
+            snapshot["carbon_periods"] = filled
+            if source:
+                snapshot["carbon_source"] = source
         return snapshot
 
-    postcode: str | None = None
+    postcode: str | None = fallback_postcode
     try:
         rest = OctopusApiClient(hass, api_key=api_key)
         account = await rest.get_account(account_number)
-        postcode = account_postcode(account)
+        postcode = account_postcode(account) or fallback_postcode
         snapshot["postcode"] = postcode
         from .octopus_tariff import _meter_to_dict, list_account_meters
 
@@ -326,41 +337,29 @@ async def fetch_octopus_greener_snapshot(
             snapshot["export_meter"] = _meter_to_dict(export_meters[0])
     except OctopusApiError as err:
         snapshot["errors"]["account"] = str(err)
+        snapshot["postcode"] = postcode
 
     if postcode:
         try:
             snapshot["carbon_periods"] = normalize_carbon_periods(
                 await gql.fetch_carbon_intensity(postcode)
             )
+            snapshot["carbon_source"] = "octopus"
         except OctopusGraphqlError as err:
             snapshot["errors"]["carbon"] = str(err)
             _LOGGER.debug("Carbon intensity fetch failed: %s", err)
 
         # Octopus GraphQL often truncates before the 48h Agile window — fill from NESO.
-        from .carbon_intensity_neso import (
-            carbon_covers_horizon,
-            fetch_neso_regional_carbon,
-            union_carbon_periods,
-        )
+        from .carbon_intensity_neso import ensure_neso_carbon_fill
 
-        octopus_carbon = list(snapshot.get("carbon_periods") or [])
-        if not carbon_covers_horizon(octopus_carbon, hours=22):
-            try:
-                neso = await fetch_neso_regional_carbon(hass, postcode, hours=48)
-                if neso:
-                    snapshot["carbon_periods"] = union_carbon_periods(neso, octopus_carbon)
-                    snapshot["carbon_source"] = (
-                        "octopus+neso" if octopus_carbon else "neso"
-                    )
-                    if snapshot["errors"].get("carbon") and neso:
-                        # NESO recovered coverage — keep Octopus error as soft note only.
-                        snapshot["errors"]["carbon_octopus"] = snapshot["errors"].pop("carbon")
-            except Exception as err:  # noqa: BLE001
-                _LOGGER.debug("NESO carbon fallback failed: %s", err)
-                if not octopus_carbon:
-                    snapshot["errors"]["carbon_neso"] = str(err)
-        else:
-            snapshot["carbon_source"] = "octopus"
+        filled, source = await ensure_neso_carbon_fill(
+            hass, snapshot.get("carbon_periods"), postcode
+        )
+        snapshot["carbon_periods"] = filled
+        if source:
+            snapshot["carbon_source"] = source
+            if snapshot["errors"].get("carbon"):
+                snapshot["errors"]["carbon_octopus"] = snapshot["errors"].pop("carbon")
 
     try:
         snapshot["rewards"] = await gql.fetch_rewards(account_number)

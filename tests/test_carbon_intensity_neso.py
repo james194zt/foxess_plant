@@ -83,11 +83,37 @@ class TestCarbonIntensityNeso(unittest.TestCase):
         self.assertEqual(len(merged), 2)
         self.assertEqual(merged[0]["gco2_per_kwh"], 99)
 
+    def test_union_prefers_valued_over_null(self):
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        octopus = [{"start_ms": now_ms, "end_ms": now_ms + 1000, "gco2_per_kwh": None}]
+        neso = [{"start_ms": now_ms, "end_ms": now_ms + 1000, "gco2_per_kwh": 80}]
+        # Later list normally wins,but null must not overwrite a valued NESO period.
+        merged = ci.union_carbon_periods(neso, octopus)
+        self.assertEqual(merged[0]["gco2_per_kwh"], 80)
+
+    def test_covers_horizon_requires_valued_count(self):
+        now = datetime.now(timezone.utc)
+        now_ms = int(now.timestamp() * 1000)
+        # Long end_ms but only a few valued rows — should not count as covered.
+        sparse = [
+            {"start_ms": now_ms + i * 1_800_000, "end_ms": now_ms + (i + 1) * 1_800_000, "gco2_per_kwh": 100}
+            for i in range(10)
+        ]
+        sparse[-1]["end_ms"] = now_ms + 30 * 3600 * 1000
+        self.assertFalse(ci.carbon_covers_horizon(sparse, now_ms=now_ms, hours=22))
+
     def test_covers_horizon(self):
         now = datetime.now(timezone.utc)
         now_ms = int(now.timestamp() * 1000)
-        short = [{"start_ms": now_ms, "end_ms": now_ms + 6 * 3600 * 1000}]
-        long = [{"start_ms": now_ms, "end_ms": now_ms + 30 * 3600 * 1000}]
+        short = [{"start_ms": now_ms, "end_ms": now_ms + 6 * 3600 * 1000, "gco2_per_kwh": 50}]
+        long = [
+            {
+                "start_ms": now_ms + i * 1_800_000,
+                "end_ms": now_ms + (i + 1) * 1_800_000,
+                "gco2_per_kwh": 50,
+            }
+            for i in range(48)
+        ]
         self.assertFalse(ci.carbon_covers_horizon(short, now_ms=now_ms, hours=22))
         self.assertTrue(ci.carbon_covers_horizon(long, now_ms=now_ms, hours=22))
 

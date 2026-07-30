@@ -372,7 +372,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.480";
+const PANEL_VERSION = "0.9.481";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -4003,9 +4003,16 @@ function renderOctopusDualChartSvg(dualPeriods, carbonPeriods = null, importRate
     }),
   });
   const withScore = chartRows.filter((r) => r.low_carbon_score != null).length;
+  const withImport = chartRows.filter(
+    (r) => r.p_per_kwh != null && Number.isFinite(Number(r.p_per_kwh))
+  ).length;
   const coverageHint =
     chartRows.length && withScore < chartRows.length * 0.85
-      ? `<p class="octopus-greener-hint" style="margin-top:6px">Carbon forecast covers ${withScore}/${chartRows.length} price slots — refreshing will pull NESO regional intensity when Octopus truncates.</p>`
+      ? `<p class="octopus-greener-hint" style="margin-top:6px">Carbon forecast covers ${withScore}/${chartRows.length} price slots — NESO regional intensity fills in when Octopus truncates (refresh Analysis if this stays short).</p>`
+      : "";
+  const ratesHint =
+    withImport > 0 && withImport < 46
+      ? `<p class="octopus-greener-hint" style="margin-top:4px">Agile unit rates usually publish until ~23:00; the next day-ahead block arrives mid-afternoon.</p>`
       : "";
   return `<div class="octopus-analysis-dual-wrap">
 <div class="octopus-analysis-dual-legend">
@@ -4015,7 +4022,7 @@ function renderOctopusDualChartSvg(dualPeriods, carbonPeriods = null, importRate
 <span><i class="octopus-analysis-swatch-line octopus-analysis-swatch-line--export"></i> Export price</span>
 </div>
 ${chart}
-<p class="octopus-analysis-chart-hint">Hover bars for carbon score, import/export prices, and time</p>${coverageHint}
+<p class="octopus-analysis-chart-hint">Hover bars for carbon score, import/export prices, and time</p>${coverageHint}${ratesHint}
 </div>`;
 }
 

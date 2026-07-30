@@ -4454,6 +4454,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.hass,
                 api_key=api_key,
                 account_number=account_number,
+                fallback_postcode=previous.get("postcode"),
             )
             self._note_octopus_rate_limit(*(incoming.get("errors") or {}).values())
             from .octopus_greener import hydrate_greener_snapshot_from_history
@@ -4488,7 +4489,21 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_refresh_octopus_analysis(self) -> None:
         if not self._octopus_greener_enabled():
             return
+        from .carbon_intensity_neso import ensure_neso_carbon_fill
         from .octopus_analysis import build_octopus_analysis_snapshot
+
+        # Repair truncated Octopus carbon whenever analysis is built (not only on greener poll).
+        postcode = (self._octopus_greener_cache or {}).get("postcode")
+        if postcode:
+            filled, source = await ensure_neso_carbon_fill(
+                self.hass,
+                (self._octopus_greener_cache or {}).get("carbon_periods"),
+                postcode,
+            )
+            if source:
+                self._octopus_greener_cache = dict(self._octopus_greener_cache or {})
+                self._octopus_greener_cache["carbon_periods"] = filled
+                self._octopus_greener_cache["carbon_source"] = source
 
         dyn = self.plant.tariff.dynamic
         api_key = str(dyn.api_key) if dyn.api_key_configured() else None
