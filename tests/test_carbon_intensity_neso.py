@@ -73,8 +73,12 @@ class TestCarbonIntensityNeso(unittest.TestCase):
         self.assertEqual(ci.outward_postcode("rg10 9nn"), "RG10")
 
     def test_union_prefers_later_duplicate(self):
-        a = [{"start_ms": 1000, "end_ms": 2000, "gco2_per_kwh": 10}]
-        b = [{"start_ms": 1000, "end_ms": 2000, "gco2_per_kwh": 99}, {"start_ms": 2000, "end_ms": 3000, "gco2_per_kwh": 50}]
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        a = [{"start_ms": now_ms, "end_ms": now_ms + 1000, "gco2_per_kwh": 10}]
+        b = [
+            {"start_ms": now_ms, "end_ms": now_ms + 1000, "gco2_per_kwh": 99},
+            {"start_ms": now_ms + 1000, "end_ms": now_ms + 2000, "gco2_per_kwh": 50},
+        ]
         merged = ci.union_carbon_periods(a, b)
         self.assertEqual(len(merged), 2)
         self.assertEqual(merged[0]["gco2_per_kwh"], 99)
@@ -86,6 +90,19 @@ class TestCarbonIntensityNeso(unittest.TestCase):
         long = [{"start_ms": now_ms, "end_ms": now_ms + 30 * 3600 * 1000}]
         self.assertFalse(ci.carbon_covers_horizon(short, now_ms=now_ms, hours=22))
         self.assertTrue(ci.carbon_covers_horizon(long, now_ms=now_ms, hours=22))
+
+    def test_trim_drops_ancient_periods(self):
+        now = datetime.now(timezone.utc)
+        now_ms = int(now.timestamp() * 1000)
+        old = now_ms - 40 * 3600 * 1000
+        near = now_ms + 2 * 3600 * 1000
+        rows = [
+            {"start_ms": old, "end_ms": old + 1_800_000, "gco2_per_kwh": 10},
+            {"start_ms": near, "end_ms": near + 1_800_000, "gco2_per_kwh": 20},
+        ]
+        trimmed = ci.trim_carbon_periods(rows, now_ms=now_ms, past_hours=12, future_hours=54)
+        self.assertEqual(len(trimmed), 1)
+        self.assertEqual(trimmed[0]["gco2_per_kwh"], 20)
 
     def test_normalize_neso_rows(self):
         start = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)

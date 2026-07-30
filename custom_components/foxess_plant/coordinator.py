@@ -703,18 +703,14 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return False
         if not self._octopus_greener_cache:
             return True
-        from .carbon_intensity_neso import carbon_covers_horizon
         from .octopus_greener import carbon_periods_current
 
         cache = self._octopus_greener_cache
         carbon = list(cache.get("carbon_periods") or [])
         greener = list(cache.get("greener_nights") or [])
-        # Refresh often while the carbon horizon is shorter than the price overlay window.
-        if (
-            not greener
-            or not carbon_periods_current(carbon)
-            or not carbon_covers_horizon(carbon, hours=22)
-        ):
+        # Do not poll greener every 15m solely for a short carbon horizon — that hammers
+        # Octopus and can wipe live rates / meter-cost joins (NESO fills on each fetch).
+        if not greener or not carbon_periods_current(carbon):
             interval = timedelta(minutes=15)
         else:
             interval = timedelta(minutes=110)
@@ -4382,6 +4378,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             await self._async_sync_octopus_standing_charge()
             await self._async_auto_apply_octopus_schedule()
+            # Rates land after startup analysis — rebuild overlay + £ charts now.
+            if self._octopus_greener_enabled():
+                await self._async_refresh_octopus_analysis()
         except OctopusApiError as err:
             self._note_octopus_rate_limit(str(err))
             self._octopus_cache["last_error"] = str(err)
@@ -4546,6 +4545,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 greener_cache=self._octopus_greener_cache,
                 import_days=import_days,
                 export_days=export_days,
+                prior_consumption=self._octopus_consumption_data,
             )
             await self._async_refresh_octopus_analysis()
             await self.async_update_octopus_consumption_sensors()
@@ -4566,9 +4566,18 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if force or self._octopus_consumption_refresh_due():
                 await self._async_refresh_octopus_consumption(force=force)
                 refreshed = True
-        if refreshed or not self._octopus_analysis_cache or force:
+        cache = self._octopus_analysis_cache if isinstance(self._octopus_analysis_cache, dict) else {}
+        dual_missing = not (cache.get("dual_periods") or cache.get("import_rate_slots"))
+        costs_missing = not (
+            isinstance(cache.get("daily_costs"), dict)
+            and (cache.get("daily_costs") or {}).get("days")
+        ) and bool(
+            (self._octopus_consumption_data or {}).get("import")
+            or (self._octopus_consumption_data or {}).get("export")
+        )
+        if refreshed or not cache or force or dual_missing or costs_missing:
             await self._async_refresh_octopus_analysis()
-        if refreshed:
+        if refreshed or dual_missing or costs_missing:
             await self.async_request_refresh()
         return self._octopus_analysis_state() or {}
 

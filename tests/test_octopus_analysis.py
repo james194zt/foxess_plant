@@ -137,15 +137,17 @@ class TestMergePriceAndCarbon(unittest.TestCase):
         self.assertFalse(merged[0]["is_green"])
 
     def test_dashboard_payload_rebuilds_dual_from_greener_carbon(self):
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        end_ms = now_ms + 1_800_000
         snapshot = {
             "import_rate_slots": [
-                {"start_ms": 0, "end_ms": 1_800_000, "p_per_kwh": 11.0},
+                {"start_ms": now_ms, "end_ms": end_ms, "p_per_kwh": 11.0},
             ],
             "export_rate_slots": [],
             "dual_periods": [
                 {
-                    "start_ms": 0,
-                    "end_ms": 1_800_000,
+                    "start_ms": now_ms,
+                    "end_ms": end_ms,
                     "p_per_kwh": 11.0,
                     "low_carbon_score": None,
                     "gco2_per_kwh": None,
@@ -156,8 +158,8 @@ class TestMergePriceAndCarbon(unittest.TestCase):
         greener = {
             "carbon_periods": [
                 {
-                    "start_ms": 0,
-                    "end_ms": 1_800_000,
+                    "start_ms": now_ms,
+                    "end_ms": end_ms,
                     "gco2_per_kwh": 70.0,
                     "low_carbon_score": 10,
                 }

@@ -469,13 +469,18 @@ def merge_price_and_carbon(
     export_slots: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Align half-hour import/export rates with carbon intensity for dual-axis charts."""
-    export_by_start = {
-        int(p["start_ms"]): p
-        for p in (export_slots or [])
-        if p.get("start_ms") is not None
-    }
+    export_by_start: dict[int, dict[str, Any]] = {}
+    for p in export_slots or []:
+        if not isinstance(p, dict) or p.get("start_ms") is None:
+            continue
+        try:
+            export_by_start[int(p["start_ms"])] = p
+        except (TypeError, ValueError):
+            continue
     merged: list[dict[str, Any]] = []
-    for slot in rate_slots:
+    for slot in rate_slots or []:
+        if not isinstance(slot, dict):
+            continue
         start_ms = slot.get("start_ms")
         carbon = _carbon_period_for_slot(start_ms, carbon_periods)
         export_slot = None
@@ -685,16 +690,18 @@ async def refresh_octopus_consumption(
     greener_nights: list[dict[str, Any]] | None = None,
     import_days: int = 3,
     export_days: int = 3,
+    prior_consumption: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Fetch recent meter readings, merge into store, return stored rows + compliance."""
+    prior = prior_consumption if isinstance(prior_consumption, dict) else {}
     result: dict[str, Any] = {
         "import": [],
         "export": [],
         "compliance": None,
         "last_fetch_at": None,
         "errors": {},
-        "daily_costs": None,
-        "daily_costs_fetched_at": None,
+        "daily_costs": prior.get("daily_costs"),
+        "daily_costs_fetched_at": prior.get("daily_costs_fetched_at"),
     }
     import_meter = octopus_cache.get("import_meter") or greener_cache.get("import_meter") or {}
     export_meter = resolve_meter_for_consumption(octopus_cache, export=True)
@@ -783,7 +790,7 @@ async def refresh_octopus_consumption(
             octopus_cache=octopus_cache,
             consumption_data=result,
             days=METER_COST_DAYS,
-            force=True,
+            force=False,
         )
     except Exception as err:  # noqa: BLE001 — keep meter poll success even if cost join fails
         _LOGGER.warning("Octopus meter cost refresh failed: %s", err)
@@ -913,6 +920,11 @@ async def build_octopus_analysis_snapshot(
     if cons and (cons.get("import") or cons.get("export_display") or cons.get("export")):
         cost_input = dict(cons)
         cost_input["export"] = list(cons.get("export_display") or cons.get("export") or [])
+        # Keep prior costs unless stale / missing — force=True on every greener rebuild
+        # was hammering historical unit-rate APIs and blanking the spend chart.
+        need_costs = not isinstance(cost_input.get("daily_costs"), dict) or not (
+            cost_input.get("daily_costs") or {}
+        ).get("days")
         try:
             costs = await refresh_meter_daily_costs(
                 hass,
@@ -920,11 +932,17 @@ async def build_octopus_analysis_snapshot(
                 octopus_cache=octopus_cache,
                 consumption_data=cost_input,
                 days=METER_COST_DAYS,
-                force=True,
+                force=need_costs,
             )
             snapshot["daily_costs"] = costs or cost_input.get("daily_costs")
             if costs:
                 costs["export_kwh_source"] = cons.get("export_kwh_source")
+                # Keep joined costs on the live consumption bag for the next rebuild.
+                if isinstance(consumption_data, dict):
+                    consumption_data["daily_costs"] = costs
+                    consumption_data["daily_costs_fetched_at"] = cost_input.get(
+                        "daily_costs_fetched_at"
+                    )
         except Exception as err:  # noqa: BLE001
             _LOGGER.warning("Octopus meter cost join failed: %s", err)
             snapshot["daily_costs"] = cons.get("daily_costs")
@@ -969,21 +987,24 @@ def octopus_analysis_dashboard_payload(
     if not isinstance(snapshot, dict):
         return None
     greener = greener_payload if isinstance(greener_payload, dict) else {}
-    carbon_periods = list(
-        greener.get("carbon_periods") or snapshot.get("carbon_periods") or []
+    from .carbon_intensity_neso import trim_carbon_periods
+
+    carbon_periods = trim_carbon_periods(
+        list(greener.get("carbon_periods") or snapshot.get("carbon_periods") or [])
     )
+    import_slots = list(snapshot.get("import_rate_slots") or [])
+    export_slots = list(snapshot.get("export_rate_slots") or [])
     # Always rebuild overlay rows from the latest greener carbon forecast so the
     # price/carbon chart does not stay stuck at score 0 when carbon arrives later.
-    dual_periods = merge_price_and_carbon(
-        list(snapshot.get("import_rate_slots") or []),
-        carbon_periods,
-        list(snapshot.get("export_rate_slots") or []),
-    )
+    dual_periods = merge_price_and_carbon(import_slots, carbon_periods, export_slots)
+    if not dual_periods and import_slots:
+        # Defensive: never drop the price overlay when slots are present.
+        dual_periods = merge_price_and_carbon(import_slots, [], export_slots)
     return {
         **snapshot,
         "greener_title": greener.get("title"),
         "carbon_periods": carbon_periods,
-        "dual_periods": dual_periods or snapshot.get("dual_periods") or [],
+        "dual_periods": dual_periods if dual_periods else list(snapshot.get("dual_periods") or []),
         "timeline": greener.get("timeline") or [],
         "green_threshold_gco2": greener.get("green_threshold_gco2") or GREEN_THRESHOLD_GCO2,
         "rewards": greener.get("rewards"),

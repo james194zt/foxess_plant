@@ -372,7 +372,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.479";
+const PANEL_VERSION = "0.9.480";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -3932,12 +3932,18 @@ function enrichOctopusDualPeriods(dualPeriods, carbonPeriods) {
   });
 }
 
-function renderOctopusDualChartSvg(dualPeriods, carbonPeriods = null) {
-  const rows = enrichOctopusDualPeriods(dualPeriods, carbonPeriods).filter(
+function renderOctopusDualChartSvg(dualPeriods, carbonPeriods = null, importRateSlots = null) {
+  let rows = enrichOctopusDualPeriods(dualPeriods, carbonPeriods).filter(
     (p) => p?.start_ms != null
   );
+  // Backend rebuild can briefly leave dual_periods empty while import slots exist.
+  if (!rows.length && Array.isArray(importRateSlots) && importRateSlots.length) {
+    rows = enrichOctopusDualPeriods(importRateSlots, carbonPeriods).filter(
+      (p) => p?.start_ms != null
+    );
+  }
   if (!rows.length) {
-    return `<p class="octopus-greener-empty">Price and carbon overlay unavailable. Save Octopus API credentials and postcode.</p>`;
+    return `<p class="octopus-greener-empty">Price and carbon overlay unavailable — waiting for live Octopus import rates. Open Settings → Tariff and re-test the Octopus connection if this persists.</p>`;
   }
   const rates = rows
     .flatMap((r) => [r.p_per_kwh, r.export_p_per_kwh])
@@ -4265,7 +4271,7 @@ ${rewardsHtml}
 <div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Import price (48h)</h3>${renderOctopusRateChartSvg(payload.import_rate_slots, { kind: "import" })}</div>
 <div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Export price (48h)</h3>${renderOctopusRateChartSvg(payload.export_rate_slots, { kind: "export" })}</div>
 </div>
-<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Price and carbon overlay</h3><p class="octopus-greener-intro">Bars show low carbon score; blue line is import price and amber is export price — look for cheap, green periods to run loads or charge the battery.</p>${renderOctopusDualChartSvg(payload.dual_periods, payload.carbon_periods)}</div>
+<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Price and carbon overlay</h3><p class="octopus-greener-intro">Bars show low carbon score; blue line is import price and amber is export price — look for cheap, green periods to run loads or charge the battery.</p>${renderOctopusDualChartSvg(payload.dual_periods, payload.carbon_periods, payload.import_rate_slots)}</div>
 ${renderOctopusCarbonInsightsCard(payload.carbon_extremes)}
 ${renderOctopusComplianceCard(payload.compliance)}
 <div class="octopus-analysis-grid">
@@ -22043,7 +22049,16 @@ ${this._renderReportsDateNav()}
     const plant = this._getPlant();
     if (!plant || !this._hass || this._view !== "reports" || this._reportsView !== "octopus") return;
     if (!octopusTariffEnabled(this._plantState)) return;
-    if (!force && octopusAnalysisPayload(this._plantState)) {
+    const existing = octopusAnalysisPayload(this._plantState);
+    const hasSlots = (existing?.import_rate_slots || []).length > 0;
+    const hasDual = (existing?.dual_periods || []).length > 0;
+    const hasMeter =
+      (existing?.consumption || []).length > 0 || (existing?.export_consumption || []).length > 0;
+    const hasCosts = (existing?.daily_costs?.days || []).length > 0;
+    const needsRepair = Boolean(
+      existing && ((hasSlots && !hasDual) || (hasMeter && !hasCosts))
+    );
+    if (!force && existing && !needsRepair) {
       return;
     }
     this._octopusAnalysisLoading = true;
@@ -22053,7 +22068,7 @@ ${this._renderReportsDateNav()}
       const result = await this._hass.connection.sendMessagePromise({
         type: "foxess_plant/fetch_octopus_analysis",
         plant_id: plant.entry_id,
-        force,
+        force: force || needsRepair,
       });
       if (result?.plant_state) this._plantState = result.plant_state;
     } catch (err) {

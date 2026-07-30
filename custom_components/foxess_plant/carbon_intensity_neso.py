@@ -60,7 +60,35 @@ def union_carbon_periods(
             except (TypeError, ValueError):
                 continue
             by_start[start_ms] = row
-    return [by_start[k] for k in sorted(by_start.keys())]
+    return trim_carbon_periods([by_start[k] for k in sorted(by_start.keys())])
+
+
+def trim_carbon_periods(
+    periods: list[dict[str, Any]] | None,
+    *,
+    now_ms: int | None = None,
+    past_hours: float = 12.0,
+    future_hours: float = 54.0,
+) -> list[dict[str, Any]]:
+    """Keep a rolling window so unions cannot grow forever and bloat plant_state."""
+    rows = [r for r in (periods or []) if isinstance(r, dict) and r.get("start_ms") is not None]
+    if not rows:
+        return []
+    now_ms = now_ms if now_ms is not None else int(dt_util.utcnow().timestamp() * 1000)
+    lo = now_ms - int(float(past_hours) * 3600 * 1000)
+    hi = now_ms + int(float(future_hours) * 3600 * 1000)
+    trimmed: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            start_ms = int(row["start_ms"])
+            end_ms = int(row["end_ms"]) if row.get("end_ms") is not None else start_ms + 30 * 60 * 1000
+        except (TypeError, ValueError):
+            continue
+        if end_ms < lo or start_ms > hi:
+            continue
+        trimmed.append(row)
+    trimmed.sort(key=lambda item: int(item["start_ms"]))
+    return trimmed
 
 
 def normalize_neso_carbon_periods(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -168,6 +196,7 @@ async def fetch_neso_regional_carbon(
         return []
     rows = _extract_neso_data_rows(payload)
     periods = normalize_neso_carbon_periods(rows)
+    periods = trim_carbon_periods(periods)
     _LOGGER.debug(
         "NESO carbon loaded %s half-hours for postcode %s (window %s)",
         len(periods),

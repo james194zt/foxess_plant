@@ -514,8 +514,10 @@ def greener_dashboard_payload(
     current_export_p_per_kwh: float | None = None,
 ) -> dict[str, Any]:
     """Panel-friendly greener nights + rewards payload."""
+    from .carbon_intensity_neso import trim_carbon_periods
+
     snap = snapshot if isinstance(snapshot, dict) else {}
-    periods = list(snap.get("carbon_periods") or [])
+    periods = trim_carbon_periods(list(snap.get("carbon_periods") or []))
     greener_nights = list(snap.get("greener_nights") or [])
     now = dt_util.now(UK_TZ)
     title = greener_card_title(periods, now=now)
