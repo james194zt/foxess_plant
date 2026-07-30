@@ -336,6 +336,32 @@ async def fetch_octopus_greener_snapshot(
             snapshot["errors"]["carbon"] = str(err)
             _LOGGER.debug("Carbon intensity fetch failed: %s", err)
 
+        # Octopus GraphQL often truncates before the 48h Agile window — fill from NESO.
+        from .carbon_intensity_neso import (
+            carbon_covers_horizon,
+            fetch_neso_regional_carbon,
+            union_carbon_periods,
+        )
+
+        octopus_carbon = list(snapshot.get("carbon_periods") or [])
+        if not carbon_covers_horizon(octopus_carbon, hours=22):
+            try:
+                neso = await fetch_neso_regional_carbon(hass, postcode, hours=48)
+                if neso:
+                    snapshot["carbon_periods"] = union_carbon_periods(neso, octopus_carbon)
+                    snapshot["carbon_source"] = (
+                        "octopus+neso" if octopus_carbon else "neso"
+                    )
+                    if snapshot["errors"].get("carbon") and neso:
+                        # NESO recovered coverage — keep Octopus error as soft note only.
+                        snapshot["errors"]["carbon_octopus"] = snapshot["errors"].pop("carbon")
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.debug("NESO carbon fallback failed: %s", err)
+                if not octopus_carbon:
+                    snapshot["errors"]["carbon_neso"] = str(err)
+        else:
+            snapshot["carbon_source"] = "octopus"
+
     try:
         snapshot["rewards"] = await gql.fetch_rewards(account_number)
     except OctopusGraphqlError as err:
@@ -370,9 +396,13 @@ def hydrate_greener_snapshot_from_history(
     snapshot: dict[str, Any],
     history: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Restore carbon/postcode from stored history when the live snapshot lacks them."""
-    if carbon_periods_present(snapshot.get("carbon_periods")):
+    """Restore / extend carbon from stored history when live coverage is thin."""
+    from .carbon_intensity_neso import carbon_covers_horizon, union_carbon_periods
+
+    live = list(snapshot.get("carbon_periods") or [])
+    if carbon_covers_horizon(live, hours=22):
         return snapshot
+    history_carbon: list[dict[str, Any]] = []
     for entry in reversed(history):
         if not isinstance(entry, dict):
             continue
@@ -382,12 +412,16 @@ def hydrate_greener_snapshot_from_history(
         periods = list(past.get("carbon_periods") or [])
         if not carbon_periods_present(periods):
             continue
-        merged = dict(snapshot)
-        merged["carbon_periods"] = periods
-        if not merged.get("postcode") and past.get("postcode"):
-            merged["postcode"] = past.get("postcode")
-        return merged
-    return snapshot
+        history_carbon = periods
+        if not snapshot.get("postcode") and past.get("postcode"):
+            snapshot = dict(snapshot)
+            snapshot["postcode"] = past.get("postcode")
+        break
+    if not history_carbon:
+        return snapshot
+    merged = dict(snapshot)
+    merged["carbon_periods"] = union_carbon_periods(history_carbon, live)
+    return merged
 
 
 def is_octopus_rate_limit_error(message: str | None) -> bool:
@@ -406,6 +440,12 @@ def merge_octopus_greener_snapshots(
     incoming: dict[str, Any],
 ) -> dict[str, Any]:
     """Keep prior carbon/greener data when a partial fetch or rate limit fails."""
+    from .carbon_intensity_neso import (
+        carbon_coverage_end_ms,
+        carbon_covers_horizon,
+        union_carbon_periods,
+    )
+
     if not isinstance(previous, dict) or not previous:
         return dict(incoming)
 
@@ -426,8 +466,22 @@ def merge_octopus_greener_snapshots(
 
     if _keep_previous("greener_nights", ("greener_nights",)):
         merged["greener_nights"] = previous["greener_nights"]
-    if _keep_previous("carbon_periods", ("carbon", "account")):
-        merged["carbon_periods"] = previous["carbon_periods"]
+
+    # Carbon: always union so a short Octopus payload cannot erase evening coverage.
+    prev_carbon = list(previous.get("carbon_periods") or [])
+    inc_carbon = list(incoming.get("carbon_periods") or [])
+    if prev_carbon or inc_carbon:
+        if _keep_previous("carbon_periods", ("carbon", "account")) and not inc_carbon:
+            merged["carbon_periods"] = prev_carbon
+        else:
+            merged["carbon_periods"] = union_carbon_periods(prev_carbon, inc_carbon)
+            # Prefer labels from incoming when it actually extends coverage.
+            if carbon_coverage_end_ms(inc_carbon) >= carbon_coverage_end_ms(prev_carbon):
+                if incoming.get("carbon_source"):
+                    merged["carbon_source"] = incoming.get("carbon_source")
+            elif previous.get("carbon_source") and not carbon_covers_horizon(inc_carbon):
+                merged["carbon_source"] = previous.get("carbon_source")
+
     if _keep_previous("postcode", ("account",)):
         merged["postcode"] = previous.get("postcode")
     incoming_rewards = incoming.get("rewards")
@@ -472,6 +526,7 @@ def greener_dashboard_payload(
         "title": title,
         "greener_nights": greener_nights,
         "carbon_periods": periods,
+        "carbon_source": snap.get("carbon_source"),
         "timeline": build_greener_timeline(periods, greener_nights, now=now),
         "green_threshold_gco2": GREEN_THRESHOLD_GCO2,
         "postcode": snap.get("postcode"),

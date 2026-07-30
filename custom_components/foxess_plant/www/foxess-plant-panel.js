@@ -372,7 +372,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.478";
+const PANEL_VERSION = "0.9.479";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -3996,6 +3996,11 @@ function renderOctopusDualChartSvg(dualPeriods, carbonPeriods = null) {
       gco2: row.gco2_per_kwh != null ? Math.round(Number(row.gco2_per_kwh)) : null,
     }),
   });
+  const withScore = chartRows.filter((r) => r.low_carbon_score != null).length;
+  const coverageHint =
+    chartRows.length && withScore < chartRows.length * 0.85
+      ? `<p class="octopus-greener-hint" style="margin-top:6px">Carbon forecast covers ${withScore}/${chartRows.length} price slots — refreshing will pull NESO regional intensity when Octopus truncates.</p>`
+      : "";
   return `<div class="octopus-analysis-dual-wrap">
 <div class="octopus-analysis-dual-legend">
 <span><i class="octopus-analysis-swatch octopus-analysis-swatch--green"></i> Low carbon</span>
@@ -4004,7 +4009,7 @@ function renderOctopusDualChartSvg(dualPeriods, carbonPeriods = null) {
 <span><i class="octopus-analysis-swatch-line octopus-analysis-swatch-line--export"></i> Export price</span>
 </div>
 ${chart}
-<p class="octopus-analysis-chart-hint">Hover bars for carbon score, import/export prices, and time</p>
+<p class="octopus-analysis-chart-hint">Hover bars for carbon score, import/export prices, and time</p>${coverageHint}
 </div>`;
 }
 

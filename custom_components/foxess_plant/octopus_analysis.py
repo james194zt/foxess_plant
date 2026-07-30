@@ -989,6 +989,7 @@ def octopus_analysis_dashboard_payload(
         "rewards": greener.get("rewards"),
         "greener_history_count": greener.get("history_count"),
         "postcode": greener.get("postcode"),
+        "carbon_source": greener.get("carbon_source") or snapshot.get("carbon_source"),
         "errors": {**(greener.get("errors") or {}), **(snapshot.get("errors") or {})},
         "variable_tariff": is_variable_tariff_type(str(snapshot.get("tariff_type") or "")),
     }

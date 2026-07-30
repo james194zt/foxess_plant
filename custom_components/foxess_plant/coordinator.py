@@ -703,12 +703,18 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return False
         if not self._octopus_greener_cache:
             return True
+        from .carbon_intensity_neso import carbon_covers_horizon
         from .octopus_greener import carbon_periods_current
 
         cache = self._octopus_greener_cache
         carbon = list(cache.get("carbon_periods") or [])
         greener = list(cache.get("greener_nights") or [])
-        if not greener or not carbon_periods_current(carbon):
+        # Refresh often while the carbon horizon is shorter than the price overlay window.
+        if (
+            not greener
+            or not carbon_periods_current(carbon)
+            or not carbon_covers_horizon(carbon, hours=22)
+        ):
             interval = timedelta(minutes=15)
         else:
             interval = timedelta(minutes=110)
