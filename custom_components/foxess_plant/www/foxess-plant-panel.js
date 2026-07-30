@@ -372,7 +372,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.482";
+const PANEL_VERSION = "0.9.483";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -3452,7 +3452,7 @@ function renderPerformancePhysicsChartSvg(chart) {
   const hint = performanceSparseHint(Math.max(tempPts.length, windPts.length), xDomain);
   const tempMissing =
     !tempPts.length && windPts.length
-      ? `<p class="field-hint fox-perf-chart-hint">Virtual panel °C needs daytime PV above ~0.5 kW plus string voltage (PV1/PV2). It auto-calibrates the 25°C baseline once sun is strong enough — overnight / low irradiance stays blank.</p>`
+      ? `<p class="field-hint fox-perf-chart-hint">Virtual panel °C needs PV above ~0.5 kW plus string voltage (PV1/PV2). Wrong factory 400 V baselines auto-calibrate once sun is on the array — overnight / sub-0.5 kW stays blank.</p>`
       : "";
   return `<div class="fox-perf-chart-legend">
 <span><i style="background:#08979C"></i> Virtual panel °C</span>

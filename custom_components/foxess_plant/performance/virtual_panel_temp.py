@@ -15,8 +15,9 @@ can seed a replacement via `suggest_baseline_v_at_25c`.
 from __future__ import annotations
 
 # Need enough irradiance that the string is near MPP, not dawdling dawn power.
+# Keep this an absolute floor (matches the Performance chart hint). Do not scale by
+# inverter AC rating — 12% of a 10 kW EVO (~1.2 kW) blanks the chart all morning.
 MIN_PV_KW_FOR_TEMP = 0.5
-MIN_PV_FRACTION_OF_AC = 0.12
 
 # Live voltage must be within this band of the calibrated baseline.
 MAX_VOLTAGE_DELTA_BELOW = 0.12  # 12% below baseline
@@ -82,13 +83,16 @@ def compute_virtual_panel_temp_c(
     inverter_ac_limit_kw: float | None = None,
     ambient_temp_c: float | None = None,
 ) -> float | None:
-    """Estimate panel temperature from Voc/Vmp shift vs STC baseline at 25°C."""
+    """Estimate panel temperature from Voc/Vmp shift vs STC baseline at 25°C.
+
+    ``inverter_ac_limit_kw`` is accepted for API compatibility but no longer raises
+    the minimum PV gate (see ``MIN_PV_KW_FOR_TEMP``).
+    """
+    _ = inverter_ac_limit_kw
     if string_voltage_v is None or pv_power_kw is None:
         return None
 
     min_kw = MIN_PV_KW_FOR_TEMP
-    if inverter_ac_limit_kw is not None and inverter_ac_limit_kw > 0:
-        min_kw = max(min_kw, float(inverter_ac_limit_kw) * MIN_PV_FRACTION_OF_AC)
     if float(pv_power_kw) < min_kw:
         return None
 

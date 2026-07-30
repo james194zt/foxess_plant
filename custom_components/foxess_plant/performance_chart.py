@@ -356,15 +356,29 @@ def _virtual_panel_temp_from_inverter_history(
 ) -> list[dict[str, float]]:
     """Rebuild virtual panel °C from PV voltage + power history when samples are empty."""
     from .discovery import resolve_entity_id
-    from .performance.virtual_panel_temp import compute_virtual_panel_temp_c
+    from .performance.virtual_panel_temp import (
+        compute_virtual_panel_temp_c,
+        suggest_baseline_v_at_25c,
+        voltage_out_of_baseline_band,
+    )
     from .websocket_api import _fetch_history_points, _fetch_statistics_points
 
     cfg = coordinator.plant.performance
     device_id = coordinator.plant.device_id
     entity_map = coordinator.plant.entity_map
+    baseline = float(cfg.baseline_v_at_25c)
+    coeff = float(cfg.temp_coefficient_v_per_c)
+    ac_limit = cfg.inverter_ac_limit_kw
 
     volt_ids: list[str] = []
-    for key in ("pv1_voltage", "pv2_voltage", "pv3_voltage", "pv4_voltage"):
+    for key in (
+        "pv1_voltage",
+        "pv2_voltage",
+        "pv3_voltage",
+        "pv4_voltage",
+        "pv1_volts",
+        "pv2_volts",
+    ):
         eid = resolve_entity_id(hass, entity_map, key, device_id=device_id)
         if eid and eid not in volt_ids:
             volt_ids.append(eid)
@@ -404,6 +418,7 @@ def _virtual_panel_temp_from_inverter_history(
     volt_lookups = [_points_to_lookup(series_for(eid)) for eid in volt_ids]
     buckets = sorted(set(power_lookup) | {b for lu in volt_lookups for b in lu})
     out: list[dict[str, float]] = []
+    working_baseline = baseline
     for bucket in buckets:
         voltages = [lu[bucket] for lu in volt_lookups if bucket in lu and lu[bucket] > 50]
         if not voltages or bucket not in power_lookup:
@@ -416,11 +431,31 @@ def _virtual_panel_temp_from_inverter_history(
         temp = compute_virtual_panel_temp_c(
             string_voltage_v=string_v,
             pv_power_kw=pv_kw,
-            baseline_v_at_25c=float(cfg.baseline_v_at_25c),
-            temp_coefficient_v_per_c=float(cfg.temp_coefficient_v_per_c),
-            inverter_ac_limit_kw=cfg.inverter_ac_limit_kw,
+            baseline_v_at_25c=working_baseline,
+            temp_coefficient_v_per_c=coeff,
+            inverter_ac_limit_kw=ac_limit,
             ambient_temp_c=None,
         )
+        if temp is None and voltage_out_of_baseline_band(
+            live_v=string_v, baseline_v=working_baseline
+        ):
+            seeded = suggest_baseline_v_at_25c(
+                string_voltage_v=string_v,
+                ambient_temp_c=None,
+                pv_power_kw=pv_kw,
+                inverter_ac_limit_kw=ac_limit,
+                temp_coefficient_v_per_c=coeff,
+            )
+            if seeded is not None:
+                working_baseline = seeded
+                temp = compute_virtual_panel_temp_c(
+                    string_voltage_v=string_v,
+                    pv_power_kw=pv_kw,
+                    baseline_v_at_25c=working_baseline,
+                    temp_coefficient_v_per_c=coeff,
+                    inverter_ac_limit_kw=ac_limit,
+                    ambient_temp_c=None,
+                )
         if temp is None:
             continue
         out.append({"t": float(bucket), "v": float(temp)})
@@ -498,7 +533,7 @@ async def async_build_performance_day_chart(
         hass, coordinator, start_utc=start_utc, end_utc=end_utc
     )
     series = _merge_series(series, local_weather_series)
-    if len(series.get("virtual_panel_temp_c") or []) < 3:
+    if len(series.get("virtual_panel_temp_c") or []) < 12:
         temp_from_inverter = _virtual_panel_temp_from_inverter_history(
             hass, coordinator, start_utc=start_utc, end_utc=end_utc
         )

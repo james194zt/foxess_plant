@@ -74,15 +74,25 @@ class VirtualPanelTempTests(unittest.TestCase):
         )
 
     def test_none_at_dawn_weak_power(self) -> None:
-        # 393 W is below 0.5 kW floor / 12% of 4.3 kW AC.
+        # 393 W is below the 0.5 kW floor.
         self.assertIsNone(
             virtual_temp.compute_virtual_panel_temp_c(
                 string_voltage_v=330.0,
                 pv_power_kw=0.393,
                 baseline_v_at_25c=400.0,
-                inverter_ac_limit_kw=4.3,
+                inverter_ac_limit_kw=10.0,
             )
         )
+
+    def test_allows_morning_power_on_large_inverter(self) -> None:
+        # Must not require 12% of a 10 kW AC limit (~1.2 kW) — 0.6 kW is enough.
+        temp = virtual_temp.compute_virtual_panel_temp_c(
+            string_voltage_v=396.0,
+            pv_power_kw=0.6,
+            baseline_v_at_25c=400.0,
+            inverter_ac_limit_kw=10.0,
+        )
+        self.assertIsNotNone(temp)
 
     def test_none_when_voltage_far_below_baseline(self) -> None:
         # Classic miscalibration: Voc-ish baseline vs loaded Vmp (~18% lower).

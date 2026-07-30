@@ -87,16 +87,16 @@ IDENTITY_ENTITY_SUFFIXES: dict[str, tuple[str, ...]] = {
 
 PANEL_ENTITY_SUFFIXES: dict[str, tuple[str, ...]] = {
     # PV strings
-    "pv1_voltage": ("pv1_voltage",),
+    "pv1_voltage": ("pv1_voltage", "pv1_volt", "pv1_volts"),
     "pv1_current": ("pv1_current",),
     "pv1_power": ("pv1_power",),
-    "pv2_voltage": ("pv2_voltage",),
+    "pv2_voltage": ("pv2_voltage", "pv2_volt", "pv2_volts"),
     "pv2_current": ("pv2_current",),
     "pv2_power": ("pv2_power",),
-    "pv3_voltage": ("pv3_voltage",),
+    "pv3_voltage": ("pv3_voltage", "pv3_volt", "pv3_volts"),
     "pv3_current": ("pv3_current",),
     "pv3_power": ("pv3_power",),
-    "pv4_voltage": ("pv4_voltage",),
+    "pv4_voltage": ("pv4_voltage", "pv4_volt", "pv4_volts"),
     "pv4_current": ("pv4_current",),
     "pv4_power": ("pv4_power",),
     "pv_power": ("pv_power_evo_10", "pv_power_now", "pv_power", "pv_power_total", "pv1_power"),
