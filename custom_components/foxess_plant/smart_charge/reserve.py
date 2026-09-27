@@ -71,3 +71,21 @@ def export_floor_reached(*, soc_pct: float | None, export_min_soc: float | None)
     if soc_pct is None or export_min_soc is None:
         return False
     return float(soc_pct) <= float(export_min_soc)
+
+
+def battery_deficit_kwh(
+    *,
+    soc_pct: float | None,
+    capacity_kwh: float | None,
+    kwh_remaining: float | None,
+    target_soc_pct: float,
+) -> float | None:
+    if target_soc_pct <= 0:
+        return None
+    effective_target = max(0.1, float(target_soc_pct))
+    if kwh_remaining is not None and capacity_kwh is not None and capacity_kwh > 0:
+        target_kwh = capacity_kwh * effective_target / 100.0
+        return max(0.0, target_kwh - max(0.0, kwh_remaining))
+    if soc_pct is not None and capacity_kwh is not None and capacity_kwh > 0:
+        return max(0.0, capacity_kwh * (effective_target - soc_pct) / 100.0)
+    return None

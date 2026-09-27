@@ -25,12 +25,16 @@ def _json_dumps(payload: dict[str, Any]) -> str:
 
 def daily_plan_signature(plan: list[dict[str, Any]] | None) -> str:
     slots = plan or []
+    # Planner output has one row per half-hour: sign only the action slots so an
+    # hourly replan with the same charge/export windows does not log a new event.
+    if any(s.get("start_utc") for s in slots):
+        slots = [s for s in slots if s.get("action") != "idle"]
     parts: list[str] = []
     for slot in slots[:48]:
         parts.append(
             "|".join(
                 str(slot.get(k) or "")
-                for k in ("action", "start", "end", "reason", "import_p_per_kwh", "export_p_per_kwh")
+                for k in ("action", "start_utc", "start", "end", "reason", "import_p_per_kwh", "export_p_per_kwh")
             )
         )
     head = slots[0] if slots else {}
@@ -111,9 +115,16 @@ def payload_daily_plan(
                 "action": s.get("action"),
                 "start": s.get("start"),
                 "end": s.get("end"),
+                "start_utc": s.get("start_utc"),
                 "reason": s.get("reason"),
+                "planned_import_kwh": s.get("planned_import_kwh"),
+                "planned_export_kwh": s.get("planned_export_kwh"),
             }
-            for s in slots[:24]
+            for s in (
+                [s for s in slots if s.get("action") != "idle"]
+                if any(s.get("start_utc") for s in slots)
+                else slots
+            )[:48]
         ],
     }
 

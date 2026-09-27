@@ -2,7 +2,7 @@
 
 Central **plant controller** for FoxESS inverters running [foxess_modbus](https://github.com/nathanmarlor/foxess_modbus). Owns charge-period policy, work mode / SOC limits, drift detection, tariff-aware automation, and a full **Fox Plant** sidebar panel — **does not** talk Modbus itself.
 
-Current release: **v0.9.467**
+Current release: **v0.9.485**
 
 ## Screenshots
 
@@ -68,15 +68,17 @@ Manual install: copy `custom_components/foxess_plant` to `config/custom_componen
 
 ### SmartCharge
 
-Tariff-aware grid charging using **Solcast** PV forecast and **Octopus** (or schedule) rates.
+Cost-optimised grid charging and export using your **tariff**, the **Solcast** PV forecast and your **house-load history**.
 
-- Operating modes: **Max safety**, **Max profit**, **Max green**
-- Daily plan (default 16:00 UK local) with rest-of-today vs full horizon once tomorrow’s Agile rates publish
-- Agile polling, negative-import interrupt, price-drop replan
-- Spread optimizer, winter / solar-gap fill, export thresholds per mode
-- Force-charge only while the planned local HH:MM window is active (does not charge “now” for a future cheap slot)
-- Optional **Glow / smart-meter import rate check** before arming — compares live meter vs API within a tolerance and rechecks after a mismatch
-- Configure under **Device → SmartCharge**; StormSafe still overrides when severe weather is active
+- Builds a half-hourly timeline to the end of tomorrow: import/export price, forecast PV, and predicted house load. Load is the median of the last 14 days of the inverter's load energy history, split weekday/weekend when there's enough data.
+- Simulates the battery through that timeline and picks charge and export half-hours by cost. It charges overnight only when tomorrow's solar won't cover the house. It never charges at 15p just to avoid importing at 14p. It charges on negative prices and exports at peaks when the energy can be refilled more cheaply.
+- Works with Octopus Agile / Tracker / Go / Economy 7 / flat (API or HA rate entities) and with the manual tariff schedule. Prices Agile hasn't published yet are estimated and never scheduled.
+- The plan is committed. It is rebuilt when rates, the Solcast forecast or battery SOC change materially, at the daily plan time (default 16:00), and at least hourly.
+- Force charge arms only inside the planned half-hour window, with max SOC set to the planned level so it stops at the right point.
+- Operating modes: **Max safety** (pessimistic solar, larger reserve), **Max profit** (lowest cost), **Max green** (cost plus carbon weighting)
+- Settings include max charge / discharge power (kW), minimum saving per kWh, load history days, outage reserve, and export floor
+- Optional **Glow / smart-meter import rate check** before arming: compares the live meter rate with the API within a tolerance, and rechecks after a mismatch
+- Configure under **Device → SmartCharge**. StormSafe still overrides when severe weather is active.
 
 ### Octopus Energy tariffs
 

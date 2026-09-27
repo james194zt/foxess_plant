@@ -372,7 +372,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.484";
+const PANEL_VERSION = "0.9.485";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -7938,17 +7938,17 @@ function overviewSmartChargeStatusSummary(plantState) {
 const SMART_CHARGE_MODE_META = {
   max_safety: {
     title: "Max safety",
-    hint: "Higher reserve, minimal export — backup first",
+    hint: "Plans on pessimistic solar and a larger reserve — backup first",
     accent: "var(--fp-accent)",
   },
   max_profit: {
     title: "Max profit",
-    hint: "Aggressive Agile arbitrage — charge low, export high",
+    hint: "Lowest cost — charge cheap, export at peaks",
     accent: "var(--fp-amber, #f9a825)",
   },
   max_green: {
     title: "Max green",
-    hint: "Renewable-first — greener nights and low carbon",
+    hint: "Cost plus carbon — prefers low-carbon charge slots",
     accent: "var(--fp-green, #4caf50)",
   },
 };
@@ -7996,8 +7996,21 @@ function smartChargeTimelineSlotTip(slot) {
       ? `${Number(slot.export_p_per_kwh).toFixed(1)}p`
       : "—";
   const title = `${start}-${end} - ${action}`;
-  const aria = `${title}, Import: ${importP}, Export: ${exportP}`;
-  return { title, importP, exportP, aria };
+  const num = (v) => (v != null && Number.isFinite(Number(v)) ? Number(v) : null);
+  const detailParts = [];
+  const socA = num(slot.soc_start_pct);
+  const socB = num(slot.soc_end_pct);
+  if (socA != null && socB != null) detailParts.push(`SOC ${socA.toFixed(0)}→${socB.toFixed(0)}%`);
+  const pv = num(slot.pv_kwh);
+  const load = num(slot.load_kwh);
+  if (pv != null) detailParts.push(`PV ${pv.toFixed(2)} kWh`);
+  if (load != null) detailParts.push(`Load ${load.toFixed(2)} kWh`);
+  const planned = num(slot.planned_import_kwh) || num(slot.planned_export_kwh);
+  if (planned) detailParts.push(`${slot.action === "export" ? "Export" : "Grid charge"} ${planned.toFixed(2)} kWh`);
+  if (slot.price_known === false) detailParts.push("price estimated");
+  const detail = detailParts.join(" · ");
+  const aria = `${title}, Import: ${importP}, Export: ${exportP}${detail ? `, ${detail}` : ""}`;
+  return { title, importP, exportP, detail, aria };
 }
 
 function bindSmartChargeTimelineTips(root) {
@@ -8019,7 +8032,8 @@ function bindSmartChargeTimelineTips(root) {
       const title = seg.getAttribute("data-tip-title") || "";
       const importLine = seg.getAttribute("data-tip-import") || "—";
       const exportLine = seg.getAttribute("data-tip-export") || "—";
-      floatTip.innerHTML = `<span>${esc(title)}</span><span>Import: ${esc(importLine)}</span><span>Export: ${esc(exportLine)}</span>`;
+      const detailLine = seg.getAttribute("data-tip-detail") || "";
+      floatTip.innerHTML = `<span>${esc(title)}</span><span>Import: ${esc(importLine)}</span><span>Export: ${esc(exportLine)}</span>${detailLine ? `<span>${esc(detailLine)}</span>` : ""}`;
       floatTip.hidden = false;
       wrap.querySelectorAll(".sc-timeline-seg--tip-active").forEach((el) => {
         el.classList.remove("sc-timeline-seg--tip-active");
@@ -8066,29 +8080,36 @@ function smartChargeTimelineHourMarks(slots) {
   return marks;
 }
 
+function smartChargeTimelineSocLine(slots) {
+  /** Predicted SOC across the plan (0–100%), aligned to the slot segments. */
+  const points = [];
+  slots.forEach((s, i) => {
+    const a = Number(s.soc_start_pct);
+    const b = Number(s.soc_end_pct);
+    if (i === 0 && Number.isFinite(a)) points.push(`0,${(100 - a).toFixed(1)}`);
+    if (Number.isFinite(b)) points.push(`${i + 1},${(100 - b).toFixed(1)}`);
+  });
+  if (points.length < 2) return "";
+  return `<svg class="sc-timeline-soc" viewBox="0 0 ${slots.length} 100" preserveAspectRatio="none" aria-hidden="true"><polyline points="${points.join(" ")}" vector-effect="non-scaling-stroke"/></svg>`;
+}
+
 function renderSmartChargePlanTimeline(dailyPlan, currentSlot) {
   const slots = (dailyPlan || []).filter((s) => s.start && s.end && s.reason !== "no_slots");
   if (!slots.length) {
-    const horizon = dailyPlan?.[0]?.plan_horizon;
-    const hint =
-      horizon === "rest_of_today"
-        ? "Rest-of-today plan from current Agile rates — no charge or export slots in the window. Full 24h plan (incl. tomorrow) refreshes at 16:00 UK when Octopus publishes new rates."
-        : horizon === "24h"
-          ? "24h plan from current Agile rates — no charge or export slots in the window."
-          : "Building plan from current Agile rates and Solcast forecast…";
-    return `<p class="sc-empty-hint">${esc(hint)}</p>`;
+    return `<p class="sc-empty-hint">${esc("Building plan from tariff rates, Solcast forecast and house load history…")}</p>`;
   }
-  const nowKey =
-    currentSlot?.start && currentSlot?.end ? `${currentSlot.start}-${currentSlot.end}` : null;
+  const slotKey = (s) => s?.start_utc || (s?.start && s?.end ? `${s.start}-${s.end}` : null);
+  const nowKey = slotKey(currentSlot);
   const first = slots[0];
   const last = slots[slots.length - 1];
   const rangeLabel = `${first.start} → ${last.end} · ${slots.length} half-hours`;
   const segments = slots
     .map((s) => {
       const tone = smartChargePlanActionTone(s.action);
-      const isNow = nowKey === `${s.start}-${s.end}`;
+      const isNow = nowKey != null && nowKey === slotKey(s);
+      const est = s.price_known === false ? " sc-timeline-seg--est" : "";
       const tip = smartChargeTimelineSlotTip(s);
-      return `<div class="sc-timeline-seg sc-timeline-seg--${tone}${isNow ? " sc-timeline-seg--now" : ""}" data-tip-title="${esc(tip.title)}" data-tip-import="${esc(tip.importP)}" data-tip-export="${esc(tip.exportP)}" aria-label="${esc(tip.aria)}"></div>`;
+      return `<div class="sc-timeline-seg sc-timeline-seg--${tone}${est}${isNow ? " sc-timeline-seg--now" : ""}" data-tip-title="${esc(tip.title)}" data-tip-import="${esc(tip.importP)}" data-tip-export="${esc(tip.exportP)}" data-tip-detail="${esc(tip.detail || "")}" aria-label="${esc(tip.aria)}"></div>`;
     })
     .join("");
   const hourMarks = smartChargeTimelineHourMarks(slots);
@@ -8103,6 +8124,7 @@ function renderSmartChargePlanTimeline(dailyPlan, currentSlot) {
   return `<div class="sc-timeline-wrap" data-sc-timeline>
 <p class="sc-timeline-range">${esc(rangeLabel)}</p>
 <div class="sc-timeline-scroll" style="--sc-slot-count:${slots.length}">
+${smartChargeTimelineSocLine(slots)}
 <div class="sc-timeline" role="img" aria-label="Full ${esc(String(slots.length))}-slot charge and export plan from ${esc(first.start)} to ${esc(last.end)}">${segments}</div>
 <div class="sc-timeline-hours" aria-hidden="true">${hourRow}</div>
 </div>
@@ -8110,8 +8132,9 @@ function renderSmartChargePlanTimeline(dailyPlan, currentSlot) {
 <div class="sc-timeline-legend">
 <span><i class="sc-legend-dot sc-legend-dot--charge"></i>Charge</span>
 <span><i class="sc-legend-dot sc-legend-dot--export"></i>Export</span>
-<span><i class="sc-legend-dot sc-legend-dot--candidate"></i>Candidate</span>
-<span><i class="sc-legend-dot sc-legend-dot--idle"></i>Hold</span>
+<span><i class="sc-legend-dot sc-legend-dot--idle"></i>Self use</span>
+<span><i class="sc-legend-line"></i>Predicted SOC</span>
+<span><i class="sc-legend-dot sc-legend-dot--est"></i>Price estimated</span>
 </div>
 </div>`;
 }
@@ -8176,11 +8199,18 @@ function renderSmartChargeStatTiles(decision) {
   if (decision.reserve_kwh != null) {
     tiles.push({ label: "Reserve floor", value: `${Number(decision.reserve_kwh).toFixed(1)} kWh` });
   }
+  const summary = decision.plan_summary || {};
   if (decision.grid_gap_kwh != null) {
-    tiles.push({ label: "Grid gap", value: `${Number(decision.grid_gap_kwh).toFixed(1)} kWh` });
+    tiles.push({ label: "Planned grid charge", value: `${Number(decision.grid_gap_kwh).toFixed(1)} kWh` });
   }
-  if (decision.forecast_kwh != null) {
-    tiles.push({ label: "Solar forecast", value: `${Number(decision.forecast_kwh).toFixed(1)} kWh` });
+  if (summary.tomorrow_pv_kwh != null) {
+    tiles.push({ label: "Tomorrow PV", value: `${Number(summary.tomorrow_pv_kwh).toFixed(1)} kWh` });
+  }
+  if (summary.tomorrow_load_kwh != null) {
+    tiles.push({ label: "Tomorrow load", value: `${Number(summary.tomorrow_load_kwh).toFixed(1)} kWh` });
+  }
+  if (summary.saving_p != null) {
+    tiles.push({ label: "Plan saving", value: `£${(Number(summary.saving_p) / 100).toFixed(2)}` });
   }
   if (!tiles.length) return "";
   return `<div class="sc-stat-grid">${tiles
@@ -14526,6 +14556,17 @@ const STYLES = `
 .sc-timeline-seg--candidate { background: color-mix(in srgb, var(--fp-accent) 70%, var(--fp-green,#4caf50)); }
 .sc-timeline-seg--idle { background: color-mix(in srgb, var(--secondary-text-color) 35%, transparent); }
 .sc-timeline-seg--now { box-shadow: 0 0 0 2px var(--primary-text-color); }
+.sc-timeline-seg--est { opacity: 0.45; }
+.sc-timeline-soc {
+  display: block;
+  width: 100%;
+  height: 36px;
+  margin-bottom: 4px;
+  min-width: min(100%, calc(var(--sc-slot-count, 24) * 6px));
+}
+.sc-timeline-soc polyline { fill: none; stroke: var(--fp-accent, #03a9f4); stroke-width: 2; }
+.sc-legend-line { display: inline-block; width: 14px; height: 2px; background: var(--fp-accent, #03a9f4); vertical-align: middle; margin-right: 4px; }
+.sc-legend-dot--est { opacity: 0.45; background: color-mix(in srgb, var(--secondary-text-color) 35%, transparent); }
 .sc-timeline-seg--tip-active { box-shadow: 0 0 0 2px var(--fp-accent); z-index: 2; }
 .sc-timeline-float-tip {
   position: absolute;
@@ -15878,6 +15919,10 @@ Reloading panel registration…
       export_min_soc: sc.export_min_soc ?? 40,
       meter_rate_verify_enabled: sc.meter_rate_verify_enabled !== false,
       meter_rate_entity_id: sc.meter_rate_entity_id || "",
+      max_charge_kw: sc.max_charge_kw ?? 3,
+      max_discharge_kw: sc.max_discharge_kw ?? null,
+      load_history_days: sc.load_history_days ?? 14,
+      min_saving_p_per_kwh: sc.min_saving_p_per_kwh ?? 1,
       meter_rate_tolerance_p_per_kwh: sc.meter_rate_tolerance_p_per_kwh ?? 0.5,
       meter_rate_recheck_minutes: sc.meter_rate_recheck_minutes ?? 5,
       charge_periods: periods,
@@ -16108,6 +16153,11 @@ Reloading panel registration…
         meter_rate_verify_enabled: Boolean(d.meter_rate_verify_enabled),
         meter_rate_entity_id: String(d.meter_rate_entity_id || "").trim() || null,
         meter_rate_tolerance_p_per_kwh: Number(d.meter_rate_tolerance_p_per_kwh) || 0.5,
+        max_charge_kw: Number(d.max_charge_kw) || 3,
+        max_discharge_kw:
+          d.max_discharge_kw == null || d.max_discharge_kw === "" ? null : Number(d.max_discharge_kw),
+        load_history_days: Number(d.load_history_days) || 14,
+        min_saving_p_per_kwh: Number.isFinite(Number(d.min_saving_p_per_kwh)) ? Number(d.min_saving_p_per_kwh) : 1,
         meter_rate_recheck_minutes: Number(d.meter_rate_recheck_minutes) || 5,
         charge_periods: chargePeriodsFromAutomationBehaviour(SMART_CHARGE_GRID_BEHAVIOUR),
       });
@@ -19087,6 +19137,24 @@ Reloading panel registration…
       }
       if (field === "house_load_kw_fallback") {
         this._smartChargeDraft.house_load_kw_fallback = Math.max(0.1, parseFloat(el.value) || 1);
+        return;
+      }
+      if (field === "max_charge_kw") {
+        this._smartChargeDraft.max_charge_kw = Math.max(0.1, Math.min(50, parseFloat(el.value) || 3));
+        return;
+      }
+      if (field === "max_discharge_kw") {
+        const raw = String(el.value).trim();
+        this._smartChargeDraft.max_discharge_kw = raw === "" ? null : Math.max(0.1, Math.min(50, parseFloat(raw) || 0.1));
+        return;
+      }
+      if (field === "load_history_days") {
+        this._smartChargeDraft.load_history_days = Math.max(1, Math.min(60, parseInt(el.value, 10) || 14));
+        return;
+      }
+      if (field === "min_saving_p_per_kwh") {
+        const v = parseFloat(el.value);
+        this._smartChargeDraft.min_saving_p_per_kwh = Number.isFinite(v) ? Math.max(0, Math.min(50, v)) : 1;
         return;
       }
       if (field === "dark_hours_estimate") {
@@ -22905,7 +22973,7 @@ ${this._renderEnergyAnalysisCharts()}
   _renderSmartChargeGridBehaviourInfo() {
     return `<div class="card">
 <p class="card-title">Grid charging behaviour</p>
-<p class="storm-hint">When SmartCharge arms grid import, windows are chosen from Octopus Agile (daily plan and live price decisions). The inverter is set to force charge from grid for those windows — there is no manual timetable to configure.</p>
+<p class="storm-hint">Charge windows come from the committed plan (Octopus rates or your tariff schedule). When a planned half-hour starts, period 1 is set to force charge from grid for that window, with max SOC set to the planned level so it stops once enough energy is stored. There is no manual timetable to configure.</p>
 </div>`;
   }
 
@@ -23957,10 +24025,8 @@ ${controlSection}`;
 <div class="field"><label>Min export rate (p/kWh)</label>
 <input type="number" min="0" max="100" step="0.5" data-field="smart-charge:min_export_p_profit" value="${esc(String(draft.min_export_p_profit ?? 12))}" ${busy}></div>
 <div class="field"><label>Max exportable fraction</label>
-<input type="number" min="0.05" max="1" step="0.05" data-field="smart-charge:exportable_fraction_profit" value="${esc(String(draft.exportable_fraction_profit ?? 1))}" ${busy}></div>
-<div class="field"><label>Min arbitrage profit (p/kWh)</label>
-<input type="number" min="0" max="50" step="0.1" data-field="smart-charge:min_arbitrage_p_per_kwh" value="${esc(String(draft.min_arbitrage_p_per_kwh ?? 0.5))}" ${busy}>
-<p class="field-hint">Negative import — charge when later export beats this after losses.</p></div>`;
+<input type="number" min="0.05" max="1" step="0.05" data-field="smart-charge:exportable_fraction_profit" value="${esc(String(draft.exportable_fraction_profit ?? 1))}" ${busy}>
+<p class="field-hint">Share of the battery above the export floor that may be force-exported per plan.</p></div>`;
     } else if (mode === "max_green") {
       body = `<div class="toggle-row"><span><strong>Enable grid export</strong></span>
 <input type="checkbox" data-field="smart-charge:export_enabled" ${draft.export_enabled ? "checked" : ""} ${busy}></div>
@@ -23972,9 +24038,7 @@ ${controlSection}`;
 <input type="number" min="0.05" max="1" step="0.05" data-field="smart-charge:exportable_fraction_green" value="${esc(String(draft.exportable_fraction_green ?? 0.15))}" ${busy}></div>
 <div class="field"><label>Carbon weight (0–1)</label>
 <input type="number" min="0" max="1" step="0.05" data-field="smart-charge:green_carbon_weight" value="${esc(String(draft.green_carbon_weight ?? 0.5))}" ${busy}>
-<p class="field-hint">Prefer low-carbon slots when choosing charge windows.</p></div>
-<div class="field"><label>Green spread multiplier</label>
-<input type="number" min="1" max="10" step="0.1" data-field="smart-charge:green_export_spread_multiplier" value="${esc(String(draft.green_export_spread_multiplier ?? 2))}" ${busy}></div>`;
+<p class="field-hint">Adds up to 10p/kWh × weight to grid imports in high-carbon half-hours, steering charging towards greener slots.</p></div>`;
     } else {
       body = `<div class="toggle-row"><span><strong>Enable grid export</strong></span>
 <input type="checkbox" data-field="smart-charge:export_enabled" ${draft.export_enabled ? "checked" : ""} ${busy}></div>
@@ -23987,8 +24051,6 @@ ${controlSection}`;
 <div class="field"><label>Safety reserve multiplier</label>
 <input type="number" min="1" max="5" step="0.05" data-field="smart-charge:safety_reserve_multiplier" value="${esc(String(draft.safety_reserve_multiplier ?? 1.5))}" ${busy}></div>`;
     }
-    body += `<div class="field"><label>Minimum export energy (kWh)</label>
-<input type="number" min="0.1" max="50" step="0.1" data-field="smart-charge:min_export_kwh" value="${esc(String(draft.min_export_kwh ?? 0.5))}" ${busy}></div>`;
     return `<div class="sc-mode-panel" style="--sc-mode-accent: ${meta.accent}">
 <p class="sc-mode-panel-title"><span class="sc-mode-panel-icon" aria-hidden="true">${smartChargeModeIconHtml(mode)}</span>${esc(meta.title)} settings</p>
 ${body}
@@ -24001,7 +24063,6 @@ ${body}
       energy: true,
       reserve: false,
       agile: false,
-      spread: mode === "max_profit",
     };
   }
 
@@ -24048,29 +24109,21 @@ ${body}
     const spreadPairs =
       (decision.spread_pairs?.length ? decision.spread_pairs : null) ??
       (dailyPlan[0]?.spread_pairs?.length ? dailyPlan[0].spread_pairs : []);
-    const isFullHorizon = dailyPlan[0]?.plan_horizon === "24h";
-    const planHorizon = isFullHorizon ? "24h plan" : "rest-of-today plan";
-    const exportCount = planSlots.filter((s) => s.action === "export" || s.action === "spread_export").length;
-    const chargeCount = planSlots.filter(
-      (s) =>
-        s.action === "charge" ||
-        s.action === "charge_candidate" ||
-        s.action === "spread_charge" ||
-        s.action === "winter_fill" ||
-        s.action === "solar_gap_fill" ||
-        s.reason === "winter_fill" ||
-        s.reason === "solar_gap_fill"
-    ).length;
-    const spreadLabel = spreadPairs.length ? ` · ${spreadPairs.length} spread pair${spreadPairs.length === 1 ? "" : "s"}` : "";
-    const tomorrowRefresh = isFullHorizon ? "" : " · full 24h at 16:00 UK";
-    const planSummary =
-      planSlots.length > 0
-        ? `${planHorizon}: ${exportCount} export · ${chargeCount} charge · ${planSlots.length} slots${spreadLabel}${tomorrowRefresh}`
-        : dailyPlan.length
-          ? isFullHorizon
-            ? "24h plan: no charge or export slots in current rate window"
-            : "Rest-of-today plan: no slots in current rate window · full 24h at 16:00 UK"
-          : "Building plan from current Agile rates and Solcast forecast…";
+    const meta = live.plan_meta || decision.plan_summary || {};
+    const exportCount = planSlots.filter((s) => s.action === "export").length;
+    const chargeCount = planSlots.filter((s) => s.action === "charge").length;
+    const loadSource =
+      meta.load_source === "history"
+        ? `load from ${meta.load_history_days ?? "?"}-day history`
+        : "load from fallback kW (no history yet)";
+    const estimated = meta.unknown_price_slots
+      ? ` · ${meta.unknown_price_slots} slots with estimated prices (not planned)`
+      : "";
+    const planSummary = meta.error
+      ? String(meta.error)
+      : planSlots.length > 0
+        ? `${planSlots.length} half-hours to ${planSlots[planSlots.length - 1].end}: ${chargeCount} charge · ${exportCount} export · ${loadSource}${estimated}`
+        : "Building plan from tariff rates, Solcast forecast and house load history…";
     return { live, decision, dailyPlan, planSlots, spreadPairs, planSummary };
   }
 
@@ -24082,30 +24135,6 @@ ${body}
     liveEl.innerHTML = this._renderSmartChargeStatusCard(live, decision, dailyPlan, spreadPairs, planSummary);
     bindSmartChargeTimelineTips(liveEl);
     return true;
-  }
-
-  _renderSmartChargeSpreadPanel(draft) {
-    const mode = draft.operating_mode || "max_safety";
-    if (mode === "max_safety") return "";
-    const busy = this._busy ? "disabled" : "";
-    const greenOnly = mode === "max_green";
-    return `<details class="sc-section-details" data-sc-section="spread"${this._smartChargeSectionOpenAttr("spread", draft)}>
-<summary>Spread optimizer</summary>
-<div class="toggle-row"><span><strong>Enable spread pairing</strong></span>
-<input type="checkbox" data-field="smart-charge:spread_optimizer_enabled" ${draft.spread_optimizer_enabled ? "checked" : ""} ${busy}></div>
-<div class="toggle-row"><span><strong>Solar gap fill</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Extra cheap import slots when forecast PV won&rsquo;t cover house load</span></span>
-<input type="checkbox" data-field="smart-charge:winter_fill_enabled" ${draft.winter_fill_enabled ? "checked" : ""} ${busy}></div>
-${greenOnly ? "" : `<div class="field"><label>Min spread profit (p/kWh)</label>
-<input type="number" min="0" max="50" step="0.5" data-field="smart-charge:min_spread_profit_p_per_kwh" value="${esc(String(draft.min_spread_profit_p_per_kwh ?? 3))}" ${busy}></div>`}
-<div class="field"><label>Cheap import ceiling (p/kWh)</label>
-<input type="number" min="0" max="50" step="0.5" data-field="smart-charge:cheap_import_p_per_kwh" value="${esc(String(draft.cheap_import_p_per_kwh ?? 8))}" ${busy}></div>
-<div class="field"><label>Peak import avoid — start</label>
-<input type="time" data-field="smart-charge:peak_import_avoid_start" value="${esc(String(draft.peak_import_avoid_start ?? "16:00"))}" ${busy}></div>
-<div class="field"><label>Peak import avoid — end</label>
-<input type="time" data-field="smart-charge:peak_import_avoid_end" value="${esc(String(draft.peak_import_avoid_end ?? "19:00"))}" ${busy}></div>
-<div class="field"><label>Peak import penalty (p/kWh)</label>
-<input type="number" min="0" max="50" step="0.5" data-field="smart-charge:peak_import_penalty_p_per_kwh" value="${esc(String(draft.peak_import_penalty_p_per_kwh ?? 5))}" ${busy}></div>
-</details>`;
   }
 
   _renderSmartChargeStatusCard(live, decision, dailyPlan, spreadPairs, planSummary) {
@@ -24177,7 +24206,7 @@ ${this._renderTripleSoc(plant, this._smartChargeSocDraft, liveSoc, {
 </div>`
         : "";
     return `<div data-smart-charge-settings="1">${this._renderSmartChargeHero()}
-<header class="header smart-charge-settings-header"><h1>SmartCharge</h1><p>Combines Solcast PV forecast with Octopus Agile rates. Targets house-load sufficiency (not 100% SOC), with an outage reserve floor. StormSafe always overrides.</p></header>
+<header class="header smart-charge-settings-header"><h1>SmartCharge</h1><p>Simulates the battery half-hour by half-hour from your tariff, the Solcast PV forecast and your house-load history, then picks the cheapest charge and export slots. Keeps an outage reserve floor. StormSafe always overrides.</p></header>
 ${draft.enabled ? `<div data-smart-charge-live>${statusCard}</div>` : statusCard}
 ${socSection}
 <div class="card">
@@ -24187,40 +24216,44 @@ ${socSection}
 ${draft.enabled ? this._renderSmartChargeModePicker(draft) : ""}
 ${draft.enabled ? this._renderSmartChargeModePanel(draft) : ""}
 ${draft.enabled ? `<details class="sc-section-details" data-sc-section="energy"${this._smartChargeSectionOpenAttr("energy", draft)}>
-<summary>Energy budget</summary>
-<div class="field"><label>Solar safety margin</label>
-<input type="number" min="1" max="3" step="0.05" data-field="smart-charge:solar_safety_margin" value="${esc(String(draft.solar_safety_margin ?? 1.15))}" ${busy}></div>
-<div class="field"><label>Minimum deficit (kWh)</label>
-<input type="number" min="0" max="50" step="0.1" data-field="smart-charge:min_deficit_kwh" value="${esc(String(draft.min_deficit_kwh ?? 0.5))}" ${busy}></div>
+<summary>Battery &amp; planner</summary>
+<div class="field"><label>Max grid charge power (kW)</label>
+<input type="number" min="0.1" max="50" step="0.1" data-field="smart-charge:max_charge_kw" value="${esc(String(draft.max_charge_kw ?? 3))}" ${busy}>
+<p class="field-hint">Used to size how many half-hours are needed to reach the planned SOC.</p></div>
+<div class="field"><label>Max discharge / export power (kW)</label>
+<input type="number" min="0.1" max="50" step="0.1" data-field="smart-charge:max_discharge_kw" value="${draft.max_discharge_kw != null ? esc(String(draft.max_discharge_kw)) : ""}" placeholder="Same as charge" ${busy}></div>
+<div class="field"><label>Solar safety margin (Max safety mode)</label>
+<input type="number" min="1" max="3" step="0.05" data-field="smart-charge:solar_safety_margin" value="${esc(String(draft.solar_safety_margin ?? 1.15))}" ${busy}>
+<p class="field-hint">Forecast PV is divided by this in Max safety mode, e.g. 1.25 plans on 80% of the Solcast estimate.</p></div>
+<div class="field"><label>Minimum saving to act (p/kWh)</label>
+<input type="number" min="0" max="50" step="0.1" data-field="smart-charge:min_saving_p_per_kwh" value="${esc(String(draft.min_saving_p_per_kwh ?? 1))}" ${busy}>
+<p class="field-hint">A charge or export is only planned when it saves at least this much per kWh moved.</p></div>
 <div class="field"><label>Round-trip efficiency</label>
 <input type="number" min="0.5" max="1" step="0.01" data-field="smart-charge:round_trip_efficiency" value="${esc(String(draft.round_trip_efficiency ?? 0.9))}" ${busy}></div>
 </details>
 <details class="sc-section-details" data-sc-section="reserve"${this._smartChargeSectionOpenAttr("reserve", draft)}>
 <summary>Outage reserve &amp; house load</summary>
+<div class="field"><label>Load history (days)</label>
+<input type="number" min="1" max="60" step="1" data-field="smart-charge:load_history_days" value="${esc(String(draft.load_history_days ?? 14))}" ${busy}>
+<p class="field-hint">Half-hourly house load is predicted from the median of this many days of the inverter&rsquo;s load energy history (weekday / weekend split when available).</p></div>
 <div class="field"><label>House load fallback (kW)</label>
-<input type="number" min="0.1" max="50" step="0.1" data-field="smart-charge:house_load_kw_fallback" value="${esc(String(draft.house_load_kw_fallback ?? 1))}" ${busy}></div>
+<input type="number" min="0.1" max="50" step="0.1" data-field="smart-charge:house_load_kw_fallback" value="${esc(String(draft.house_load_kw_fallback ?? 1))}" ${busy}>
+<p class="field-hint">Flat average load used until load history is available.</p></div>
 <div class="field"><label>Reserve load override (kW, optional)</label>
-<input type="number" min="0" max="50" step="0.1" data-field="smart-charge:outage_reserve_load_kw" value="${draft.outage_reserve_load_kw != null ? esc(String(draft.outage_reserve_load_kw)) : ""}" placeholder="Use live/fallback load" ${busy}></div>
+<input type="number" min="0" max="50" step="0.1" data-field="smart-charge:outage_reserve_load_kw" value="${draft.outage_reserve_load_kw != null ? esc(String(draft.outage_reserve_load_kw)) : ""}" placeholder="Use average load" ${busy}></div>
 <div class="field"><label>Vulnerable hours (reserve)</label>
 <input type="number" min="0" max="24" step="0.5" data-field="smart-charge:outage_reserve_hours" value="${esc(String(draft.outage_reserve_hours ?? 3))}" ${busy}></div>
 <div class="field"><label>Reserve safety margin</label>
 <input type="number" min="1" max="5" step="0.05" data-field="smart-charge:outage_reserve_margin" value="${esc(String(draft.outage_reserve_margin ?? 1.2))}" ${busy}></div>
-<div class="field"><label>Dark hours estimate (no meaningful PV)</label>
-<input type="number" min="0" max="24" step="0.5" data-field="smart-charge:dark_hours_estimate" value="${esc(String(draft.dark_hours_estimate ?? 8))}" ${busy}></div>
 </details>
 <details class="sc-section-details" data-sc-section="agile"${this._smartChargeSectionOpenAttr("agile", draft)}>
-<summary>Agile polling &amp; daily plan</summary>
-<div class="field"><label>Agile poll interval (minutes)</label>
-<input type="number" min="5" max="60" step="1" data-field="smart-charge:agile_poll_interval_minutes" value="${esc(String(draft.agile_poll_interval_minutes ?? 15))}" ${busy}></div>
-<div class="toggle-row"><span><strong>Negative import interrupt</strong></span>
-<input type="checkbox" data-field="smart-charge:negative_import_interrupt" ${draft.negative_import_interrupt ? "checked" : ""} ${busy}></div>
+<summary>Rates &amp; re-planning</summary>
+<div class="field"><label>Evaluation interval (minutes)</label>
+<input type="number" min="5" max="60" step="1" data-field="smart-charge:agile_poll_interval_minutes" value="${esc(String(draft.agile_poll_interval_minutes ?? 15))}" ${busy}>
+<p class="field-hint">SmartCharge always also wakes on every half-hour boundary so planned slots start on time.</p></div>
 <div class="field"><label>Daily plan time (UK local)</label>
 <input type="time" data-field="smart-charge:daily_plan_time" value="${esc(String(draft.daily_plan_time ?? "16:00"))}" ${busy}>
-<p class="field-hint">Before this time the plan uses current Agile rates for rest-of-today. At this time Octopus publishes tomorrow&rsquo;s rates and the plan extends to the full horizon.</p></div>
-<div class="field"><label>Daily plan horizon (hours)</label>
-<input type="number" min="1" max="48" step="1" data-field="smart-charge:daily_plan_horizon_hours" value="${esc(String(draft.daily_plan_horizon_hours ?? 24))}" ${busy}></div>
-<div class="field"><label>Price-drop replan threshold (p/kWh)</label>
-<input type="number" min="0" max="50" step="0.5" data-field="smart-charge:price_drop_interrupt_p_per_kwh" value="${esc(String(draft.price_drop_interrupt_p_per_kwh ?? 2))}" ${busy}></div>
+<p class="field-hint">Forces a fresh Octopus fetch and replan (Agile publishes tomorrow&rsquo;s rates around 16:00). The plan always runs to the end of tomorrow and is also rebuilt when rates, the Solcast forecast or battery SOC change materially, and at least hourly. Slots whose price isn&rsquo;t published yet are estimated and never scheduled.</p></div>
 <div class="toggle-row"><span><strong>Glow / smart-meter rate check</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Double-check live meter import rate against Octopus API before force-charging</span></span>
 <input type="checkbox" data-field="smart-charge:meter_rate_verify_enabled" ${draft.meter_rate_verify_enabled !== false ? "checked" : ""} ${busy}></div>
 ${draft.meter_rate_verify_enabled !== false ? `<div class="field"><label>Import rate sensor (Glow / IHD)</label>
@@ -24232,7 +24265,6 @@ ${draft.meter_rate_verify_enabled !== false ? `<div class="field"><label>Import 
 <div class="field"><label>Recheck after mismatch (minutes)</label>
 <input type="number" min="1" max="30" step="1" data-field="smart-charge:meter_rate_recheck_minutes" value="${esc(String(draft.meter_rate_recheck_minutes ?? 5))}" ${busy}></div>` : ""}
 </details>
-${this._renderSmartChargeSpreadPanel(draft)}
 ${this._renderSmartChargeGridBehaviourInfo()}` : ""}
 <div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-smart-charge" ${busy || (draft.enabled && socValidation.errors.length) ? "disabled" : ""}>Save SmartCharge</button></div>
 </div></div>`;

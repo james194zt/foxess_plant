@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -119,7 +119,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._smart_charge_periods_sig = ""
         self._smart_charge_discharge_sig = ""
         self._hems_audit_sigs: dict[str, str] = {}
-        self._smart_charge_rates_snapshot: list[tuple[str, float]] = []
+        self._smart_charge_plan_meta: dict[str, Any] = {}
+        self._smart_charge_target_max_soc: float | None = None
+        self._smart_charge_load_profile: dict[str, Any] | None = None
+        self._smart_charge_load_profile_at: datetime | None = None
         self._unsub_smart_charge_meter_recheck: callable | None = None
         self._storm_forecast_active = False
         self._storm_forecast_detail = {}
@@ -870,28 +873,14 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.hass.async_create_task(self._async_octopus_tick())
 
     async def _async_octopus_tick(self) -> None:
-        cfg = self.plant.smart_charge
-        prev_rates = list(self._smart_charge_rates_snapshot)
         await self._async_refresh_octopus()
         self._sync_octopus_current_rates_from_cache()
         self._setup_octopus_timer()
         if self._octopus_agile_active():
             await self.async_update_tariff_sensors(record_history=True)
-        from .smart_charge.spread_math import material_import_price_drop, rates_snapshot
-
-        current_rates = rates_snapshot(self._octopus_cache.get("import_rates") or [])
-        self._smart_charge_rates_snapshot = current_rates
-        price_drop_replan = False
-        if cfg.enabled and prev_rates and current_rates and not self._octopus_tracker_active():
-            threshold = float(cfg.price_drop_interrupt_p_per_kwh or 2.0)
-            price_drop_replan = material_import_price_drop(
-                prev_rates, current_rates, threshold_p=threshold
-            )
         try:
-            if price_drop_replan:
-                await self._evaluate_smart_charge_daily_plan()
-            else:
-                await self._evaluate_smart_charge()
+            # New or revised rates change the plan's rate signature and trigger a replan.
+            await self._evaluate_smart_charge()
         except Exception as err:
             _LOGGER.warning("Smart charge evaluation failed: %s", err)
         await self.async_request_refresh()
@@ -925,8 +914,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         from .octopus_tariff import next_agile_poll_boundary
 
-        interval = self._smart_charge_poll_interval_minutes()
-        when = next_agile_poll_boundary(interval_minutes=interval)
+        # Always wake on half-hour boundaries so planned slots arm on time.
+        interval = min(30, self._smart_charge_poll_interval_minutes())
+        if 30 % interval:
+            interval = 15
+        when = next_agile_poll_boundary(interval_minutes=interval) + timedelta(seconds=5)
         self._unsub_smart_charge = async_track_point_in_time(
             self.hass, self._smart_charge_timer_callback, when
         )
@@ -974,26 +966,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.async_request_refresh()
 
     async def _maybe_replan_smart_charge_on_entity_rates(self) -> None:
-        from .smart_charge.spread_math import material_import_price_drop, rates_snapshot
-
-        cfg = self.plant.smart_charge
-        prev_rates = list(self._smart_charge_rates_snapshot)
-        import_rows, _ = self._smart_charge_entity_rate_rows()
-        current_rates = rates_snapshot(import_rows)
-        self._smart_charge_rates_snapshot = current_rates
-        replan = False
-        if (
-            cfg.enabled
-            and prev_rates
-            and current_rates
-            and not self._octopus_tracker_active()
-        ):
-            threshold = float(cfg.price_drop_interrupt_p_per_kwh or 2.0)
-            replan = material_import_price_drop(prev_rates, current_rates, threshold_p=threshold)
-        if replan:
-            await self._evaluate_smart_charge_daily_plan()
-        else:
-            await self._evaluate_smart_charge()
+        # Entity rate changes alter the plan's rate signature, which triggers a replan.
+        await self._evaluate_smart_charge()
 
     def _setup_smart_charge_entity_listener(self) -> None:
         if self._unsub_smart_charge_entity:
@@ -1660,39 +1634,39 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return None
         return max(0.0, abs(load_w) / 1000.0)
 
-    def _smart_charge_rate_slots(self, *, horizon_hours: int) -> list:
-        from .octopus_tariff import is_tracker_tariff_type
-        from .smart_charge import rate_slots_from_octopus, rate_slots_from_schedule
-        from .smart_charge.grid_charge import merge_rate_slots_to_hours
-
-        if self._octopus_agile_active():
-            slots = rate_slots_from_octopus(
-                self._octopus_cache.get("import_rates") or [],
-                self._octopus_cache.get("export_rates") or [],
-                horizon_hours=horizon_hours,
+    def _smart_charge_rate_rows(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Import / export rate rows (Octopus API shape) for the planner timeline."""
+        if self._octopus_agile_active() or (
+            not self._octopus_entity_active() and self._octopus_cache.get("import_rates")
+        ):
+            return (
+                list(self._octopus_cache.get("import_rates") or []),
+                list(self._octopus_cache.get("export_rates") or []),
             )
-        elif self._octopus_entity_active():
+        if self._octopus_entity_active():
             import_rows, export_rows = self._smart_charge_entity_rate_rows()
             if import_rows:
-                slots = rate_slots_from_octopus(
-                    import_rows,
-                    export_rows or None,
-                    horizon_hours=horizon_hours,
-                )
-            else:
-                slots = rate_slots_from_schedule(self.plant.tariff, horizon_hours=horizon_hours)
-        elif self._octopus_cache.get("import_rates"):
-            slots = rate_slots_from_octopus(
-                self._octopus_cache.get("import_rates") or [],
-                self._octopus_cache.get("export_rates") or [],
-                horizon_hours=horizon_hours,
-            )
-        else:
-            slots = rate_slots_from_schedule(self.plant.tariff, horizon_hours=horizon_hours)
+                return import_rows, export_rows
+        return self._smart_charge_schedule_rate_rows()
 
-        if is_tracker_tariff_type(self._smart_charge_tariff_type()):
-            slots = merge_rate_slots_to_hours(slots)
-        return slots
+    def _smart_charge_schedule_rate_rows(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        from homeassistant.util import dt as dt_util
+
+        from .smart_charge.engine import local_tz
+        from .smart_charge.planner import schedule_rate_rows
+        from .tariff_rates import scheduled_rates_at
+
+        tariff = self.plant.tariff
+        now = dt_util.utcnow()
+        tz = local_tz()
+
+        def rate_at(when):
+            return scheduled_rates_at(tariff, when)
+
+        return (
+            schedule_rate_rows(rate_at, now=now, tz=tz, key="import_p_per_kwh"),
+            schedule_rate_rows(rate_at, now=now, tz=tz, key="export_p_per_kwh"),
+        )
 
     def _smart_charge_greener_inputs(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         cache = self._octopus_greener_cache or {}
@@ -1747,7 +1721,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _arm_smart_charge_export(self, decision: Any) -> None:
         from .schedule_runner import resolve_desired_bundle
         from .smart_charge import discharge_window_signature
-        from .smart_charge.export_peak import discharge_window_active_now
+        from .smart_charge.windows import discharge_window_active_now
         from .smart_charge.reserve import export_floor_reached
 
         soc_pct, _, _ = self._smart_charge_battery_metrics()
@@ -1791,7 +1765,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not self._smart_charge_discharge_armed:
             self._smart_charge_discharge_armed = True
             self._smart_charge_discharge_sig = sig
-            await self._save_work_mode_if_needed()
+            self._save_work_mode_if_needed()
             self.plant.override.active = True
             self.plant.override.mode = MODE_SMART_CHARGE
             self.plant.override.reason = "smart_charge:export_discharge"
@@ -1897,9 +1871,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._smart_charge_discharge_armed:
             await self._disarm_smart_charge_export()
 
-        should_arm = decision.action in ("grid_charge", "arbitrage", "spread_plan") and decision.charge_periods
+        should_arm = decision.action in ("grid_charge", "arbitrage") and decision.charge_periods
         if should_arm:
-            from .smart_charge.grid_charge import charge_periods_active_now
+            from .smart_charge.windows import charge_periods_active_now
 
             # Force-charge is applied immediately by the schedule runner — only arm
             # while the local HH:MM window is active (otherwise we charge the wrong
@@ -1926,6 +1900,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     # Keep the charge reason; append a short confirm for the UI.
                     self._smart_charge_decision["meter_verify"] = meter_verify.to_dict()
 
+        self._smart_charge_target_max_soc = decision.target_max_soc if should_arm else None
         new_sig = charge_periods_signature(decision.charge_periods) if decision.charge_periods else ""
         if (
             should_arm
@@ -1963,34 +1938,107 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         EVENT_SMART_CHARGE_ARMED,
                     )
 
-    async def _rebuild_smart_charge_daily_plan(self) -> None:
-        from .smart_charge import build_daily_plan
+    def _smart_charge_forecast_rows(self) -> list[dict[str, Any]]:
+        rows = self._solcast_detailed_forecast_rows()
+        if not rows and self._solcast_cache.get("detailed_forecast"):
+            raw = self._solcast_cache.get("detailed_forecast")
+            rows = raw if isinstance(raw, list) else []
+        return rows
+
+    async def _async_smart_charge_load_profile(self) -> dict[str, Any] | None:
+        """Half-hourly house load profile from recorder history (refreshed every 6h)."""
+        from homeassistant.util import dt as dt_util
+
+        now = dt_util.utcnow()
+        if (
+            self._smart_charge_load_profile_at is not None
+            and now - self._smart_charge_load_profile_at < timedelta(hours=6)
+        ):
+            return self._smart_charge_load_profile
+        self._smart_charge_load_profile_at = now
+        profile = None
+        try:
+            profile = await self._async_fetch_smart_charge_load_profile(now)
+        except Exception as err:  # noqa: BLE001 — recorder may be unavailable
+            _LOGGER.warning("SmartCharge load history unavailable, using fallback load: %s", err)
+        self._smart_charge_load_profile = profile
+        return profile
+
+    async def _async_fetch_smart_charge_load_profile(self, now: datetime) -> dict[str, Any] | None:
+        from homeassistant.components.recorder import get_instance
+
+        from .discovery import resolve_entity_id
+        from .smart_charge.engine import local_tz
+        from .smart_charge.load_profile import build_load_profile, hourly_consumption
+        from .websocket_api import _fetch_statistics_points
+
+        entity_id = resolve_entity_id(
+            self.hass, self.plant.entity_map, "load_energy_total", device_id=self.plant.device_id
+        )
+        if not entity_id:
+            return None
+        unit = (self._entity_unit("load_energy_total") or "").strip()
+        scale = {"kWh": 1.0, "Wh": 0.001, "MWh": 1000.0}.get(unit)
+        if scale is None:
+            _LOGGER.debug("SmartCharge load history: %s has non-energy unit %r", entity_id, unit)
+            return None
+        days = max(1, int(self.plant.smart_charge.load_history_days or 14))
+        stats = await get_instance(self.hass).async_add_executor_job(
+            _fetch_statistics_points,
+            self.hass,
+            now - timedelta(days=days, hours=1),
+            now,
+            [entity_id],
+            "hour",
+            "sum",
+        )
+        points = [
+            {"start": p["start"], "mean": float(p["mean"]) * scale}
+            for p in stats.get(entity_id) or []
+        ]
+        return build_load_profile(hourly_consumption(points), local_tz())
+
+    async def _rebuild_smart_charge_daily_plan(self, *, reason: str = "manual") -> None:
+        from homeassistant.util import dt as dt_util
+
+        from .smart_charge.engine import compute_plan, forecast_signature
+        from .smart_charge.planner import plan_rates_signature
 
         cfg = self.plant.smart_charge
-        tariff_type = self._smart_charge_tariff_type()
-
-        forecast_rows = self._solcast_detailed_forecast_rows()
-        if not forecast_rows and self._solcast_cache.get("detailed_forecast"):
-            raw = self._solcast_cache.get("detailed_forecast")
-            forecast_rows = raw if isinstance(raw, list) else []
-
-        horizon = max(1, int(cfg.daily_plan_horizon_hours or 24))
-        import_slots = self._smart_charge_rate_slots(horizon_hours=horizon)
+        now = dt_util.utcnow()
+        forecast_rows = self._smart_charge_forecast_rows()
+        import_rows, export_rows = self._smart_charge_rate_rows()
         soc_pct, capacity_kwh, kwh_remaining = self._smart_charge_battery_metrics()
-        carbon_periods, greener_nights = self._smart_charge_greener_inputs()
-        self._smart_charge_daily_plan = build_daily_plan(
-            config=cfg,
-            import_slots=import_slots,
-            forecast_rows=forecast_rows,
-            live_load_kw=self._live_home_load_kw(),
-            horizon_hours=float(horizon),
-            exportable_kwh=None,
-            capacity_kwh=capacity_kwh,
-            kwh_remaining=kwh_remaining,
-            soc_pct=soc_pct,
-            carbon_periods=carbon_periods,
-            greener_nights=greener_nights,
-            tariff_type=tariff_type,
+        carbon_periods, _greener = self._smart_charge_greener_inputs()
+        load_profile = await self._async_smart_charge_load_profile()
+
+        def job():
+            return compute_plan(
+                config=cfg,
+                now=now,
+                import_rows=import_rows,
+                export_rows=export_rows,
+                forecast_rows=forecast_rows,
+                load_profile=load_profile,
+                carbon_periods=carbon_periods,
+                soc_pct=soc_pct,
+                capacity_kwh=capacity_kwh,
+                kwh_remaining=kwh_remaining,
+                inverter_min_soc_pct=self._entity_float("min_soc"),
+            )
+
+        plan, meta = await self.hass.async_add_executor_job(job)
+        meta["rates_sig"] = plan_rates_signature(import_rows, now)
+        meta["forecast_sig"] = forecast_signature(forecast_rows)
+        meta["replan_reason"] = reason
+        self._smart_charge_daily_plan = plan
+        self._smart_charge_plan_meta = meta
+        _LOGGER.info(
+            "SmartCharge plan rebuilt (%s): %.1f kWh grid charge, %.1f kWh export, saving %.0fp",
+            reason,
+            meta.get("grid_charge_kwh") or 0.0,
+            meta.get("export_kwh") or 0.0,
+            meta.get("saving_p") or 0.0,
         )
         self._audit_smart_charge_daily_plan()
 
@@ -2010,7 +2058,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             EVENT_DAILY_PLAN,
             payload_daily_plan(
                 plan,
-                horizon_hours=float(cfg.daily_plan_horizon_hours or 24),
+                horizon_hours=round(len(plan) / 2.0, 1),
                 operating_mode=cfg.operating_mode,
             ),
             sig,
@@ -2031,7 +2079,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             decision.get("eval_tier") if isinstance(decision, dict) else None
         )
         reason = str(getattr(decision, "reason", None) or (decision.get("reason") if isinstance(decision, dict) else "") or "")
-        if eval_tier == "negative_interrupt" or "negative import" in reason.lower():
+        action = getattr(decision, "action", None) or (
+            decision.get("action") if isinstance(decision, dict) else None
+        )
+        if eval_tier == "negative_interrupt" or action == "arbitrage" or "negative import" in reason.lower():
             maybe_log_hems_event(
                 self,
                 EVENT_PLUNGE_OVERRIDE,
@@ -2085,16 +2136,21 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _evaluate_smart_charge_daily_plan(self) -> None:
         if self._smart_charge_evaluation_blocked():
             return
-        cfg = self.plant.smart_charge
 
         if self._octopus_native_active():
             await self._async_refresh_octopus(force=True)
 
-        await self._rebuild_smart_charge_daily_plan()
+        await self._rebuild_smart_charge_daily_plan(reason="daily_plan_time")
         await self._evaluate_smart_charge(skip_plan_rebuild=True)
 
     async def _evaluate_smart_charge(self, *, skip_plan_rebuild: bool = False) -> None:
-        from .smart_charge import current_plan_slot, evaluate_smart_charge
+        from homeassistant.util import dt as dt_util
+
+        from .smart_charge import current_plan_slot
+        from .smart_charge.engine import decision_from_plan, forecast_signature, replan_reason
+        from .smart_charge.planner import plan_rates_signature
+        from .smart_charge.reserve import export_floor_reached
+        from .smart_charge.windows import charge_periods_active_now, discharge_window_active_now
 
         blocked = self._smart_charge_evaluation_blocked()
         if blocked:
@@ -2102,38 +2158,29 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self._disarm_smart_charge_export()
             return
         cfg = self.plant.smart_charge
+        soc_pct, _capacity_kwh, _kwh_remaining = self._smart_charge_battery_metrics()
+        now = dt_util.utcnow()
 
         if not skip_plan_rebuild:
-            await self._rebuild_smart_charge_daily_plan()
+            import_rows, _export_rows = self._smart_charge_rate_rows()
+            why = replan_reason(
+                plan=self._smart_charge_daily_plan,
+                meta=self._smart_charge_plan_meta,
+                now=now,
+                rates_sig=plan_rates_signature(import_rows, now),
+                forecast_sig=forecast_signature(self._smart_charge_forecast_rows()),
+                soc_pct=soc_pct,
+            )
+            if why:
+                await self._rebuild_smart_charge_daily_plan(reason=why)
 
-        forecast_rows = self._solcast_detailed_forecast_rows()
-        if not forecast_rows and self._solcast_cache.get("detailed_forecast"):
-            raw = self._solcast_cache.get("detailed_forecast")
-            forecast_rows = raw if isinstance(raw, list) else []
-
-        horizon = max(1, int(cfg.daily_plan_horizon_hours or 24))
-        import_slots = self._smart_charge_rate_slots(horizon_hours=horizon)
-        export_slots = import_slots
-        tariff_type = self._smart_charge_tariff_type()
-
-        soc_pct, capacity_kwh, kwh_remaining = self._smart_charge_battery_metrics()
-
-        decision = evaluate_smart_charge(
+        decision = decision_from_plan(
             config=cfg,
+            plan=self._smart_charge_daily_plan,
+            meta=self._smart_charge_plan_meta,
+            now=now,
             soc_pct=soc_pct,
-            capacity_kwh=capacity_kwh,
-            kwh_remaining=kwh_remaining,
-            forecast_rows=forecast_rows,
-            import_slots=import_slots,
-            export_slots=export_slots,
-            live_load_kw=self._live_home_load_kw(),
-            daily_plan=self._smart_charge_daily_plan,
-            horizon_hours=float(horizon),
-            tariff_type=tariff_type,
         )
-        from .smart_charge.grid_charge import charge_periods_active_now
-        from .smart_charge.reserve import export_floor_reached
-        from homeassistant.util import dt as dt_util
 
         export_min = float(getattr(cfg, "export_min_soc", 40.0) or 40.0)
         if export_floor_reached(soc_pct=soc_pct, export_min_soc=export_min) and (
@@ -2148,7 +2195,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             decision.planned_export_kwh = None
 
         if (
-            decision.action in ("grid_charge", "arbitrage", "spread_plan")
+            decision.action in ("grid_charge", "arbitrage")
             and decision.charge_periods
             and not charge_periods_active_now(decision.charge_periods)
         ):
@@ -2160,11 +2207,15 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 f"Waiting for {primary.start}-{primary.end} window — {decision.reason}"
             )
         self._smart_charge_decision = decision.to_dict()
-        self._smart_charge_decision["current_plan_slot"] = current_plan_slot(self._smart_charge_daily_plan)
+        # The full plan is published once under smart_charge.daily_plan.
+        self._smart_charge_decision.pop("daily_plan", None)
+        self._smart_charge_decision["current_plan_slot"] = current_plan_slot(
+            self._smart_charge_daily_plan, now
+        )
         self._smart_charge_decision["export_min_soc"] = export_min
         self._smart_charge_decision["rate_clock"] = {
-            "utc_now": dt_util.utcnow().isoformat(),
-            "local_now": dt_util.now().isoformat(),
+            "utc_now": now.isoformat(),
+            "local_now": dt_util.as_local(now).isoformat(),
             "current_import_p_per_kwh": self._octopus_cache.get("current_import_p_per_kwh"),
             "window_active": (
                 charge_periods_active_now(decision.charge_periods)
@@ -2173,8 +2224,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ),
         }
         if decision.action == "export_discharge":
-            from .smart_charge.export_peak import discharge_window_active_now
-
             export_win = decision.discharge_window or (
                 decision.windows[0] if decision.windows else None
             )
@@ -2185,7 +2234,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         if decision.action == "export_discharge":
             await self._arm_smart_charge_export(decision)
-        elif decision.action in ("grid_charge", "arbitrage", "spread_plan"):
+        elif decision.action in ("grid_charge", "arbitrage"):
             await self._arm_smart_charge_grid(decision)
         else:
             if self._smart_charge_discharge_armed:
@@ -2591,6 +2640,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def get_plant_state(self) -> dict[str, Any]:
         from .panel import get_panel_disk_info
+        from .smart_charge.planner import compact_plan
 
         desired = [p.to_dict() for p in self.plant.desired_periods()]
         actual = self._read_actual_periods()
@@ -2626,6 +2676,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "discharge_armed": self._smart_charge_discharge_armed,
                 "decision": self._smart_charge_decision,
                 "daily_plan": self._smart_charge_daily_plan,
+                "daily_plan_actions": compact_plan(self._smart_charge_daily_plan),
+                "plan_meta": self._smart_charge_plan_meta,
             },
             "tariff_modes": sorted(self.plant.tariff_modes.keys()),
             "storm_prep": self._storm_prep_state(),
@@ -4299,6 +4351,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         data[CONF_SMART_CHARGE] = cfg.to_dict()
         self.hass.config_entries.async_update_entry(self.config_entry, data=data)
         self.update_plant_config(PlantConfig.from_entry_data(data))
+        # Settings changed — force a fresh plan (and reload load history).
+        self._smart_charge_plan_meta = {}
+        self._smart_charge_load_profile_at = None
         self._setup_smart_charge_timer()
         self._setup_smart_charge_daily_plan_timer()
         self._setup_smart_charge_entity_listener()

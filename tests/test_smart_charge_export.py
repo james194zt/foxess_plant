@@ -23,27 +23,36 @@ def _load_module(name: str, relative: str):
 
 
 reserve = _load_module("sc_reserve_test2", "smart_charge/reserve.py")
-export_peak = _load_module("sc_export_limits_test", "smart_charge/export_limits.py")
+planner = _load_module("sc_planner_export_test", "smart_charge/planner.py")
 
 
 class ExportModeTests(unittest.TestCase):
-    def test_mode_limits_profit_vs_safety(self) -> None:
+    def _params(self, mode: str, **extra):
         cfg = SimpleNamespace(
+            operating_mode=mode,
             min_export_p_profit=10.0,
             min_export_p_safety=18.0,
             min_export_p_green=22.0,
             exportable_fraction_profit=1.0,
             exportable_fraction_safety=0.4,
             exportable_fraction_green=0.1,
+            export_min_soc=40.0,
+            **extra,
         )
-        profit = export_peak.mode_export_limits(reserve.OPERATING_MODE_MAX_PROFIT, cfg)
-        safety = export_peak.mode_export_limits(reserve.OPERATING_MODE_MAX_SAFETY, cfg)
-        self.assertEqual(profit, (10.0, 1.0))
-        self.assertEqual(safety, (18.0, 0.4))
+        return planner.params_from_config(cfg, capacity_kwh=10.0, reserve_kwh=1.0)
+
+    def test_mode_limits_profit_vs_safety(self) -> None:
+        profit = self._params(reserve.OPERATING_MODE_MAX_PROFIT)
+        safety = self._params(reserve.OPERATING_MODE_MAX_SAFETY)
+        self.assertEqual(profit.min_export_p, 10.0)
+        self.assertEqual(safety.min_export_p, 18.0)
+        # Export budget = fraction of the energy above the 40% export floor.
+        self.assertAlmostEqual(profit.max_export_kwh, 6.0)
+        self.assertAlmostEqual(safety.max_export_kwh, 2.4)
 
     def test_green_export_disabled_by_default(self) -> None:
-        cfg = SimpleNamespace(export_enabled=True, export_enabled_green=False)
-        self.assertFalse(export_peak.export_allowed_for_mode(reserve.OPERATING_MODE_MAX_GREEN, cfg))
+        green = self._params(reserve.OPERATING_MODE_MAX_GREEN, export_enabled=True, export_enabled_green=False)
+        self.assertFalse(green.export_allowed)
 
 
 class ExportFloorTests(unittest.TestCase):

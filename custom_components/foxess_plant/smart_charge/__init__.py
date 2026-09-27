@@ -1,57 +1,36 @@
-"""Smart charge — combine Solcast forecast with tariff rates for grid charging."""
+"""SmartCharge — cost-optimised grid charge / export planning from tariff, Solcast and load."""
 
 from __future__ import annotations
 
 from .guards import smart_charge_evaluation_blocked
-from .grid_charge import (
-    battery_deficit_kwh,
-    charge_periods_active_now,
-    evaluate_grid_charge,
-    find_cheapest_import_slot,
-    find_negative_import_slot,
-    rate_slots_from_octopus,
-    rate_slots_from_schedule,
-)
+from .planner import current_plan_slot
 from .reserve import (
     OPERATING_MODE_MAX_GREEN,
     OPERATING_MODE_MAX_PROFIT,
     OPERATING_MODE_MAX_SAFETY,
     OPERATING_MODES,
+    battery_deficit_kwh,
     compute_exportable_kwh,
     compute_min_reserve_soc,
     compute_outage_reserve_kwh,
 )
-from .solcast_budget import HouseEnergyBudget, compute_house_energy_budget
-from .solcast_remaining import solcast_forecast_kwh_for_horizon, solcast_remaining_kwh
-from .daily_plan import build_daily_plan, current_plan_slot
-from .strategy import evaluate_smart_charge
-from .types import RateSlot, SmartChargeDecision, charge_periods_signature, discharge_window_signature
+from .types import SmartChargeDecision, charge_periods_signature, discharge_window_signature
+from .windows import charge_periods_active_now, discharge_window_active_now
 
 __all__ = [
     "OPERATING_MODE_MAX_GREEN",
     "OPERATING_MODE_MAX_PROFIT",
     "OPERATING_MODE_MAX_SAFETY",
     "OPERATING_MODES",
-    "HouseEnergyBudget",
-    "RateSlot",
     "SmartChargeDecision",
     "battery_deficit_kwh",
-    "build_daily_plan",
     "charge_periods_active_now",
-    "current_plan_slot",
     "charge_periods_signature",
-    "discharge_window_signature",
     "compute_exportable_kwh",
-    "compute_house_energy_budget",
     "compute_min_reserve_soc",
     "compute_outage_reserve_kwh",
-    "evaluate_grid_charge",
-    "evaluate_smart_charge",
+    "current_plan_slot",
+    "discharge_window_active_now",
+    "discharge_window_signature",
     "smart_charge_evaluation_blocked",
-    "find_cheapest_import_slot",
-    "find_negative_import_slot",
-    "rate_slots_from_octopus",
-    "rate_slots_from_schedule",
-    "solcast_forecast_kwh_for_horizon",
-    "solcast_remaining_kwh",
 ]

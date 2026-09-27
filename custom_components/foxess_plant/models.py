@@ -419,6 +419,10 @@ class SmartChargeConfig:
     meter_rate_entity_id: str | None = None
     meter_rate_tolerance_p_per_kwh: float = 0.5
     meter_rate_recheck_minutes: int = 5
+    max_charge_kw: float = 3.0
+    max_discharge_kw: float | None = None
+    load_history_days: int = 14
+    min_saving_p_per_kwh: float = 1.0
     charge_periods: list[ChargePeriodConfig] = field(default_factory=list)
 
     @classmethod
@@ -489,6 +493,14 @@ class SmartChargeConfig:
                 data.get("meter_rate_tolerance_p_per_kwh", 0.5) or 0.5
             ),
             meter_rate_recheck_minutes=int(data.get("meter_rate_recheck_minutes", 5) or 5),
+            max_charge_kw=max(0.1, float(data.get("max_charge_kw", 3.0) or 3.0)),
+            max_discharge_kw=(
+                max(0.1, float(data["max_discharge_kw"]))
+                if data.get("max_discharge_kw") not in (None, "", 0)
+                else None
+            ),
+            load_history_days=max(1, min(60, int(data.get("load_history_days", 14) or 14))),
+            min_saving_p_per_kwh=max(0.0, float(data.get("min_saving_p_per_kwh", 1.0) or 0.0)),
             charge_periods=[ChargePeriodConfig.from_dict(p) for p in periods_raw],
         )
 
@@ -538,6 +550,10 @@ class SmartChargeConfig:
             "meter_rate_entity_id": self.meter_rate_entity_id,
             "meter_rate_tolerance_p_per_kwh": round(self.meter_rate_tolerance_p_per_kwh, 2),
             "meter_rate_recheck_minutes": int(self.meter_rate_recheck_minutes),
+            "max_charge_kw": round(self.max_charge_kw, 2),
+            "max_discharge_kw": round(self.max_discharge_kw, 2) if self.max_discharge_kw else None,
+            "load_history_days": int(self.load_history_days),
+            "min_saving_p_per_kwh": round(self.min_saving_p_per_kwh, 2),
             "charge_periods": [p.to_dict() for p in self.charge_periods],
         }
 

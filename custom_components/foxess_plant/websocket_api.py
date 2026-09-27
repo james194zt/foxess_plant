@@ -1085,6 +1085,18 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             vol.Optional("meter_rate_recheck_minutes", default=5): vol.All(
                 vol.Coerce(int), vol.Range(min=1, max=30)
             ),
+            vol.Optional("max_charge_kw", default=3.0): vol.All(
+                vol.Coerce(float), vol.Range(min=0.1, max=50)
+            ),
+            vol.Optional("max_discharge_kw"): vol.Any(
+                None, vol.All(vol.Coerce(float), vol.Range(min=0.1, max=50))
+            ),
+            vol.Optional("load_history_days", default=14): vol.All(
+                vol.Coerce(int), vol.Range(min=1, max=60)
+            ),
+            vol.Optional("min_saving_p_per_kwh", default=1.0): vol.All(
+                vol.Coerce(float), vol.Range(min=0, max=50)
+            ),
             vol.Required("charge_periods"): [PERIOD_SCHEMA],
         }
     )
@@ -1146,6 +1158,10 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
                 "meter_rate_entity_id",
                 "meter_rate_tolerance_p_per_kwh",
                 "meter_rate_recheck_minutes",
+                "max_charge_kw",
+                "max_discharge_kw",
+                "load_history_days",
+                "min_saving_p_per_kwh",
                 "charge_periods",
             )
             if key in msg

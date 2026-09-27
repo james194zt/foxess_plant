@@ -207,6 +207,10 @@ def resolve_desired_bundle(coordinator: FoxESSPlantCoordinator) -> ScheduleApply
         elif mode == "smart_charge":
             sc = plant.smart_charge
             target_max = sc.target_max_soc if sc.target_max_soc is not None else sc.max_target_soc
+            # A planned grid charge stops at the plan's SOC for that window.
+            planned = getattr(coordinator, "_smart_charge_target_max_soc", None)
+            if planned is not None and getattr(coordinator, "_smart_charge_armed", False):
+                target_max = min(float(target_max), float(planned)) if target_max is not None else planned
         elif mode == "forecast":
             target_max = plant.forecast_prep.target_max_soc
         elif mode == "outage":

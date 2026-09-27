@@ -3,22 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Any
 
 from ..models import ChargePeriodConfig
-
-
-@dataclass(frozen=True)
-class RateSlot:
-    start: datetime
-    end: datetime
-    import_p_per_kwh: float
-    export_p_per_kwh: float | None = None
-
-    @property
-    def duration_hours(self) -> float:
-        return max(0.0, (self.end - self.start).total_seconds() / 3600.0)
 
 
 @dataclass
@@ -43,6 +30,9 @@ class SmartChargeDecision:
     planned_export_kwh: float | None = None
     spread_pairs: list[dict[str, Any]] = field(default_factory=list)
     planned_spread_profit_p: float | None = None
+    plan_summary: dict[str, Any] = field(default_factory=dict)
+    next_charge: dict[str, Any] | None = None
+    next_export: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -66,6 +56,9 @@ class SmartChargeDecision:
             "planned_export_kwh": self.planned_export_kwh,
             "spread_pairs": self.spread_pairs,
             "planned_spread_profit_p": self.planned_spread_profit_p,
+            "plan_summary": self.plan_summary,
+            "next_charge": self.next_charge,
+            "next_export": self.next_export,
         }
 
 

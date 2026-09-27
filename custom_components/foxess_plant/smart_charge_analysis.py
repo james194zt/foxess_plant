@@ -249,7 +249,13 @@ def expand_plan_slots(
         action = str(entry.get("action") or "")
         if action in ("idle", "charge_candidate"):
             continue
-        bounds = resolve_slot_range_ms(anchor, entry.get("start", ""), entry.get("end", ""))
+        bounds = None
+        start_utc = dt_util.parse_datetime(str(entry.get("start_utc") or ""))
+        end_utc = dt_util.parse_datetime(str(entry.get("end_utc") or ""))
+        if start_utc is not None and end_utc is not None:
+            bounds = (int(start_utc.timestamp() * 1000), int(end_utc.timestamp() * 1000))
+        else:
+            bounds = resolve_slot_range_ms(anchor, entry.get("start", ""), entry.get("end", ""))
         if bounds is None:
             continue
         start_ms, end_ms = bounds
@@ -265,6 +271,8 @@ def expand_plan_slots(
             "planned_export_kwh": entry.get("planned_export_kwh"),
             "expected_spread_p_per_kwh": entry.get("expected_spread_p_per_kwh"),
         }
+        if entry.get("planned_import_kwh") is not None:
+            slot["planned_import_kwh"] = entry.get("planned_import_kwh")
         out.append(slot)
     return sorted(out, key=lambda row: row["start_ms"])
 
@@ -314,6 +322,8 @@ def collect_plan_snapshots(
 
 def _allocate_planned_import_kwh(slots: list[dict[str, Any]], grid_gap_kwh: float | None) -> None:
     charge_slots = [s for s in slots if s.get("action") in CHARGE_PLAN_ACTIONS]
+    if any(s.get("planned_import_kwh") is not None for s in charge_slots):
+        return  # planner already sized each slot
     if not charge_slots or not grid_gap_kwh:
         return
     total_min = sum(max(1, (s["end_ms"] - s["start_ms"]) // 60_000) for s in charge_slots)

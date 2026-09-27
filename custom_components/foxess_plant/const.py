@@ -433,6 +433,10 @@ DEFAULT_SMART_CHARGE = {
     "meter_rate_entity_id": None,
     "meter_rate_tolerance_p_per_kwh": 0.5,
     "meter_rate_recheck_minutes": 5,
+    "max_charge_kw": 3.0,
+    "max_discharge_kw": None,
+    "load_history_days": 14,
+    "min_saving_p_per_kwh": 1.0,
     "charge_periods": [
         {
             "enable_force_charge": True,
