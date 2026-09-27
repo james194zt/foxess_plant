@@ -150,6 +150,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._unsub_pv_efficiency: callable | None = None
         self._last_tariff_sensor_rates: dict[str, float] = {}
         self._octopus_cache: dict[str, Any] = {}
+        # Reused across polls so E.ON Next refreshes its Kraken token instead of logging in each hour.
+        self._eon_next_client: Any = None
         self._octopus_greener_store = None
         self._octopus_greener_cache: dict[str, Any] = {}
         self._octopus_greener_history_count = 0
@@ -520,7 +522,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for kind in ("import", "export", "standing")
         }
         state["octopus"] = self._octopus_status()
-        state["octopus_api_active"] = self._octopus_native_active()
+        # Drives the Octopus Energy Analysis report, which only exists for Octopus.
+        state["octopus_api_active"] = self._octopus_native_active() and self._octopus_greener_enabled()
         state["octopus_greener"] = self._octopus_greener_state()
         state["octopus_analysis"] = self._octopus_analysis_state()
         return state
@@ -572,7 +575,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     def _octopus_analysis_state(self) -> dict[str, Any] | None:
         # The analysis report is built from the Octopus API — nothing to show without it.
-        if not self._octopus_native_active():
+        if not (self._octopus_native_active() and self._octopus_greener_enabled()):
             return None
         from .octopus_analysis import octopus_analysis_dashboard_payload
 
@@ -582,7 +585,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     def _octopus_native_active(self) -> bool:
-        return self.plant.tariff.dynamic.native_octopus() and self.plant.tariff.dynamic.api_key_configured()
+        """True when a supplier API (Octopus or E.ON Next) feeds the tariff rate cache."""
+        dyn = self.plant.tariff.dynamic
+        return dyn.native_api() and dyn.native_credentials_configured()
+
+    def _tariff_provider_label(self) -> str:
+        return "E.ON Next" if self.plant.tariff.dynamic.native_eon_next() else "Octopus"
 
     def _octopus_agile_active(self) -> bool:
         from .octopus_tariff import is_variable_tariff_type
@@ -761,6 +769,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "import_rates_count": cache.get("import_rates_count"),
             "export_rates_count": cache.get("export_rates_count"),
             "schedule_ready": bool(cache.get("schedule")),
+            "export_manual": self._supplier_export_manual(),
             "import_meters": import_meters,
             "export_meters": export_meters,
             "import_meter": cache.get("import_meter"),
@@ -4229,6 +4238,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             source=source_kind,
             recorded_at=cfg.last_updated_at,
         )
+        # Band export edits feed SmartCharge / sensors straight away when import is API-driven.
+        self._apply_manual_export_to_cache()
         try:
             await self.async_update_tariff_sensors(record_history=False)
         except Exception:
@@ -4267,7 +4278,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             merged["provider"] = OCTOPUS_PROVIDER
         cfg = TariffConfig.from_dict(self.plant.tariff.to_dict(include_secrets=True))
         cfg.dynamic = TariffDynamicConfig.from_dict(merged)
-        if cfg.dynamic.enabled and cfg.dynamic.source == OCTOPUS_SOURCE_NATIVE:
+        if cfg.dynamic.native_eon_next():
+            if not cfg.dynamic.email or not cfg.dynamic.password_configured():
+                raise HomeAssistantError("E.ON Next email and password are required")
+            self._eon_next_client = None
+        elif cfg.dynamic.enabled and cfg.dynamic.source == OCTOPUS_SOURCE_NATIVE:
             if not cfg.dynamic.api_key_configured():
                 raise HomeAssistantError("Octopus API key is required for native mode")
             if not cfg.dynamic.account_number:
@@ -4291,7 +4306,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         data[CONF_TARIFF] = cfg.to_dict(include_secrets=True)
         self.hass.config_entries.async_update_entry(self.config_entry, data=data)
         self.update_plant_config(PlantConfig.from_entry_data(data))
-        if fetch_now and cfg.dynamic.native_octopus():
+        if fetch_now and cfg.dynamic.native_api():
             await self._async_refresh_octopus(force=True)
             if apply_schedule and self._octopus_cache.get("schedule"):
                 await self.async_apply_octopus_schedule()
@@ -4317,11 +4332,19 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         *,
         api_key: str | None = None,
         account_number: str | None = None,
+        provider: str | None = None,
+        email: str | None = None,
+        password: str | None = None,
     ) -> dict[str, Any]:
+        from .eon_next_parse import EON_NEXT_PROVIDER
         from .octopus_api import OctopusApiClient, OctopusApiError
         from .octopus_tariff import test_octopus_connection
 
         dyn = self.plant.tariff.dynamic
+        if (provider or dyn.provider) == EON_NEXT_PROVIDER:
+            return await self._async_test_eon_next(
+                email=email, password=password, account_number=account_number
+            )
         key = (api_key or dyn.api_key or "").strip()
         account = (account_number or dyn.account_number or "").strip()
         if not key:
@@ -4337,6 +4360,31 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except OctopusApiError as err:
             raise HomeAssistantError(str(err)) from err
 
+    async def _async_test_eon_next(
+        self,
+        *,
+        email: str | None,
+        password: str | None,
+        account_number: str | None,
+    ) -> dict[str, Any]:
+        from .eon_next_api import EonNextApiClient, EonNextApiError, test_eon_next_connection
+
+        dyn = self.plant.tariff.dynamic
+        login = (email or dyn.email or "").strip()
+        secret = password or dyn.password or ""
+        if not login or not secret:
+            raise HomeAssistantError("E.ON Next email and password are required")
+        client = EonNextApiClient(self.hass, email=login, password=secret)
+        try:
+            result = await test_eon_next_connection(
+                client, account_number=account_number or dyn.account_number
+            )
+        except EonNextApiError as err:
+            raise HomeAssistantError(str(err)) from err
+        self._octopus_cache["import_meters"] = result.get("import_meters") or []
+        self._octopus_cache["export_meters"] = result.get("export_meters") or []
+        return result
+
     async def async_fetch_octopus(self) -> dict[str, Any]:
         await self._async_refresh_octopus()
         if self._octopus_agile_active():
@@ -4351,7 +4399,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Push a fetched fixed-tariff Octopus schedule into tariff config."""
         from .octopus_tariff import is_variable_tariff_type
 
-        if not self.plant.tariff.dynamic.native_octopus():
+        if not self.plant.tariff.dynamic.native_api():
             return
         if self._octopus_cache.get("last_error"):
             return
@@ -4383,9 +4431,17 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         schedule = TariffScheduleConfig.from_dict(schedule_raw)
         cfg = TariffConfig.from_dict(self.plant.tariff.to_dict(include_secrets=True))
+        # API bands carry rates only — keep each band's Work Mode / Force Charge from the hours it covers.
+        previous = cfg.schedule_config()
+        for idx, band in enumerate(schedule.bands):
+            hours = [h for h, b in enumerate(schedule.hours) if b == idx]
+            if hours:
+                old_band = previous.band_for_hour(hours[0])
+                band.work_mode = old_band.work_mode
+                band.enable_force_charge = old_band.enable_force_charge
         cfg.schedule = schedule
         cfg.kind = TARIFF_KIND_STATIC
-        if cfg.dynamic.native_octopus():
+        if cfg.dynamic.native_api():
             cfg.import_source = TARIFF_SOURCE_SCHEDULE
             cfg.export_source = TARIFF_SOURCE_SCHEDULE
         standing = self._octopus_cache.get("import_standing_p_per_day")
@@ -4457,6 +4513,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         from .octopus_tariff import fetch_octopus_tariff_snapshot, list_account_meters
 
         dyn = self.plant.tariff.dynamic
+        if dyn.native_eon_next():
+            await self._async_refresh_eon_next(force=force)
+            return
         if not dyn.native_octopus():
             return
         if not dyn.api_key_configured() or not dyn.account_number:
@@ -4477,6 +4536,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 account_number=str(dyn.account_number),
                 import_mpan=dyn.import_mpan,
                 export_mpan=dyn.export_mpan,
+                include_export=dyn.export_from_api,
             )
             self._octopus_cache = snapshot.to_cache_dict()
             self._octopus_cache["import_rates"] = snapshot.import_rates
@@ -4516,6 +4576,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 snapshot.export_meter.tariff_code if snapshot.export_meter else "—",
                 len(snapshot.export_rates),
             )
+            self._apply_manual_export_to_cache()
             await self._async_sync_octopus_standing_charge()
             await self._async_auto_apply_octopus_schedule()
             # Rates land after startup analysis — rebuild overlay + £ charts now.
@@ -4525,6 +4586,108 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._note_octopus_rate_limit(str(err))
             self._octopus_cache["last_error"] = str(err)
             _LOGGER.warning("Octopus tariff fetch failed: %s", err)
+
+    async def _async_refresh_eon_next(self, *, force: bool = False) -> None:
+        """Poll E.ON Next into the shared tariff cache (same shape as Octopus)."""
+        from .eon_next_api import (
+            EonNextApiClient,
+            EonNextApiError,
+            fetch_eon_next_tariff_snapshot,
+            meter_list_for_cache,
+        )
+
+        dyn = self.plant.tariff.dynamic
+        if not dyn.email or not dyn.password_configured():
+            self._octopus_cache["last_error"] = "E.ON Next email and password required"
+            return
+        if not force and not self._octopus_tariff_refresh_due():
+            _LOGGER.debug("E.ON Next tariff refresh skipped (cache fresh)")
+            self._sync_octopus_current_rates_from_cache()
+            return
+        if not force and self._octopus_rate_limited():
+            _LOGGER.debug("E.ON Next tariff refresh skipped (rate limited)")
+            self._sync_octopus_current_rates_from_cache()
+            return
+        client = self._eon_next_client
+        if client is None or not client.matches(str(dyn.email), str(dyn.password)):
+            client = EonNextApiClient(self.hass, email=str(dyn.email), password=str(dyn.password))
+            self._eon_next_client = client
+        try:
+            snapshot, imports, exports = await fetch_eon_next_tariff_snapshot(
+                client,
+                account_number=dyn.account_number,
+                import_mpan=dyn.import_mpan,
+                export_mpan=dyn.export_mpan,
+                include_export=dyn.export_from_api,
+            )
+        except EonNextApiError as err:
+            self._note_octopus_rate_limit(str(err))
+            self._octopus_cache["last_error"] = str(err)
+            _LOGGER.warning("E.ON Next tariff fetch failed: %s", err)
+            return
+        self._octopus_cache = snapshot.to_cache_dict()
+        self._octopus_cache["import_rates"] = snapshot.import_rates
+        self._octopus_cache["export_rates"] = snapshot.export_rates
+        self._octopus_cache["import_meters"] = meter_list_for_cache(imports)
+        self._octopus_cache["export_meters"] = meter_list_for_cache(exports)
+        _LOGGER.debug(
+            "E.ON Next tariff refreshed (%s, import %s, export %s rates=%s)",
+            snapshot.tariff_type,
+            snapshot.import_meter.tariff_code if snapshot.import_meter else "—",
+            snapshot.export_meter.tariff_code if snapshot.export_meter else "—",
+            len(snapshot.export_rates),
+        )
+        self._apply_manual_export_to_cache()
+        await self._async_sync_octopus_standing_charge()
+        await self._async_auto_apply_octopus_schedule()
+
+    def _supplier_export_manual(self) -> bool:
+        """Import from a supplier API, export priced from the band editor (another supplier)."""
+        if not self._octopus_native_active():
+            return False
+        if not self.plant.tariff.dynamic.export_from_api:
+            return True
+        return self._octopus_cache.get("export_rates_source") == "manual"
+
+    def _apply_manual_export_to_cache(self) -> None:
+        """Replace API export rows with the band editor's export when export is not from the API.
+
+        Used when export is off in supplier settings, or the supplier returned no export rates
+        (e.g. E.ON Next import with a Fused fixed SEG). Without this the hourly schedule rebuild
+        wrote 0p export into every band and SmartCharge planned with 0p export.
+        """
+        from homeassistant.util import dt as dt_util
+
+        from .octopus_tariff import build_schedule_from_rates, is_variable_tariff_type, rate_at
+        from .smart_charge.engine import local_tz
+        from .smart_charge.planner import schedule_rate_rows
+
+        cache = self._octopus_cache
+        if not self._octopus_native_active() or not cache.get("import_rates"):
+            return
+        if (
+            self.plant.tariff.dynamic.export_from_api
+            and cache.get("export_rates")
+            and cache.get("export_rates_source") != "manual"
+        ):
+            cache["export_rates_source"] = "api"
+            return
+        schedule = self.plant.tariff.schedule_config()
+        now = dt_util.utcnow()
+        rows = schedule_rate_rows(
+            schedule.rates_at, now=now, tz=local_tz(), key="export_p_per_kwh"
+        )
+        cache["export_rates"] = rows
+        cache["export_rates_count"] = len(rows)
+        cache["export_rates_source"] = "manual"
+        cache["current_export_p_per_kwh"] = rate_at(now, rows)
+        if not is_variable_tariff_type(str(cache.get("tariff_type") or "")):
+            built = build_schedule_from_rates(
+                list(cache.get("import_rates") or []),
+                None,
+                export_by_hour=schedule.export_p_by_hour(),
+            )
+            cache["schedule"] = built.to_dict() if built else None
 
     async def _async_sync_octopus_standing_charge(self) -> bool:
         """Persist Octopus standing charge into plugin tariff when it changes.
@@ -4539,7 +4702,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if standing is None:
             return False
         tariff = self.plant.tariff
-        if not tariff.dynamic.native_octopus():
+        if not tariff.dynamic.native_api():
             return False
         if tariff.standing_source != TARIFF_SOURCE_PLUGIN:
             return False
@@ -4557,7 +4720,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.hass.config_entries.async_update_entry(self.config_entry, data=data)
         self.update_plant_config(PlantConfig.from_entry_data(data))
         _LOGGER.info(
-            "Octopus standing charge updated %.4f → %.4f p/day",
+            "%s standing charge updated %.4f → %.4f p/day",
+            self._tariff_provider_label(),
             old_v,
             new_v,
         )

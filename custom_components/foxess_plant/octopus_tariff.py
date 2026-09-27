@@ -453,8 +453,14 @@ def build_schedule_from_rates(
     export_rates: list[dict[str, Any]] | None = None,
     *,
     sample_day: date | None = None,
+    export_by_hour: list[float] | None = None,
 ) -> TariffScheduleConfig | None:
-    """Map Octopus unit-rate windows onto the 24-block schedule editor."""
+    """Map Octopus unit-rate windows onto the 24-block schedule editor.
+
+    ``export_by_hour`` keeps a manually entered export (another supplier, e.g. a fixed SEG)
+    per local hour; bands are then keyed on (API import, manual export) so a band edit
+    survives every hourly rebuild even if the import structure changes.
+    """
     if not import_rates:
         return None
     day = sample_day or dt_util.as_local(dt_util.now()).date()
@@ -463,7 +469,10 @@ def build_schedule_from_rates(
         sample_local = datetime.combine(day, time(hour=hour, minute=30), tzinfo=UK_TZ)
         sample_utc = sample_local.astimezone(dt_util.UTC)
         import_p = rate_at(sample_utc, import_rates)
-        export_p = rate_at(sample_utc, export_rates or []) if export_rates else None
+        if export_by_hour is not None:
+            export_p = export_by_hour[hour]
+        else:
+            export_p = rate_at(sample_utc, export_rates or []) if export_rates else None
         hour_pairs.append((import_p, export_p))
 
     unique: list[tuple[float | None, float | None]] = []
@@ -575,6 +584,7 @@ async def fetch_octopus_tariff_snapshot(
     account_number: str,
     import_mpan: str | None = None,
     export_mpan: str | None = None,
+    include_export: bool = True,
 ) -> OctopusTariffSnapshot:
     account = await client.get_account(account_number)
     import_meters, export_meters = list_account_meters(account)
@@ -584,9 +594,10 @@ async def fetch_octopus_tariff_snapshot(
 
     import_meter = _pick_meter(import_meters, import_mpan, role="import")
     # Auto-pick when unset so a missing export MPAN never blocks import Agile rates.
+    # Export entered manually (another supplier) → ignore any export meter here.
     export_meter = (
         _pick_meter(export_meters, export_mpan, role="export", allow_first=True)
-        if export_meters
+        if export_meters and include_export
         else None
     )
 
@@ -603,10 +614,11 @@ async def fetch_octopus_tariff_snapshot(
     # Accounts without SEG simply have no export rates — not an error.
     export_warning: str | None = None
     if export_meter is None:
-        _LOGGER.info(
-            "Octopus: no export/SEG meter on account %s — Outgoing rates unavailable",
-            account_number.strip().upper(),
-        )
+        if include_export:
+            _LOGGER.info(
+                "Octopus: no export/SEG meter on account %s — Outgoing rates unavailable",
+                account_number.strip().upper(),
+            )
     elif not export_meter.tariff_code:
         export_warning = f"Export meter {export_meter.mpan} has no active tariff agreement"
     else:

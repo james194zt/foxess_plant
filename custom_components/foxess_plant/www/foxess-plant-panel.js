@@ -259,6 +259,8 @@ const DEFAULT_TARIFF = {
     export_mpan: "",
     import_entity: "",
     export_entity: "",
+    email: "",
+    export_from_api: true,
   },
 };
 
@@ -270,7 +272,18 @@ const TARIFF_BAND_LABELS = ["Band A", "Band B", "Band C", "Band D"];
 const ENERGY_TARIFF_PROVIDERS = [
   { id: "", label: "None" },
   { id: "octopus", label: "Octopus" },
+  { id: "eon_next", label: "E.ON Next" },
 ];
+
+/** Energy provider picked in the Tariff page select (only known ids survive). */
+function normalizeEnergyProviderId(value) {
+  const id = String(value || "").trim();
+  return ENERGY_TARIFF_PROVIDERS.some((p) => p.id === id) ? id : "";
+}
+
+function energyProviderLabel(providerId) {
+  return ENERGY_TARIFF_PROVIDERS.find((p) => p.id === providerId)?.label || "Octopus";
+}
 
 function tariffEnergyProviderId(tariffOrDraft) {
   const t = tariffOrDraft && typeof tariffOrDraft === "object" ? tariffOrDraft : {};
@@ -284,6 +297,15 @@ function tariffEnergyProviderId(tariffOrDraft) {
 
 function showOctopusTariffProvider(tariffOrDraft) {
   return tariffEnergyProviderId(tariffOrDraft) === "octopus";
+}
+
+function showEonNextTariffProvider(tariffOrDraft) {
+  return tariffEnergyProviderId(tariffOrDraft) === "eon_next";
+}
+
+/** Octopus or E.ON Next — both share the supplier draft and websocket commands. */
+function showSupplierTariffProvider(tariffOrDraft) {
+  return showOctopusTariffProvider(tariffOrDraft) || showEonNextTariffProvider(tariffOrDraft);
 }
 
 /** ISO 4217 codes for tariff settings (must match const.py TARIFF_CURRENCIES). */
@@ -372,7 +394,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.492";
+const PANEL_VERSION = "0.9.493";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -4466,6 +4488,16 @@ function octopusNativeManagesSchedule(tariff, octopusDraft) {
 }
 
 /** True when native Octopus owns the plugin standing charge (Agile + fixed). */
+/** Import from a supplier API but export entered per band (e.g. Fused / fixed SEG). */
+function supplierExportManual(tariff, octopusDraft) {
+  if (!octopusNativeManagesSchedule(tariff, octopusDraft)) return false;
+  const draft = octopusDraft && typeof octopusDraft === "object" ? octopusDraft : {};
+  const dyn = tariff?.dynamic ?? {};
+  const fromApi = draft.export_from_api !== undefined ? draft.export_from_api : dyn.export_from_api;
+  if (fromApi === false) return true;
+  return Boolean(tariff?.octopus?.export_manual);
+}
+
 function tariffApiLocksStandingCharge(tariff, octopusDraft) {
   if (normalizeTariffStandingSource(tariff?.standing_source) !== "plugin") return false;
   const draft = octopusDraft && typeof octopusDraft === "object" ? octopusDraft : {};
@@ -4502,6 +4534,10 @@ function normalizeOctopusDraft(raw, octopusLive) {
     export_mpan: entity(t.export_mpan ?? live.export_mpan),
     import_entity: entity(t.import_entity),
     export_entity: entity(t.export_entity),
+    email: entity(t.email ?? live.email),
+    export_from_api: (t.export_from_api ?? live.export_from_api) !== false,
+    password: "",
+    password_set: Boolean(t.password_set ?? live.password_set),
   };
 }
 
@@ -4574,6 +4610,8 @@ function buildTariffSavePayload(draft) {
       export_mpan: normalized.dynamic?.export_mpan || null,
       import_entity: normalized.dynamic?.import_entity || null,
       export_entity: normalized.dynamic?.export_entity || null,
+      email: normalized.dynamic?.email || null,
+      export_from_api: normalized.dynamic?.export_from_api !== false,
     },
   };
 }
@@ -4751,9 +4789,10 @@ function tariffSettingsSummary(tariff) {
   if (normalizeTariffExportSource(tariff?.export_source) === "schedule") scheduleBits.push("Export schedule");
   if (normalizeTariffStandingSource(tariff?.standing_source) === "plugin") scheduleBits.push("Standing sensor");
   const providerBits = [];
-  if (showOctopusTariffProvider(tariff)) {
+  if (showSupplierTariffProvider(tariff)) {
     const oct = tariff?.octopus ?? {};
-    providerBits.push(oct.connected ? "Octopus linked" : "Octopus");
+    const label = energyProviderLabel(tariffEnergyProviderId(tariff));
+    providerBits.push(oct.connected ? `${label} linked` : label);
   }
   if (!rates.import_p_per_kwh && !rates.export_p_per_kwh && !rates.standing_charge_p_per_day) {
     if (providerBits.length) return providerBits.join(" · ");
@@ -14258,7 +14297,7 @@ const STYLES = `
 .tariff-schedule-card.tariff-schedule-locked .tariff-hour-grid { opacity: 0.72; pointer-events: none; }
 .tariff-schedule-card.tariff-schedule-locked .tariff-hour-block { cursor: default; transform: none; }
 .tariff-schedule-card.tariff-schedule-locked .tariff-band-chip[data-action="tariff-pick-band"] { cursor: default; }
-.tariff-schedule-card.tariff-schedule-locked .tariff-band-rate-row input[type="number"] { opacity: 0.55; cursor: not-allowed; }
+.tariff-schedule-card.tariff-schedule-locked .tariff-band-rate-row input[type="number"]:disabled { opacity: 0.55; cursor: not-allowed; }
 .tariff-schedule-card.tariff-band-inverter-locked .tariff-band-work-mode select,
 .tariff-schedule-card.tariff-band-inverter-locked .tariff-band-force input,
 .tariff-schedule-card.tariff-band-inverter-locked [data-field="tariff:apply_band_inverter_control"] { opacity: 0.55; cursor: not-allowed; }
@@ -15316,13 +15355,14 @@ Reloading panel registration…
       if (
         this._settingsView === "tariff" &&
         this._octopusDraft &&
-        showOctopusTariffProvider(this._tariffDraft) &&
+        showSupplierTariffProvider(this._tariffDraft) &&
         !this._settingsFieldFocused &&
         !this._rangeDrag
       ) {
         const dyn = this._plantState?.tariff?.dynamic ?? {};
         const prevKey = this._octopusDraft.api_key || "";
         this._octopusDraft.api_key_set = Boolean(dyn.api_key_set);
+        this._octopusDraft.password_set = Boolean(dyn.password_set);
         if (prevKey) this._octopusDraft.api_key = prevKey;
       }
       if (
@@ -15520,6 +15560,9 @@ Reloading panel registration…
     }
     if (parts[0] === "octopus" && parts[1] === "api_key" && this._octopusDraft) {
       this._octopusDraft.api_key = text;
+    }
+    if (parts[0] === "octopus" && parts[1] === "password" && this._octopusDraft) {
+      this._octopusDraft.password = text;
     }
   }
 
@@ -16348,10 +16391,14 @@ Reloading panel registration…
 
   _initOctopusDraft() {
     const prevKey = this._octopusDraft?.api_key || "";
+    const prevPassword = this._octopusDraft?.password || "";
     const raw = this._tariffDraft?.dynamic ?? this._plantState?.tariff?.dynamic ?? {};
     this._octopusDraft = normalizeOctopusDraft(raw, this._plantState?.tariff?.octopus ?? {});
     if (prevKey && !this._octopusDraft.api_key) {
       this._octopusDraft.api_key = prevKey;
+    }
+    if (prevPassword && !this._octopusDraft.password) {
+      this._octopusDraft.password = prevPassword;
     }
   }
 
@@ -16990,21 +17037,20 @@ Reloading panel registration…
     if (!this._tariffDraft) return;
     const el = this._root.querySelector('[data-field="tariff:energy_provider"]');
     if (!el) return;
-    const provider = el.value === "octopus" ? "octopus" : "";
+    const provider = normalizeEnergyProviderId(el.value);
     if (!this._tariffDraft.dynamic) {
       this._tariffDraft.dynamic = { ...DEFAULT_TARIFF.dynamic };
     }
+    const previous = this._tariffDraft.dynamic.provider || "";
     this._tariffDraft.dynamic.provider = provider;
-    if (provider !== "octopus") {
+    if (!provider || provider !== previous) {
       this._tariffDraft.dynamic.enabled = false;
     }
     if (this._octopusDraft) {
-      this._octopusDraft.provider = provider;
-      if (provider !== "octopus") {
+      if (!provider || provider !== this._octopusDraft.provider) {
         this._octopusDraft.enabled = false;
-      } else if (!this._octopusDraft.provider) {
-        this._octopusDraft.provider = "octopus";
       }
+      this._octopusDraft.provider = provider;
     }
   }
 
@@ -17066,6 +17112,12 @@ Reloading panel registration…
     if (importMpanEl) this._octopusDraft.import_mpan = importMpanEl.value || "";
     const exportMpanEl = root.querySelector('[data-field="octopus:export_mpan"]');
     if (exportMpanEl) this._octopusDraft.export_mpan = exportMpanEl.value || "";
+    const emailEl = root.querySelector('[data-field="octopus:email"]');
+    if (emailEl) this._octopusDraft.email = emailEl.value.trim();
+    const passwordEl = root.querySelector('[data-field="octopus:password"]');
+    if (passwordEl?.value) this._octopusDraft.password = passwordEl.value;
+    const exportFromEl = root.querySelector('[data-field="octopus:export_from_api"]');
+    if (exportFromEl) this._octopusDraft.export_from_api = exportFromEl.value !== "manual";
   }
 
   _syncOctopusIntoTariffDraft() {
@@ -17083,22 +17135,29 @@ Reloading panel registration…
       export_mpan: d.export_mpan,
       import_entity: d.import_entity,
       export_entity: d.export_entity,
+      email: d.email,
+      password_set: d.password_set,
+      export_from_api: d.export_from_api !== false,
     };
   }
 
   _buildOctopusSavePayload() {
     if (!this._octopusDraft) return null;
     const d = this._octopusDraft;
+    const eon = d.provider === "eon_next";
     return {
       enabled: Boolean(d.enabled),
-      provider: d.enabled ? "octopus" : d.provider || "",
-      source: d.source === "entity" ? "entity" : "native",
+      provider: d.enabled ? d.provider || "octopus" : d.provider || "",
+      source: !eon && d.source === "entity" ? "entity" : "native",
       account_number: d.account_number || null,
       import_mpan: d.import_mpan || null,
       export_mpan: d.export_mpan || null,
       import_entity: d.import_entity || null,
       export_entity: d.export_entity || null,
+      email: d.email || null,
+      export_from_api: d.export_from_api !== false,
       ...(d.api_key ? { api_key: d.api_key } : {}),
+      ...(d.password ? { password: d.password } : {}),
     };
   }
 
@@ -17109,7 +17168,17 @@ Reloading panel registration…
     this._syncOctopusDraftFromPickers();
     const payload = this._buildOctopusSavePayload();
     if (!payload) return;
-    if (payload.enabled && payload.source === "native") {
+    const label = energyProviderLabel(payload.provider);
+    if (payload.enabled && payload.provider === "eon_next") {
+      if (!payload.email) {
+        this._showToast("E.ON Next email is required", "err");
+        return;
+      }
+      if (!payload.password && !this._octopusDraft.password_set) {
+        this._showToast("E.ON Next password is required", "err");
+        return;
+      }
+    } else if (payload.enabled && payload.source === "native") {
       if (!payload.api_key && !this._octopusDraft.api_key_set) {
         this._showToast("Octopus API key is required", "err");
         return;
@@ -17132,11 +17201,12 @@ Reloading panel registration…
         octopus: { ...payload, fetch_now: true, apply_schedule: applySchedule },
       });
       if (state) this._plantState = state;
+      this._octopusDraft.password = "";
       this._initTariffDraft();
-      this._showToast("Octopus settings saved — schedule synced from API");
+      this._showToast(`${label} settings saved — schedule synced from API`);
     } catch (err) {
       this._showToast(tariffSaveErrorMessage(err), "err");
-      console.error("FoxESS Plant: octopus save failed", err);
+      console.error(`FoxESS Plant: ${label} save failed`, err);
     } finally {
       this._busy = false;
       this._render();
@@ -17147,6 +17217,10 @@ Reloading panel registration…
     const plant = this._getPlant();
     if (!plant || !this._octopusDraft) return;
     this._syncOctopusDraftFromDom();
+    if (this._octopusDraft.provider === "eon_next") {
+      await this._testEonNextConnection();
+      return;
+    }
     const key = this._octopusDraft.api_key || undefined;
     if (!key && !this._octopusDraft.api_key_set) {
       this._showToast("Enter an Octopus API key to test", "err");
@@ -17180,6 +17254,45 @@ Reloading panel registration…
     }
   }
 
+  async _testEonNextConnection() {
+    const plant = this._getPlant();
+    const d = this._octopusDraft;
+    if (!d.email) {
+      this._showToast("Enter your E.ON Next email to test", "err");
+      return;
+    }
+    if (!d.password && !d.password_set) {
+      this._showToast("Enter your E.ON Next password to test", "err");
+      return;
+    }
+    this._busy = true;
+    this._render();
+    try {
+      const result = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/test_octopus",
+        plant_id: plant.entry_id,
+        provider: "eon_next",
+        email: d.email,
+        ...(d.password ? { password: d.password } : {}),
+        ...(d.account_number ? { account_number: d.account_number } : {}),
+      });
+      if (result?.plant_state) this._plantState = result.plant_state;
+      const imp = result?.octopus?.import_meters?.length ?? 0;
+      const exp = result?.octopus?.export_meters?.length ?? 0;
+      const accounts = result?.octopus?.account_numbers ?? [];
+      if (!d.account_number && accounts.length) d.account_number = accounts[0];
+      this._showToast(
+        `Connected — ${accounts.length} account(s), ${imp} import meter(s), ${exp} export meter(s)`
+      );
+      this._scheduleRender();
+    } catch (err) {
+      this._showToast(tariffSaveErrorMessage(err), "err");
+    } finally {
+      this._busy = false;
+      this._render();
+    }
+  }
+
   async _fetchOctopusRates() {
     const plant = this._getPlant();
     if (!plant) return;
@@ -17199,10 +17312,11 @@ Reloading panel registration…
       const impN = octopus.import_rates_count ?? 0;
       const expN = octopus.export_rates_count ?? 0;
       const errHint = octopus.last_error ? ` — ${String(octopus.last_error).slice(0, 80)}` : "";
+      const label = energyProviderLabel(tariffEnergyProviderId(this._plantState?.tariff));
       this._showToast(
         agile
-          ? `Octopus rates refreshed (import ${impN}, export ${expN})${errHint}`
-          : `Octopus rates refreshed — daily schedule updated (import ${impN}, export ${expN})${errHint}`
+          ? `${label} rates refreshed (import ${impN}, export ${expN})${errHint}`
+          : `${label} rates refreshed — daily schedule updated (import ${impN}, export ${expN})${errHint}`
       );
     } catch (err) {
       this._showToast(tariffSaveErrorMessage(err), "err");
@@ -17224,7 +17338,9 @@ Reloading panel registration…
       });
       if (result?.plant_state) this._plantState = result.plant_state;
       this._initTariffDraft();
-      this._showToast("Daily schedule filled from Octopus rates");
+      this._showToast(
+        `Daily schedule filled from ${energyProviderLabel(tariffEnergyProviderId(this._plantState?.tariff))} rates`
+      );
     } catch (err) {
       this._showToast(tariffSaveErrorMessage(err), "err");
     } finally {
@@ -18795,6 +18911,11 @@ Reloading panel registration…
           this._octopusDraft.export_mpan = el.value || "";
           return;
         }
+        if (parts[1] === "export_from_api") {
+          this._octopusDraft.export_from_api = el.value !== "manual";
+          this._scheduleRender();
+          return;
+        }
       }
       if (parts[0] === "fox" && this._foxCloudDraft) {
         if (parts[1] === "enabled") {
@@ -18867,21 +18988,22 @@ Reloading panel registration…
           return;
         }
         if (kind === "energy_provider") {
-          const provider = el.value === "octopus" ? "octopus" : "";
+          const provider = normalizeEnergyProviderId(el.value);
           if (!this._tariffDraft.dynamic) {
             this._tariffDraft.dynamic = { ...DEFAULT_TARIFF.dynamic };
           }
+          const previous = this._tariffDraft.dynamic.provider || "";
           this._tariffDraft.dynamic.provider = provider;
-          if (provider !== "octopus") {
+          if (!provider || provider !== previous) {
+            // Switching supplier: stay off until the new supplier's login is saved.
             this._tariffDraft.dynamic.enabled = false;
           }
           if (!this._octopusDraft) this._initOctopusDraft();
-          this._octopusDraft.provider = provider;
-          if (provider !== "octopus") {
+          if (!provider || provider !== this._octopusDraft.provider) {
             this._octopusDraft.enabled = false;
-          } else {
-            this._octopusDraft.provider = "octopus";
           }
+          this._octopusDraft.provider = provider;
+          if (provider === "eon_next") this._octopusDraft.source = "native";
           this._octopusPickerMountGen += 1;
           this._scheduleRender();
           void this._syncOctopusEntityPickers();
@@ -24551,6 +24673,9 @@ ${standingManualBlock}
     if (!showImport && !showExport) return "";
     const octopusLocked = octopusNativeManagesSchedule(this._plantState?.tariff, this._octopusDraft);
     const scheduleRatesDisabled = this._busy || octopusLocked;
+    const exportManual = supplierExportManual(this._plantState?.tariff, this._octopusDraft);
+    const exportRatesDisabled = this._busy || (octopusLocked && !exportManual);
+    const supplierLabel = energyProviderLabel(tariffEnergyProviderId(this._plantState?.tariff));
     const smartChargeActive = smartChargeEnabled(this._plantState);
     const bandInverterDisabled = this._busy || smartChargeActive;
     const currency = normalizeTariffCurrency(draft.currency);
@@ -24587,7 +24712,7 @@ ${standingManualBlock}
         return `<div class="tariff-band-rate-row">
 <span class="tariff-band-chip" style="cursor:default;border:none;padding:4px 0"><span class="tariff-band-swatch" style="background:${TARIFF_BAND_COLORS[idx]}"></span>${esc(TARIFF_BAND_LABELS[idx])}</span>
 ${showImport ? `<div class="field" style="margin:0"><label>Import ${esc(currency)}/kWh</label><input type="number" min="0" max="9999" step="${esc(inputStep)}" inputmode="decimal" data-field="tariff:schedule:band:${idx}:import" value="${esc(String(importDisplay || ""))}" placeholder="${currency === "GBP" ? "e.g. 0.245" : "e.g. 0.25"}" ${scheduleRatesDisabled ? "disabled" : ""}></div>` : `<div></div>`}
-${showExport ? `<div class="field" style="margin:0"><label>Export ${esc(currency)}/kWh</label><input type="number" min="0" max="9999" step="${esc(inputStep)}" inputmode="decimal" data-field="tariff:schedule:band:${idx}:export" value="${esc(String(exportDisplay || ""))}" placeholder="${currency === "GBP" ? "e.g. 0.150" : "e.g. 0.15"}" ${scheduleRatesDisabled ? "disabled" : ""}></div>` : `<div></div>`}
+${showExport ? `<div class="field" style="margin:0"><label>Export ${esc(currency)}/kWh</label><input type="number" min="0" max="9999" step="${esc(inputStep)}" inputmode="decimal" data-field="tariff:schedule:band:${idx}:export" value="${esc(String(exportDisplay || ""))}" placeholder="${currency === "GBP" ? "e.g. 0.150" : "e.g. 0.15"}" ${exportRatesDisabled ? "disabled" : ""}></div>` : `<div></div>`}
 <label class="tariff-band-work-mode"><span>Work Mode</span><select data-field="tariff:schedule:band:${idx}:work_mode" ${bandInverterDisabled ? "disabled" : ""}>${modeOpts}</select></label>
 <label class="tariff-band-force"><input type="checkbox" data-field="tariff:schedule:band:${idx}:force_charge" ${band.enable_force_charge ? "checked" : ""} ${bandInverterDisabled ? "disabled" : ""}><span>Force Charge</span></label>
 </div>`;
@@ -24605,8 +24730,10 @@ ${showExport ? `<div class="field" style="margin:0"><label>Export ${esc(currency
     const pluginHint = pluginIds.import || pluginIds.export
       ? `<p class="field-hint" style="margin:0 0 12px">Plugin sensors: ${[pluginIds.import, pluginIds.export].filter(Boolean).map((id) => esc(id)).join(" · ") || "—"} — rates update at each hour boundary so the recorder captures when costs change.</p>`
       : `<p class="field-hint" style="margin:0 0 12px">Plugin sensors are created when you save. They update at each hour boundary so the recorder captures when costs change (same path planned for Agile API tariffs).</p>`;
-    const scheduleIntro = octopusLocked
-      ? "Rates and hour bands are synced from Octopus automatically whenever rates are fetched (including the 30-minute poll). Work Mode and Force Charge per band can still be configured below."
+    const scheduleIntro = octopusLocked && exportManual
+      ? `Import rates and hour bands are synced from ${supplierLabel} automatically whenever rates are fetched. Export is from another supplier: type each band's export rate below and Save tariff — it is kept on every sync. Work Mode and Force Charge per band can still be configured.`
+      : octopusLocked
+      ? `Rates and hour bands are synced from ${supplierLabel} automatically whenever rates are fetched (including the 30-minute poll). Work Mode and Force Charge per band can still be configured below.`
       : "24 hourly blocks from 00:00 to 24:00, same every day. Pick a band colour, then tap hours to assign it. Use one band for a flat tariff, or two to four for peak/off-peak.";
     const cardLockClass = `${octopusLocked ? " tariff-schedule-locked" : ""}${smartChargeActive ? " tariff-band-inverter-locked" : ""}`;
     return `<div class="card tariff-schedule-card${cardLockClass}">
@@ -24684,6 +24811,7 @@ ${this._renderTariffRateBlock("standing", {
 </div>
 ${this._renderEnergyProviderCard()}
 ${showOctopusTariffProvider(this._tariffDraft) ? this._renderOctopusSettings() : ""}
+${showEonNextTariffProvider(this._tariffDraft) ? this._renderEonNextSettings() : ""}
 <div class="card">
 <p class="card-title">Status</p>
 <p style="margin:0 0 8px;font-size:14px">${live.configured ? "Tariff configured — ready for cost analysis." : "Not configured yet — save at least one rate above."}</p>
@@ -24704,7 +24832,7 @@ ${effectiveBits.length ? `<p class="field-hint" style="margin:0 0 8px">Effective
 <div class="field">
 <label>Provider</label>
 <select data-field="tariff:energy_provider" ${this._busy ? "disabled" : ""}>${providerOptions}</select>
-<p class="field-hint" style="margin:4px 0 0">Connect live supplier rates to your tariff. Only Octopus is integrated today — choose None to enter rates manually above.</p>
+<p class="field-hint" style="margin:4px 0 0">Connect live supplier rates to your tariff (Octopus or E.ON Next) — choose None to enter rates manually above.</p>
 </div>
 </div>`;
   }
@@ -24880,7 +25008,9 @@ ${detailBlock}
     if (connected && live.import_tariff_code) {
       statusLines.push(`Import tariff: ${esc(live.import_tariff_code)}`);
     }
-    if (live.export_tariff_code) {
+    if (live.export_manual) {
+      statusLines.push("Export: manual — band rates in the daily schedule");
+    } else if (live.export_tariff_code) {
       statusLines.push(`Export tariff: ${esc(live.export_tariff_code)}`);
     } else if (connected && native && exportMeters.length === 0) {
       statusLines.push("Export: no SEG/Outgoing meter on this Octopus account");
@@ -24897,7 +25027,9 @@ ${detailBlock}
     statusLines.push(`Last fetch: ${lastFetch}`);
     if (lastErr) statusLines.push(`Error: ${lastErr}`);
     const exportMpanField =
-      exportMeters.length > 0
+      draft.export_from_api === false
+        ? ""
+        : exportMeters.length > 0
         ? `<div class="field"><label>Export MPAN (SEG / Outgoing)</label><select data-field="octopus:export_mpan" ${this._busy ? "disabled" : ""}><option value="">Auto (${esc((exportMeters[0] && (exportMeters[0].display_name || exportMeters[0].mpan)) || "first")})</option>${exportOptions}</select>
 <p class="field-hint">Export rates come from your Outgoing/SEG agreement — separate from Agile import.</p></div>`
         : native && draft.enabled
@@ -24920,6 +25052,7 @@ ${detailBlock}
 <input type="text" data-field="octopus:account_number" value="${esc(String(draft.account_number || ""))}" placeholder="A-12345678" ${this._busy ? "disabled" : ""}>
 </div>
 ${importMeters.length > 1 ? `<div class="field"><label>Import MPAN</label><select data-field="octopus:import_mpan" ${this._busy ? "disabled" : ""}><option value="">Select meter…</option>${importOptions}</select></div>` : ""}
+${this._renderSupplierExportSourceField("Octopus")}
 ${exportMpanField}`;
     const scheduleAutoHint =
       native && draft.enabled && connected && !agile
@@ -24945,6 +25078,93 @@ ${statusLines.length ? `<p class="field-hint" style="margin:12px 0 0">${statusLi
 <p class="field-hint" style="margin:0 0 12px">Native Octopus polling for Go, Economy 7, flat SVT, and Agile. ${scheduleAutoHint || "Fixed tariffs sync the 24-hour schedule on fetch; Agile updates plugin import/export sensors every 30 minutes (including negative rates)."}</p>
 <div class="toggle-row"><span><strong>Enable Octopus tariff link</strong></span>
 <input type="checkbox" data-field="octopus:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+${detailBlock}
+</div>`;
+  }
+
+  _renderSupplierExportSourceField(label) {
+    const manual = this._octopusDraft?.export_from_api === false;
+    return `<div class="field"><label>Export rates from</label>
+<select data-field="octopus:export_from_api" ${this._busy ? "disabled" : ""}>
+<option value="api" ${manual ? "" : "selected"}>${esc(label)} API</option>
+<option value="manual" ${manual ? "selected" : ""}>Manual — another supplier (e.g. Fused, fixed SEG)</option>
+</select>
+<p class="field-hint">Manual keeps import live from ${esc(label)} and lets you type export per band in the daily schedule below. It is used automatically if ${esc(label)} returns no export rates.</p>
+</div>`;
+  }
+
+  _renderEonNextSettings() {
+    if (!this._octopusDraft) this._initOctopusDraft();
+    const draft = this._octopusDraft;
+    const live = this._plantState?.tariff?.octopus ?? {};
+    const currency = tariffCurrencyFromTariff(this._plantState?.tariff ?? {});
+    const busy = this._busy ? "disabled" : "";
+    const connected = Boolean(live.connected);
+    const importMeters = live.import_meters ?? [];
+    const exportMeters = live.export_meters ?? [];
+    const meterOptions = (meters, selected) =>
+      meters
+        .map(
+          (m) =>
+            `<option value="${esc(m.mpan)}" ${selected === m.mpan ? "selected" : ""}>${esc(m.display_name || m.mpan)}${m.account_number ? ` (${esc(m.account_number)})` : ""}</option>`
+        )
+        .join("");
+    const statusLines = [];
+    if (connected && live.import_tariff_code) statusLines.push(`Import tariff: ${live.import_tariff_code}`);
+    if (live.export_manual) {
+      statusLines.push("Export: manual — band rates in the daily schedule");
+    } else if (live.export_tariff_code) {
+      statusLines.push(`Export tariff: ${live.export_tariff_code}`);
+    } else if (connected && exportMeters.length === 0) {
+      statusLines.push("Export: no export meter on this E.ON Next login");
+    }
+    if (live.import_rates_count != null || live.export_rates_count != null) {
+      statusLines.push(
+        `Rates loaded: import ${live.import_rates_count ?? 0} · export ${live.export_rates_count ?? 0}`
+      );
+    }
+    if (live.tariff_type) statusLines.push(`Type: ${live.tariff_type} — daily schedule`);
+    const rateBits = [];
+    if (live.current_import_p_per_kwh != null) {
+      rateBits.push(`Import ${formatTariffMoney(live.current_import_p_per_kwh, currency)}/kWh`);
+    }
+    if (live.current_export_p_per_kwh != null) {
+      rateBits.push(`Export ${formatTariffMoney(live.current_export_p_per_kwh, currency)}/kWh`);
+    }
+    if (live.import_standing_p_per_day != null) {
+      rateBits.push(`Standing ${formatTariffMoney(live.import_standing_p_per_day, currency)}/day`);
+    }
+    if (rateBits.length) statusLines.push(`Current: ${rateBits.join(" · ")}`);
+    statusLines.push(`Last fetch: ${live.last_fetch_at ? formatSolcastTimestamp(live.last_fetch_at) : "Never"}`);
+    if (live.last_error) statusLines.push(`Error: ${live.last_error}`);
+    const passwordPlaceholder = draft.password_set ? "••••••••  (leave blank to keep)" : "E.ON Next password";
+    const detailBlock = draft.enabled
+      ? `<div class="field"><label>Email</label>
+<input type="email" autocomplete="off" data-field="octopus:email" value="${esc(String(draft.email || ""))}" placeholder="you@example.com" ${busy}>
+</div>
+<div class="field"><label>Password</label>
+<input type="password" autocomplete="off" data-field="octopus:password" value="${esc(String(draft.password || ""))}" placeholder="${esc(passwordPlaceholder)}" ${busy}>
+<p class="field-hint">E.ON Next has no API keys, so Fox Plant signs in with your online account login (the same one as the E.ON Next app). It is stored in your Home Assistant config entry like other API keys.</p>
+</div>
+<div class="field"><label>Account number (optional)</label>
+<input type="text" data-field="octopus:account_number" value="${esc(String(draft.account_number || ""))}" placeholder="Auto — every account on this login" ${busy}>
+<p class="field-hint">Leave blank to use every account on the login. E.ON can put an export meter on its own account.</p>
+</div>
+${importMeters.length > 1 ? `<div class="field"><label>Import MPAN</label><select data-field="octopus:import_mpan" ${busy}><option value="">Select meter…</option>${meterOptions(importMeters, draft.import_mpan)}</select></div>` : ""}
+${this._renderSupplierExportSourceField("E.ON Next")}
+${exportMeters.length > 0 && draft.export_from_api !== false ? `<div class="field"><label>Export MPAN</label><select data-field="octopus:export_mpan" ${busy}><option value="">Auto</option>${meterOptions(exportMeters, draft.export_mpan)}</select></div>` : ""}
+<div class="btn-row">
+<button type="button" class="btn btn-secondary" data-action="test-octopus" ${busy}>Test connection</button>
+<button type="button" class="btn btn-secondary" data-action="fetch-octopus" ${busy}>Fetch rates now</button>
+<button type="button" class="btn btn-primary" data-action="save-octopus-settings" ${busy}>Save E.ON Next</button>
+</div>
+<p class="field-hint" style="margin:12px 0 0">${statusLines.map((l) => esc(l)).join("<br>")}</p>`
+      : "";
+    return `<div class="card">
+<p class="card-title">E.ON Next</p>
+<p class="field-hint" style="margin:0 0 12px">Native E.ON Next polling for fixed, flexible, Economy 7 and Next Drive time-of-use tariffs. Rates sync the 24-hour schedule on each hourly fetch, and SmartCharge plans against them. Octopus-only extras (Greener Nights, Energy Analysis) are not available.</p>
+<div class="toggle-row"><span><strong>Enable E.ON Next tariff link</strong></span>
+<input type="checkbox" data-field="octopus:enabled" ${draft.enabled ? "checked" : ""} ${busy}></div>
 ${detailBlock}
 </div>`;
   }

@@ -104,6 +104,10 @@ class TariffScheduleConfig:
     def band_for_hour(self, hour: int) -> TariffBandConfig:
         return self.bands[self.band_index_for_hour(hour)]
 
+    def export_p_by_hour(self) -> list[float]:
+        """Export minor-unit rate for each local hour (manual export next to an API import)."""
+        return [float(self.band_for_hour(h).export_p_per_kwh or 0.0) for h in range(TARIFF_HOUR_COUNT)]
+
     def rates_at(self, when: datetime | None = None) -> dict[str, Any]:
         """Resolve import/export minor-unit rates for a local datetime."""
         local = dt_util.as_local(when or dt_util.now())

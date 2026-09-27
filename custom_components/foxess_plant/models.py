@@ -1021,7 +1021,7 @@ def merge_fox_cloud_config(
 
 @dataclass
 class TariffDynamicConfig:
-    """Octopus API or external entity-backed dynamic tariffs (e.g. Agile)."""
+    """Supplier API (Octopus, E.ON Next) or external entity-backed dynamic tariffs (e.g. Agile)."""
 
     enabled: bool = False
     provider: str = ""
@@ -1032,6 +1032,11 @@ class TariffDynamicConfig:
     export_mpan: str | None = None
     import_entity: str | None = None
     export_entity: str | None = None
+    # E.ON Next has no API keys — its Kraken login is email + password.
+    email: str | None = None
+    password: str | None = None
+    # False when export is with another supplier (e.g. Fused SEG) and entered in the band editor.
+    export_from_api: bool = True
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> TariffDynamicConfig:
@@ -1054,10 +1059,30 @@ class TariffDynamicConfig:
             export_mpan=str(export_mpan).strip() if export_mpan else None,
             import_entity=str(import_entity) if import_entity else None,
             export_entity=str(export_entity) if export_entity else None,
+            email=str(raw["email"]).strip() if raw.get("email") else None,
+            password=str(raw["password"]) if raw.get("password") else None,
+            export_from_api=bool(raw.get("export_from_api", True)),
         )
 
     def api_key_configured(self) -> bool:
         return bool(self.api_key and str(self.api_key).strip())
+
+    def password_configured(self) -> bool:
+        return bool(self.password)
+
+    def native_eon_next(self) -> bool:
+        from .eon_next_parse import EON_NEXT_PROVIDER
+
+        return self.enabled and self.provider == EON_NEXT_PROVIDER and self.source == "native"
+
+    def native_api(self) -> bool:
+        """Any supplier polled directly for rates (Octopus or E.ON Next)."""
+        return self.native_octopus() or self.native_eon_next()
+
+    def native_credentials_configured(self) -> bool:
+        if self.native_eon_next():
+            return bool(self.email and self.password_configured())
+        return self.api_key_configured()
 
     def native_octopus(self) -> bool:
         from .octopus_tariff import OCTOPUS_PROVIDER, OCTOPUS_SOURCE_NATIVE
@@ -1087,11 +1112,15 @@ class TariffDynamicConfig:
             "export_mpan": self.export_mpan,
             "import_entity": self.import_entity,
             "export_entity": self.export_entity,
+            "email": self.email,
+            "export_from_api": self.export_from_api,
         }
         if include_api_key:
             out["api_key"] = self.api_key
+            out["password"] = self.password
         else:
             out["api_key_set"] = self.api_key_configured()
+            out["password_set"] = self.password_configured()
         return out
 
 
@@ -1099,7 +1128,7 @@ def merge_tariff_dynamic_config(
     current: dict[str, Any],
     incoming: dict[str, Any],
 ) -> dict[str, Any]:
-    """Merge a panel dynamic-tariff update without clearing a stored API key."""
+    """Merge a panel dynamic-tariff update without clearing a stored API key or password."""
     merged = {**current, **incoming}
     if "api_key" in incoming:
         raw_key = incoming.get("api_key")
@@ -1107,6 +1136,12 @@ def merge_tariff_dynamic_config(
             merged["api_key"] = str(raw_key).strip()
         else:
             merged["api_key"] = current.get("api_key")
+    # Passwords are not stripped — leading/trailing spaces can be part of one.
+    raw_password = incoming.get("password")
+    if raw_password and str(raw_password) not in ("********", "••••••••"):
+        merged["password"] = str(raw_password)
+    else:
+        merged["password"] = current.get("password")
     return merged
 
 
