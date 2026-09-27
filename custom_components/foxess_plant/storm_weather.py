@@ -864,22 +864,25 @@ def build_cloud_coverage_points(
     from homeassistant.util import dt as dt_util
 
     end_ms = float(min(as_of_ms, t_max_ms if t_max_ms is not None else as_of_ms))
-    if end_ms <= day_start_ms:
+    forecast_end_ms = float(t_max_ms if t_max_ms is not None else end_ms)
+    if max(end_ms, forecast_end_ms) <= day_start_ms:
         return []
 
-    window_start = dt_util.as_local(dt_util.utc_from_timestamp(day_start_ms / 1000))
-    window_end = dt_util.as_local(dt_util.utc_from_timestamp(end_ms / 1000))
-    forecast_end_ms = float(t_max_ms if t_max_ms is not None else end_ms)
-
     merged: dict[int, float] = {}
-    for t_ms, pct in _cloud_samples_from_recorder(hass, weather_entity_id, window_start, window_end):
-        merged[int(t_ms)] = pct
+    if end_ms > day_start_ms:
+        window_start = dt_util.as_local(dt_util.utc_from_timestamp(day_start_ms / 1000))
+        window_end = dt_util.as_local(dt_util.utc_from_timestamp(end_ms / 1000))
+        for t_ms, pct in _cloud_samples_from_recorder(
+            hass, weather_entity_id, window_start, window_end
+        ):
+            merged[int(t_ms)] = pct
+    # Recorder covers up to now; the hourly forecast fills the rest of the window.
     for t_ms, pct in _cloud_samples_from_hourly_forecast(
         hass, weather_entity_id, day_start_ms, forecast_end_ms
     ):
-        hour_key = int(t_ms // 3_600_000) * 3_600_000
-        if hour_key not in merged:
-            merged[hour_key] = pct
+        if merged and t_ms <= end_ms:
+            continue
+        merged.setdefault(int(t_ms), pct)
 
     if not merged:
         return []
@@ -887,7 +890,7 @@ def build_cloud_coverage_points(
     points = sorted((float(t), v) for t, v in merged.items())
     out: list[dict[str, float]] = []
     slot = int(day_start_ms)
-    end_slot = int(end_ms)
+    end_slot = int(max(end_ms, forecast_end_ms))
     idx = 0
     current: float | None = None
     while slot <= end_slot:

@@ -372,7 +372,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.489";
+const PANEL_VERSION = "0.9.490";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -1505,29 +1505,16 @@ function forecastAccuracyRangeFromReport(report, intraday) {
   let tMax = Number(win?.t_max_ms);
   if (!Number.isFinite(tMin)) tMin = dayStart + 6 * 3600000;
   if (!Number.isFinite(tMax)) tMax = dayStart + 20 * 3600000;
-  let nowMs = report?.is_today
-    ? Math.min(Date.now(), tMax)
-    : Math.min(Number.isFinite(asOf) ? asOf : Date.now(), tMax);
-  if (report?.is_today) {
-    let dataEnd = tMin;
-    for (const key of ["actual_power_kw", "predicted_power_kw", "latest_revision_power_kw"]) {
-      for (const p of intraday?.[key] || []) {
-        if (Number.isFinite(p?.t) && p.t > dataEnd) dataEnd = p.t;
-      }
+  // Axis always spans the sunrise→sunset window; only measured PV stops at "now".
+  const isToday = Boolean(report?.is_today);
+  let nowMs = isToday ? Date.now() : Number.isFinite(asOf) ? asOf : tMax;
+  if (isToday) {
+    for (const p of intraday?.actual_power_kw || []) {
+      if (Number.isFinite(p?.t) && p.t > nowMs) nowMs = p.t;
     }
-    const endRef = Math.max(dataEnd, nowMs, tMin + 3600000);
-    const endCeil = ceilToLocalHourMs(endRef + 3600000);
-    tMax = Math.min(tMax, Math.max(endCeil, tMin + 2 * 3600000));
-    nowMs = Math.min(Math.max(nowMs, dataEnd), tMax);
   }
-  return { tMin, tMax, nowMs, dayStart };
-}
-
-function ceilToLocalHourMs(ms) {
-  const d = new Date(ms);
-  d.setMinutes(0, 0, 0);
-  if (ms > d.getTime()) d.setHours(d.getHours() + 1);
-  return d.getTime();
+  nowMs = Math.min(Math.max(nowMs, tMin), tMax);
+  return { tMin, tMax, nowMs, dayStart, isToday };
 }
 
 function buildForecastAccuracySeriesMeta(intraday, { compact = false } = {}) {
@@ -1557,9 +1544,14 @@ function buildForecastAccuracySeriesMeta(intraday, { compact = false } = {}) {
   return meta;
 }
 
+// Past a series' last point (e.g. actual PV after now) the tooltip omits it rather than holding.
+const FORECAST_ACCURACY_HOVER_TAIL_MS = 10 * 60 * 1000;
+
 function forecastAccuracyTooltipRowsHtml(seriesMeta, t) {
   return seriesMeta
     .map((s) => {
+      const last = s.points[s.points.length - 1];
+      if (last && t > last.t + FORECAST_ACCURACY_HOVER_TAIL_MS) return "";
       const v = interpolateSeriesAt(s.points, t);
       if (v == null) return "";
       const value =
@@ -1672,10 +1664,11 @@ function forecastAccuracyXTicks(tMin, tMax, { maxTicks = 7 } = {}) {
   return ticks;
 }
 
-function forecastAccuracyClipPoints(points, range) {
-  const { tMin, nowMs } = range;
+function forecastAccuracyClipPoints(points, range, { toNow = false } = {}) {
+  const { tMin, tMax, nowMs } = range;
+  const end = toNow ? nowMs : tMax;
   return (points || []).filter(
-    (p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.t >= tMin && p.t <= nowMs
+    (p) => Number.isFinite(p.t) && Number.isFinite(p.v) && p.t >= tMin && p.t <= end
   );
 }
 
@@ -1710,7 +1703,7 @@ function forecastAccuracyPlotSvg(series, range, options = {}) {
   const xScale = (t) => plotPad.l + ((t - tMin) / daySpan) * w;
   const allValues = [];
   for (const s of visible) {
-    for (const p of forecastAccuracyClipPoints(s.points, range)) {
+    for (const p of forecastAccuracyClipPoints(s.points, range, { toNow: s.clipToNow })) {
       allValues.push(p.v);
     }
   }
@@ -1769,16 +1762,28 @@ function forecastAccuracyPlotSvg(series, range, options = {}) {
     const pixelPts = cloudPts.map((p) => ({ x: xScale(p.t), y: yCloudScale(p.v), t: p.t, v: p.v }));
     const baseline = plotPad.t + h;
     cloudFill = `<path class="forecast-accuracy-cloud-fill" d="${fillToZeroPath(pixelPts, baseline, cloudPts)}" fill="${secondarySeries.fillColor || FORECAST_ACCURACY_COLORS.cloudFill}" stroke="none"/>`;
-    cloudLine = `<path class="statistics-line forecast-accuracy-cloud-line" d="${polylinePath(pixelPts)}" fill="none" stroke="${secondarySeries.color || FORECAST_ACCURACY_COLORS.cloud}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/>`;
+    // Observed cloud up to now is solid; the weather forecast after now is dashed.
+    const splitAt = range.isToday ? nowMs : Infinity;
+    const observed = pixelPts.filter((p) => p.t <= splitAt);
+    const forecast = pixelPts.filter((p, i) => p.t >= splitAt || pixelPts[i + 1]?.t > splitAt);
+    const cloudPath = (pts, dash) =>
+      pts.length >= 2
+        ? `<path class="statistics-line forecast-accuracy-cloud-line" d="${polylinePath(pts)}" fill="none" stroke="${secondarySeries.color || FORECAST_ACCURACY_COLORS.cloud}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"${dash ? ` stroke-dasharray="${dash}"` : ""}/>`
+        : "";
+    cloudLine = cloudPath(observed, "") + cloudPath(forecast, "4 3");
   }
   const lines = visible
     .map((s) => {
-      const pts = forecastAccuracyClipPoints(s.points, range);
+      const pts = forecastAccuracyClipPoints(s.points, range, { toNow: s.clipToNow });
       if (pts.length < 2) return "";
       const pixelPts = pts.map((p) => ({ x: xScale(p.t), y: yScale(p.v) }));
       return `<path class="statistics-line" d="${polylinePath(pixelPts)}" fill="none" stroke="${s.color}" stroke-width="${s.lineWidth || 1.8}" stroke-linecap="round" stroke-linejoin="round"${s.dash ? ` stroke-dasharray="${s.dash}"` : ""}/>`;
     })
     .join("");
+  const nowLine =
+    range.isToday && nowMs > tMin && nowMs < tMax
+      ? `<line x1="${xScale(nowMs).toFixed(1)}" y1="${plotPad.t}" x2="${xScale(nowMs).toFixed(1)}" y2="${plotPad.t + h}" class="soc-chart-now-line"/>`
+      : "";
   const legendItems = [...visible];
   if (hasCloud) {
     legendItems.push({
@@ -1805,7 +1810,7 @@ function forecastAccuracyPlotSvg(series, range, options = {}) {
 ${head}
 <div class="forecast-accuracy-chart-plot" data-forecast-accuracy-chart="1" ${plotAttrs}>
 <svg class="forecast-accuracy-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMinYMin meet" role="img" aria-label="${esc(ariaLabel)}">
-${grid}${cloudFill}${yLabels}${yCloudLabels}${xLabels}${lines}${cloudLine}
+${grid}${cloudFill}${yLabels}${yCloudLabels}${xLabels}${nowLine}${lines}${cloudLine}
 <rect class="forecast-accuracy-hit statistics-hit" x="${plotPad.l}" y="${plotPad.t}" width="${w}" height="${h}" fill="transparent"/>
 </svg>
 <div class="statistics-crosshair" hidden><div class="statistics-spike"></div></div>
@@ -1821,6 +1826,7 @@ function renderForecastAccuracyChartHtml(intraday, range, { compact = false } = 
       label: "PV generation",
       color: FORECAST_ACCURACY_COLORS.actual,
       points: intraday?.actual_power_kw,
+      clipToNow: true,
     },
     {
       id: "pv_forecast",

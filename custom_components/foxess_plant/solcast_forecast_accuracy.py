@@ -626,7 +626,9 @@ def build_forecast_accuracy_report(
             "first_revision_cumulative": first_cumulative,
             "latest_revision_cumulative": latest_cumulative,
             "actual_power_kw": actual_power,
-            "predicted_power_kw": predicted_in_range,
+            # Full day so today's chart shows the forecast through sunset;
+            # predicted_kwh / variance above still stop at as_of.
+            "predicted_power_kw": predicted_kw,
             "latest_revision_power_kw": _points_through(latest_curve, as_of_ms),
             "cloud_coverage_pct": cloud_coverage_pct,
         },
