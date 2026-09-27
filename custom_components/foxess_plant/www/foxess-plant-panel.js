@@ -406,7 +406,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.495";
+const PANEL_VERSION = "0.9.496";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -25192,6 +25192,20 @@ ${detailBlock}
       );
     }
     if (live.tariff_type) statusLines.push(`Type: ${live.tariff_type} — daily schedule`);
+    if (live.agreement_valid_to) {
+      const ends = new Date(live.agreement_valid_to);
+      if (!Number.isNaN(ends.getTime())) {
+        const label = ends.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" });
+        statusLines.push(
+          ends.getTime() < Date.now()
+            ? `Agreement ended ${label} — check your new E.ON tariff has been picked up`
+            : `Agreement until: ${label}`
+        );
+      }
+    }
+    if (live.using_saved_rates) {
+      statusLines.push("Using saved rates from the last good fetch — E.ON can't be reached right now");
+    }
     const rateBits = [];
     if (live.current_import_p_per_kwh != null) {
       rateBits.push(`Import ${formatTariffMoney(live.current_import_p_per_kwh, currency)}/kWh`);

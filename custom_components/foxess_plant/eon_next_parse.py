@@ -121,6 +121,8 @@ def meters_from_accounts(
                     "tariff_code": tariff_code,
                     "product_code": product_code,
                     "display_name": f"{mpan} — {display}" if display else mpan,
+                    # Fixed E.ON tariffs don't change until the agreement ends.
+                    "agreement_valid_to": (active or {}).get("validTo"),
                 }
                 (exports if is_export else imports).append(meter)
     return imports, exports
@@ -255,3 +257,19 @@ def jwt_exp(token: str | None) -> float | None:
         return float(exp) if exp is not None else None
     except (TypeError, ValueError):
         return None
+
+
+def rows_cover_until(rows: list[dict[str, Any]] | None) -> datetime | None:
+    """Latest ``valid_to`` across rate rows; ``datetime.max`` if any row is open-ended."""
+    latest: datetime | None = None
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        if row.get("valid_to") in (None, ""):
+            if row.get("valid_from"):
+                return datetime.max.replace(tzinfo=timezone.utc)
+            continue
+        end = parse_iso(row.get("valid_to"))
+        if end is not None and (latest is None or end > latest):
+            latest = end
+    return latest

@@ -154,6 +154,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._eon_next_client: Any = None
         self._eon_next_client_key: tuple[str, str, str] | None = None
         self._eon_next_auth_store: Any = None
+        self._supplier_tariff_store: Any = None
         self._octopus_greener_store = None
         self._octopus_greener_cache: dict[str, Any] = {}
         self._octopus_greener_history_count = 0
@@ -718,6 +719,15 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         cache["current_export_p_per_kwh"] = (
             rate_at(now, export_rates) if export_rates else None
         )
+        if self._fixed_tariff_rows_stale(import_rates):
+            # Saved rows ran out during an outage — fixed tariffs repeat daily.
+            from .tariff_rates import scheduled_rates_at
+
+            scheduled = scheduled_rates_at(self.plant.tariff, now)
+            if cache["current_import_p_per_kwh"] is None:
+                cache["current_import_p_per_kwh"] = scheduled.get("import_p_per_kwh")
+            if cache["current_export_p_per_kwh"] is None:
+                cache["current_export_p_per_kwh"] = scheduled.get("export_p_per_kwh")
 
     def _octopus_greener_refresh_due(self, *, force: bool = False) -> bool:
         if force:
@@ -772,6 +782,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "export_rates_count": cache.get("export_rates_count"),
             "schedule_ready": bool(cache.get("schedule")),
             "export_manual": self._supplier_export_manual(),
+            "agreement_valid_to": cache.get("agreement_valid_to"),
+            # Rates shown/used are the last good fetch while the supplier can't be reached.
+            "using_saved_rates": bool(cache.get("last_error") and cache.get("import_rates")),
             "import_meters": import_meters,
             "export_meters": export_meters,
             "import_meter": cache.get("import_meter"),
@@ -1201,6 +1214,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._async_load_smart_charge_pv()
         await self._async_save_smart_charge_pv()
         await self._async_load_tariff_storage()
+        await self._async_restore_supplier_tariff()
         self._sync_trigger_membership()
         self.setup_trigger_listeners()
         await super().async_config_entry_first_refresh()
@@ -1664,10 +1678,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._octopus_agile_active() or (
             not self._octopus_entity_active() and self._octopus_cache.get("import_rates")
         ):
-            return (
-                list(self._octopus_cache.get("import_rates") or []),
-                list(self._octopus_cache.get("export_rates") or []),
-            )
+            import_rows = list(self._octopus_cache.get("import_rates") or [])
+            if self._fixed_tariff_rows_stale(import_rows):
+                # Supplier unreachable for a while: roll the saved daily pattern forward.
+                return self._smart_charge_schedule_rate_rows()
+            return import_rows, list(self._octopus_cache.get("export_rates") or [])
         if self._octopus_entity_active():
             import_rows, export_rows = self._smart_charge_entity_rate_rows()
             if import_rows:
@@ -4638,6 +4653,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._octopus_cache["export_rates"] = snapshot.export_rates
         self._octopus_cache["import_meters"] = meter_list_for_cache(imports)
         self._octopus_cache["export_meters"] = meter_list_for_cache(exports)
+        chosen = snapshot.import_meter.mpan if snapshot.import_meter else None
+        self._octopus_cache["agreement_valid_to"] = next(
+            (m.get("agreement_valid_to") for m in imports if m["mpan"] == chosen), None
+        )
         _LOGGER.debug(
             "E.ON Next tariff refreshed (%s, import %s, export %s rates=%s)",
             snapshot.tariff_type,
@@ -4646,8 +4665,78 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             len(snapshot.export_rates),
         )
         self._apply_manual_export_to_cache()
+        await self._async_save_supplier_tariff()
         await self._async_sync_octopus_standing_charge()
         await self._async_auto_apply_octopus_schedule()
+
+    def _supplier_tariff_store_handle(self) -> Any:
+        if self._supplier_tariff_store is None:
+            from .supplier_tariff_store import SupplierTariffStore
+
+            self._supplier_tariff_store = SupplierTariffStore(self.hass, self.config_entry.entry_id)
+        return self._supplier_tariff_store
+
+    async def _async_save_supplier_tariff(self) -> None:
+        """Keep the last good E.ON Next fetch so outages and restarts keep the rates.
+
+        E.ON only: its sign-in relies on a browser token that can lapse, and its tariffs are
+        fixed until the agreement ends. Octopus has a supported API key (and Agile changes
+        daily), so it keeps its original always-fetch behaviour.
+        """
+        if not self.plant.tariff.dynamic.native_eon_next() or not self._octopus_cache.get("import_rates"):
+            return
+        try:
+            await self._supplier_tariff_store_handle().async_save(
+                self.plant.tariff.dynamic.provider, dict(self._octopus_cache)
+            )
+        except Exception:
+            _LOGGER.exception("Saving supplier tariff snapshot failed")
+
+    async def _async_restore_supplier_tariff(self) -> None:
+        """Load the last good E.ON Next fetch at startup (before any API call)."""
+        dyn = self.plant.tariff.dynamic
+        if not (dyn.native_eon_next() and self._octopus_native_active()) or self._octopus_cache.get("import_rates"):
+            return
+        try:
+            cache = await self._supplier_tariff_store_handle().async_load(
+                self.plant.tariff.dynamic.provider
+            )
+        except Exception:
+            _LOGGER.exception("Supplier tariff snapshot read failed")
+            return
+        if not cache:
+            return
+        cache.pop("last_error", None)
+        self._octopus_cache = cache
+        # Manual export rows are time-stamped from the old run — rebuild them from the bands.
+        self._apply_manual_export_to_cache()
+        self._sync_octopus_current_rates_from_cache()
+        _LOGGER.info(
+            "Restored %s tariff from %s (%s, agreement until %s)",
+            self._tariff_provider_label(),
+            cache.get("last_fetch_at"),
+            cache.get("import_tariff_code"),
+            cache.get("agreement_valid_to") or "open-ended",
+        )
+
+    def _fixed_tariff_rows_stale(self, rows: list[dict[str, Any]]) -> bool:
+        """True when E.ON Next's saved fixed / TOU rate rows no longer cover the plan horizon.
+
+        Hourly fetches cover ~48 h ahead. After a long API or sign-in outage the rows run out,
+        and SmartCharge would plan with no prices. Fixed tariffs repeat daily, so the saved
+        daily schedule (applied from the same API data) is the right stand-in.
+        """
+        from homeassistant.util import dt as dt_util
+
+        from .eon_next_parse import rows_cover_until
+        from .octopus_tariff import is_variable_tariff_type
+
+        if not self.plant.tariff.dynamic.native_eon_next():
+            return False  # Octopus unchanged: Agile is genuinely dynamic, fixed tariffs refetch.
+        if is_variable_tariff_type(str(self._octopus_cache.get("tariff_type") or "")):
+            return False
+        until = rows_cover_until(rows)
+        return until is None or until < dt_util.utcnow() + timedelta(hours=24)
 
     async def _eon_next_client_for(self, *, email: str, password: str, refresh_token: str) -> Any:
         """Shared E.ON Next client for a login, reusing tokens across polls and tests.

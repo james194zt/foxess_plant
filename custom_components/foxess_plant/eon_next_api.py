@@ -478,6 +478,7 @@ def meter_list_for_cache(meters: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "tariff_code": m.get("tariff_code"),
             "display_name": m.get("display_name"),
             "account_number": m.get("account_number"),
+            "agreement_valid_to": m.get("agreement_valid_to"),
         }
         for m in meters
     ]

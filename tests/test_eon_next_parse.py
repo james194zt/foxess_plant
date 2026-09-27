@@ -166,5 +166,29 @@ class TokenHelperTests(unittest.TestCase):
         self.assertIsNone(eon.jwt_exp("a.!!!.c"))
 
 
+
+class CoverageTests(unittest.TestCase):
+    def test_rows_cover_until_latest_end(self) -> None:
+        rows = [
+            {"valid_from": "2026-09-27T00:00:00Z", "valid_to": "2026-09-27T07:00:00Z"},
+            {"valid_from": "2026-09-27T07:00:00Z", "valid_to": "2026-09-29T00:00:00Z"},
+        ]
+        self.assertEqual(eon.rows_cover_until(rows), datetime(2026, 9, 29, tzinfo=timezone.utc))
+
+    def test_open_ended_flat_row_never_runs_out(self) -> None:
+        rows = eon.normalize_rest_rows([{"value_inc_vat": 24.5, "valid_from": None, "valid_to": None}])
+        self.assertEqual(eon.rows_cover_until(rows).year, datetime.max.year)
+
+    def test_empty_rows(self) -> None:
+        self.assertIsNone(eon.rows_cover_until([]))
+
+    def test_agreement_end_is_kept_on_meter(self) -> None:
+        accounts = [{"number": "A-1", "properties": [{"electricityMeterPoints": [
+            _point("1", "IMPORT", "E-TOU-X-A", valid_to="2028-09-01T00:00:00Z"),
+        ]}]}]
+        imports, _ = eon.meters_from_accounts(accounts, now=NOW)
+        self.assertEqual(imports[0]["agreement_valid_to"], "2028-09-01T00:00:00Z")
+
+
 if __name__ == "__main__":
     unittest.main()
