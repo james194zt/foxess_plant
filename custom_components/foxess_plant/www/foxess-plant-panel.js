@@ -394,7 +394,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.493";
+const PANEL_VERSION = "0.9.494";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -15477,7 +15477,7 @@ Reloading panel registration…
 
   _settingsFieldBlocksRender() {
     if (this._view !== "settings" && !this._isDeviceFormView() && !this._isModbusLabView()) return false;
-    if (this._settingsFieldFocused) return true;
+    if (this._settingsFieldFocused || this._pointerHeld) return true;
     const el = this.shadowRoot?.activeElement || document.activeElement;
     if (!el || !this._root.contains(el)) return false;
     if (el.tagName === "HA-ENTITY-PICKER" || el.closest?.("ha-entity-picker")) return true;
@@ -15568,6 +15568,12 @@ Reloading panel registration…
 
   _onPointerDown(e) {
     const t = e.target;
+    // Hold background re-renders until this press's click has run. A pending render flushed
+    // on focus-out (mousedown) replaced the form — and the button being clicked — mid-click,
+    // wiping typed fields and dropping the Save click.
+    this._pointerHeld = true;
+    if (this._pointerHeldTimer) window.clearTimeout(this._pointerHeldTimer);
+    this._pointerHeldTimer = window.setTimeout(() => this._releasePointerHold(), 3000);
     if (t?.matches?.('input[type="range"][data-field^="pv:"]')) this._rangeDrag = true;
     const saveBtn = t?.closest?.('[data-action="save-performance-settings"]');
     if (saveBtn && this._performanceDraft) this._syncPerformanceDraftFromDom();
@@ -15577,6 +15583,21 @@ Reloading panel registration…
 
   _onPointerUp() {
     this._rangeDrag = false;
+    // Release after the click event (dispatched right after pointerup) has been handled.
+    window.setTimeout(() => this._releasePointerHold(), 0);
+  }
+
+  _releasePointerHold() {
+    if (!this._pointerHeld) return;
+    this._pointerHeld = false;
+    if (this._pointerHeldTimer) {
+      window.clearTimeout(this._pointerHeldTimer);
+      this._pointerHeldTimer = undefined;
+    }
+    if (this._renderPending && !this._settingsFieldBlocksRender()) {
+      this._renderPending = false;
+      this._scheduleRender();
+    }
   }
 
   _updatePvRangeLabel(el) {
@@ -19508,6 +19529,20 @@ Reloading panel registration…
         return;
       }
       return;
+    }
+    if (kind === "octopus" && this._octopusDraft) {
+      // Keep typed supplier credentials in the draft on every keystroke. Otherwise a pending
+      // background re-render (run on focus-out, i.e. when Save is pressed) rebuilds the card
+      // from the draft and wipes the fields before the save reads them.
+      const field = parts[1];
+      if (field === "email" || field === "account_number") {
+        this._octopusDraft[field] = String(el.value ?? "").trim();
+        return;
+      }
+      if (field === "api_key" || field === "password") {
+        this._octopusDraft[field] = String(el.value ?? "");
+        return;
+      }
     }
     if (kind === "tariff" && this._tariffDraft) {
       const rateKind = parts[1];
