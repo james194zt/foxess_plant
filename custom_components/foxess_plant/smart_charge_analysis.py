@@ -553,6 +553,34 @@ def build_smart_charge_analysis_payload(
     }
 
 
+POWER_KEYS = ("grid_import", "grid_export", "battery_charge", "battery_discharge")
+# Short-term (5-minute) statistics are kept ~10 days by default; hourly for much longer.
+SHORT_TERM_STATS_DAYS = 10
+
+
+def power_unit_scale(unit: str | None) -> float:
+    """Multiplier converting a power sensor's unit to kW (1.0 when unknown / kW)."""
+    unit = (unit or "").strip()
+    if unit == "W":
+        return 0.001
+    if unit == "MW":
+        return 1000.0
+    return 1.0
+
+
+def merge_power_series(
+    hourly: list[dict[str, float]],
+    five_minute: list[dict[str, float]],
+    *,
+    scale: float = 1.0,
+) -> list[dict[str, float]]:
+    """Prefer 5-minute points; use hourly means only before the 5-minute data starts."""
+    fine = [{"t": p["t"], "v": p["v"] * scale} for p in five_minute]
+    cutoff = fine[0]["t"] if fine else float("inf")
+    coarse = [{"t": p["t"], "v": p["v"] * scale} for p in hourly if p["t"] < cutoff]
+    return sorted(coarse + fine, key=lambda p: p["t"])
+
+
 async def async_build_smart_charge_analysis(
     hass: HomeAssistant,
     coordinator: Any,
@@ -560,79 +588,122 @@ async def async_build_smart_charge_analysis(
     period: str = "week",
     offset: int = 0,
 ) -> dict[str, Any]:
-    """Build SmartCharge Analysis from HA recorder for the selected report period."""
-    from .websocket_api import _fetch_statistics_points
+    """Build SmartCharge Analysis from HA recorder for the selected report period.
+
+    Entity lookups happen here on the event loop; every recorder / SQLite read runs in
+    the recorder executor (HA forbids database access from the event loop).
+    """
+    from homeassistant.components.recorder import get_instance
+
+    from .discovery import resolve_entity_id
 
     entry_id = coordinator.config_entry.entry_id
     if not coordinator.plant.smart_charge.enabled:
         return {"error": "SmartCharge is disabled", "enabled": False}
 
     start_local, end_local, _can_next = reports_period_bounds(period, offset)
-    start_utc = dt_util.as_utc(start_local)
-    end_utc = dt_util.as_utc(end_local)
-    now = dt_util.utcnow()
-    fetch_end = min(end_utc, now)
-    range_start_ms = start_local.timestamp() * 1000
-    range_end_ms = min(end_local.timestamp() * 1000, now.timestamp() * 1000)
     period_label = reports_period_label(period, offset, now=start_local)
 
     active_id = find_entry_entity(hass, entry_id, "_smart_charge_active")
     decision_id = find_entry_entity(hass, entry_id, "_smart_charge_decision")
-    entity_map = coordinator.plant.entity_map or {}
-    power_keys = {
-        "grid_import": "grid_import",
-        "grid_export": "feed_in",
-        "battery_charge": "battery_charge",
-        "battery_discharge": "battery_discharge",
-    }
-    power_ids: dict[str, str | None] = {
-        key: entity_map.get(map_key) for key, map_key in power_keys.items()
-    }
-
     if not active_id:
         return {
             "error": "Smart charge active sensor not found. Reload the integration.",
             "period_label": period_label,
         }
 
-    decision_states: list[Any] = []
-    if decision_id:
-        from homeassistant.components.recorder import history
-        from homeassistant.components.recorder.util import session_scope
+    entity_map = coordinator.plant.entity_map or {}
+    power_ids: dict[str, str | None] = {}
+    power_scale: dict[str, float] = {}
+    for key in POWER_KEYS:
+        eid = resolve_entity_id(hass, entity_map, key, device_id=coordinator.plant.device_id)
+        power_ids[key] = eid
+        state = hass.states.get(eid) if eid else None
+        power_scale[key] = power_unit_scale(
+            state.attributes.get("unit_of_measurement") if state is not None else None
+        )
 
-        with session_scope(hass=hass, read_only=True) as session:
-            states_map = history.get_significant_states_with_session(
-                hass,
-                session,
-                start_utc - timedelta(hours=1),
-                fetch_end,
-                [decision_id],
-                None,
-                include_start_time_state=True,
-                significant_changes_only=False,
-                minimal_response=False,
-                no_attributes=False,
-            )
-        decision_states = list(states_map.get(decision_id) or [])
+    sc = coordinator.plant.smart_charge
+    store = getattr(coordinator, "_performance_store", None)
 
-    armed_states: list[Any] = []
+    def job() -> dict[str, Any]:
+        return _build_analysis_sync(
+            hass,
+            period=period,
+            offset=offset,
+            period_label=period_label,
+            start_local=start_local,
+            end_local=end_local,
+            active_id=active_id,
+            decision_id=decision_id,
+            power_ids=power_ids,
+            power_scale=power_scale,
+            operating_mode=getattr(sc, "operating_mode", None),
+            store=store,
+        )
+
+    return await get_instance(hass).async_add_executor_job(job)
+
+
+def _recorder_states(
+    hass: HomeAssistant,
+    entity_id: str,
+    start_utc: datetime,
+    end_utc: datetime,
+    *,
+    attributes: bool,
+) -> list[Any]:
     from homeassistant.components.recorder import history
     from homeassistant.components.recorder.util import session_scope
 
     with session_scope(hass=hass, read_only=True) as session:
-        active_map = history.get_significant_states_with_session(
+        states_map = history.get_significant_states_with_session(
             hass,
             session,
-            start_utc - timedelta(hours=1),
-            fetch_end,
-            [active_id],
+            start_utc,
+            end_utc,
+            [entity_id],
             None,
             include_start_time_state=True,
             significant_changes_only=False,
             minimal_response=False,
-            no_attributes=True,
+            no_attributes=not attributes,
         )
-    armed_states = list(active_map.get(active_id) or [])
+    return list(states_map.get(entity_id) or [])
+
+
+def _build_analysis_sync(
+    hass: HomeAssistant,
+    *,
+    period: str,
+    offset: int,
+    period_label: str,
+    start_local: datetime,
+    end_local: datetime,
+    active_id: str,
+    decision_id: str | None,
+    power_ids: dict[str, str | None],
+    power_scale: dict[str, float],
+    operating_mode: str | None,
+    store: Any,
+) -> dict[str, Any]:
+    """Recorder-executor half of the report: all database reads live here."""
+    from .websocket_api import _fetch_statistics_points
+
+    start_utc = dt_util.as_utc(start_local)
+    end_utc = dt_util.as_utc(end_local)
+    now = dt_util.utcnow()
+    fetch_end = min(end_utc, now)
+    range_start_ms = start_local.timestamp() * 1000
+    range_end_ms = min(end_local.timestamp() * 1000, now.timestamp() * 1000)
+    history_start = start_utc - timedelta(hours=1)
+
+    decision_states = (
+        _recorder_states(hass, decision_id, history_start, fetch_end, attributes=True)
+        if decision_id
+        else []
+    )
+    armed_states = _recorder_states(hass, active_id, history_start, fetch_end, attributes=False)
 
     armed_periods = pair_binary_on_periods(armed_states, range_end_ms=range_end_ms)
     armed_periods = [
@@ -643,13 +714,29 @@ async def async_build_smart_charge_analysis(
 
     stat_ids = [eid for eid in power_ids.values() if eid]
     power_pts: dict[str, list[dict[str, float]]] = {k: [] for k in power_ids}
+    missing_power = [key for key, eid in power_ids.items() if not eid]
     if stat_ids:
         try:
-            stats = _fetch_statistics_points(hass, start_utc, fetch_end, stat_ids, period="5minute", statistic="mean")
+            hourly = _fetch_statistics_points(
+                hass, start_utc, fetch_end, stat_ids, period="hour", statistic="mean"
+            )
+            fine_start = max(start_utc, fetch_end - timedelta(days=SHORT_TERM_STATS_DAYS))
+            five_min = (
+                _fetch_statistics_points(
+                    hass, fine_start, fetch_end, stat_ids, period="5minute", statistic="mean"
+                )
+                if fine_start < fetch_end
+                else {}
+            )
             for key, eid in power_ids.items():
-                if eid:
-                    power_pts[key] = stats_rows_to_power_points(stats.get(eid) or [])
-        except Exception as err:
+                if not eid:
+                    continue
+                power_pts[key] = merge_power_series(
+                    stats_rows_to_power_points(hourly.get(eid) or []),
+                    stats_rows_to_power_points(five_min.get(eid) or []),
+                    scale=power_scale.get(key, 1.0),
+                )
+        except Exception as err:  # noqa: BLE001 — report still renders sessions without energy
             _LOGGER.warning("SmartCharge analysis statistics failed: %s", err)
 
     plan_snapshots = collect_plan_snapshots(
@@ -657,8 +744,6 @@ async def async_build_smart_charge_analysis(
         range_start_ms=range_start_ms,
         range_end_ms=range_end_ms,
     )
-    sc = coordinator.plant.smart_charge
-    operating_mode = getattr(sc, "operating_mode", None)
 
     payload = build_smart_charge_analysis_payload(
         period=period,
@@ -675,13 +760,20 @@ async def async_build_smart_charge_analysis(
         plan_snapshots=plan_snapshots,
         operating_mode=operating_mode,
     )
+    if missing_power:
+        payload["power_sensors_missing"] = missing_power
     if not armed_periods and not plan_snapshots:
         payload["hint"] = (
             "No SmartCharge activity recorded for this period. "
             "Armed sessions and daily plans are stored when the recorder keeps history "
             "for the smart charge sensors."
         )
-    store = getattr(coordinator, "_performance_store", None)
+    elif missing_power:
+        payload["hint"] = (
+            "Some power sensors could not be found ("
+            + ", ".join(k.replace("_", " ") for k in missing_power)
+            + ") — their energy totals show as 0."
+        )
     if store is not None:
         from .performance.hems_audit import build_hems_audit_report
 
@@ -697,7 +789,9 @@ __all__ = [
     "async_build_smart_charge_analysis",
     "build_smart_charge_analysis_payload",
     "integrate_power_kwh",
+    "merge_power_series",
     "pair_binary_on_periods",
+    "power_unit_scale",
     "reports_period_bounds",
     "reports_period_label",
     "resolve_slot_range_ms",

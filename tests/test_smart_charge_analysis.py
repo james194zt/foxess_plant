@@ -106,5 +106,19 @@ class TestReportsPeriod(unittest.TestCase):
         self.assertFalse(can_next)
 
 
+class TestPowerSeries(unittest.TestCase):
+    def test_unit_scale(self):
+        self.assertEqual(sca.power_unit_scale("W"), 0.001)
+        self.assertEqual(sca.power_unit_scale("kW"), 1.0)
+        self.assertEqual(sca.power_unit_scale(None), 1.0)
+
+    def test_merge_prefers_five_minute_and_scales(self):
+        hourly = [{"t": 0.0, "v": 1000.0}, {"t": 3_600_000.0, "v": 2000.0}, {"t": 7_200_000.0, "v": 9999.0}]
+        fine = [{"t": 7_200_000.0, "v": 3000.0}, {"t": 7_500_000.0, "v": 3000.0}]
+        merged = sca.merge_power_series(hourly, fine, scale=0.001)
+        self.assertEqual([p["t"] for p in merged], [0.0, 3_600_000.0, 7_200_000.0, 7_500_000.0])
+        self.assertEqual([p["v"] for p in merged], [1.0, 2.0, 3.0, 3.0])
+
+
 if __name__ == "__main__":
     unittest.main()
