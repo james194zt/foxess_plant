@@ -210,6 +210,8 @@ TARIFF_BAND_SCHEMA = vol.Schema(
     {
         vol.Optional("import_p_per_kwh", default=0): TARIFF_RATE_MINOR,
         vol.Optional("export_p_per_kwh", default=0): TARIFF_RATE_MINOR,
+        vol.Optional("work_mode"): vol.Any(None, cv.string),
+        vol.Optional("enable_force_charge", default=False): cv.boolean,
     }
 )
 
@@ -234,6 +236,7 @@ TARIFF_SCHEMA = vol.Schema(
         vol.Optional("standing_entity", default=None): vol.Any(None, cv.string),
         vol.Required("standing_charge_p_per_day"): TARIFF_RATE_MINOR,
         vol.Optional("schedule", default={}): TARIFF_SCHEDULE_SCHEMA,
+        vol.Optional("apply_band_inverter_control", default=False): cv.boolean,
         vol.Optional("dynamic", default={}): TARIFF_DYNAMIC_SCHEMA,
     }
 )
