@@ -372,7 +372,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.486";
+const PANEL_VERSION = "0.9.487";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -1993,8 +1993,12 @@ function performanceEnabled(plantState) {
   return plantState?.performance?.enabled !== false;
 }
 
+function octopusApiActive(plantState) {
+  return Boolean(plantState?.tariff?.octopus_api_active);
+}
+
 function reportsNavForState(plantState) {
-  const items = [...REPORTS_NAV];
+  const items = REPORTS_NAV.filter((item) => item.id !== "octopus" || octopusApiActive(plantState));
   if (performanceEnabled(plantState)) {
     items.push({ id: "performance", label: "Performance" });
   }
@@ -21888,6 +21892,7 @@ ${detailsHtml}
   }
 
   _renderReports(plant) {
+    this._ensureReportsViewValid();
     if (this._reportsView === "octopus") {
       return this._renderOctopusEnergyAnalysis(plant);
     }

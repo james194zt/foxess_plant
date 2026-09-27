@@ -511,6 +511,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for kind in ("import", "export", "standing")
         }
         state["octopus"] = self._octopus_status()
+        state["octopus_api_active"] = self._octopus_native_active()
         state["octopus_greener"] = self._octopus_greener_state()
         state["octopus_analysis"] = self._octopus_analysis_state()
         return state
@@ -561,7 +562,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     def _octopus_analysis_state(self) -> dict[str, Any] | None:
-        if not self._octopus_greener_enabled():
+        # The analysis report is built from the Octopus API — nothing to show without it.
+        if not self._octopus_native_active():
             return None
         from .octopus_analysis import octopus_analysis_dashboard_payload
 
