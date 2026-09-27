@@ -372,7 +372,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.490";
+const PANEL_VERSION = "0.9.491";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -8213,7 +8213,9 @@ function renderSmartChargeStatTiles(decision) {
   if (decision.grid_gap_kwh != null) {
     tiles.push({ label: "Planned grid charge", value: `${Number(decision.grid_gap_kwh).toFixed(1)} kWh` });
   }
-  if (summary.tomorrow_pv_known === false) {
+  if (summary.tomorrow_pv_estimated && summary.tomorrow_pv_kwh != null) {
+    tiles.push({ label: "Tomorrow PV (est.)", value: `${Number(summary.tomorrow_pv_kwh).toFixed(1)} kWh` });
+  } else if (summary.tomorrow_pv_known === false) {
     tiles.push({ label: "Tomorrow PV", value: "Awaiting forecast" });
   } else if (summary.tomorrow_pv_kwh != null) {
     tiles.push({ label: "Tomorrow PV", value: `${Number(summary.tomorrow_pv_kwh).toFixed(1)} kWh` });
@@ -24165,6 +24167,17 @@ ${body}
     return true;
   }
 
+  _renderSmartChargeSolcastLine(summary) {
+    const sc = this._plantState?.solcast;
+    if (!nativeSolcastPvForecastEnabled(this._plantState)) return "";
+    const last = formatSolcastTimestamp(sc.cache_updated_at || sc.last_fetch_at);
+    const next = formatSolcastNextFetch(sc);
+    const est = summary.tomorrow_pv_estimated
+      ? " · tomorrow's PV estimated from the same time yesterday until the next poll"
+      : "";
+    return `<p class="field-hint" style="margin:6px 0 0">${esc(`Solcast: last fetch ${last} · next fetch ${next}${est}`)}</p>`;
+  }
+
   _renderSmartChargeStatusCard(live, decision, dailyPlan, spreadPairs, planSummary) {
     const status = smartChargeLiveStatusPresentation(live, decision);
     const statusLine = decision.reason
@@ -24202,6 +24215,7 @@ ${body}
 ${renderSmartChargeStatTiles(decision)}
 ${renderSmartChargePlanTimeline(dailyPlan, decision.current_plan_slot)}
 <p class="field-hint" style="margin:10px 0 0">${esc(planSummary)}</p>
+${this._renderSmartChargeSolcastLine(decision.plan_summary || {})}
 ${spreadHtml}
 </div>`;
   }

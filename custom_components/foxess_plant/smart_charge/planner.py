@@ -162,6 +162,74 @@ def forecast_end(forecast_rows: list[dict[str, Any]] | None) -> datetime | None:
     return max((e for _s, e, _kw in intervals), default=None)
 
 
+def _row_time(row: dict[str, Any]) -> datetime | None:
+    return parse_iso(row.get("period_end")) or parse_iso(row.get("period_start"))
+
+
+def merge_forecast_snapshots(
+    snapshots: list[list[dict[str, Any]] | None],
+    *,
+    now: datetime,
+    keep: timedelta = timedelta(days=2),
+) -> list[dict[str, Any]]:
+    """Union of Solcast polls (oldest first); the newest poll wins for each period.
+
+    A single poll only covers from its fetch time onwards, and the latest stored poll
+    may not reach tomorrow. Older polls fill those gaps. Rows older than ``keep`` are
+    dropped — they only matter as a same-time-yesterday source for estimates.
+    """
+    cutoff = now - keep
+    by_time: dict[datetime, dict[str, Any]] = {}
+    for rows in snapshots:
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            when = _row_time(row)
+            if when is None or when < cutoff:
+                continue
+            by_time[when] = row
+    return [by_time[k] for k in sorted(by_time)]
+
+
+def fill_missing_pv(
+    forecast_rows: list[dict[str, Any]] | None,
+    *,
+    now: datetime,
+    tz: tzinfo,
+    until: datetime,
+    lookback_days: int = 3,
+) -> list[dict[str, Any]]:
+    """Extend a forecast that stops short of ``until`` with same-time-previous-day values.
+
+    Without this, an unknown tomorrow means 0 kWh PV and the planner grid-charges for
+    solar that will probably arrive. Added rows carry ``estimated: True``.
+    """
+    rows = [r for r in (forecast_rows or []) if isinstance(r, dict)]
+    end = forecast_end(rows)
+    if end is None or end >= until:
+        return rows
+    by_local: dict[datetime, float] = {}
+    for s, e, kw in _pv_intervals(rows):
+        by_local[e.astimezone(tz)] = kw
+    added: list[dict[str, Any]] = []
+    cursor = floor_half_hour(end.astimezone(timezone.utc))
+    if cursor < end:
+        cursor += SLOT
+    while cursor <= until:
+        target = cursor.astimezone(tz)
+        kw = 0.0
+        for back in range(1, lookback_days + 1):
+            # Aware local arithmetic keeps wall-clock time across DST changes.
+            source = by_local.get((target - timedelta(days=back)).astimezone(tz))
+            if source is not None:
+                kw = source
+                break
+        iso = cursor.isoformat()
+        added.append({"period_start": iso, "period_end": iso, "pv_estimate": kw, "estimated": True})
+        cursor += SLOT
+    return rows + added
+
+
 def _overlap_kwh(intervals: list[tuple[datetime, datetime, float]], start: datetime, end: datetime) -> float:
     total = 0.0
     for s, e, kw in intervals:

@@ -384,8 +384,14 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._solcast_history_count = SolcastForecastStore.history_count(stored)
             self._solcast_storage_load_failed = False
             if self._solcast_detailed_forecast_rows():
-                _LOGGER.debug(
-                    "Restored Solcast forecast from storage (%s history snapshots)",
+                from .smart_charge.planner import forecast_end
+
+                restored_end = forecast_end(self._solcast_detailed_forecast_rows())
+                _LOGGER.info(
+                    "Restored Solcast forecast from storage: fetched %s, covers until %s "
+                    "(%s history snapshots)",
+                    self._solcast_cache.get("updated_at"),
+                    restored_end.isoformat() if restored_end else None,
                     self._solcast_history_count,
                 )
                 try:
@@ -1954,11 +1960,19 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     )
 
     def _smart_charge_forecast_rows(self) -> list[dict[str, Any]]:
+        from homeassistant.util import dt as dt_util
+
+        from .smart_charge.planner import merge_forecast_snapshots
+
         rows = self._solcast_detailed_forecast_rows()
         if not rows and self._solcast_cache.get("detailed_forecast"):
             raw = self._solcast_cache.get("detailed_forecast")
             rows = raw if isinstance(raw, list) else []
-        return rows
+        # Older polls (restored from .storage on restart) fill periods the latest poll lacks.
+        now = dt_util.utcnow()
+        recent_ms = (now - timedelta(days=2)).timestamp() * 1000
+        history = [snap for ms, snap in self._solcast_memory_snapshots if ms >= recent_ms]
+        return merge_forecast_snapshots([*history, rows], now=now)
 
     async def _async_smart_charge_load_profile(self) -> dict[str, Any] | None:
         """Half-hourly house load profile from recorder history (refreshed every 6h)."""

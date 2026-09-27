@@ -347,5 +347,67 @@ class LoadProfileTests(unittest.TestCase):
         self.assertEqual(load_profile.average_load_kw(None, 0.7), 0.7)
 
 
+def pv_rows(start: datetime, end: datetime, kw_fn) -> list[dict]:
+    """Solcast-style period-end rows (period_start == period_end)."""
+    rows = []
+    t = start.astimezone(UTC)
+    while t <= end.astimezone(UTC):
+        iso = t.isoformat()
+        rows.append({"period_start": iso, "period_end": iso, "pv_estimate": kw_fn(t.astimezone(TZ))})
+        t += timedelta(minutes=30)
+    return rows
+
+
+def midday_kw(when: datetime) -> float:
+    return 3.0 if 10 <= when.hour < 15 else 0.0
+
+
+class ForecastGapTests(unittest.TestCase):
+    def test_merge_keeps_older_poll_rows_beyond_latest(self) -> None:
+        now = local(2026, 9, 27, 20)
+        older = pv_rows(local(2026, 9, 27, 12), local(2026, 9, 29, 0), lambda _t: 1.0)
+        latest = pv_rows(local(2026, 9, 27, 18), local(2026, 9, 28, 2), lambda _t: 2.0)
+        merged = planner.merge_forecast_snapshots([older, latest], now=now)
+        self.assertEqual(planner.forecast_end(merged), local(2026, 9, 29, 0).astimezone(UTC))
+        by_time = {planner.parse_iso(r["period_end"]): r["pv_estimate"] for r in merged}
+        self.assertEqual(by_time[local(2026, 9, 28, 1).astimezone(UTC)], 2.0)  # newest wins
+        self.assertEqual(by_time[local(2026, 9, 28, 12).astimezone(UTC)], 1.0)  # gap filled
+
+    def test_fill_copies_previous_day_and_flags_estimates(self) -> None:
+        now = local(2026, 9, 27, 20)
+        rows = pv_rows(local(2026, 9, 27, 6), local(2026, 9, 28, 2), midday_kw)
+        until = local(2026, 9, 29, 0).astimezone(UTC)
+        filled = planner.fill_missing_pv(rows, now=now, tz=TZ, until=until)
+        self.assertEqual(planner.forecast_end(filled), until)
+        est = {planner.parse_iso(r["period_end"]): r["pv_estimate"] for r in filled if r.get("estimated")}
+        self.assertEqual(est[local(2026, 9, 28, 12).astimezone(UTC)], 3.0)
+        self.assertEqual(est[local(2026, 9, 28, 20).astimezone(UTC)], 0.0)
+        self.assertNotIn(local(2026, 9, 28, 1).astimezone(UTC), est)  # real rows kept
+
+    def test_complete_forecast_is_untouched(self) -> None:
+        now = local(2026, 9, 27, 20)
+        rows = pv_rows(local(2026, 9, 27, 6), local(2026, 9, 29, 2), midday_kw)
+        until = local(2026, 9, 29, 0).astimezone(UTC)
+        self.assertEqual(planner.fill_missing_pv(rows, now=now, tz=TZ, until=until), rows)
+
+    def test_estimated_pv_reaches_tomorrow_timeline(self) -> None:
+        now = local(2026, 9, 27, 21)
+        rows = pv_rows(local(2026, 9, 27, 6), local(2026, 9, 28, 2), lambda t: 4.0 if 9 <= t.hour < 16 else 0.0)
+        until = local(2026, 9, 29, 0).astimezone(UTC)
+        filled = planner.fill_missing_pv(rows, now=now, tz=TZ, until=until)
+        imports = agile_rows(now, 30, lambda t: 5.0 if t.astimezone(TZ).hour < 6 else 25.0)
+        tomorrow = local(2026, 9, 28, 12)
+        blind = planner.build_timeline(now=now, tz=TZ, import_rows=imports, export_rows=None,
+                                       forecast_rows=rows, load_profile=None, load_fallback_kw=0.5,
+                                       carbon_periods=None, horizon_end=until)
+        seen = planner.build_timeline(now=now, tz=TZ, import_rows=imports, export_rows=None,
+                                      forecast_rows=filled, load_profile=None, load_fallback_kw=0.5,
+                                      carbon_periods=None, horizon_end=until)
+        blind_pv = sum(s.pv_kwh for s in blind if s.start.astimezone(TZ).date() == tomorrow.date())
+        seen_pv = sum(s.pv_kwh for s in seen if s.start.astimezone(TZ).date() == tomorrow.date())
+        self.assertLess(blind_pv, 1.0)
+        self.assertGreater(seen_pv, 20.0)
+
+
 if __name__ == "__main__":
     unittest.main()

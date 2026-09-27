@@ -75,25 +75,32 @@ def compute_plan(
         if kwh_remaining is not None
         else float(capacity_kwh) * float(soc_pct) / 100.0
     )
+    horizon_end = planner.default_horizon_end(now, tz, planner.last_known_rate_end(import_rows))
+    pv_end = planner.forecast_end(forecast_rows)
+    pv_rows = planner.fill_missing_pv(forecast_rows, now=now, tz=tz, until=horizon_end)
     slots = planner.build_timeline(
         now=now,
         tz=tz,
         import_rows=import_rows,
         export_rows=export_rows,
-        forecast_rows=forecast_rows,
+        forecast_rows=pv_rows,
+        horizon_end=horizon_end,
         load_profile=load_profile,
         load_fallback_kw=fallback_kw,
         carbon_periods=carbon_periods,
     )
     plan, summary = planner.build_plan(slots, soc_kwh, params, tz=tz, now=now)
     cap = float(capacity_kwh)
-    pv_end = planner.forecast_end(forecast_rows)
     tomorrow_afternoon = (now.astimezone(tz) + timedelta(days=1)).replace(
         hour=15, minute=0, second=0, microsecond=0
     )
     meta = {
         "pv_forecast_until": pv_end.isoformat() if pv_end else None,
         "tomorrow_pv_known": bool(pv_end and pv_end >= tomorrow_afternoon),
+        # Tomorrow's gap was filled from the same time on a previous day.
+        "tomorrow_pv_estimated": bool(
+            pv_end and pv_end < tomorrow_afternoon and len(pv_rows) > len(forecast_rows or [])
+        ),
         **summary.to_dict(),
         "built_at": now.isoformat(),
         "operating_mode": mode,
