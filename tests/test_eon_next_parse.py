@@ -141,5 +141,30 @@ class ErrorTests(unittest.TestCase):
         self.assertEqual(eon.graphql_error_message(errors), "Invalid data. (KT-CT-1138)")
 
 
+
+class TokenHelperTests(unittest.TestCase):
+    def test_clean_pasted_token_strips_quotes_and_space(self) -> None:
+        self.assertEqual(eon.clean_pasted_token('  "v1.abc"  '), "v1.abc")
+        self.assertEqual(eon.clean_pasted_token("'v1.abc'"), "v1.abc")
+        self.assertEqual(eon.clean_pasted_token(None), "")
+
+    def test_token_seed_is_stable_and_not_the_token(self) -> None:
+        seed = eon.token_seed("v1.secret")
+        self.assertEqual(seed, eon.token_seed("v1.secret"))
+        self.assertNotIn("secret", seed)
+        self.assertNotEqual(seed, eon.token_seed("v1.other"))
+        self.assertEqual(eon.token_seed(""), "")
+
+    def test_jwt_exp(self) -> None:
+        import base64
+        import json
+
+        part = lambda d: base64.urlsafe_b64encode(json.dumps(d).encode()).decode().rstrip("=")
+        token = f"{part({'alg': 'RS256'})}.{part({'exp': 1790000000})}.sig"
+        self.assertEqual(eon.jwt_exp(token), 1790000000.0)
+        self.assertIsNone(eon.jwt_exp("opaque-access-token"))
+        self.assertIsNone(eon.jwt_exp("a.!!!.c"))
+
+
 if __name__ == "__main__":
     unittest.main()

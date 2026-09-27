@@ -2,7 +2,7 @@
 
 Central **plant controller** for FoxESS inverters running [foxess_modbus](https://github.com/nathanmarlor/foxess_modbus). Owns charge-period policy, work mode / SOC limits, drift detection, tariff-aware automation, and a full **Fox Plant** sidebar panel — **does not** talk Modbus itself.
 
-Current release: **v0.9.494**
+Current release: **v0.9.495**
 
 ## Screenshots
 
@@ -36,7 +36,7 @@ Current release: **v0.9.494**
 | **[Google Weather](https://github.com/safepay/ha_google_weather)** (HACS) | StormSafe forecast / current condition / alerts — see [docs/STORMSAFE_GOOGLE_WEATHER.md](docs/STORMSAFE_GOOGLE_WEATHER.md) |
 | **Solcast** (hobbyist API key in Fox Plant) | PV forecast charts, SmartCharge solar budget, optional StormSafe PV pre-check |
 | **Octopus Energy** (API key in Fox Plant) | Agile / Tracker / Go / Economy 7 / flat tariffs, export/SEG rates, Greener Nights |
-| **E.ON Next** (account login in Fox Plant) | Fixed / flexible / Economy 7 / Next Drive tariffs, export rates, standing charge |
+| **E.ON Next** (browser sign-in token in Fox Plant) | Fixed / flexible / Economy 7 / Next Drive tariffs, export rates, standing charge |
 | **Glow / Hildebrand IHD** (MQTT and/or Bright API) | Live grid import for analysis; optional SmartCharge meter rate verify |
 | **Fox Cloud Open API** | Battery Warmup and cloud scheduler helpers (disable cloud mode scheduler when HA owns control) |
 | Local weather / PWS (e.g. Ecowitt) | Performance wind, rain, dew point, and related charts |
@@ -92,7 +92,7 @@ Cost-optimised grid charging and export using your **tariff**, the **Solcast** P
 
 ### E.ON Next tariffs
 
-- Native E.ON Next polling (Kraken platform). E.ON Next issues no API keys, so Fox Plant signs in with your E.ON Next online account email and password
+- Native E.ON Next polling (Kraken platform). E.ON Next issues no API keys and has moved sign-in to Auth0 with password sign-in blocked for integrations, so Fox Plant uses a one-off **sign-in token** copied from your browser (Settings → Tariff → E.ON Next has a copy-paste snippet). Fox Plant renews it itself and it survives restarts. Accounts not yet moved can still use email and password
 - Tariff types: fixed / flexible, **Economy 7**, and **Next Drive** time-of-use (treated like Go)
 - Import and export rates, including an export meter held on a separate E.ON account on the same login
 - Hourly rate fetch syncs the daily schedule and standing charge; SmartCharge plans against the live rates

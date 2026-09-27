@@ -7,6 +7,9 @@ marks IMPORT/EXPORT, and import/export can sit on separate account numbers.
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -216,3 +219,39 @@ def graphql_error_message(errors: Any) -> str:
     message = str(first.get("message") or "E.ON Next GraphQL error")
     code = graphql_error_code(errors)
     return f"{message} ({code})" if code else message
+
+
+def clean_pasted_token(value: Any) -> str:
+    """Strip whitespace and wrapping quotes that console copy/paste can add."""
+    text = str(value or "").strip()
+    while len(text) >= 2 and text[0] == text[-1] and text[0] in "\"'`":
+        text = text[1:-1].strip()
+    return text
+
+
+def token_seed(token: str | None) -> str:
+    """Stable fingerprint of the token the user pasted (never the token itself).
+
+    Auth0 rotates refresh tokens: the pasted one is single-use. The rotated token is kept
+    in its own store under this seed, so re-pasting a different token starts a new chain.
+    """
+    if not token:
+        return ""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()[:16]
+
+
+def jwt_exp(token: str | None) -> float | None:
+    """``exp`` claim of a JWT (seconds since epoch) without verifying it."""
+    if not token or token.count(".") < 2:
+        return None
+    payload = token.split(".")[1]
+    payload += "=" * (-len(payload) % 4)
+    try:
+        claims = json.loads(base64.urlsafe_b64decode(payload.encode("ascii")))
+    except (ValueError, UnicodeDecodeError):
+        return None
+    exp = claims.get("exp") if isinstance(claims, dict) else None
+    try:
+        return float(exp) if exp is not None else None
+    except (TypeError, ValueError):
+        return None

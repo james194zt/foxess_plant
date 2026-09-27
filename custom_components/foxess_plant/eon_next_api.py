@@ -1,8 +1,8 @@
 """E.ON Next tariff client (Kraken GraphQL + public products REST).
 
-E.ON Next publishes no API keys: the only way in is the customer's email/password
-exchanged for a Kraken JWT (``obtainKrakenToken``), the same flow the E.ON Next app and
-the community ``eon_next`` integration use. The result is shaped as an
+E.ON Next publishes no API keys. Current accounts sign in through Auth0, and only a
+browser-session refresh token works headlessly (see ``EonNextApiClient``); older accounts
+can still use Kraken email/password. The result is shaped as an
 ``OctopusTariffSnapshot`` so SmartCharge, tariff sensors and schedule apply work unchanged.
 
 Rates: public ``/v1/products/.../standard-unit-rates/`` first (same shape as Octopus);
@@ -16,6 +16,7 @@ import json
 import logging
 import time
 from datetime import datetime, timedelta
+from collections.abc import Awaitable, Callable
 from typing import Any
 from urllib.parse import urlencode
 
@@ -29,6 +30,7 @@ from .eon_next_parse import (
     graphql_error_code,
     graphql_error_message,
     graphql_nodes_to_rows,
+    jwt_exp,
     meters_from_accounts,
     normalize_rest_rows,
     pick_meter,
@@ -46,6 +48,18 @@ _LOGGER = logging.getLogger(__name__)
 
 EON_NEXT_BASE_URL = "https://api.eonnext-kraken.energy/v1"
 EON_NEXT_GRAPHQL_URL = f"{EON_NEXT_BASE_URL}/graphql/"
+
+# E.ON's Auth0 tenant and public web-dashboard client (from the dashboard bundle).
+AUTH0_TOKEN_URL = "https://auth.eonnext.com/oauth/token"
+AUTH0_CLIENT_ID = "OrFeFacHUoXK2afczePYMLCRMXpwRxzW"
+# The dashboard sends the raw Auth0 ID token; the rest are fallbacks, tried in order once.
+_AUTH0_HEADER_CANDIDATES = (
+    ("id", "{}"),
+    ("id", "Bearer {}"),
+    ("id", "JWT {}"),
+    ("access", "Bearer {}"),
+    ("access", "{}"),
+)
 
 # Kraken token expired / invalid → mint a fresh one and retry once.
 _AUTH_RETRY_CODES = ("KT-CT-1139", "KT-CT-1111", "KT-CT-1143", "KT-CT-1112")
@@ -96,6 +110,10 @@ class EonNextApiError(OctopusApiError):
     """E.ON Next request failed (subclass so shared tariff error handling catches it)."""
 
 
+class EonNextAuthRejected(EonNextApiError):
+    """Kraken answered with an HTTP 4xx (not rate limiting) — usually a bad Authorization."""
+
+
 def _q(value: str) -> str:
     """Quote a string as a GraphQL literal."""
     return json.dumps(str(value))
@@ -106,18 +124,45 @@ def _iso(dt: datetime) -> str:
 
 
 class EonNextApiClient:
-    """Email/password Kraken client for E.ON Next. Keep one per login to reuse tokens."""
+    """E.ON Next Kraken client. Keep one per login so tokens are reused, not re-minted.
 
-    def __init__(self, hass: HomeAssistant, *, email: str, password: str) -> None:
+    Two sign-in routes:
+
+    * **Auth0 refresh token** (current accounts). E.ON moved customer login to Auth0
+      (auth.eonnext.com) and disabled every headless grant (password, password-realm,
+      device code) for its web client. The only route left is the refresh token from a
+      signed-in browser session. It is exchanged for an Auth0 ID token, which E.ON's own
+      dashboard sends to Kraken as the ``Authorization`` header. Auth0 rotates refresh
+      tokens, so each new one is handed to ``on_refresh_token`` to persist before use.
+    * **Kraken email/password** (``obtainKrakenToken``) for accounts not yet migrated.
+      Migrated accounts get ``KT-CT-1138`` here even with the right password.
+    """
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        *,
+        email: str = "",
+        password: str = "",
+        refresh_token: str | None = None,
+        on_refresh_token: Callable[[str], Awaitable[None]] | None = None,
+    ) -> None:
         self._email = (email or "").strip()
         self._password = password or ""
+        self._auth0_refresh = refresh_token or None
+        self._on_refresh_token = on_refresh_token
         self._session = async_get_clientsession(hass)
         self._token: str | None = None
         self._refresh_token: str | None = None
         self._token_exp: float = 0.0
+        # Auth0 mode: which (token, header format) Kraken accepts is learned on first use.
+        self._auth0_tokens: dict[str, str] = {}
+        self._auth0_candidate = 0
+        self._auth0_confirmed = False
 
-    def matches(self, email: str, password: str) -> bool:
-        return self._email == (email or "").strip() and self._password == (password or "")
+    @property
+    def uses_auth0(self) -> bool:
+        return bool(self._auth0_refresh)
 
     async def _post(self, payload: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
         try:
@@ -137,7 +182,7 @@ class EonNextApiClient:
                     # A non-JSON 403 comes from the CDN/WAF: rate limiting, not a bad login.
                     raise EonNextApiError(f"E.ON Next rate limit (HTTP {resp.status}) — try again later")
                 if resp.status >= 400:
-                    raise EonNextApiError(f"E.ON Next GraphQL HTTP {resp.status}: {text[:160]}")
+                    raise EonNextAuthRejected(f"E.ON Next GraphQL HTTP {resp.status}: {text[:160]}")
                 try:
                     body = json.loads(text) if text else {}
                 except json.JSONDecodeError as err:
@@ -153,7 +198,13 @@ class EonNextApiClient:
         if body.get("errors"):
             if "refreshToken" in token_input:
                 return False
-            raise EonNextApiError(f"E.ON Next login failed: {graphql_error_message(body['errors'])}")
+            message = graphql_error_message(body["errors"])
+            if graphql_error_code(body["errors"]) == "KT-CT-1138":
+                message += (
+                    " — E.ON has moved most accounts to a new sign-in, which no longer accepts "
+                    "email/password from integrations. Use a sign-in token instead (see E.ON Next settings)"
+                )
+            raise EonNextApiError(f"E.ON Next login failed: {message}")
         block = (body.get("data") or {}).get("obtainKrakenToken") or {}
         token = block.get("token")
         if not token:
@@ -173,28 +224,119 @@ class EonNextApiClient:
         self._token_exp = float(exp) if exp else time.time() + 30 * 60
         return True
 
+    async def _auth0_exchange(self) -> None:
+        """Swap the Auth0 refresh token for fresh ID/access tokens (persisting any rotation)."""
+        form = {
+            "grant_type": "refresh_token",
+            "client_id": AUTH0_CLIENT_ID,
+            "refresh_token": str(self._auth0_refresh),
+        }
+        try:
+            async with self._session.post(
+                AUTH0_TOKEN_URL,
+                data=form,
+                headers={"User-Agent": "FoxESS-Plant/1.0", "Accept": "application/json"},
+                timeout=aiohttp.ClientTimeout(total=45),
+            ) as resp:
+                text = await resp.text()
+                status = resp.status
+        except aiohttp.ClientError as err:
+            raise EonNextApiError(f"E.ON Next sign-in network error: {err}") from err
+        try:
+            body = json.loads(text) if text else {}
+        except json.JSONDecodeError:
+            body = {}
+        if status == 429:
+            raise EonNextApiError("E.ON Next sign-in rate limit (HTTP 429) — try again later")
+        if status >= 400 or not isinstance(body, dict):
+            detail = body.get("error_description") if isinstance(body, dict) else None
+            if isinstance(body, dict) and body.get("error") == "invalid_grant":
+                raise EonNextApiError(
+                    "E.ON Next sign-in token was rejected (expired, or used by another browser "
+                    "session). Paste a fresh sign-in token in E.ON Next settings"
+                )
+            raise EonNextApiError(f"E.ON Next sign-in failed (HTTP {status}): {detail or text[:160]}")
+        id_token = body.get("id_token")
+        access_token = body.get("access_token")
+        if not id_token and not access_token:
+            raise EonNextApiError("E.ON Next sign-in returned no token")
+        new_refresh = body.get("refresh_token")
+        if new_refresh and new_refresh != self._auth0_refresh:
+            # Rotation: the old token is now spent. Persist before anything else can fail.
+            self._auth0_refresh = str(new_refresh)
+            if self._on_refresh_token is not None:
+                await self._on_refresh_token(self._auth0_refresh)
+        self._auth0_tokens = {k: str(v) for k, v in (("id", id_token), ("access", access_token)) if v}
+        exp = jwt_exp(id_token) or jwt_exp(access_token)
+        if exp is None:
+            try:
+                exp = time.time() + float(body.get("expires_in") or 3600)
+            except (TypeError, ValueError):
+                exp = time.time() + 3600
+        self._token_exp = exp
+
+    def _auth0_header(self) -> str | None:
+        """Authorization header for the current candidate, skipping tokens we don't have."""
+        while self._auth0_candidate < len(_AUTH0_HEADER_CANDIDATES):
+            kind, fmt = _AUTH0_HEADER_CANDIDATES[self._auth0_candidate]
+            token = self._auth0_tokens.get(kind)
+            if token:
+                return fmt.format(token)
+            self._auth0_candidate += 1
+        return None
+
+    async def _auth_header(self, *, force: bool = False) -> str:
+        if self.uses_auth0:
+            if force or not self._auth0_tokens or self._token_exp - 300 <= time.time():
+                await self._auth0_exchange()
+            header = self._auth0_header()
+            if header is None:
+                raise EonNextApiError(
+                    "E.ON Next did not accept the sign-in token (Kraken rejected every header format)"
+                )
+            return header
+        return f"JWT {await self._ensure_token(force=force)}"
+
     async def _ensure_token(self, *, force: bool = False) -> str:
         if not force and self._token and self._token_exp - 300 > time.time():
             return self._token
         if not self._email or not self._password:
-            raise EonNextApiError("E.ON Next email and password are required")
+            raise EonNextApiError("E.ON Next sign-in token (or email and password) is required")
         if self._refresh_token and not force and await self._mint({"refreshToken": self._refresh_token}):
             return str(self._token)
         await self._mint({"email": self._email, "password": self._password})
         return str(self._token)
 
     async def graphql(self, query: str, *, _retried: bool = False) -> dict[str, Any]:
-        token = await self._ensure_token(force=_retried)
-        body = await self._post({"query": query}, {"Authorization": f"JWT {token}"})
+        header = await self._auth_header(force=_retried)
+        try:
+            body = await self._post({"query": query}, {"Authorization": header})
+        except EonNextAuthRejected:
+            body = {"errors": [{"message": "Authorization rejected", "extensions": {"errorCode": "HTTP"}}]}
         errors = body.get("errors")
         if errors:
-            if not _retried and graphql_error_code(errors) in _AUTH_RETRY_CODES:
+            code = graphql_error_code(errors)
+            if self.uses_auth0 and not self._auth0_confirmed:
+                # Learning which token/header Kraken wants: try the next candidate.
+                self._auth0_candidate += 1
+                if self._auth0_header() is not None:
+                    _LOGGER.debug("E.ON Next: Kraken rejected header candidate (%s), trying next", code)
+                    return await self.graphql(query)
+                raise EonNextApiError(
+                    "E.ON Next signed in, but Kraken did not accept the sign-in token "
+                    f"({graphql_error_message(errors)})"
+                )
+            if not _retried and (code in _AUTH_RETRY_CODES or code == "HTTP"):
                 self._token = None
                 return await self.graphql(query, _retried=True)
             raise EonNextApiError(f"E.ON Next: {graphql_error_message(errors)}")
         data = body.get("data")
         if not isinstance(data, dict):
             raise EonNextApiError("E.ON Next returned no data")
+        if self.uses_auth0 and not self._auth0_confirmed:
+            self._auth0_confirmed = True
+            kind, fmt = _AUTH0_HEADER_CANDIDATES[self._auth0_candidate]
+            _LOGGER.info("E.ON Next: Kraken accepted the Auth0 %s token (%s)", kind, fmt.format("<token>"))
         return data
 
     async def list_account_numbers(self) -> list[str]:

@@ -201,6 +201,7 @@ TARIFF_DYNAMIC_SCHEMA = vol.Schema(
         vol.Optional("export_entity"): vol.Any(str, None),
         vol.Optional("email"): vol.Any(str, None),
         vol.Optional("password"): vol.Any(str, None),
+        vol.Optional("refresh_token"): vol.Any(str, None),
         vol.Optional("export_from_api"): cv.boolean,
         vol.Optional("fetch_now", default=True): cv.boolean,
         vol.Optional("apply_schedule", default=False): cv.boolean,
@@ -742,6 +743,7 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             vol.Optional("provider"): str,
             vol.Optional("email"): str,
             vol.Optional("password"): str,
+            vol.Optional("refresh_token"): str,
         }
     )
     @websocket_api.require_admin
@@ -764,6 +766,7 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
                 provider=msg.get("provider"),
                 email=msg.get("email"),
                 password=msg.get("password"),
+                refresh_token=msg.get("refresh_token"),
             )
         except HomeAssistantError as err:
             connection.send_error(msg["id"], "octopus_test_failed", str(err))

@@ -281,6 +281,18 @@ function normalizeEnergyProviderId(value) {
   return ENERGY_TARIFF_PROVIDERS.some((p) => p.id === id) ? id : "";
 }
 
+/**
+ * Browser-console snippet for eonnext.com: copies the Auth0 refresh token (E.ON disabled every
+ * password grant, so this is the only headless sign-in) and removes the browser's copy so the
+ * browser can't reuse it — Auth0 revokes a rotated token chain when an old token is replayed.
+ */
+const EON_NEXT_TOKEN_SNIPPET =
+  "(()=>{const ks=Object.keys(localStorage).filter(k=>k.startsWith('@@auth0spajs@@'));" +
+  "const t=ks.map(k=>{try{return JSON.parse(localStorage.getItem(k)).body.refresh_token}catch(e){return null}}).find(Boolean);" +
+  "if(!t)return 'No E.ON sign-in token found - sign in at eonnext.com first';" +
+  "copy(t);ks.forEach(k=>localStorage.removeItem(k));" +
+  "return 'Copied. Close this tab now, then paste into Fox Plant'})()";
+
 function energyProviderLabel(providerId) {
   return ENERGY_TARIFF_PROVIDERS.find((p) => p.id === providerId)?.label || "Octopus";
 }
@@ -394,7 +406,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.494";
+const PANEL_VERSION = "0.9.495";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -4536,6 +4548,8 @@ function normalizeOctopusDraft(raw, octopusLive) {
     export_entity: entity(t.export_entity),
     email: entity(t.email ?? live.email),
     export_from_api: (t.export_from_api ?? live.export_from_api) !== false,
+    refresh_token: "",
+    refresh_token_set: Boolean(t.refresh_token_set ?? live.refresh_token_set),
     password: "",
     password_set: Boolean(t.password_set ?? live.password_set),
   };
@@ -15363,6 +15377,7 @@ Reloading panel registration…
         const prevKey = this._octopusDraft.api_key || "";
         this._octopusDraft.api_key_set = Boolean(dyn.api_key_set);
         this._octopusDraft.password_set = Boolean(dyn.password_set);
+        this._octopusDraft.refresh_token_set = Boolean(dyn.refresh_token_set);
         if (prevKey) this._octopusDraft.api_key = prevKey;
       }
       if (
@@ -15563,6 +15578,9 @@ Reloading panel registration…
     }
     if (parts[0] === "octopus" && parts[1] === "password" && this._octopusDraft) {
       this._octopusDraft.password = text;
+    }
+    if (parts[0] === "octopus" && parts[1] === "refresh_token" && this._octopusDraft) {
+      this._octopusDraft.refresh_token = text.trim();
     }
   }
 
@@ -16413,6 +16431,7 @@ Reloading panel registration…
   _initOctopusDraft() {
     const prevKey = this._octopusDraft?.api_key || "";
     const prevPassword = this._octopusDraft?.password || "";
+    const prevToken = this._octopusDraft?.refresh_token || "";
     const raw = this._tariffDraft?.dynamic ?? this._plantState?.tariff?.dynamic ?? {};
     this._octopusDraft = normalizeOctopusDraft(raw, this._plantState?.tariff?.octopus ?? {});
     if (prevKey && !this._octopusDraft.api_key) {
@@ -16420,6 +16439,9 @@ Reloading panel registration…
     }
     if (prevPassword && !this._octopusDraft.password) {
       this._octopusDraft.password = prevPassword;
+    }
+    if (prevToken && !this._octopusDraft.refresh_token) {
+      this._octopusDraft.refresh_token = prevToken;
     }
   }
 
@@ -17137,6 +17159,8 @@ Reloading panel registration…
     if (emailEl) this._octopusDraft.email = emailEl.value.trim();
     const passwordEl = root.querySelector('[data-field="octopus:password"]');
     if (passwordEl?.value) this._octopusDraft.password = passwordEl.value;
+    const tokenEl = root.querySelector('[data-field="octopus:refresh_token"]');
+    if (tokenEl?.value) this._octopusDraft.refresh_token = tokenEl.value.trim();
     const exportFromEl = root.querySelector('[data-field="octopus:export_from_api"]');
     if (exportFromEl) this._octopusDraft.export_from_api = exportFromEl.value !== "manual";
   }
@@ -17158,6 +17182,7 @@ Reloading panel registration…
       export_entity: d.export_entity,
       email: d.email,
       password_set: d.password_set,
+      refresh_token_set: d.refresh_token_set,
       export_from_api: d.export_from_api !== false,
     };
   }
@@ -17179,6 +17204,7 @@ Reloading panel registration…
       export_from_api: d.export_from_api !== false,
       ...(d.api_key ? { api_key: d.api_key } : {}),
       ...(d.password ? { password: d.password } : {}),
+      ...(d.refresh_token ? { refresh_token: d.refresh_token } : {}),
     };
   }
 
@@ -17191,12 +17217,11 @@ Reloading panel registration…
     if (!payload) return;
     const label = energyProviderLabel(payload.provider);
     if (payload.enabled && payload.provider === "eon_next") {
-      if (!payload.email) {
-        this._showToast("E.ON Next email is required", "err");
-        return;
-      }
-      if (!payload.password && !this._octopusDraft.password_set) {
-        this._showToast("E.ON Next password is required", "err");
+      const d = this._octopusDraft;
+      const hasToken = Boolean(payload.refresh_token || d.refresh_token_set);
+      const hasLogin = Boolean(payload.email && (payload.password || d.password_set));
+      if (!hasToken && !hasLogin) {
+        this._showToast("Paste your E.ON Next sign-in token (see the steps on the card)", "err");
         return;
       }
     } else if (payload.enabled && payload.source === "native") {
@@ -17223,6 +17248,7 @@ Reloading panel registration…
       });
       if (state) this._plantState = state;
       this._octopusDraft.password = "";
+      this._octopusDraft.refresh_token = "";
       this._initTariffDraft();
       this._showToast(`${label} settings saved — schedule synced from API`);
     } catch (err) {
@@ -17278,12 +17304,9 @@ Reloading panel registration…
   async _testEonNextConnection() {
     const plant = this._getPlant();
     const d = this._octopusDraft;
-    if (!d.email) {
-      this._showToast("Enter your E.ON Next email to test", "err");
-      return;
-    }
-    if (!d.password && !d.password_set) {
-      this._showToast("Enter your E.ON Next password to test", "err");
+    const hasToken = Boolean(d.refresh_token || d.refresh_token_set);
+    if (!hasToken && !(d.email && (d.password || d.password_set))) {
+      this._showToast("Paste your E.ON Next sign-in token to test", "err");
       return;
     }
     this._busy = true;
@@ -17293,8 +17316,9 @@ Reloading panel registration…
         type: "foxess_plant/test_octopus",
         plant_id: plant.entry_id,
         provider: "eon_next",
-        email: d.email,
+        ...(d.email ? { email: d.email } : {}),
         ...(d.password ? { password: d.password } : {}),
+        ...(d.refresh_token ? { refresh_token: d.refresh_token } : {}),
         ...(d.account_number ? { account_number: d.account_number } : {}),
       });
       if (result?.plant_state) this._plantState = result.plant_state;
@@ -18567,6 +18591,11 @@ Reloading panel registration…
       await this._saveOctopusSettings(true);
       return;
     }
+    if (action === "copy-eon-next-snippet") {
+      const ok = await copyTextToClipboard(EON_NEXT_TOKEN_SNIPPET);
+      this._showToast(ok ? "Snippet copied — paste it into the browser console on eonnext.com" : "Copy failed", ok ? "ok" : "err");
+      return;
+    }
     if (action === "test-octopus") {
       await this._testOctopusConnection();
       return;
@@ -19541,6 +19570,10 @@ Reloading panel registration…
       }
       if (field === "api_key" || field === "password") {
         this._octopusDraft[field] = String(el.value ?? "");
+        return;
+      }
+      if (field === "refresh_token") {
+        this._octopusDraft.refresh_token = String(el.value ?? "").trim();
         return;
       }
     }
@@ -25173,14 +25206,29 @@ ${detailBlock}
     statusLines.push(`Last fetch: ${live.last_fetch_at ? formatSolcastTimestamp(live.last_fetch_at) : "Never"}`);
     if (live.last_error) statusLines.push(`Error: ${live.last_error}`);
     const passwordPlaceholder = draft.password_set ? "••••••••  (leave blank to keep)" : "E.ON Next password";
+    const tokenPlaceholder = draft.refresh_token_set
+      ? "••••••••  (saved — paste a new one only if asked)"
+      : "Paste sign-in token";
     const detailBlock = draft.enabled
-      ? `<div class="field"><label>Email</label>
+      ? `<div class="field"><label>Sign-in token</label>
+<input type="password" autocomplete="off" data-field="octopus:refresh_token" value="${esc(String(draft.refresh_token || ""))}" placeholder="${esc(tokenPlaceholder)}" ${busy}>
+<p class="field-hint">E.ON Next has no API keys and blocks password sign-in from integrations, so Fox Plant keeps itself signed in with a token from your browser (one-off):</p>
+<ol class="field-hint" style="margin:4px 0 8px;padding-left:20px">
+<li>On a computer, sign in at <a class="field-link" href="https://www.eonnext.com/dashboard" target="_blank" rel="noopener noreferrer">eonnext.com</a>.</li>
+<li><button type="button" class="btn btn-secondary" style="padding:2px 8px;min-height:0" data-action="copy-eon-next-snippet" ${busy}>Copy snippet</button>, press F12 → Console, paste it and press Enter (Chrome may ask you to type <code>allow pasting</code> first).</li>
+<li>It copies your token and signs that browser tab out locally — close the tab, then paste here and Save. Signing in again on the website later is fine.</li>
+</ol>
+<p class="field-hint">Fox Plant renews the token itself and survives restarts. If E.ON ever rejects it, the error below will ask for a fresh one.</p>
+</div>
+<details class="field"><summary class="field-hint">Older accounts: email and password</summary>
+<div class="field"><label>Email</label>
 <input type="email" autocomplete="off" data-field="octopus:email" value="${esc(String(draft.email || ""))}" placeholder="you@example.com" ${busy}>
 </div>
 <div class="field"><label>Password</label>
 <input type="password" autocomplete="off" data-field="octopus:password" value="${esc(String(draft.password || ""))}" placeholder="${esc(passwordPlaceholder)}" ${busy}>
-<p class="field-hint">E.ON Next has no API keys, so Fox Plant signs in with your online account login (the same one as the E.ON Next app). It is stored in your Home Assistant config entry like other API keys.</p>
+<p class="field-hint">Only for accounts not yet moved to E.ON's new sign-in. Moved accounts get "Invalid data (KT-CT-1138)" here — use the sign-in token instead.</p>
 </div>
+</details>
 <div class="field"><label>Account number (optional)</label>
 <input type="text" data-field="octopus:account_number" value="${esc(String(draft.account_number || ""))}" placeholder="Auto — every account on this login" ${busy}>
 <p class="field-hint">Leave blank to use every account on the login. E.ON can put an export meter on its own account.</p>

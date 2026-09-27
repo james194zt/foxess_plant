@@ -152,6 +152,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._octopus_cache: dict[str, Any] = {}
         # Reused across polls so E.ON Next refreshes its Kraken token instead of logging in each hour.
         self._eon_next_client: Any = None
+        self._eon_next_client_key: tuple[str, str, str] | None = None
+        self._eon_next_auth_store: Any = None
         self._octopus_greener_store = None
         self._octopus_greener_cache: dict[str, Any] = {}
         self._octopus_greener_history_count = 0
@@ -4279,9 +4281,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         cfg = TariffConfig.from_dict(self.plant.tariff.to_dict(include_secrets=True))
         cfg.dynamic = TariffDynamicConfig.from_dict(merged)
         if cfg.dynamic.native_eon_next():
-            if not cfg.dynamic.email or not cfg.dynamic.password_configured():
-                raise HomeAssistantError("E.ON Next email and password are required")
-            self._eon_next_client = None
+            if not cfg.dynamic.native_credentials_configured():
+                raise HomeAssistantError("E.ON Next sign-in token (or email and password) is required")
         elif cfg.dynamic.enabled and cfg.dynamic.source == OCTOPUS_SOURCE_NATIVE:
             if not cfg.dynamic.api_key_configured():
                 raise HomeAssistantError("Octopus API key is required for native mode")
@@ -4335,6 +4336,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         provider: str | None = None,
         email: str | None = None,
         password: str | None = None,
+        refresh_token: str | None = None,
     ) -> dict[str, Any]:
         from .eon_next_parse import EON_NEXT_PROVIDER
         from .octopus_api import OctopusApiClient, OctopusApiError
@@ -4343,7 +4345,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         dyn = self.plant.tariff.dynamic
         if (provider or dyn.provider) == EON_NEXT_PROVIDER:
             return await self._async_test_eon_next(
-                email=email, password=password, account_number=account_number
+                email=email,
+                password=password,
+                refresh_token=refresh_token,
+                account_number=account_number,
             )
         key = (api_key or dyn.api_key or "").strip()
         account = (account_number or dyn.account_number or "").strip()
@@ -4365,16 +4370,19 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         *,
         email: str | None,
         password: str | None,
+        refresh_token: str | None,
         account_number: str | None,
     ) -> dict[str, Any]:
-        from .eon_next_api import EonNextApiClient, EonNextApiError, test_eon_next_connection
+        from .eon_next_api import EonNextApiError, test_eon_next_connection
+        from .eon_next_parse import clean_pasted_token
 
         dyn = self.plant.tariff.dynamic
+        token = clean_pasted_token(refresh_token) or dyn.refresh_token or ""
         login = (email or dyn.email or "").strip()
         secret = password or dyn.password or ""
-        if not login or not secret:
-            raise HomeAssistantError("E.ON Next email and password are required")
-        client = EonNextApiClient(self.hass, email=login, password=secret)
+        if not token and not (login and secret):
+            raise HomeAssistantError("E.ON Next sign-in token (or email and password) is required")
+        client = await self._eon_next_client_for(email=login, password=secret, refresh_token=token)
         try:
             result = await test_eon_next_connection(
                 client, account_number=account_number or dyn.account_number
@@ -4590,15 +4598,14 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_refresh_eon_next(self, *, force: bool = False) -> None:
         """Poll E.ON Next into the shared tariff cache (same shape as Octopus)."""
         from .eon_next_api import (
-            EonNextApiClient,
             EonNextApiError,
             fetch_eon_next_tariff_snapshot,
             meter_list_for_cache,
         )
 
         dyn = self.plant.tariff.dynamic
-        if not dyn.email or not dyn.password_configured():
-            self._octopus_cache["last_error"] = "E.ON Next email and password required"
+        if not dyn.native_credentials_configured():
+            self._octopus_cache["last_error"] = "E.ON Next sign-in token (or email and password) required"
             return
         if not force and not self._octopus_tariff_refresh_due():
             _LOGGER.debug("E.ON Next tariff refresh skipped (cache fresh)")
@@ -4608,11 +4615,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.debug("E.ON Next tariff refresh skipped (rate limited)")
             self._sync_octopus_current_rates_from_cache()
             return
-        client = self._eon_next_client
-        if client is None or not client.matches(str(dyn.email), str(dyn.password)):
-            client = EonNextApiClient(self.hass, email=str(dyn.email), password=str(dyn.password))
-            self._eon_next_client = client
         try:
+            client = await self._eon_next_client_for(
+                email=dyn.email or "",
+                password=dyn.password or "",
+                refresh_token=dyn.refresh_token or "",
+            )
             snapshot, imports, exports = await fetch_eon_next_tariff_snapshot(
                 client,
                 account_number=dyn.account_number,
@@ -4640,6 +4648,43 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._apply_manual_export_to_cache()
         await self._async_sync_octopus_standing_charge()
         await self._async_auto_apply_octopus_schedule()
+
+    async def _eon_next_client_for(self, *, email: str, password: str, refresh_token: str) -> Any:
+        """Shared E.ON Next client for a login, reusing tokens across polls and tests.
+
+        Auth0 refresh tokens rotate and each one is single-use, so the pasted token must
+        never be sent twice. Rotated tokens go to their own store, keyed by a fingerprint of
+        the pasted token: a restart (or Save after Test connection) carries on the chain,
+        and pasting a different token starts a new one.
+        """
+        from .eon_next_api import EonNextApiClient
+        from .eon_next_auth_store import EonNextAuthStore
+        from .eon_next_parse import token_seed
+
+        seed = token_seed(refresh_token)
+        key = (email.strip(), password, seed)
+        if self._eon_next_client is not None and self._eon_next_client_key == key:
+            return self._eon_next_client
+        if self._eon_next_auth_store is None:
+            self._eon_next_auth_store = EonNextAuthStore(self.hass, self.config_entry.entry_id)
+        store = self._eon_next_auth_store
+        effective = refresh_token or None
+        if refresh_token:
+            effective = await store.async_token_for_seed(seed) or refresh_token
+
+        async def _persist(new_token: str) -> None:
+            await store.async_save_token(seed, new_token)
+
+        client = EonNextApiClient(
+            self.hass,
+            email=email,
+            password=password,
+            refresh_token=effective,
+            on_refresh_token=_persist,
+        )
+        self._eon_next_client = client
+        self._eon_next_client_key = key
+        return client
 
     def _supplier_export_manual(self) -> bool:
         """Import from a supplier API, export priced from the band editor (another supplier)."""

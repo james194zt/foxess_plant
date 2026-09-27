@@ -1035,6 +1035,8 @@ class TariffDynamicConfig:
     # E.ON Next has no API keys — its Kraken login is email + password.
     email: str | None = None
     password: str | None = None
+    # Auth0 refresh token from a signed-in E.ON Next browser session (current accounts).
+    refresh_token: str | None = None
     # False when export is with another supplier (e.g. Fused SEG) and entered in the band editor.
     export_from_api: bool = True
 
@@ -1061,6 +1063,7 @@ class TariffDynamicConfig:
             export_entity=str(export_entity) if export_entity else None,
             email=str(raw["email"]).strip() if raw.get("email") else None,
             password=str(raw["password"]) if raw.get("password") else None,
+            refresh_token=str(raw["refresh_token"]) if raw.get("refresh_token") else None,
             export_from_api=bool(raw.get("export_from_api", True)),
         )
 
@@ -1079,9 +1082,12 @@ class TariffDynamicConfig:
         """Any supplier polled directly for rates (Octopus or E.ON Next)."""
         return self.native_octopus() or self.native_eon_next()
 
+    def refresh_token_configured(self) -> bool:
+        return bool(self.refresh_token)
+
     def native_credentials_configured(self) -> bool:
         if self.native_eon_next():
-            return bool(self.email and self.password_configured())
+            return self.refresh_token_configured() or bool(self.email and self.password_configured())
         return self.api_key_configured()
 
     def native_octopus(self) -> bool:
@@ -1118,9 +1124,11 @@ class TariffDynamicConfig:
         if include_api_key:
             out["api_key"] = self.api_key
             out["password"] = self.password
+            out["refresh_token"] = self.refresh_token
         else:
             out["api_key_set"] = self.api_key_configured()
             out["password_set"] = self.password_configured()
+            out["refresh_token_set"] = self.refresh_token_configured()
         return out
 
 
@@ -1142,6 +1150,13 @@ def merge_tariff_dynamic_config(
         merged["password"] = str(raw_password)
     else:
         merged["password"] = current.get("password")
+    from .eon_next_parse import clean_pasted_token
+
+    raw_token = clean_pasted_token(incoming.get("refresh_token"))
+    if raw_token and raw_token not in ("********", "••••••••"):
+        merged["refresh_token"] = raw_token
+    else:
+        merged["refresh_token"] = current.get("refresh_token")
     return merged
 
 
