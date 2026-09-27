@@ -136,6 +136,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._solcast_memory_snapshots: list[tuple[float, list[dict[str, Any]]]] = []
         self._solcast_refresh_lock = asyncio.Lock()
         self._solcast_store_lock = asyncio.Lock()
+        # Compact copy of recent PV rows for SmartCharge, kept apart from the large Solcast history store.
+        self._smart_charge_pv_store = None
+        self._smart_charge_pv_rows: list[dict[str, Any]] = []
         self._tariff_store = None
         self._tariff_history_count = 0
         self._tariff_rate_sensors: dict[str, Any] = {}
@@ -1184,6 +1187,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_config_entry_first_refresh(self) -> None:
         await self._async_load_solcast_storage()
+        await self._async_load_smart_charge_pv()
+        await self._async_save_smart_charge_pv()
         await self._async_load_tariff_storage()
         self._sync_trigger_membership()
         self.setup_trigger_listeners()
@@ -1350,6 +1355,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return
             if self._solcast_cache.get("pv_forecast_parsed"):
                 self._append_solcast_memory_snapshot()
+                await self._async_save_smart_charge_pv()
                 if await self._ensure_solcast_store():
                     try:
                         from copy import deepcopy
@@ -1972,7 +1978,60 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         now = dt_util.utcnow()
         recent_ms = (now - timedelta(days=2)).timestamp() * 1000
         history = [snap for ms, snap in self._solcast_memory_snapshots if ms >= recent_ms]
-        return merge_forecast_snapshots([*history, rows], now=now)
+        return merge_forecast_snapshots([self._smart_charge_pv_rows, *history, rows], now=now)
+
+    def _smart_charge_pv_store_handle(self):
+        if self._smart_charge_pv_store is None:
+            from homeassistant.helpers.storage import Store
+
+            from .const import DOMAIN
+
+            self._smart_charge_pv_store = Store(
+                self.hass, 1, f"{DOMAIN}.smart_charge_pv.{self.config_entry.entry_id}"
+            )
+        return self._smart_charge_pv_store
+
+    async def _async_load_smart_charge_pv(self) -> None:
+        """Restore SmartCharge's own PV rows so a restart never plans with 0 kWh tomorrow."""
+        from .smart_charge.planner import forecast_end
+
+        try:
+            data = await self._smart_charge_pv_store_handle().async_load()
+        except Exception:
+            _LOGGER.exception("SmartCharge PV forecast store read failed")
+            return
+        rows = (data or {}).get("rows") if isinstance(data, dict) else None
+        if not isinstance(rows, list):
+            return
+        self._smart_charge_pv_rows = [r for r in rows if isinstance(r, dict)]
+        end = forecast_end(self._smart_charge_pv_rows)
+        _LOGGER.info(
+            "Restored SmartCharge PV forecast: %s rows, covers until %s",
+            len(self._smart_charge_pv_rows),
+            end.isoformat() if end else None,
+        )
+
+    async def _async_save_smart_charge_pv(self) -> None:
+        from homeassistant.util import dt as dt_util
+
+        rows = [
+            {
+                "period_start": r.get("period_start"),
+                "period_end": r.get("period_end"),
+                "pv_estimate": r.get("pv_estimate"),
+            }
+            for r in self._smart_charge_forecast_rows()
+            if not r.get("estimated")
+        ]
+        if len(rows) < 2:
+            return
+        self._smart_charge_pv_rows = rows
+        try:
+            await self._smart_charge_pv_store_handle().async_save(
+                {"saved_at": dt_util.utcnow().isoformat(), "rows": rows}
+            )
+        except Exception:
+            _LOGGER.exception("SmartCharge PV forecast store write failed")
 
     async def _async_smart_charge_load_profile(self) -> dict[str, Any] | None:
         """Half-hourly house load profile from recorder history (refreshed every 6h)."""
