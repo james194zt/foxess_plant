@@ -123,24 +123,43 @@ def last_known_rate_end(rows: list[dict[str, Any]] | None) -> datetime | None:
 
 
 def _pv_intervals(forecast_rows: list[dict[str, Any]] | None) -> list[tuple[datetime, datetime, float]]:
-    parsed: list[tuple[datetime, float]] = []
+    """(start, end, kW) intervals from Solcast rows.
+
+    Solcast reports each value at the END of its period. Fox Plant's merged rows carry
+    ``period_start == period_end`` (both the end time); those are treated as period ends.
+    """
+    parsed: list[tuple[datetime, float, bool]] = []
     for row in forecast_rows or []:
         start = parse_iso(row.get("period_start"))
-        if start is None:
+        end = parse_iso(row.get("period_end"))
+        is_end = end is not None and (start is None or start == end)
+        when = end if is_end else start
+        if when is None:
             continue
         try:
             kw = float(row.get("pv_estimate"))
         except (TypeError, ValueError):
             continue
-        parsed.append((start, max(0.0, kw)))
+        parsed.append((when, max(0.0, kw), is_end))
     parsed.sort(key=lambda r: r[0])
     out: list[tuple[datetime, datetime, float]] = []
-    for i, (start, kw) in enumerate(parsed):
-        end = start + SLOT
-        if i + 1 < len(parsed) and parsed[i + 1][0] > start:
-            end = min(parsed[i + 1][0], start + timedelta(hours=1))
-        out.append((start, end, kw))
+    for i, (when, kw, is_end) in enumerate(parsed):
+        if is_end:
+            length = SLOT
+            if i > 0 and parsed[i - 1][0] < when:
+                length = min(when - parsed[i - 1][0], timedelta(hours=1))
+            out.append((when - length, when, kw))
+        else:
+            end = when + SLOT
+            if i + 1 < len(parsed) and parsed[i + 1][0] > when:
+                end = min(parsed[i + 1][0], when + timedelta(hours=1))
+            out.append((when, end, kw))
     return out
+
+
+def forecast_end(forecast_rows: list[dict[str, Any]] | None) -> datetime | None:
+    intervals = _pv_intervals(forecast_rows)
+    return max((e for _s, e, _kw in intervals), default=None)
 
 
 def _overlap_kwh(intervals: list[tuple[datetime, datetime, float]], start: datetime, end: datetime) -> float:

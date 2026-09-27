@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
@@ -315,9 +315,28 @@ class FoxessPlantAnalyticsSensor(CoordinatorEntity[FoxessPlantCoordinator], Sens
         return float(value) if value is not None else None
 
 
+def _rows_until_tonight(rows: Any, *, buffer_hours: int = 2) -> list[dict[str, Any]]:
+    """Trim forecast rows to today (+buffer) so attributes stay under the recorder limit."""
+    if not isinstance(rows, list):
+        return []
+    local_now = dt_util.now()
+    cutoff = local_now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1, hours=buffer_hours)
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        when = dt_util.parse_datetime(str(row.get("period_start") or row.get("period_end") or ""))
+        if when is None or when <= cutoff:
+            out.append(row)
+    return out
+
+
 def _solcast_forecast_attributes(sc: dict[str, Any]) -> dict[str, Any]:
-    detailed = sc.get("detailed_forecast") or []
-    by_site = sc.get("detailed_forecast_by_site") or {}
+    detailed = _rows_until_tonight(sc.get("detailed_forecast"))
+    by_site = {
+        key: _rows_until_tonight(rows)
+        for key, rows in (sc.get("detailed_forecast_by_site") or {}).items()
+    }
     attrs: dict[str, Any] = {
         "detailed_forecast": detailed,
         "detailedForecast": detailed,

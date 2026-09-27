@@ -87,7 +87,13 @@ def compute_plan(
     )
     plan, summary = planner.build_plan(slots, soc_kwh, params, tz=tz, now=now)
     cap = float(capacity_kwh)
+    pv_end = planner.forecast_end(forecast_rows)
+    tomorrow_afternoon = (now.astimezone(tz) + timedelta(days=1)).replace(
+        hour=15, minute=0, second=0, microsecond=0
+    )
     meta = {
+        "pv_forecast_until": pv_end.isoformat() if pv_end else None,
+        "tomorrow_pv_known": bool(pv_end and pv_end >= tomorrow_afternoon),
         **summary.to_dict(),
         "built_at": now.isoformat(),
         "operating_mode": mode,

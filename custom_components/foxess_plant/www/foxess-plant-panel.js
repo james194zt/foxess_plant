@@ -372,7 +372,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.485";
+const PANEL_VERSION = "0.9.486";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -8203,7 +8203,9 @@ function renderSmartChargeStatTiles(decision) {
   if (decision.grid_gap_kwh != null) {
     tiles.push({ label: "Planned grid charge", value: `${Number(decision.grid_gap_kwh).toFixed(1)} kWh` });
   }
-  if (summary.tomorrow_pv_kwh != null) {
+  if (summary.tomorrow_pv_known === false) {
+    tiles.push({ label: "Tomorrow PV", value: "Awaiting forecast" });
+  } else if (summary.tomorrow_pv_kwh != null) {
     tiles.push({ label: "Tomorrow PV", value: `${Number(summary.tomorrow_pv_kwh).toFixed(1)} kWh` });
   }
   if (summary.tomorrow_load_kwh != null) {

@@ -154,6 +154,23 @@ class TimelineTests(unittest.TestCase):
         self.assertEqual(rows[0]["value_inc_vat"], 9.0)
 
 
+class SolcastRowTests(unittest.TestCase):
+    def test_period_end_rows_cover_preceding_half_hour(self) -> None:
+        # Fox Plant merged rows: period_start == period_end == Solcast period END.
+        end = local(2026, 6, 1, 12, 30).astimezone(UTC).isoformat()
+        rows = [{"period_start": end, "period_end": end, "pv_estimate": 2.0}]
+        start, stop, kw = planner._pv_intervals(rows)[0]
+        self.assertEqual(start.astimezone(TZ), local(2026, 6, 1, 12, 0))
+        self.assertEqual(stop.astimezone(TZ), local(2026, 6, 1, 12, 30))
+        self.assertEqual(planner.forecast_end(rows).astimezone(TZ), local(2026, 6, 1, 12, 30))
+
+    def test_tomorrow_pv_counted_when_forecast_covers_tomorrow(self) -> None:
+        now = local(2026, 6, 1, 20, 0)
+        rates = agile_rows(now, 28, overnight_cheap)
+        _slots, _plan, summary = run(now, rates, solar_rows(local(2026, 6, 2, 0), 18.0))
+        self.assertAlmostEqual(summary.tomorrow_pv_kwh, 18.0, places=1)
+
+
 class PlannerScenarioTests(unittest.TestCase):
     def setUp(self) -> None:
         self.now = local(2026, 3, 10, 16, 0)

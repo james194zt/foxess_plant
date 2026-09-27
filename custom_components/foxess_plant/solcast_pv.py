@@ -80,10 +80,15 @@ def build_rooftop_pv_requests(pv_config: PvSystemConfig) -> list[RooftopPvReques
     return requests
 
 
-def forecast_hours_until_local_midnight(hass: HomeAssistant, *, buffer_hours: int = 2) -> int:
-    """Hours of PV forecast to request (rest of local day, capped)."""
+def forecast_hours_until_local_midnight(
+    hass: HomeAssistant, *, buffer_hours: int = 2, days_ahead: int = 0
+) -> int:
+    """Hours of PV forecast to request (rest of local day + ``days_ahead`` days, capped).
+
+    Solcast quota is per call, not per hour, so asking for tomorrow costs nothing extra.
+    """
     now = dt_util.now()
-    end = now.replace(hour=23, minute=59, second=59, microsecond=0)
+    end = now.replace(hour=23, minute=59, second=59, microsecond=0) + timedelta(days=max(0, days_ahead))
     if end <= now:
         end += timedelta(days=1)
     hours = int((end - now).total_seconds() // 3600) + buffer_hours

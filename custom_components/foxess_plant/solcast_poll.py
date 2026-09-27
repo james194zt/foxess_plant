@@ -351,7 +351,8 @@ async def _fetch_rooftop_pv_forecasts(
         await async_resolve_rooftop_bindings(hass, plant)
 
     bindings = solcast.rooftop_site_bindings
-    hours = forecast_hours_until_local_midnight(hass)
+    # Include tomorrow: SmartCharge decides tonight's grid charge from tomorrow's PV.
+    hours = forecast_hours_until_local_midnight(hass, days_ahead=1)
     period = plant.solcast.period
     payloads: list[tuple[str, dict[str, Any]]] = []
     errors: list[str] = []
