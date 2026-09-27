@@ -154,6 +154,39 @@ class TimelineTests(unittest.TestCase):
         self.assertEqual(rows[0]["value_inc_vat"], 9.0)
 
 
+class TariffProfileTests(unittest.TestCase):
+    NOW = local(2026, 3, 10, 12, 0)
+
+    @staticmethod
+    def flat(p):
+        return [{"valid_from": "2025-01-01T00:00:00Z", "valid_to": None, "value_inc_vat": p}]
+
+    def test_flat_import_fixed_seg_export_hides_forced_export(self) -> None:
+        prof = planner.tariff_profile(self.flat(24.5), self.flat(15.0), self.NOW)
+        self.assertFalse(prof["import_varies"])
+        self.assertFalse(prof["export_varies"])
+        self.assertTrue(prof["has_export"])
+        self.assertFalse(prof["forced_export_useful"])
+
+    def test_agile_import_fixed_outgoing_export_is_useful(self) -> None:
+        prof = planner.tariff_profile(agile_rows(self.NOW, 30, overnight_cheap), self.flat(15.0), self.NOW)
+        self.assertTrue(prof["import_varies"])
+        self.assertFalse(prof["export_varies"])
+        self.assertTrue(prof["forced_export_useful"])
+
+    def test_no_export_tariff(self) -> None:
+        prof = planner.tariff_profile(self.flat(24.5), [], self.NOW)
+        self.assertFalse(prof["has_export"])
+        self.assertFalse(prof["export_known"])
+        self.assertFalse(prof["forced_export_useful"])
+
+    def test_agile_outgoing_varies(self) -> None:
+        exports = agile_rows(self.NOW, 30, lambda t: 30.0 if 16 <= t.hour < 19 else 8.0)
+        prof = planner.tariff_profile(self.flat(24.5), exports, self.NOW)
+        self.assertTrue(prof["export_varies"])
+        self.assertTrue(prof["forced_export_useful"])
+
+
 class SolcastRowTests(unittest.TestCase):
     def test_period_end_rows_cover_preceding_half_hour(self) -> None:
         # Fox Plant merged rows: period_start == period_end == Solcast period END.

@@ -816,6 +816,62 @@ def compact_plan(plan: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     ]
 
 
+VARIES_THRESHOLD_P = 0.5
+
+
+def tariff_profile(
+    import_rows: list[dict[str, Any]] | None,
+    export_rows: list[dict[str, Any]] | None,
+    now: datetime,
+    *,
+    horizon: timedelta = MAX_HORIZON,
+) -> dict[str, Any]:
+    """Describe the next ``horizon`` of rates so the UI can hide settings that can't matter.
+
+    - ``import_varies`` / ``export_varies``: price moves by at least 0.5p across the window.
+    - ``forced_export_useful``: exporting stored energy could beat refilling it later
+      (export varies, or the export rate beats the cheapest import).
+    """
+    start = floor_half_hour(now)
+    end = start + horizon
+    imp = _rate_intervals(import_rows, end)
+    exp = _rate_intervals(export_rows, end)
+    imports: list[float] = []
+    exports: list[float] = []
+    cursor = start
+    while cursor < end:
+        p = _rate_for(imp, cursor)
+        if p is not None:
+            imports.append(p)
+        e = _rate_for(exp, cursor)
+        if e is not None:
+            exports.append(e)
+        cursor += SLOT
+    out: dict[str, Any] = {"import_known": bool(imports), "export_known": bool(exports)}
+    if imports:
+        out.update(
+            import_min_p=round(min(imports), 2),
+            import_max_p=round(max(imports), 2),
+            import_varies=max(imports) - min(imports) >= VARIES_THRESHOLD_P,
+        )
+    has_export = bool(exports) and max(exports) > 0
+    out["has_export"] = has_export
+    if exports:
+        out.update(
+            export_min_p=round(min(exports), 2),
+            export_max_p=round(max(exports), 2),
+            export_varies=max(exports) - min(exports) >= VARIES_THRESHOLD_P,
+        )
+    out["forced_export_useful"] = bool(
+        has_export
+        and (
+            out.get("export_varies")
+            or (imports and max(exports) > min(imports))
+        )
+    )
+    return out
+
+
 def plan_rates_signature(rows: list[dict[str, Any]] | None, now: datetime) -> str:
     """Signature of future import prices — changes when rates are published or revised."""
     now = now.astimezone(timezone.utc)

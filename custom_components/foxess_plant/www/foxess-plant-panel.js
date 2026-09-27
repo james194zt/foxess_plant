@@ -372,7 +372,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.488";
+const PANEL_VERSION = "0.9.489";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -24021,42 +24021,57 @@ ${controlSection}`;
 <div class="mode-grid">${cards}</div>`;
   }
 
+  _renderSmartChargeExportFields(draft, mode, busy) {
+    /** Export settings adapted to the tariff: hidden when forced export can never pay. */
+    const profile = this._plantState?.smart_charge?.tariff_profile || null;
+    const fmtP = (v) => (v != null && Number.isFinite(Number(v)) ? `${Number(v).toFixed(2)}p/kWh` : "—");
+    if (profile && profile.export_known !== false && !profile.has_export) {
+      return `<p class="field-hint">No export tariff found, so SmartCharge won&rsquo;t force-export the battery. Surplus solar still exports as normal.</p>`;
+    }
+    if (profile && profile.has_export && !profile.forced_export_useful) {
+      return `<p class="field-hint">Export is a fixed ${esc(fmtP(profile.export_max_p))}, never above your cheapest import (${esc(fmtP(profile.import_min_p))}), so force-exporting the battery can&rsquo;t save money. Export settings are hidden; surplus solar still exports as normal.</p>`;
+    }
+    const keys = {
+      max_profit: { minP: "min_export_p_profit", minDef: 12, frac: "exportable_fraction_profit", fracDef: 1, allow: null },
+      max_green: { minP: "min_export_p_green", minDef: 25, frac: "exportable_fraction_green", fracDef: 0.15, allow: "export_enabled_green" },
+      max_safety: { minP: "min_export_p_safety", minDef: 20, frac: "exportable_fraction_safety", fracDef: 0.35, allow: "export_enabled_safety" },
+    }[mode] || null;
+    if (!keys) return "";
+    const allowLabel = mode === "max_green" ? "Allow export in green mode" : "Allow export in safety mode";
+    const allowRow = keys.allow
+      ? `<div class="toggle-row"><span><strong>${allowLabel}</strong></span>
+<input type="checkbox" data-field="smart-charge:${keys.allow}" ${draft[keys.allow] ? "checked" : ""} ${busy}></div>`
+      : "";
+    const exportFlat = profile && profile.has_export && !profile.export_varies;
+    const minRateRow = exportFlat
+      ? `<p class="field-hint">Export is a fixed ${esc(fmtP(profile.export_max_p))}. SmartCharge only force-exports when that beats refilling the battery later from cheaper import.</p>`
+      : `<div class="field"><label>Min export rate (p/kWh)</label>
+<input type="number" min="0" max="100" step="0.5" data-field="smart-charge:${keys.minP}" value="${esc(String(draft[keys.minP] ?? keys.minDef))}" ${busy}></div>`;
+    return `<div class="toggle-row"><span><strong>Enable grid export</strong></span>
+<input type="checkbox" data-field="smart-charge:export_enabled" ${draft.export_enabled ? "checked" : ""} ${busy}></div>
+${allowRow}
+${minRateRow}
+<div class="field"><label>Max exportable fraction</label>
+<input type="number" min="0.05" max="1" step="0.05" data-field="smart-charge:${keys.frac}" value="${esc(String(draft[keys.frac] ?? keys.fracDef))}" ${busy}>
+<p class="field-hint">Share of the battery above the export floor that may be force-exported per plan.</p></div>`;
+  }
+
   _renderSmartChargeModePanel(draft) {
     const mode = draft.operating_mode || "max_safety";
     const meta = SMART_CHARGE_MODE_META[mode] || SMART_CHARGE_MODE_META.max_safety;
     const busy = this._busy ? "disabled" : "";
-    let body = "";
-    if (mode === "max_profit") {
-      body = `<div class="toggle-row"><span><strong>Enable grid export</strong></span>
-<input type="checkbox" data-field="smart-charge:export_enabled" ${draft.export_enabled ? "checked" : ""} ${busy}></div>
-<div class="field"><label>Min export rate (p/kWh)</label>
-<input type="number" min="0" max="100" step="0.5" data-field="smart-charge:min_export_p_profit" value="${esc(String(draft.min_export_p_profit ?? 12))}" ${busy}></div>
-<div class="field"><label>Max exportable fraction</label>
-<input type="number" min="0.05" max="1" step="0.05" data-field="smart-charge:exportable_fraction_profit" value="${esc(String(draft.exportable_fraction_profit ?? 1))}" ${busy}>
-<p class="field-hint">Share of the battery above the export floor that may be force-exported per plan.</p></div>`;
-    } else if (mode === "max_green") {
-      body = `<div class="toggle-row"><span><strong>Enable grid export</strong></span>
-<input type="checkbox" data-field="smart-charge:export_enabled" ${draft.export_enabled ? "checked" : ""} ${busy}></div>
-<div class="toggle-row"><span><strong>Allow export in green mode</strong></span>
-<input type="checkbox" data-field="smart-charge:export_enabled_green" ${draft.export_enabled_green ? "checked" : ""} ${busy}></div>
-<div class="field"><label>Min export rate (p/kWh)</label>
-<input type="number" min="0" max="100" step="0.5" data-field="smart-charge:min_export_p_green" value="${esc(String(draft.min_export_p_green ?? 25))}" ${busy}></div>
-<div class="field"><label>Max exportable fraction</label>
-<input type="number" min="0.05" max="1" step="0.05" data-field="smart-charge:exportable_fraction_green" value="${esc(String(draft.exportable_fraction_green ?? 0.15))}" ${busy}></div>
-<div class="field"><label>Carbon weight (0–1)</label>
+    let body = this._renderSmartChargeExportFields(draft, mode, busy);
+    if (mode === "max_green") {
+      body += `<div class="field"><label>Carbon weight (0–1)</label>
 <input type="number" min="0" max="1" step="0.05" data-field="smart-charge:green_carbon_weight" value="${esc(String(draft.green_carbon_weight ?? 0.5))}" ${busy}>
 <p class="field-hint">Adds up to 10p/kWh × weight to grid imports in high-carbon half-hours, steering charging towards greener slots.</p></div>`;
-    } else {
-      body = `<div class="toggle-row"><span><strong>Enable grid export</strong></span>
-<input type="checkbox" data-field="smart-charge:export_enabled" ${draft.export_enabled ? "checked" : ""} ${busy}></div>
-<div class="toggle-row"><span><strong>Allow export in safety mode</strong></span>
-<input type="checkbox" data-field="smart-charge:export_enabled_safety" ${draft.export_enabled_safety ? "checked" : ""} ${busy}></div>
-<div class="field"><label>Min export rate (p/kWh)</label>
-<input type="number" min="0" max="100" step="0.5" data-field="smart-charge:min_export_p_safety" value="${esc(String(draft.min_export_p_safety ?? 20))}" ${busy}></div>
-<div class="field"><label>Max exportable fraction</label>
-<input type="number" min="0.05" max="1" step="0.05" data-field="smart-charge:exportable_fraction_safety" value="${esc(String(draft.exportable_fraction_safety ?? 0.35))}" ${busy}></div>
-<div class="field"><label>Safety reserve multiplier</label>
+    } else if (mode === "max_safety") {
+      body += `<div class="field"><label>Safety reserve multiplier</label>
 <input type="number" min="1" max="5" step="0.05" data-field="smart-charge:safety_reserve_multiplier" value="${esc(String(draft.safety_reserve_multiplier ?? 1.5))}" ${busy}></div>`;
+    }
+    const profile = this._plantState?.smart_charge?.tariff_profile || null;
+    if (profile && profile.import_known && !profile.import_varies) {
+      body += `<p class="field-hint">Import is a flat ${esc(Number(profile.import_max_p).toFixed(2))}p/kWh, so grid charging can&rsquo;t save money. SmartCharge will just run self-use unless prices change.</p>`;
     }
     return `<div class="sc-mode-panel" style="--sc-mode-accent: ${meta.accent}">
 <p class="sc-mode-panel-title"><span class="sc-mode-panel-icon" aria-hidden="true">${smartChargeModeIconHtml(mode)}</span>${esc(meta.title)} settings</p>
@@ -24260,7 +24275,7 @@ ${draft.enabled ? `<details class="sc-section-details" data-sc-section="energy"$
 <p class="field-hint">SmartCharge always also wakes on every half-hour boundary so planned slots start on time.</p></div>
 <div class="field"><label>Daily plan time (UK local)</label>
 <input type="time" data-field="smart-charge:daily_plan_time" value="${esc(String(draft.daily_plan_time ?? "16:00"))}" ${busy}>
-<p class="field-hint">Forces a fresh Octopus fetch and replan (Agile publishes tomorrow&rsquo;s rates around 16:00). The plan always runs to the end of tomorrow and is also rebuilt when rates, the Solcast forecast or battery SOC change materially, and at least hourly. Slots whose price isn&rsquo;t published yet are estimated and never scheduled.</p></div>
+<p class="field-hint">${this._plantState?.smart_charge?.tariff_profile?.import_varies === false ? "Forces a fresh rate fetch and replan." : "Forces a fresh Octopus fetch and replan (Agile publishes tomorrow&rsquo;s rates around 16:00). Slots whose price isn&rsquo;t published yet are estimated and never scheduled."} The plan always runs to the end of tomorrow and is also rebuilt when rates, the Solcast forecast or battery SOC change materially, and at least hourly.</p></div>
 <div class="toggle-row"><span><strong>Glow / smart-meter rate check</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Double-check live meter import rate against Octopus API before force-charging</span></span>
 <input type="checkbox" data-field="smart-charge:meter_rate_verify_enabled" ${draft.meter_rate_verify_enabled !== false ? "checked" : ""} ${busy}></div>
 ${draft.meter_rate_verify_enabled !== false ? `<div class="field"><label>Import rate sensor (Glow / IHD)</label>

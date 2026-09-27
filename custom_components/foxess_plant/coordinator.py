@@ -1651,6 +1651,19 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return import_rows, export_rows
         return self._smart_charge_schedule_rate_rows()
 
+    def _smart_charge_tariff_profile(self) -> dict[str, Any] | None:
+        """Import/export price shape (flat vs varying) for the SmartCharge settings UI."""
+        from homeassistant.util import dt as dt_util
+
+        from .smart_charge.planner import tariff_profile
+
+        try:
+            import_rows, export_rows = self._smart_charge_rate_rows()
+            return tariff_profile(import_rows, export_rows, dt_util.utcnow())
+        except Exception:  # noqa: BLE001 — UI hint only
+            _LOGGER.debug("SmartCharge tariff profile unavailable", exc_info=True)
+            return None
+
     def _smart_charge_schedule_rate_rows(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         from homeassistant.util import dt as dt_util
 
@@ -2680,6 +2693,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "daily_plan": self._smart_charge_daily_plan,
                 "daily_plan_actions": compact_plan(self._smart_charge_daily_plan),
                 "plan_meta": self._smart_charge_plan_meta,
+                "tariff_profile": self._smart_charge_tariff_profile(),
             },
             "tariff_modes": sorted(self.plant.tariff_modes.keys()),
             "storm_prep": self._storm_prep_state(),
