@@ -354,6 +354,24 @@ async def apply_schedule_bundle(
         )
 
 
+def _remote_control_dropped(coordinator: FoxESSPlantCoordinator, bundle: ScheduleApplyBundle) -> bool:
+    """True when the bundle needs Force Charge/Discharge but Remote Control is idle.
+
+    SOC writes, the Fox app or an inverter restart can switch Remote Control off
+    without the bundle changing — the minute tick must then re-send it.
+    """
+    if not (bundle.force_charge or bundle.force_discharge):
+        return False
+    if not coordinator.plant.entity_map.get("remote_control"):
+        return False
+    if getattr(coordinator, "_virtual_cap_active", False):
+        return False  # Max SOC reached: the cap switched Remote Control off on purpose.
+    live = coordinator._entity_state("remote_control")
+    if live in ("unknown", "unavailable"):
+        return False
+    return not is_remote_control_active(live)
+
+
 async def apply_current_schedule_state(
     coordinator: FoxESSPlantCoordinator,
     *,
@@ -365,7 +383,7 @@ async def apply_current_schedule_state(
         return None
     signature = bundle.signature()
     last = getattr(coordinator, "_last_schedule_bundle_sig", None)
-    if not force and signature == last:
+    if not force and signature == last and not _remote_control_dropped(coordinator, bundle):
         return None
     await apply_schedule_bundle(coordinator, bundle)
     coordinator._last_schedule_bundle_sig = signature

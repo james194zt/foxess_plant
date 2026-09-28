@@ -1611,9 +1611,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> None:
         await self._save_max_soc_if_needed(target_max_soc)
         self._save_work_mode_if_needed()
-        await self.async_set_override_periods(periods, mode, reason)
+        # Max SOC first: on EVO a SOC write disables Remote Control, which would cancel
+        # the Force Charge the override has just armed.
         if target_max_soc is not None and self._hardware_max_soc_supported():
             await self._set_max_soc(target_max_soc)
+        await self.async_set_override_periods(periods, mode, reason)
         self._fire(event_name, {"reason": reason, "mode": mode})
 
     async def _disarm_policy(self, mode: str, event_name: str) -> None:
