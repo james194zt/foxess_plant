@@ -2743,16 +2743,37 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return read_overview_weather(self.hass, self.plant.storm_prep)
 
     def _solcast_state(self) -> dict[str, Any]:
+        from homeassistant.util import dt as dt_util
+
+        from .smart_charge.planner import _row_time
         from .solcast_poll import solcast_status_dict
 
-        return solcast_status_dict(
+        # The poll cache is empty after a restart until the next Solcast poll. Feed the
+        # forecast sensors from SmartCharge's rows (history + persisted PV store) meanwhile.
+        cache = self._solcast_cache
+        fallback = False
+        if not self._solcast_detailed_forecast_rows():
+            today_start = dt_util.start_of_local_day()
+            rows = [
+                r
+                for r in self._smart_charge_forecast_rows()
+                if (when := _row_time(r)) is not None and when > today_start
+            ]
+            if rows:
+                cache = {**cache, "pv_forecast_parsed": {"detailed_forecast": rows}}
+                fallback = True
+        out = solcast_status_dict(
             self.plant.solcast,
-            self._solcast_cache,
+            cache,
             plant=self.plant,
             hass=self.hass,
             forecast_history_snapshots=self._solcast_history_count,
             forecast_intraday_points=self._solcast_forecast_chart_points,
         )
+        if fallback:
+            out["forecast_persisted"] = False
+            out["forecast_source"] = "restored"
+        return out
 
     def get_plant_state(self) -> dict[str, Any]:
         from .panel import get_panel_disk_info
