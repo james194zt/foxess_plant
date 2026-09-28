@@ -374,7 +374,7 @@ class PlanParams:
     export_allowed: bool = True
     min_export_p: float = 0.0
     export_floor_kwh: float = 0.0  # forced export never drains below this
-    max_export_kwh: float | None = None  # total forced export budget
+    max_export_kwh: float | None = None  # forced export budget per local day
     carbon_weight_p: float = 0.0  # pence-equivalent per kWh per dirty point
     min_saving_p_per_kwh: float = 1.0
     terminal_p_per_kwh: float | None = None  # value of energy left at horizon end
@@ -539,6 +539,11 @@ def simulate(
 # ---------------------------------------------------------------------------
 
 
+def is_plunge(slot: Slot) -> bool:
+    """Import price is known and negative: always force charge (paid to import)."""
+    return slot.price_known and slot.import_p < 0
+
+
 def _chunk_sizes(room: float) -> list[float]:
     if room <= 0.01:
         return []
@@ -558,11 +563,18 @@ def optimise(
     soc0_kwh: float,
     params: PlanParams,
     *,
+    tz: tzinfo = timezone.utc,
     max_iterations: int = 400,
 ) -> tuple[list[float], list[float], SimResult]:
     """Greedy cost descent: repeatedly apply the single best charge/export move."""
     n = len(slots)
-    charge = [0.0] * n
+    # The export budget is per local day, so each evening peak can export to the floor.
+    days = [s.start.astimezone(tz).date() for s in slots]
+    # Hard plunge rule: every negative-price slot is a full-rate force charge, whatever
+    # PV or the minimum saving say. Kept even when the battery has no room, because force
+    # charge also stops the battery feeding the house, so the house imports at the paid rate.
+    plunge = [is_plunge(s) for s in slots]
+    charge = [params.charge_kw * s.hours if p else 0.0 for s, p in zip(slots, plunge)]
     discharge = [0.0] * n
     result = simulate(slots, soc0_kwh, params, charge, discharge)
     if n == 0:
@@ -571,7 +583,9 @@ def optimise(
     max_import = max(s.import_p for s in slots)
     for _ in range(max_iterations):
         best: tuple[float, str, int, float] | None = None
-        exported_total = sum(result.discharged)
+        exported_by_day: dict[Any, float] = {}
+        for day, kwh in zip(days, result.discharged):
+            exported_by_day[day] = exported_by_day.get(day, 0.0) + kwh
         for i, slot in enumerate(slots):
             if not slot.price_known:
                 continue
@@ -600,7 +614,7 @@ def optimise(
             ):
                 room = params.discharge_kw * slot.hours - discharge[i]
                 if params.max_export_kwh is not None:
-                    room = min(room, params.max_export_kwh - exported_total)
+                    room = min(room, params.max_export_kwh - exported_by_day[days[i]])
                 for size in _chunk_sizes(room):
                     trial = list(discharge)
                     trial[i] += size
@@ -623,7 +637,10 @@ def optimise(
             discharge[i] += size
         result = simulate(slots, soc0_kwh, params, charge, discharge)
         # Trim requested energy down to what the battery actually accepted.
-        charge = [min(c, u) if c > 0 else 0.0 for c, u in zip(charge, result.charged)]
+        charge = [
+            c if p else (min(c, u) if c > 0 else 0.0)
+            for c, u, p in zip(charge, result.charged, plunge)
+        ]
         discharge = [min(d, u) if d > 0 else 0.0 for d, u in zip(discharge, result.discharged)]
         result = simulate(slots, soc0_kwh, params, charge, discharge)
     return charge, discharge, result
@@ -671,7 +688,7 @@ def build_plan(
     now: datetime,
 ) -> tuple[list[dict[str, Any]], PlanSummary]:
     """Optimise and serialise the plan (one dict per half-hour)."""
-    charge, discharge, result = optimise(slots, soc0_kwh, params)
+    charge, discharge, result = optimise(slots, soc0_kwh, params, tz=tz)
     baseline = simulate(slots, soc0_kwh, params, [0.0] * len(slots), [0.0] * len(slots))
     cap = params.capacity_kwh or 1.0
     tomorrow = (now.astimezone(tz) + timedelta(days=1)).date()
@@ -682,9 +699,12 @@ def build_plan(
     for i, slot in enumerate(slots):
         pv = slot.pv_kwh * params.pv_scale
         load = slot.load_kwh * params.load_scale
-        if result.charged[i] > 0.01:
+        if is_plunge(slot):
             action = ACTION_CHARGE
-            reason = "negative_import" if slot.import_p < 0 else "grid_charge"
+            reason = "negative_import"
+        elif result.charged[i] > 0.01:
+            action = ACTION_CHARGE
+            reason = "grid_charge"
         elif result.discharged[i] > 0.01:
             action = ACTION_EXPORT
             reason = "export_peak"
@@ -713,6 +733,9 @@ def build_plan(
                 "carbon_score": slot.carbon_score,
             }
         )
+        if action == ACTION_CHARGE and reason == "negative_import":
+            # Plunge charges run to the max SOC even if the forecast says the battery is full.
+            plan[-1]["target_soc_pct"] = round(params.cap_kwh / cap * 100.0, 1)
         soc_prev = result.soc_kwh[i]
         summary.grid_charge_kwh += result.charged[i]
         summary.export_kwh += result.discharged[i]
@@ -820,6 +843,9 @@ def decide(plan: list[dict[str, Any]] | None, now: datetime) -> dict[str, Any]:
         lo, hi = block_around(plan, idx)
         window = _block_window(plan, lo, hi, kwh_key="planned_import_kwh")
         target = min(100.0, math.ceil(float(plan[hi].get("soc_end_pct") or 100.0)))
+        plunge_cap = [float(plan[j]["target_soc_pct"]) for j in range(lo, hi + 1) if plan[j].get("target_soc_pct")]
+        if plunge_cap:
+            target = max(target, min(100.0, max(plunge_cap)))
         negative = float(entry.get("import_p_per_kwh") or 0) < 0
         out.update(
             action="arbitrage" if negative else "grid_charge",

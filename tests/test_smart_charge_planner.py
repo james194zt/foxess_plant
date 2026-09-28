@@ -245,6 +245,29 @@ class PlannerScenarioTests(unittest.TestCase):
         self.assertTrue(charges)
         self.assertTrue(all(e["import_p_per_kwh"] < 0 for e in charges), charges)
 
+    def test_plunge_always_charges_even_when_pv_fills_battery(self) -> None:
+        # Cheap overnight + strong PV fill the battery before the plunge; the plunge
+        # must still be a force charge (to max SOC) so the house imports at the paid rate.
+        def price(t):
+            if t.day == 11 and 12 <= t.hour < 14:
+                return -0.5  # below the 1p minimum saving: the rule is not economic
+            return overnight_cheap(t)
+
+        rows = agile_rows(self.now, 31, price)
+        forecast = solar_rows(local(2026, 3, 11, 0), 30.0)
+        p = params(cap_kwh=9.0)
+        _slots, plan, _ = run(self.now, rows, forecast, soc_kwh=9.0, p=p)
+        plunge = [e for e in plan if e["import_p_per_kwh"] < 0]
+        self.assertEqual(len(plunge), 4)
+        for entry in plunge:
+            self.assertEqual(entry["action"], "charge", entry)
+            self.assertEqual(entry["reason"], "negative_import")
+            self.assertEqual(entry["target_soc_pct"], 90.0)
+        d = planner.decide(plan, planner.parse_iso(plunge[1]["start_utc"]) + timedelta(minutes=5))
+        self.assertEqual(d["action"], "arbitrage")
+        self.assertEqual(d["target_soc_pct"], 90.0)
+        self.assertEqual(d["window"]["start_utc"], plunge[0]["start_utc"])
+
     def test_export_peak_with_cheap_refill(self) -> None:
         now = local(2026, 3, 10, 15, 0)
         imports = agile_rows(now, 32, overnight_cheap)
@@ -256,6 +279,25 @@ class PlannerScenarioTests(unittest.TestCase):
         for entry in exports_planned:
             self.assertEqual(entry["export_p_per_kwh"], 30.0)
             self.assertGreaterEqual(entry["soc_end_pct"], 40.0 - 0.01)
+
+    def test_agile_outgoing_exports_top_slots_with_a_budget_per_day(self) -> None:
+        now = local(2026, 3, 10, 15, 0)
+        imports = agile_rows(now, 32, overnight_cheap)
+        peak = {16: 24.0, 17: 31.0, 18: 27.0}
+        exports = agile_rows(now, 32, lambda t: peak.get(t.hour, 5.0))
+        # Budget covers two 30-minute exports: day 1 used to spend all of it, leaving none for day 2.
+        p = params(export_allowed=True, min_export_p=12.0, export_floor_kwh=4.0, max_export_kwh=3.0)
+        _slots, plan, _ = run(now, imports, [], soc_kwh=10.0, export_rows=exports, p=p)
+        for day in (10, 11):
+            planned = [
+                e for e in plan
+                if e["action"] == "export" and planner.parse_iso(e["start_utc"]).astimezone(TZ).day == day
+            ]
+            self.assertTrue(planned, f"no export on day {day}")
+            self.assertLessEqual(sum(e["planned_export_kwh"] for e in planned), 3.0 + 1e-6)
+            # Only the best-paying hour is used when the budget is this small.
+            self.assertTrue(all(e["export_p_per_kwh"] == 31.0 for e in planned), planned)
+            self.assertGreaterEqual(min(e["soc_end_pct"] for e in planned), 40.0 - 0.01)
 
     def test_no_actions_in_unknown_price_slots(self) -> None:
         now = local(2026, 3, 10, 10, 0)
