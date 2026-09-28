@@ -129,8 +129,8 @@ def evaluate_storm_solcast_precheck(
         out["action"] = ACTION_UNAVAILABLE
         out["summary"] = "Solcast is not configured — full grid pre-charge when StormSafe arms."
         out["detail"] = (
-            "Configure Solcast under Settings → Solcast (API key and PV strings) "
-            "to enable PV-aware pre-charge."
+            "No Solcast API key and no stored PV forecast. Configure Solcast under "
+            "Settings → Solcast (API key and PV strings) to enable PV-aware pre-charge."
         )
         return out
 
@@ -193,7 +193,10 @@ def evaluate_storm_solcast_precheck(
     if pv_kwh is None:
         out["action"] = ACTION_FULL_GRID
         out["summary"] = "Solcast forecast unavailable — full grid pre-charge if StormSafe arms."
-        out["detail"] = "Refresh the Solcast forecast under Settings → Solcast."
+        out["detail"] = (
+            "Solcast is configured but no forecast rows are loaded yet. "
+            "Refresh the Solcast forecast under Settings → Solcast."
+        )
         return out
 
     effective_pv = round(pv_kwh / margin, 2) if margin > 0 else pv_kwh

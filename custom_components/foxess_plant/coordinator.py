@@ -2711,14 +2711,14 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         cfg = self.plant.storm_prep
         soc_pct, capacity_kwh, kwh_remaining = self._smart_charge_battery_metrics()
+        # Same merged forecast SmartCharge plans with (latest poll + history + its own
+        # persisted rows). Missing rows are reported by the precheck as "forecast
+        # unavailable", not as "Solcast not configured".
+        rows = self._smart_charge_forecast_rows()
         return evaluate_storm_solcast_precheck(
             cfg=cfg,
-            solcast_configured=bool(
-                self.plant.solcast.enabled
-                and self.plant.solcast.api_key_configured()
-                and self._solcast_detailed_forecast_rows()
-            ),
-            forecast_rows=self._solcast_detailed_forecast_rows(),
+            solcast_configured=bool(self.plant.solcast.api_key_configured() or rows),
+            forecast_rows=rows,
             condition_active=self._is_storm_condition_active(),
             forecast_active=self._storm_forecast_active,
             forecast_detail=self._storm_forecast_detail,

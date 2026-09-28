@@ -406,7 +406,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.499";
+const PANEL_VERSION = "0.9.500";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -23352,7 +23352,8 @@ ${enableHint}${detail}</div>`;
     const draft = this._stormDraft;
     const precheck = this._plantState?.storm_prep?.solcast_precheck ?? {};
     const solcast = this._plantState?.solcast ?? {};
-    const solcastConfigured = Boolean(solcast.enabled && solcast.api_key_configured);
+    const solcastConfigured =
+      precheck.solcast_configured ?? Boolean(solcast.api_key_set || solcast.api_key_configured);
     const margin = draft?.solcast_safety_margin ?? DEFAULT_STORM_SOLCAST_MARGIN;
     const minSoc = draft?.solcast_min_soc_floor ?? DEFAULT_STORM_SOLCAST_MIN_SOC;
     const enabled = Boolean(draft?.use_solcast_grid_limit);
