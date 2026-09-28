@@ -308,6 +308,80 @@ class PlannerScenarioTests(unittest.TestCase):
                 self.assertEqual(entry["action"], "idle")
 
 
+def three_band(t: datetime) -> float:
+    """E.ON-style time of use: cheap 02-05, peak 16-19, standard otherwise."""
+    if 2 <= t.hour < 5:
+        return 18.05
+    if 16 <= t.hour < 19:
+        return 45.25
+    return 24.65
+
+
+EVENING_PROFILE = {"all": [(1.5 if 34 <= i < 38 else 0.6 if 38 <= i < 44 else 0.25) * 0.5 for i in range(48)]}
+
+
+def run_tou(now, soc_kwh, pv_kwh, *, peak_min_pct):
+    rates = agile_rows(now, 40, three_band)
+    exports = agile_rows(now, 40, lambda t: 13.0)
+    slots = planner.build_timeline(
+        now=now,
+        tz=TZ,
+        import_rows=rates,
+        export_rows=exports,
+        forecast_rows=solar_rows(local(2026, 9, 29, 0), pv_kwh),
+        load_profile=EVENING_PROFILE,
+    )
+    p = params(charge_kw=3.6, discharge_kw=5.0, pv_scale=1 / 1.15, load_scale=1.1, topup_below_kwh=peak_min_pct / 10)
+    plan, _ = planner.build_plan(slots, soc_kwh, p, tz=TZ, now=now)
+    return plan
+
+
+def on_day(plan, day, price):
+    return [
+        e for e in plan
+        if planner.parse_iso(e["start_utc"]).astimezone(TZ).day == day and e["import_p_per_kwh"] == price
+    ]
+
+
+class TimeOfUseTests(unittest.TestCase):
+    def test_charges_only_in_cheapest_band_and_covers_peak(self) -> None:
+        for pv in (0.0, 4.0, 10.0, 20.0):
+            plan = run_tou(local(2026, 9, 28, 19, 0), 3.0, pv, peak_min_pct=20)
+            day_charges = [e for e in charge_slots(plan) if e["import_p_per_kwh"] != 18.05]
+            self.assertEqual(day_charges, [], f"PV {pv}: unexpected daytime charge")
+            peak = on_day(plan, 29, 45.25)
+            self.assertEqual(sum(e["grid_import_kwh"] for e in peak), 0.0, f"PV {pv}")
+            self.assertGreaterEqual(peak[-1]["soc_end_pct"], 20.0 - 0.1, f"PV {pv}")
+
+    def test_sunny_day_leaves_room_for_pv(self) -> None:
+        plan = run_tou(local(2026, 9, 28, 19, 0), 3.0, 20.0, peak_min_pct=20)
+        night = on_day(plan, 29, 18.05)
+        self.assertLess(night[-1]["soc_end_pct"], 50.0)
+
+    def test_peak_lower_limit_holds_spare_through_peak(self) -> None:
+        # No PV: the night charge alone ends the peak near 30%. A 40% limit must keep more back.
+        plan = run_tou(local(2026, 9, 28, 19, 0), 3.0, 0.0, peak_min_pct=40)
+        peak = on_day(plan, 29, 45.25)
+        self.assertGreaterEqual(peak[-1]["soc_end_pct"], 40.0 - 0.1)
+        self.assertEqual(sum(e["grid_import_kwh"] for e in peak), 0.0)
+
+    def test_pv_shortfall_tops_up_before_peak_not_during(self) -> None:
+        plan = run_tou(local(2026, 9, 29, 12, 0), 3.5, 2.0, peak_min_pct=20)
+        top_ups = [e for e in charge_slots(on_day(plan, 29, 24.65))]
+        self.assertTrue(top_ups)
+        for e in top_ups:
+            hour = planner.parse_iso(e["start_utc"]).astimezone(TZ).hour
+            self.assertTrue(12 <= hour < 16, e)
+        self.assertEqual(charge_slots(on_day(plan, 29, 45.25)), [])
+        self.assertEqual(sum(e["grid_import_kwh"] for e in on_day(plan, 29, 45.25)), 0.0)
+
+    def test_agile_is_not_restricted_to_one_band(self) -> None:
+        now = local(2026, 3, 10, 16, 0)
+        rows = agile_rows(now, 31, lambda t: 10.0 + (t.hour * 60 + t.minute) / 60.0)
+        slots = planner.build_timeline(now=now, tz=TZ, import_rows=rows, load_profile=flat_profile(0.4))
+        self.assertTrue(all(planner.cheapest_band_slots(slots)))
+
+
 class DecideTests(unittest.TestCase):
     def setUp(self) -> None:
         self.now = local(2026, 3, 10, 16, 0)

@@ -406,7 +406,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.498";
+const PANEL_VERSION = "0.9.499";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -16019,6 +16019,7 @@ Reloading panel registration…
       max_discharge_kw: sc.max_discharge_kw ?? null,
       load_history_days: sc.load_history_days ?? 14,
       min_saving_p_per_kwh: sc.min_saving_p_per_kwh ?? 1,
+      peak_min_soc: sc.peak_min_soc ?? 20,
       meter_rate_tolerance_p_per_kwh: sc.meter_rate_tolerance_p_per_kwh ?? 0.5,
       meter_rate_recheck_minutes: sc.meter_rate_recheck_minutes ?? 5,
       charge_periods: periods,
@@ -16254,6 +16255,7 @@ Reloading panel registration…
           d.max_discharge_kw == null || d.max_discharge_kw === "" ? null : Number(d.max_discharge_kw),
         load_history_days: Number(d.load_history_days) || 14,
         min_saving_p_per_kwh: Number.isFinite(Number(d.min_saving_p_per_kwh)) ? Number(d.min_saving_p_per_kwh) : 1,
+        peak_min_soc: Number.isFinite(Number(d.peak_min_soc)) ? Number(d.peak_min_soc) : 20,
         meter_rate_recheck_minutes: Number(d.meter_rate_recheck_minutes) || 5,
         charge_periods: chargePeriodsFromAutomationBehaviour(SMART_CHARGE_GRID_BEHAVIOUR),
       });
@@ -19336,6 +19338,11 @@ Reloading panel registration…
       }
       if (field === "load_history_days") {
         this._smartChargeDraft.load_history_days = Math.max(1, Math.min(60, parseInt(el.value, 10) || 14));
+        return;
+      }
+      if (field === "peak_min_soc") {
+        const v = parseFloat(el.value);
+        this._smartChargeDraft.peak_min_soc = Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : 20;
         return;
       }
       if (field === "min_saving_p_per_kwh") {
@@ -24460,6 +24467,9 @@ ${draft.enabled ? `<details class="sc-section-details" data-sc-section="energy"$
 <div class="field"><label>Minimum saving to act (p/kWh)</label>
 <input type="number" min="0" max="50" step="0.1" data-field="smart-charge:min_saving_p_per_kwh" value="${esc(String(draft.min_saving_p_per_kwh ?? 1))}" ${busy}>
 <p class="field-hint">A charge or export is only planned when it saves at least this much per kWh moved.</p></div>
+<div class="field"><label>Peak lower limit (SOC %)</label>
+<input type="number" min="0" max="100" step="1" data-field="smart-charge:peak_min_soc" value="${esc(String(draft.peak_min_soc ?? 20))}" ${busy}>
+<p class="field-hint">Time-of-use tariffs: the grid charge happens only in the cheapest window and is sized so the battery is still at this SOC when the dearest (peak) band ends. That spare covers loads the history can&rsquo;t predict, like the oven. Set it to your inverter&rsquo;s minimum SOC plus the biggest surprise load you want covered. A top-up at a dearer daytime rate happens only when the battery is planned to drop below this before the peak ends (e.g. PV fell short). The inverter&rsquo;s own minimum SOC is unchanged.</p></div>
 <div class="field"><label>Round-trip efficiency</label>
 <input type="number" min="0.5" max="1" step="0.01" data-field="smart-charge:round_trip_efficiency" value="${esc(String(draft.round_trip_efficiency ?? 0.9))}" ${busy}></div>
 </details>

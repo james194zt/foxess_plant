@@ -423,6 +423,9 @@ class SmartChargeConfig:
     max_discharge_kw: float | None = None
     load_history_days: int = 14
     min_saving_p_per_kwh: float = 1.0
+    # Time-of-use tariffs: plan to still hold this SOC when the peak band ends (spare for
+    # unpredictable loads). Outside the cheapest band, grid charge only to protect it.
+    peak_min_soc: float = 20.0
     charge_periods: list[ChargePeriodConfig] = field(default_factory=list)
 
     @classmethod
@@ -501,6 +504,9 @@ class SmartChargeConfig:
             ),
             load_history_days=max(1, min(60, int(data.get("load_history_days", 14) or 14))),
             min_saving_p_per_kwh=max(0.0, float(data.get("min_saving_p_per_kwh", 1.0) or 0.0)),
+            peak_min_soc=max(
+                0.0, min(100.0, float(data.get("peak_min_soc", 20.0) or 0.0))
+            ),
             charge_periods=[ChargePeriodConfig.from_dict(p) for p in periods_raw],
         )
 
@@ -554,6 +560,7 @@ class SmartChargeConfig:
             "max_discharge_kw": round(self.max_discharge_kw, 2) if self.max_discharge_kw else None,
             "load_history_days": int(self.load_history_days),
             "min_saving_p_per_kwh": round(self.min_saving_p_per_kwh, 2),
+            "peak_min_soc": round(self.peak_min_soc, 1),
             "charge_periods": [p.to_dict() for p in self.charge_periods],
         }
 

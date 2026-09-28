@@ -1109,6 +1109,9 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             vol.Optional("min_saving_p_per_kwh", default=1.0): vol.All(
                 vol.Coerce(float), vol.Range(min=0, max=50)
             ),
+            vol.Optional("peak_min_soc", default=20.0): vol.All(
+                vol.Coerce(float), vol.Range(min=0, max=100)
+            ),
             vol.Required("charge_periods"): [PERIOD_SCHEMA],
         }
     )
@@ -1174,6 +1177,7 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
                 "max_discharge_kw",
                 "load_history_days",
                 "min_saving_p_per_kwh",
+                "peak_min_soc",
                 "charge_periods",
             )
             if key in msg

@@ -28,6 +28,10 @@ ACTION_CHARGE = "charge"
 ACTION_EXPORT = "export"
 ACTION_IDLE = "idle"
 
+# Import tariffs with at most this many price levels are fixed time-of-use (Go, Economy 7,
+# E.ON Next Drive, Flux...). Agile has dozens of distinct half-hour prices.
+MAX_TOU_PRICE_LEVELS = 4
+
 
 # ---------------------------------------------------------------------------
 # Time helpers
@@ -377,6 +381,9 @@ class PlanParams:
     max_export_kwh: float | None = None  # forced export budget per local day
     carbon_weight_p: float = 0.0  # pence-equivalent per kWh per dirty point
     min_saving_p_per_kwh: float = 1.0
+    # Time-of-use: SOC kept through the peak band (config ``peak_min_soc``); outside the
+    # cheapest band, grid charge only when SOC is planned to reach it before the next cheap slot.
+    topup_below_kwh: float = 0.0
     terminal_p_per_kwh: float | None = None  # value of energy left at horizon end
 
     @property
@@ -442,6 +449,7 @@ def params_from_config(
         max_export_kwh=max(0.0, min(1.0, fraction)) * max(0.0, cap_kwh - export_floor),
         carbon_weight_p=carbon_w,
         min_saving_p_per_kwh=max(0.0, _cfg(config, "min_saving_p_per_kwh", 1.0)),
+        topup_below_kwh=capacity_kwh * max(0.0, min(100.0, _cfg(config, "peak_min_soc", 20.0))) / 100.0,
     )
 
 
@@ -473,7 +481,9 @@ def simulate(
     params: PlanParams,
     charge: list[float],
     discharge: list[float],
+    floors: list[float] | None = None,
 ) -> SimResult:
+    """``floors`` overrides ``params.floor_kwh`` per slot (the peak buffer)."""
     eff = params.eff_one_way
     soc = max(0.0, min(params.capacity_kwh, soc0_kwh))
     cost = 0.0
@@ -504,7 +514,7 @@ def simulate(
                 imp += -net
         elif discharge[i] > 0:
             # Force discharge: battery output serves the house first, remainder exported.
-            avail = max(0.0, soc - params.export_floor_kwh)
+            avail = max(0.0, soc - max(params.export_floor_kwh, floors[i] if floors else 0.0))
             used_d = min(discharge[i], params.discharge_kw * slot.hours, avail)
             soc -= used_d
             supply = pv + used_d * eff - load
@@ -519,7 +529,8 @@ def simulate(
                 exp += net - store / eff
             else:
                 need = -net
-                take = min(need / eff, max(0.0, soc - params.floor_kwh), params.discharge_kw * slot.hours / eff)
+                floor = floors[i] if floors else params.floor_kwh
+                take = min(need / eff, max(0.0, soc - floor), params.discharge_kw * slot.hours / eff)
                 soc -= take
                 imp += need - take * eff
         cost += imp * slot.import_p - exp * slot.export_p
@@ -542,6 +553,97 @@ def simulate(
 def is_plunge(slot: Slot) -> bool:
     """Import price is known and negative: always force charge (paid to import)."""
     return slot.price_known and slot.import_p < 0
+
+
+def cheapest_band_slots(slots: list[Slot]) -> list[bool]:
+    """Slots where a grid charge may be planned.
+
+    Fixed time-of-use tariffs charge only in the cheapest band: the overnight charge is
+    sized to carry the day and the peak. A dearer top-up is allowed only via ``topup_slots``.
+    Agile and other half-hourly tariffs may charge in any slot.
+    """
+    prices = {round(s.import_p, 2) for s in slots if s.price_known}
+    if not prices or len(prices) > MAX_TOU_PRICE_LEVELS:
+        return [True] * len(slots)
+    cheapest = min(prices)
+    return [round(s.import_p, 2) <= cheapest for s in slots]
+
+
+def topup_slots(chargeable: list[bool], soc_kwh: list[float], soc0_kwh: float, below_kwh: float) -> list[bool]:
+    """Outside the cheapest band: slots where the battery is planned to fall below
+    ``below_kwh`` before the next cheapest-band slot, so a top-up may be planned there."""
+    n = len(chargeable)
+    out = [False] * n
+    if below_kwh <= 0:
+        return out
+    lowest = float("inf")
+    for j in reversed(range(n)):
+        if chargeable[j]:
+            lowest = float("inf")
+            continue
+        start = soc_kwh[j - 1] if j > 0 else soc0_kwh
+        lowest = min(lowest, start, soc_kwh[j])
+        out[j] = lowest <= below_kwh + 0.01
+    return out
+
+
+def peak_slots(slots: list[Slot]) -> list[bool]:
+    """Time-of-use tariffs with three or more price levels: slots in the dearest band."""
+    prices = {round(s.import_p, 2) for s in slots if s.price_known}
+    if len(prices) < 3 or len(prices) > MAX_TOU_PRICE_LEVELS:
+        return [False] * len(slots)
+    dearest = max(prices)
+    return [s.price_known and round(s.import_p, 2) >= dearest for s in slots]
+
+
+def slot_floors(slots: list[Slot], params: PlanParams) -> list[float]:
+    """Self-use floor per slot: the peak band keeps ``topup_below_kwh`` spare.
+
+    The spare covers loads the median history misses (an oven at 5pm on some days).
+    It is planning only — the inverter's own minimum SOC is unchanged.
+    """
+    buffer = max(params.floor_kwh, min(params.cap_kwh, params.topup_below_kwh))
+    return [buffer if p else params.floor_kwh for p in peak_slots(slots)]
+
+
+def _prune(
+    slots: list[Slot],
+    soc0_kwh: float,
+    params: PlanParams,
+    charge: list[float],
+    discharge: list[float],
+    result: SimResult,
+    floors: list[float],
+    plunge: list[bool],
+) -> tuple[list[float], list[float], SimResult, bool]:
+    """Drop or halve planned moves while that lowers the cost (plunge charges stay)."""
+    charge, discharge = list(charge), list(discharge)
+    pruned = False
+    improved = True
+    while improved:
+        improved = False
+        for i in range(len(slots)):
+            for is_charge in (True, False):
+                amounts = charge if is_charge else discharge
+                if amounts[i] <= 0 or (is_charge and plunge[i]):
+                    continue
+                for new in (0.0, amounts[i] / 2):
+                    trial = list(amounts)
+                    trial[i] = new
+                    res = simulate(
+                        slots,
+                        soc0_kwh,
+                        params,
+                        trial if is_charge else charge,
+                        discharge if is_charge else trial,
+                        floors,
+                    )
+                    if res.cost_p < result.cost_p - 0.01:
+                        amounts[i] = new
+                        result = res
+                        pruned = improved = True
+                        break
+    return charge, discharge, result, pruned
 
 
 def _chunk_sizes(room: float) -> list[float]:
@@ -575,74 +677,90 @@ def optimise(
     # charge also stops the battery feeding the house, so the house imports at the paid rate.
     plunge = [is_plunge(s) for s in slots]
     charge = [params.charge_kw * s.hours if p else 0.0 for s, p in zip(slots, plunge)]
+    chargeable = cheapest_band_slots(slots)
+    floors = slot_floors(slots, params)
     discharge = [0.0] * n
-    result = simulate(slots, soc0_kwh, params, charge, discharge)
+    result = simulate(slots, soc0_kwh, params, charge, discharge, floors)
     if n == 0:
         return charge, discharge, result
 
     max_import = max(s.import_p for s in slots)
-    for _ in range(max_iterations):
-        best: tuple[float, str, int, float] | None = None
-        exported_by_day: dict[Any, float] = {}
-        for day, kwh in zip(days, result.discharged):
-            exported_by_day[day] = exported_by_day.get(day, 0.0) + kwh
-        for i, slot in enumerate(slots):
-            if not slot.price_known:
-                continue
-            # Charge move — only if something later is more expensive (or price is negative).
-            if discharge[i] == 0 and (slot.import_p < max_import or slot.import_p < 0):
-                room = params.charge_kw * slot.hours - charge[i]
-                for size in _chunk_sizes(room):
-                    trial = list(charge)
-                    trial[i] += size
-                    res = simulate(slots, soc0_kwh, params, trial, discharge)
-                    moved = res.charged[i] - result.charged[i]
-                    if moved <= 0.01:
-                        continue
-                    saving = result.cost_p - res.cost_p
-                    if saving < params.min_saving_p_per_kwh * moved:
-                        continue
-                    # Tie-break towards slots next to existing charge: fewer, longer windows.
-                    score = saving + (0.25 if _adjacent(charge, i) else 0.0)
-                    if best is None or score > best[0]:
-                        best = (score, "c", i, size)
-            # Export move.
-            if (
-                params.export_allowed
-                and charge[i] == 0
-                and slot.export_p >= params.min_export_p
-            ):
-                room = params.discharge_kw * slot.hours - discharge[i]
-                if params.max_export_kwh is not None:
-                    room = min(room, params.max_export_kwh - exported_by_day[days[i]])
-                for size in _chunk_sizes(room):
-                    trial = list(discharge)
-                    trial[i] += size
-                    res = simulate(slots, soc0_kwh, params, charge, trial)
-                    moved = res.discharged[i] - result.discharged[i]
-                    if moved <= 0.01:
-                        continue
-                    saving = result.cost_p - res.cost_p
-                    if saving < params.min_saving_p_per_kwh * moved:
-                        continue
-                    score = saving + (0.25 if _adjacent(discharge, i) else 0.0)
-                    if best is None or score > best[0]:
-                        best = (score, "d", i, size)
-        if best is None:
+    # Greedy moves are never undone, so a move that later moves make pointless (a daytime
+    # top-up once the next night's charge is planned) would stay. Alternate adding moves
+    # with a pruning pass that drops or halves any move whose removal lowers the cost.
+    for _round in range(3):
+        for _ in range(max_iterations):
+            best: tuple[float, str, int, float] | None = None
+            exported_by_day: dict[Any, float] = {}
+            for day, kwh in zip(days, result.discharged):
+                exported_by_day[day] = exported_by_day.get(day, 0.0) + kwh
+            topup = topup_slots(chargeable, result.soc_kwh, soc0_kwh, params.topup_below_kwh)
+            for i, slot in enumerate(slots):
+                if not slot.price_known:
+                    continue
+                # Charge move — only if something later is more expensive (or price is negative).
+                if (
+                    discharge[i] == 0
+                    and (chargeable[i] or topup[i])
+                    and (slot.import_p < max_import or slot.import_p < 0)
+                ):
+                    room = params.charge_kw * slot.hours - charge[i]
+                    for size in _chunk_sizes(room):
+                        trial = list(charge)
+                        trial[i] += size
+                        res = simulate(slots, soc0_kwh, params, trial, discharge, floors)
+                        moved = res.charged[i] - result.charged[i]
+                        if moved <= 0.01:
+                            continue
+                        saving = result.cost_p - res.cost_p
+                        if saving < params.min_saving_p_per_kwh * moved:
+                            continue
+                        # Tie-break towards slots next to existing charge: fewer, longer windows.
+                        score = saving + (0.25 if _adjacent(charge, i) else 0.0)
+                        if best is None or score > best[0]:
+                            best = (score, "c", i, size)
+                # Export move.
+                if (
+                    params.export_allowed
+                    and charge[i] == 0
+                    and slot.export_p >= params.min_export_p
+                ):
+                    room = params.discharge_kw * slot.hours - discharge[i]
+                    if params.max_export_kwh is not None:
+                        room = min(room, params.max_export_kwh - exported_by_day[days[i]])
+                    for size in _chunk_sizes(room):
+                        trial = list(discharge)
+                        trial[i] += size
+                        res = simulate(slots, soc0_kwh, params, charge, trial, floors)
+                        moved = res.discharged[i] - result.discharged[i]
+                        if moved <= 0.01:
+                            continue
+                        saving = result.cost_p - res.cost_p
+                        if saving < params.min_saving_p_per_kwh * moved:
+                            continue
+                        score = saving + (0.25 if _adjacent(discharge, i) else 0.0)
+                        if best is None or score > best[0]:
+                            best = (score, "d", i, size)
+            if best is None:
+                break
+            _saving, kind, i, size = best
+            if kind == "c":
+                charge[i] += size
+            else:
+                discharge[i] += size
+            result = simulate(slots, soc0_kwh, params, charge, discharge, floors)
+            # Trim requested energy down to what the battery actually accepted.
+            charge = [
+                c if p else (min(c, u) if c > 0 else 0.0)
+                for c, u, p in zip(charge, result.charged, plunge)
+            ]
+            discharge = [min(d, u) if d > 0 else 0.0 for d, u in zip(discharge, result.discharged)]
+            result = simulate(slots, soc0_kwh, params, charge, discharge, floors)
+        charge, discharge, result, pruned = _prune(
+            slots, soc0_kwh, params, charge, discharge, result, floors, plunge
+        )
+        if not pruned:
             break
-        _saving, kind, i, size = best
-        if kind == "c":
-            charge[i] += size
-        else:
-            discharge[i] += size
-        result = simulate(slots, soc0_kwh, params, charge, discharge)
-        # Trim requested energy down to what the battery actually accepted.
-        charge = [
-            c if p else (min(c, u) if c > 0 else 0.0)
-            for c, u, p in zip(charge, result.charged, plunge)
-        ]
-        discharge = [min(d, u) if d > 0 else 0.0 for d, u in zip(discharge, result.discharged)]
-        result = simulate(slots, soc0_kwh, params, charge, discharge)
     return charge, discharge, result
 
 
@@ -689,7 +807,9 @@ def build_plan(
 ) -> tuple[list[dict[str, Any]], PlanSummary]:
     """Optimise and serialise the plan (one dict per half-hour)."""
     charge, discharge, result = optimise(slots, soc0_kwh, params, tz=tz)
-    baseline = simulate(slots, soc0_kwh, params, [0.0] * len(slots), [0.0] * len(slots))
+    baseline = simulate(
+        slots, soc0_kwh, params, [0.0] * len(slots), [0.0] * len(slots), slot_floors(slots, params)
+    )
     cap = params.capacity_kwh or 1.0
     tomorrow = (now.astimezone(tz) + timedelta(days=1)).date()
 

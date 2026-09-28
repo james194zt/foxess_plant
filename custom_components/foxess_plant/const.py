@@ -437,6 +437,7 @@ DEFAULT_SMART_CHARGE = {
     "max_discharge_kw": None,
     "load_history_days": 14,
     "min_saving_p_per_kwh": 1.0,
+    "peak_min_soc": 20.0,
     "charge_periods": [
         {
             "enable_force_charge": True,

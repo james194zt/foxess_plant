@@ -2,7 +2,7 @@
 
 Central **plant controller** for FoxESS inverters running [foxess_modbus](https://github.com/nathanmarlor/foxess_modbus). Owns charge-period policy, work mode / SOC limits, drift detection, tariff-aware automation, and a full **Fox Plant** sidebar panel — **does not** talk Modbus itself.
 
-Current release: **v0.9.498**
+Current release: **v0.9.499**
 
 ## Screenshots
 
