@@ -2,7 +2,7 @@
 
 Central **plant controller** for FoxESS inverters running [foxess_modbus](https://github.com/nathanmarlor/foxess_modbus). Owns charge-period policy, work mode / SOC limits, drift detection, tariff-aware automation, and a full **Fox Plant** sidebar panel — **does not** talk Modbus itself.
 
-Current release: **v0.9.501**
+Current release: **v0.9.502**
 
 ## Screenshots
 
@@ -92,10 +92,10 @@ Cost-optimised grid charging and export using your **tariff**, the **Solcast** P
 
 ### E.ON Next tariffs
 
-- Native E.ON Next polling (Kraken platform). E.ON Next issues no API keys and has moved sign-in to Auth0 with password sign-in blocked for integrations, so Fox Plant uses a one-off **sign-in token** copied from your browser (Settings → Tariff → E.ON Next has a copy-paste snippet). Fox Plant renews it itself and it survives restarts. Accounts not yet moved can still use email and password
+- Native E.ON Next tariff import (Kraken platform). E.ON Next issues no API keys and has moved sign-in to Auth0 with password sign-in blocked for integrations, so Fox Plant uses a one-off **sign-in token** copied from your browser (Settings → Tariff → E.ON Next has a copy-paste snippet). The token only lasts a few hours, so treat it as single-use: paste it and press **Save E.ON Next** to fetch. Accounts not yet moved can still use email and password
 - Tariff types: fixed / flexible, **Economy 7**, and **Next Drive** time-of-use (treated like Go)
 - Import and export rates, including an export meter held on a separate E.ON account on the same login
-- Hourly rate fetch syncs the daily schedule and standing charge; SmartCharge plans against the live rates
+- A good fetch syncs the daily schedule and standing charge and is saved. For fixed and time-of-use tariffs Fox Plant then stops contacting E.ON until the agreement end date, rolling the saved daily rates forward (restarts included). Paste a fresh token and save again if your tariff changes; open-ended or ended agreements keep fetching hourly
 - Octopus-only extras (Greener Nights, Octopus Energy Analysis) are not available
 - **Mixed suppliers**: set *Export rates from* to Manual when export is with someone else (e.g. E.ON Next import + Fused fixed SEG). Import stays live from the API; type export per band in the daily schedule. Also works with Octopus, and switches to manual automatically when the supplier has no export rates
 - Configure under **Settings → Tariff** (provider E.ON Next)

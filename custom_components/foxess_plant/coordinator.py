@@ -696,6 +696,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return False
         if not self._octopus_cache:
             return True
+        if self._eon_next_saved_rates_hold():
+            return False
         return not self._octopus_cache_fresh(
             self._octopus_cache, "last_fetch_at", timedelta(minutes=55)
         )
@@ -785,6 +787,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "agreement_valid_to": cache.get("agreement_valid_to"),
             # Rates shown/used are the last good fetch while the supplier can't be reached.
             "using_saved_rates": bool(cache.get("last_error") and cache.get("import_rates")),
+            # E.ON Next: no background fetches until the agreement ends (Fetch tariff still does).
+            "saved_rates_hold": self._eon_next_saved_rates_hold(),
             "import_meters": import_meters,
             "export_meters": export_meters,
             "import_meter": cache.get("import_meter"),
@@ -4346,7 +4350,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.hass.config_entries.async_update_entry(self.config_entry, data=data)
         self.update_plant_config(PlantConfig.from_entry_data(data))
         if fetch_now and cfg.dynamic.native_api():
-            await self._async_refresh_octopus(force=True)
+            await self._async_refresh_octopus(force=True, user=True)
             if apply_schedule and self._octopus_cache.get("schedule"):
                 await self.async_apply_octopus_schedule()
             elif self._octopus_agile_active():
@@ -4432,7 +4436,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return result
 
     async def async_fetch_octopus(self) -> dict[str, Any]:
-        await self._async_refresh_octopus()
+        await self._async_refresh_octopus(user=True)
         if self._octopus_agile_active():
             await self.async_update_tariff_sensors(record_history=True)
         self._setup_octopus_timer()
@@ -4554,13 +4558,14 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.warning("Smart charge evaluation failed after save: %s", err)
         await self.async_request_refresh()
 
-    async def _async_refresh_octopus(self, *, force: bool = False) -> None:
+    async def _async_refresh_octopus(self, *, force: bool = False, user: bool = False) -> None:
+        """Fetch the supplier tariff. ``user`` marks a panel Fetch / Save (E.ON Next only cares)."""
         from .octopus_api import OctopusApiClient, OctopusApiError
         from .octopus_tariff import fetch_octopus_tariff_snapshot, list_account_meters
 
         dyn = self.plant.tariff.dynamic
         if dyn.native_eon_next():
-            await self._async_refresh_eon_next(force=force)
+            await self._async_refresh_eon_next(force=force, user=user)
             return
         if not dyn.native_octopus():
             return
@@ -4633,8 +4638,13 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._octopus_cache["last_error"] = str(err)
             _LOGGER.warning("Octopus tariff fetch failed: %s", err)
 
-    async def _async_refresh_eon_next(self, *, force: bool = False) -> None:
-        """Poll E.ON Next into the shared tariff cache (same shape as Octopus)."""
+    async def _async_refresh_eon_next(self, *, force: bool = False, user: bool = False) -> None:
+        """Fetch E.ON Next into the shared tariff cache (same shape as Octopus).
+
+        Background fetches (timer, startup, daily plan) stop once a good fetch is saved and
+        the agreement is still running: the sign-in token lapses within hours, so polling
+        only produced errors. Only a panel Fetch / Save (``user``) contacts E.ON then.
+        """
         from .eon_next_api import (
             EonNextApiError,
             fetch_eon_next_tariff_snapshot,
@@ -4645,6 +4655,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not dyn.native_credentials_configured():
             self._octopus_cache["last_error"] = "E.ON Next sign-in token (or email and password) required"
             return
+        if not user and self._eon_next_saved_rates_hold():
+            _LOGGER.debug("E.ON Next tariff refresh skipped (saved rates held until agreement end)")
+            self._sync_octopus_current_rates_from_cache()
+            return
+        force = force or user  # a Fetch / Save press always goes to E.ON
         if not force and not self._octopus_tariff_refresh_due():
             _LOGGER.debug("E.ON Next tariff refresh skipped (cache fresh)")
             self._sync_octopus_current_rates_from_cache()
@@ -4741,6 +4756,29 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             cache.get("import_tariff_code"),
             cache.get("agreement_valid_to") or "open-ended",
         )
+
+    def _eon_next_saved_rates_hold(self) -> bool:
+        """True when E.ON Next's saved fetch stands in until the agreement ends.
+
+        Needs a saved fixed / time-of-use fetch and an agreement end date still in the
+        future. Open-ended or variable tariffs, and ended agreements, keep fetching.
+        """
+        from homeassistant.util import dt as dt_util
+
+        from .octopus_tariff import is_variable_tariff_type
+
+        cache = self._octopus_cache
+        if not self.plant.tariff.dynamic.native_eon_next() or not cache.get("import_rates"):
+            return False
+        if is_variable_tariff_type(str(cache.get("tariff_type") or "")):
+            return False
+        valid_to = cache.get("agreement_valid_to")
+        ends = dt_util.parse_datetime(str(valid_to)) if valid_to else None
+        if ends is None:
+            return False
+        if ends.tzinfo is None:
+            ends = ends.replace(tzinfo=dt_util.UTC)
+        return dt_util.utcnow() < ends
 
     def _fixed_tariff_rows_stale(self, rows: list[dict[str, Any]]) -> bool:
         """True when E.ON Next's saved fixed / TOU rate rows no longer cover the plan horizon.
