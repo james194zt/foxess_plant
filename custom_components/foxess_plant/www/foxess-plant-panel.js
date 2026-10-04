@@ -406,7 +406,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.502";
+const PANEL_VERSION = "0.9.503";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -2680,6 +2680,12 @@ function bindTouchChartScrub(el, onScrub, onEnd) {
   let startX = 0;
   let startY = 0;
   let scrubbing = false;
+  let scrolling = false;
+  let hideTimer = 0;
+  const scheduleHide = () => {
+    window.clearTimeout(hideTimer);
+    hideTimer = window.setTimeout(() => onEnd?.(), 2500);
+  };
   el.addEventListener(
     "touchstart",
     (ev) => {
@@ -2688,6 +2694,7 @@ function bindTouchChartScrub(el, onScrub, onEnd) {
       startX = t.clientX;
       startY = t.clientY;
       scrubbing = false;
+      scrolling = false;
     },
     { passive: true }
   );
@@ -2695,25 +2702,35 @@ function bindTouchChartScrub(el, onScrub, onEnd) {
     "touchmove",
     (ev) => {
       const t = ev.touches[0];
-      if (!t) return;
+      if (!t || scrolling) return;
       const dx = t.clientX - startX;
       const dy = t.clientY - startY;
       if (!scrubbing) {
-        if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 10) return;
-        if (Math.abs(dx) > 10 || Math.abs(dy) > 10) scrubbing = true;
+        if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 10) {
+          scrolling = true;
+          return;
+        }
+        if (Math.abs(dx) > 10) scrubbing = true;
       }
       if (!scrubbing) return;
       ev.preventDefault();
+      window.clearTimeout(hideTimer);
       onScrub(t.clientX);
     },
     { passive: false }
   );
-  const end = () => {
+  // A tap shows the values at that point; tooltips linger briefly so they can be read.
+  el.addEventListener("touchend", () => {
+    if (!scrubbing && !scrolling) onScrub(startX);
     scrubbing = false;
+    if (!scrolling) scheduleHide();
+    else onEnd?.();
+  });
+  el.addEventListener("touchcancel", () => {
+    scrubbing = false;
+    window.clearTimeout(hideTimer);
     onEnd?.();
-  };
-  el.addEventListener("touchend", end);
-  el.addEventListener("touchcancel", end);
+  });
 }
 
 function renderOctopusGreenerTable(periods) {
@@ -6850,7 +6867,51 @@ const STATISTICS_CHART_LAYOUT = {
   yTickStepKw: 0.5,
 };
 
+/**
+ * Panel width (CSS px) tracked by the panel's ResizeObserver. Charts are drawn in a
+ * fixed 1000-unit viewBox on desktop; on phones that shrinks text to ~4px, so narrow
+ * layouts instead draw the viewBox at the real on-screen width (1 unit = 1px).
+ */
+let fpPanelWidth = 0;
+const FP_CHART_NARROW_MAX = 700;
+
+function setChartPanelWidth(px) {
+  if (Number.isFinite(px) && px > 0) fpPanelWidth = px;
+}
+
+/** Approximate chart content width: panel minus narrow main/card padding. */
+function chartAvailableWidth() {
+  const panel = fpPanelWidth || (typeof window !== "undefined" ? window.innerWidth : 1000);
+  return Math.round(panel - 56);
+}
+
+function isNarrowChart() {
+  return chartAvailableWidth() < FP_CHART_NARROW_MAX;
+}
+
+/** SVG viewBox width: real pixel width on narrow screens, desktop design width otherwise. */
+function chartRenderWidth(desktopW) {
+  if (!isNarrowChart()) return desktopW;
+  return Math.max(280, Math.min(desktopW, chartAvailableWidth()));
+}
+
+/** Inline style that lets the SVG take its height from the viewBox (no letterboxing/stretch). */
+function chartFluidStyle(width, height) {
+  return isNarrowChart() ? ` style="height:auto;aspect-ratio:${width} / ${height}"` : "";
+}
+
 function statisticsChartLayout({ sideLegend = false, hasSoc = false } = {}) {
+  if (isNarrowChart()) {
+    const width = chartRenderWidth(STATISTICS_CHART_LAYOUT.width);
+    return {
+      ...STATISTICS_CHART_LAYOUT,
+      width,
+      height: Math.round(Math.min(320, Math.max(240, width * 0.72))),
+      pad: { l: 40, r: hasSoc ? 36 : 8, t: 22, b: 30 },
+      xTickHours: 6,
+      xTickCount: 4,
+    };
+  }
   const r = hasSoc ? 44 : sideLegend ? 16 : 8;
   return {
     ...STATISTICS_CHART_LAYOUT,
@@ -6860,6 +6921,19 @@ function statisticsChartLayout({ sideLegend = false, hasSoc = false } = {}) {
       t: sideLegend ? 22 : 12,
       b: 40,
     },
+  };
+}
+
+function batterySocChartLayout() {
+  if (!isNarrowChart()) return BATTERY_SOC_CHART_LAYOUT;
+  const width = chartRenderWidth(BATTERY_SOC_CHART_LAYOUT.width);
+  return {
+    ...BATTERY_SOC_CHART_LAYOUT,
+    width,
+    height: Math.round(Math.min(240, Math.max(180, width * 0.55))),
+    pad: { l: 40, r: 8, t: 8, b: 30 },
+    xTickHours: 6,
+    xTickCount: 4,
   };
 }
 
@@ -9647,7 +9721,7 @@ function renderBatterySocChartHtml(chart, liveSocPct) {
     return `<p class="placeholder chart-empty">No battery SOC history for today yet.</p>`;
   }
   const { socPts, segments, activityBars, range } = chart;
-  const { width, height, pad, xTickHours, xTickCount, yTicks } = BATTERY_SOC_CHART_LAYOUT;
+  const { width, height, pad, xTickHours, xTickCount, yTicks } = batterySocChartLayout();
   const w = width - pad.l - pad.r;
   const h = height - pad.t - pad.b;
   const { tMin, tMax, nowMs } = range;
@@ -9680,7 +9754,7 @@ function renderBatterySocChartHtml(chart, liveSocPct) {
   for (const xt of xTickSet) {
     const x = xScale(xt);
     xLabels.push(
-      `<text x="${x.toFixed(1)}" y="${height - pad.b + 18}" text-anchor="middle" class="soc-chart-axis-x">${esc(formatChartTimeLabel(xt))}</text>`
+      `<text x="${x.toFixed(1)}" y="${height - pad.b + 18}" text-anchor="${xt === tMin ? "start" : "middle"}" class="soc-chart-axis-x">${esc(formatChartTimeLabel(xt))}</text>`
     );
   }
   const nowX = xScale(nowMs);
@@ -9737,7 +9811,7 @@ function renderBatterySocChartHtml(chart, liveSocPct) {
 </div>
 </div>
 <div class="soc-chart-plot" data-pad-l="${pad.l}" data-pad-t="${pad.t}" data-pad-b="${pad.b}" data-plot-w="${w}" data-plot-h="${h}" data-t-min="${tMin}" data-t-max="${tMax}" data-now-ms="${nowMs}">
-<svg class="soc-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Battery state of charge chart">
+<svg class="soc-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="${isNarrowChart() ? "xMidYMid meet" : "xMidYMid slice"}"${chartFluidStyle(width, height)} role="img" aria-label="Battery state of charge chart">
 ${grid}
 ${yLabels}
 ${activityRects}
@@ -10039,8 +10113,15 @@ function bindOverviewDailyCharts(root) {
       else hide();
     });
     wrap.addEventListener("mouseleave", hide);
+    let tapTimer = 0;
     wrap.addEventListener("click", (ev) => {
-      if (ev.target.closest?.(".overview-daily-bar-hit")) ev.stopPropagation();
+      const hit = ev.target.closest?.(".overview-daily-bar-hit");
+      if (!hit) return;
+      ev.stopPropagation();
+      // Touch has no hover: a tap on a bar shows its value for a moment.
+      show(hit, ev.clientX);
+      window.clearTimeout(tapTimer);
+      tapTimer = window.setTimeout(hide, 2500);
     });
   });
 }
@@ -10476,6 +10557,7 @@ function renderStatisticsChartHtml(series, range, options = {}) {
   }
   const layout = statisticsChartLayout({ sideLegend, hasSoc });
   const { width, height, pad, xTickHours, xTickCount } = layout;
+  const narrow = isNarrowChart();
   const w = width - pad.l - pad.r;
   const h = height - pad.t - pad.b;
   const { tMin, tMax, nowMs } = range;
@@ -10564,7 +10646,8 @@ function renderStatisticsChartHtml(series, range, options = {}) {
   const xLabels = xTicks
     .map((xt) => {
       const x = xScale(xt);
-      return `<text x="${x.toFixed(1)}" y="${height - pad.b + 20}" text-anchor="middle" class="statistics-axis-x">${esc(formatChartTimeLabel(xt))}</text>`;
+      const anchor = narrow && xt === tMin ? "start" : "middle";
+      return `<text x="${x.toFixed(1)}" y="${height - pad.b + 20}" text-anchor="${anchor}" class="statistics-axis-x">${esc(formatChartTimeLabel(xt))}</text>`;
     })
     .join("");
 
@@ -10618,7 +10701,7 @@ function renderStatisticsChartHtml(series, range, options = {}) {
     : "";
 
   const plotHtml = `<div class="statistics-chart-plot" data-pad-l="${pad.l}" data-pad-t="${pad.t}" data-pad-b="${pad.b}" data-plot-w="${w}" data-plot-h="${h}" data-t-min="${tMin}" data-t-max="${tMax}" data-y-min="${yMin}" data-y-max="${yMax}" data-now-ms="${nowMs}">
-<svg class="statistics-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Statistics power chart">
+<svg class="statistics-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet"${chartFluidStyle(width, height)} role="img" aria-label="Statistics power chart">
 ${leftAxisTitle}
 ${rightAxisTitle}
 ${grid}
@@ -10742,7 +10825,8 @@ function bindStatisticsChart(root, seriesMeta) {
 function renderBarChartSvg(groups, labels, { height = 200 } = {}) {
   const n = labels.length;
   if (!n) return `<p class="placeholder chart-empty">No energy history in this period.</p>`;
-  const width = 400;
+  const narrow = isNarrowChart();
+  const width = chartRenderWidth(400);
   const pad = { l: 40, r: 12, t: 16, b: 36 };
   const w = width - pad.l - pad.r;
   const h = height - pad.t - pad.b;
@@ -10765,7 +10849,7 @@ function renderBarChartSvg(groups, labels, { height = 200 } = {}) {
         `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="${g.color}" opacity="0.92"/>`
       );
     });
-    if (n <= 16 || i % Math.ceil(n / 8) === 0 || i === n - 1) {
+    if (narrow ? i % Math.max(1, Math.ceil(n / 5)) === 0 : n <= 16 || i % Math.ceil(n / 8) === 0 || i === n - 1) {
       const lx = gx;
       const ly = height - 10;
       const lbl = labels[i] instanceof Date ? formatChartDayLabel(labels[i]) : String(labels[i]);
@@ -10775,7 +10859,7 @@ function renderBarChartSvg(groups, labels, { height = 200 } = {}) {
   const legend = groups
     .map((g) => `<span class="chart-legend-item"><i style="background:${g.color}"></i>${esc(g.label)}</span>`)
     .join("");
-  return `<div class="chart-wrap"><svg class="energy-bar-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true">${rects.join("")}</svg><div class="chart-legend">${legend}</div></div>`;
+  return `<div class="chart-wrap"><svg class="energy-bar-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="${narrow ? "xMidYMid meet" : "none"}"${chartFluidStyle(width, height)} aria-hidden="true">${rects.join("")}</svg><div class="chart-legend">${legend}</div></div>`;
 }
 
 function mirrorChartAxisLabel(label, i, n, labelMode) {
@@ -10854,8 +10938,9 @@ function bindMirroredEnergyChart(root) {
   if (!buckets.length) return;
   wrap.dataset.bound = "1";
 
-  const padL = 44;
-  const plotW = 1000 - padL - 12;
+  const chartW = Number(plot.dataset.chartW) || 1000;
+  const padL = Number(plot.dataset.padL) || 44;
+  const plotW = chartW - padL - (Number(plot.dataset.padR) || 12);
   const n = buckets.length;
   const groupW = plotW / n;
 
@@ -10866,7 +10951,7 @@ function bindMirroredEnergyChart(root) {
   const showColumn = (clientX) => {
     const rect = svg.getBoundingClientRect();
     if (!rect.width) return;
-    const x = ((clientX - rect.left) / rect.width) * 1000;
+    const x = ((clientX - rect.left) / rect.width) * chartW;
     const rel = x - padL;
     if (rel < 0 || rel > plotW) {
       hideHover();
@@ -10877,7 +10962,7 @@ function bindMirroredEnergyChart(root) {
     tooltip.hidden = false;
     tooltip.innerHTML = `<div class="statistics-tooltip-time">${esc(String(label))}</div>${mirroredEnergyTooltipRowsHtml(buckets[i])}`;
     const plotRect = plot.getBoundingClientRect();
-    const colCenter = ((padL + i * groupW + groupW / 2) / 1000) * rect.width;
+    const colCenter = ((padL + i * groupW + groupW / 2) / chartW) * rect.width;
     let left = colCenter + 12;
     if (left + 200 > plotRect.width) left = colCenter - 212;
     tooltip.style.left = `${Math.max(8, left)}px`;
@@ -10892,8 +10977,10 @@ function bindMirroredEnergyChart(root) {
 function renderMirroredEnergyBarChart(buckets, labels, { height = 300, labelMode = "auto" } = {}) {
   const n = buckets.length;
   if (!n) return `<p class="placeholder chart-empty">No energy history in this period.</p>`;
-  const width = 1000;
-  const pad = { l: 44, r: 12, t: 24, b: 42 };
+  const narrow = isNarrowChart();
+  const width = chartRenderWidth(1000);
+  if (narrow) height = Math.round(Math.min(300, Math.max(220, width * 0.62)));
+  const pad = narrow ? { l: 36, r: 6, t: 14, b: 28 } : { l: 44, r: 12, t: 24, b: 42 };
   const plotH = height - pad.t - pad.b;
   const midY = pad.t + plotH / 2;
   const halfH = plotH / 2 - 6;
@@ -10907,7 +10994,9 @@ function renderMirroredEnergyBarChart(buckets, labels, { height = 300, labelMode
   maxVal *= 1.12;
   const yScale = (v) => (v / maxVal) * halfH;
   const groupW = w / n;
-  const barW = Math.min(28, groupW * 0.62);
+  const barW = Math.min(28, groupW * (narrow ? 0.7 : 0.62));
+  // At most ~1 label per 28px on phones so day numbers don't collide (month view has 28-31 columns).
+  const labelEvery = narrow ? Math.max(1, Math.ceil(28 / groupW)) : 0;
   const parts = [];
   for (const yv of [maxVal, maxVal / 2]) {
     const up = midY - yScale(yv);
@@ -10921,7 +11010,11 @@ function renderMirroredEnergyBarChart(buckets, labels, { height = 300, labelMode
       `<text x="${pad.l - 8}" y="${(down + 4).toFixed(1)}" text-anchor="end" class="fox-energy-axis">${esc(String(Math.round(yv)))}</text>`
     );
   }
-  parts.push(`<text x="14" y="${(pad.t + plotH / 2).toFixed(1)}" class="fox-energy-y-label" transform="rotate(-90 14 ${(pad.t + plotH / 2).toFixed(1)})">kWh</text>`);
+  if (narrow) {
+    parts.push(`<text x="${pad.l - 8}" y="${(midY + 4).toFixed(1)}" text-anchor="end" class="fox-energy-axis">kWh</text>`);
+  } else {
+    parts.push(`<text x="14" y="${(pad.t + plotH / 2).toFixed(1)}" class="fox-energy-y-label" transform="rotate(-90 14 ${(pad.t + plotH / 2).toFixed(1)})">kWh</text>`);
+  }
   parts.push(`<line x1="${pad.l}" y1="${midY.toFixed(1)}" x2="${pad.l + w}" y2="${midY.toFixed(1)}" class="fox-energy-zero"/>`);
 
   buckets.forEach((bucket, i) => {
@@ -10946,8 +11039,13 @@ function renderMirroredEnergyBarChart(buckets, labels, { height = 300, labelMode
       );
       y += bh;
     }
-    if (n <= 16 || i % Math.ceil(n / 10) === 0 || i === n - 1 || labelMode === "month-day") {
-      const lbl = mirrorChartAxisLabel(labels[i], i, n, labelMode);
+    const showLabel = narrow
+      ? i % labelEvery === 0 || (i === n - 1 && (n - 1) % labelEvery >= labelEvery / 2)
+      : n <= 16 || i % Math.ceil(n / 10) === 0 || i === n - 1 || labelMode === "month-day";
+    if (showLabel) {
+      const lbl = narrow && labelMode === "month-day" && labels[i] instanceof Date
+        ? String(labels[i].getDate())
+        : mirrorChartAxisLabel(labels[i], i, n, labelMode);
       if (lbl) {
         parts.push(`<text x="${cx.toFixed(1)}" y="${height - 12}" text-anchor="middle" class="fox-energy-axis">${esc(lbl)}</text>`);
       }
@@ -10968,8 +11066,8 @@ function renderMirroredEnergyBarChart(buckets, labels, { height = 300, labelMode
 <div class="fox-energy-legend-row"><span class="fox-energy-legend-heading">SUPPLY</span>${supplyLegend}</div>
 <div class="fox-energy-legend-row"><span class="fox-energy-legend-heading">USAGE</span>${usageLegend}</div>
 </div>
-<div class="fox-energy-mirror-plot">
-<svg class="fox-energy-mirror-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Energy supply and usage chart">${parts.join("")}</svg>
+<div class="fox-energy-mirror-plot" data-chart-w="${width}" data-pad-l="${pad.l}" data-pad-r="${pad.r}">
+<svg class="fox-energy-mirror-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="${narrow ? "xMidYMid meet" : "none"}"${chartFluidStyle(width, height)} role="img" aria-label="Energy supply and usage chart">${parts.join("")}</svg>
 <div class="statistics-tooltip" hidden role="tooltip"></div>
 </div>
 </div>`;
@@ -11559,6 +11657,11 @@ const STYLES = `
 :host {
   display: block;
   height: 100%;
+  /* Cap to the viewport so :host stays the scroll container even when HA's
+     panel wrapper no longer gives us a definite height (height:100% -> auto). */
+  max-height: 100vh;
+  max-height: 100dvh;
+  min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -14869,6 +14972,30 @@ const STYLES = `
 @media (max-width: 600px) {
   .fox-flow-badge-value { font-size: 13px; }
 }
+/* Phone charts: SVGs are drawn at real pixel width (see chartRenderWidth), so give
+   them the room and make labels/legends readable and tappable. */
+@media (max-width: 720px) {
+  .card.soc-chart-card, .card.statistics-card, .card.energy-chart-card,
+  .card.energy-analysis-card, .fox-analysis-chart-card { padding-left: 12px; padding-right: 12px; }
+  .soc-chart-axis-x, .soc-chart-axis-y,
+  .statistics-axis-x, .statistics-axis-y,
+  .fox-energy-axis { font-size: 12px; }
+  .chart-axis { font-size: 11px; }
+  .statistics-y-label { font-size: 12px; }
+  .statistics-chart-legend { gap: 4px 6px; }
+  .statistics-legend-item {
+    font-size: 12px; padding: 5px 8px; border-radius: 999px;
+    background: var(--secondary-background-color, rgba(127,127,127,0.12));
+  }
+  .fox-energy-mirror-legend-item { padding: 3px 0; background: transparent; }
+  .fox-energy-mirror-legend-value { font-size: 11px; }
+  .fox-energy-legend-row { font-size: 12px; gap: 6px 10px; }
+  .soc-chart-legend { font-size: 12px; }
+  .chart-legend { font-size: 12px; }
+  .statistics-tooltip { min-width: 0; max-width: calc(100% - 16px); font-size: 12px; padding: 8px 10px; }
+  .soc-chart-tooltip { min-width: 0; }
+  .overview-daily-tooltip { font-size: 12px; }
+}
 `;
 
 function ensureMainInner(mainEl) {
@@ -15103,6 +15230,21 @@ class FoxessPlantPanel extends HTMLElement {
     void this._initBrandIcons();
     void this._refreshPlantState();
     this._timer = window.setInterval(() => void this._refreshPlantState(), 30000);
+    if (typeof ResizeObserver !== "undefined") {
+      this._chartRo?.disconnect?.();
+      this._chartRo = new ResizeObserver(() => {
+        const wasNarrow = isNarrowChart();
+        setChartPanelWidth(this.clientWidth);
+        // Charts scale fluidly within a mode; only rebuild when crossing the phone/desktop layout.
+        if (wasNarrow !== isNarrowChart()) {
+          this._energyAnalysisChartSlotCache = undefined;
+          this._overviewDailySlotCache = undefined;
+          this._overviewBreakdownSlotCache = undefined;
+          this._scheduleRender();
+        }
+      });
+      this._chartRo.observe(this);
+    }
     this._render();
   }
 
@@ -15120,6 +15262,8 @@ class FoxessPlantPanel extends HTMLElement {
     this._root.removeEventListener("mouseleave", this._onOctopusGreenerHoverEnd);
     if (this._triggerFilterTimer) window.clearTimeout(this._triggerFilterTimer);
     this._endSocDrag();
+    this._chartRo?.disconnect?.();
+    this._chartRo = null;
     if (this._timer) window.clearInterval(this._timer);
     if (this._toastTimer) window.clearTimeout(this._toastTimer);
   }
@@ -25602,6 +25746,7 @@ ${weatherOptions
 
   _renderPanel() {
     this._clearOctopusGreenerHover();
+    setChartPanelWidth(this.clientWidth);
     if (!this._hass) {
       this._headerHasSubTabs = undefined;
     this._headerSubNavView = undefined;
