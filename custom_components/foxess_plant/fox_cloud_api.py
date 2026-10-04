@@ -129,7 +129,8 @@ def fox_device_warmup_sn_candidates(
     return candidates
 
 
-BATTERY_HEATING_RETRY_ERRNOS = frozenset({41200, 41203, 41811, 41931, 41932})
+# 40257 ("Parameters do not meet expectations") is returned for the wrong body key, e.g. deviceSN on an EVO.
+BATTERY_HEATING_RETRY_ERRNOS = frozenset({40257, 41200, 41203, 41811, 41931, 41932})
 
 
 def fox_device_product_label(row: dict[str, Any] | None) -> str | None:
@@ -240,14 +241,17 @@ class FoxCloudClient:
         candidates: list[str],
         payload: dict[str, Any] | None = None,
     ) -> Any:
-        """POST batteryHeating/get|set trying deviceSN and sn body keys per serial."""
+        """POST batteryHeating/get|set trying the sn then deviceSN body key per serial.
+
+        Fox's docs use ``sn``; an EVO 10-5-H accepts ``sn`` and rejects ``deviceSN`` with errno 40257.
+        """
         if not candidates:
             raise FoxCloudApiError("Device serial number required for battery warmup")
         last: FoxCloudApiError | None = None
         attempts = 0
         total = len(candidates) * 2
         for candidate in candidates:
-            for key in ("deviceSN", "sn"):
+            for key in ("sn", "deviceSN"):
                 attempts += 1
                 body = {key: candidate}
                 if payload:
