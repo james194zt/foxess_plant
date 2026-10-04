@@ -50,6 +50,10 @@ def _stub_sub(mod_name: str, **attrs):
 
 
 _install_ha_stubs()
+# The stubs only need to exist while octopus_tariff is loaded. Put the real modules back afterwards,
+# otherwise later tests in the same run import the stub classes instead.
+_STUBBED = [f"{PKG_NAME}.{name}" for name in ("octopus_api", "tariff_schedule", "octopus_tariff")]
+_saved_modules = {name: sys.modules.get(name) for name in _STUBBED}
 _stub_sub("octopus_api", OctopusApiClient=type("OctopusApiClient", (), {}), OctopusApiError=Exception)
 _stub_sub(
     "tariff_schedule",
@@ -65,6 +69,11 @@ _spec = importlib.util.spec_from_file_location(
 ot = importlib.util.module_from_spec(_spec)
 sys.modules[f"{PKG_NAME}.octopus_tariff"] = ot
 _spec.loader.exec_module(ot)
+for _name, _module in _saved_modules.items():
+    if _module is None:
+        sys.modules.pop(_name, None)
+    else:
+        sys.modules[_name] = _module
 
 
 class TestExportMeterDetection(unittest.TestCase):
