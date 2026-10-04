@@ -3379,42 +3379,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 ) from err
             raise HomeAssistantError(format_fox_cloud_error(err)) from err
 
-    async def async_run_modbus_debug_probe(self) -> dict[str, Any]:
-        """TEMPORARY — run Modbus write/read-back probes (see modbus_debug_probe.py)."""
-        from .const import DEBUG_MODBUS_PROBE
-        from .modbus_debug_probe import run_modbus_debug_probe
-
-        if not DEBUG_MODBUS_PROBE:
-            raise HomeAssistantError("Modbus debug probe is disabled")
-        return await async_run_modbus_debug_probe(self)
-
-    async def async_run_schedule_probe(self) -> dict[str, Any]:
-        """TEMPORARY — schedule write probe with live inverter read-back."""
-        from .const import DEBUG_SCHEDULE_PROBE
-        from .schedule_probe import run_schedule_write_probe
-
-        if not DEBUG_SCHEDULE_PROBE:
-            raise HomeAssistantError("Schedule probe is disabled")
-        return await run_schedule_write_probe(self)
-
-    async def async_read_modbus_lab(self) -> dict[str, Any]:
-        """TEMPORARY — live Modbus lab snapshot."""
-        from .const import MODBUS_LAB
-        from .modbus_lab import read_modbus_lab_state
-
-        if not MODBUS_LAB:
-            raise HomeAssistantError("Modbus lab is disabled")
-        return await read_modbus_lab_state(self)
-
-    async def async_apply_modbus_lab(self, payload: dict[str, Any]) -> dict[str, Any]:
-        """TEMPORARY — apply Modbus lab writes."""
-        from .const import MODBUS_LAB
-        from .modbus_lab import apply_modbus_lab
-
-        if not MODBUS_LAB:
-            raise HomeAssistantError("Modbus lab is disabled")
-        return await apply_modbus_lab(self, payload)
-
     async def async_fetch_battery_warmup(self) -> dict[str, Any]:
         from .battery_warmup import parse_battery_heating_result
         from .fox_cloud_api import FoxCloudApiError
