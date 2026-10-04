@@ -168,3 +168,35 @@ def compile_inverter_schedule(
         "slots": [slot.to_service() for slot in [*jit, *baseline]],
         "remaining": {"work_mode": remaining_mode, "min_soc": remaining_min, "max_soc": remaining_max},
     }
+
+
+_COMPARED_FIELDS = ("start", "end", "work_mode", "min_soc", "max_soc", "fd_soc", "fd_pwr")
+
+
+def expected_inverter_slots(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """The enabled slots the inverter should hold for a payload: its slots, then the all-day remaining slot."""
+    remaining = payload["remaining"]
+    filler = InverterSlot(
+        start="00:00",
+        end="23:59",
+        work_mode=remaining["work_mode"],
+        min_soc=remaining["min_soc"],
+        max_soc=remaining["max_soc"],
+    ).to_service()
+    return [{field: slot[field] for field in _COMPARED_FIELDS} for slot in [*payload["slots"], filler]]
+
+
+def schedule_differences(payload: dict[str, Any], inverter: dict[str, Any]) -> list[str]:
+    """Compare a compiled payload with foxess_modbus ``get_evo_schedule``'s response. Empty means in sync."""
+    differences: list[str] = []
+    if bool(inverter.get("enabled")) != bool(payload["enabled"]):
+        differences.append(f"Mode Scheduler is {'on' if inverter.get('enabled') else 'off'} on the inverter")
+    actual = [
+        {field: slot.get(field) for field in _COMPARED_FIELDS}
+        for slot in inverter.get("slots") or []
+        if slot.get("enabled")
+    ]
+    expected = expected_inverter_slots(payload)
+    if actual != expected:
+        differences.append(f"slots differ: inverter has {actual}, Fox Plant expects {expected}")
+    return differences

@@ -1314,7 +1314,112 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "active_label": bundle.label if bundle else None,
             "active_source": bundle.source if bundle else None,
             "using_ha_scheduler": bool(schedule.enabled),
+            "on_inverter": self.inverter_runs_schedule(),
         }
+
+    # ---- On-inverter Mode Scheduler (EVO) -------------------------------------------------------
+    # The plant schedule is written to the inverter's own scheduler (foxess_modbus set_evo_schedule), so it
+    # keeps running if Home Assistant stops. See inverter_schedule.py.
+
+    def inverter_runs_schedule(self) -> bool:
+        """True when Fox Plant controls an EVO whose foxess_modbus can write the on-inverter scheduler."""
+        from .const import MODBUS_DOMAIN
+        from .discovery import device_is_evo
+
+        return bool(
+            self.plant.control_active
+            and self.hass.services.has_service(MODBUS_DOMAIN, "set_evo_schedule")
+            and device_is_evo(self.hass, self.plant.device_id, self.plant.entity_map)
+        )
+
+    def _compile_inverter_schedule(self, plant_schedule: Any | None = None) -> dict[str, Any]:
+        from .inverter_schedule import InverterScheduleError, compile_inverter_schedule
+        from .soc_limits import read_soc_current
+
+        current = read_soc_current(self.hass, self.plant.entity_map)
+        try:
+            return compile_inverter_schedule(
+                plant_schedule or self.plant.plant_schedule,
+                remaining_min_soc=current.get("min_soc_on_grid", 10),
+                remaining_max_soc=current.get("max_soc", 100),
+                default_force_power_w=int(round(self.plant.smart_charge.max_charge_kw * 1000)),
+            )
+        except InverterScheduleError as err:
+            raise HomeAssistantError(f"Schedule can't be stored on the inverter: {err}") from err
+
+    async def _call_modbus(self, service: str, data: dict[str, Any]) -> dict[str, Any]:
+        from .const import MODBUS_DOMAIN
+
+        response = await self.hass.services.async_call(
+            MODBUS_DOMAIN,
+            service,
+            {"inverter": self.plant.inverter_target, **data},
+            blocking=True,
+            return_response=True,
+        )
+        return response if isinstance(response, dict) else {}
+
+    def _notify_inverter_schedule_problem(self, message: str | None) -> None:
+        from homeassistant.components import persistent_notification
+
+        notification_id = f"foxess_plant_inverter_schedule_{self.config_entry.entry_id}"
+        if message is None:
+            persistent_notification.async_dismiss(self.hass, notification_id)
+            return
+        persistent_notification.async_create(
+            self.hass, message, title="FoxESS Plant: inverter schedule", notification_id=notification_id
+        )
+
+    async def async_push_inverter_schedule(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Write the compiled schedule to the inverter. foxess_modbus reads it back and raises on mismatch."""
+        payload = payload or self._compile_inverter_schedule()
+        try:
+            result = await self._call_modbus("set_evo_schedule", payload)
+        except HomeAssistantError as err:
+            self._notify_inverter_schedule_problem(f"Writing the schedule to the inverter failed: {err}")
+            raise
+        self._notify_inverter_schedule_problem(None)
+        _LOGGER.info(
+            "Wrote schedule to inverter: %d slot(s), Mode Scheduler %s",
+            len(payload["slots"]),
+            "on" if payload["enabled"] else "off",
+        )
+        return result
+
+    async def async_check_inverter_schedule(self) -> list[str]:
+        """Compare the inverter's schedule with the plan; re-write it if they differ. Returns the differences."""
+        from .inverter_schedule import schedule_differences
+
+        payload = self._compile_inverter_schedule()
+        differences = schedule_differences(payload, await self._call_modbus("get_evo_schedule", {}))
+        if differences:
+            _LOGGER.warning("Inverter schedule differs from Fox Plant's (%s); re-writing", "; ".join(differences))
+            await self.async_push_inverter_schedule(payload)
+        return differences
+
+    @staticmethod
+    def _inverter_schedule_result_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+        """Per-slot rows for the panel's save feedback."""
+        rows = [
+            {
+                "key": f"inverter_slot_{index}",
+                "label": f"Slot {index}: {slot['start']}–{slot['end']} {slot['work_mode'].replace('_', ' ')}",
+                "value": slot["fd_soc"] if slot["work_mode"] == "force_charge" else slot["max_soc"],
+                "success": True,
+                "message": "Stored on the inverter",
+            }
+            for index, slot in enumerate(payload["slots"], start=1)
+        ]
+        rows.append(
+            {
+                "key": "inverter_mode_scheduler",
+                "label": "Mode Scheduler",
+                "value": 1 if payload["enabled"] else 0,
+                "success": True,
+                "message": "On" if payload["enabled"] else "Off",
+            }
+        )
+        return rows
 
     async def async_save_plant_schedule(self, schedule: dict[str, Any]) -> list[dict[str, Any]]:
         from .const import MAX_SCHEDULE_SEGMENTS
@@ -1325,9 +1430,22 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         cfg = PlantScheduleConfig.from_dict(schedule)
         if len(cfg.segments) > MAX_SCHEDULE_SEGMENTS:
             raise HomeAssistantError(f"At most {MAX_SCHEDULE_SEGMENTS} schedule segments are allowed")
+        was_active = self.plant.control_active
+        self.plant.control_active = True
+        if self.inverter_runs_schedule():
+            # Validate against the inverter's limits before saving anything
+            try:
+                payload = self._compile_inverter_schedule(cfg)
+            except HomeAssistantError:
+                self.plant.control_active = was_active
+                raise
+            self.plant.plant_schedule = cfg
+            await self._persist()
+            # Safe during an automation too: its Remote Control commands override the inverter's slots
+            await self.async_push_inverter_schedule(payload)
+            await self.async_request_refresh()
+            return self._inverter_schedule_result_rows(payload)
         self.plant.plant_schedule = cfg
-        if not self.plant.control_active:
-            self.plant.control_active = True
         await self._persist()
         self._last_schedule_bundle_sig = None
         applied = await apply_current_schedule_state(self, force=True)
@@ -3567,6 +3685,22 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         from .schedule_runner import apply_current_schedule_state, resolve_desired_bundle
 
+        if self.inverter_runs_schedule():
+            # The baseline lives on the inverter; make sure it matches before applying any override on top.
+            try:
+                await self.async_check_inverter_schedule()
+            except HomeAssistantError as err:
+                if strict:
+                    raise
+                _LOGGER.warning("Could not sync the schedule to the inverter: %s", err)
+            if resolve_desired_bundle(self) is None:
+                self._fire(
+                    EVENT_PERIOD_APPLIED,
+                    {"mode": self.plant.plant_mode(), "periods": [], "scheduler": "inverter"},
+                )
+                await self.async_request_refresh()
+                return
+
         if resolve_desired_bundle(self) is not None:
             self._applying = True
             try:
@@ -4971,6 +5105,14 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._applying:
             return
         if self.plant.override.active and self.plant.override.mode in AUTOMATION_MODES:
+            return
+
+        if self.inverter_runs_schedule():
+            # e.g. the schedule was edited in the Fox app, or the inverter was reset
+            try:
+                await self.async_check_inverter_schedule()
+            except HomeAssistantError as err:
+                _LOGGER.warning("Inverter schedule check failed: %s", err)
             return
 
         state = self.get_plant_state()

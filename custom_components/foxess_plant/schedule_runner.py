@@ -247,6 +247,9 @@ def resolve_desired_bundle(coordinator: FoxESSPlantCoordinator) -> ScheduleApply
 
     schedule = plant.plant_schedule
     if schedule.enabled:
+        inverter_runs_schedule = getattr(coordinator, "inverter_runs_schedule", None)
+        if callable(inverter_runs_schedule) and inverter_runs_schedule():
+            return None  # the EVO runs the baseline from its own scheduler; nothing to push each minute
         segment = resolve_active_segment(schedule.segments) if schedule.segments else None
         if segment:
             return bundle_from_segment(segment)

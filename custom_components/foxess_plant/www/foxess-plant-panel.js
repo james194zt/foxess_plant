@@ -23525,13 +23525,17 @@ ${periodMaxHint}
           'data-action="schedule-result-close"'
         ).replace('aria-label="SOC save result"', 'aria-label="Schedule apply result"')
       : "";
+    const onInverter = Boolean(live.on_inverter);
     const activeSegmentNow = Boolean(active);
-    const verifyBtn = activeSegmentNow
+    const verifyBtn = activeSegmentNow && !onInverter
       ? `<button type="button" class="btn btn-secondary" data-action="verify-plant-schedule" ${this._busy ? "disabled" : ""}>Verify segment on inverter</button>`
       : "";
+    const howItRuns = onInverter
+      ? `The schedule is <strong>stored on the inverter</strong> (its own Mode Scheduler), so it keeps running even if Home Assistant is offline. Fox Plant checks it regularly and re-writes it if it was changed elsewhere — don't edit the schedule in the Fox app while Fox Plant is in control. Up to 6 slots; a slot crossing midnight uses two. Force-charge slots stop at their max SOC and charge at SmartCharge&rsquo;s max charge rate.`
+      : `Fox Plant owns the schedule on Home Assistant. Each segment sets work mode, SOC limits, and optional force-charge via <strong>Remote Control</strong> for its time window — applied every minute when that window is active. The timetable is not stored on the inverter (unlike the Fox app).`;
     return `<div class="card quick-settings-card">
 <p class="card-title">Mode scheduler</p>
-<p class="field-hint" style="margin:0 0 12px">Fox Plant owns the schedule on Home Assistant. Each segment sets work mode, SOC limits, and optional force-charge via <strong>Remote Control</strong> for its time window — applied every minute when that window is active. The timetable is not stored on the inverter (unlike the Fox app).</p>
+<p class="field-hint" style="margin:0 0 12px">${howItRuns}</p>
 <div class="toggle-row"><span><strong>Enable HA scheduler</strong></span><input type="checkbox" data-field="schedule:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 ${activeHint}
 <div class="field"><label>Remaining time work mode</label>

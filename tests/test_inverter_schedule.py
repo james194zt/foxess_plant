@@ -7,6 +7,8 @@ from custom_components.foxess_plant.inverter_schedule import (
     InverterScheduleError,
     InverterSlot,
     compile_inverter_schedule,
+    expected_inverter_slots,
+    schedule_differences,
     split_at_midnight,
 )
 from custom_components.foxess_plant.models import PlantScheduleConfig, SchedulerSegmentConfig
@@ -87,6 +89,45 @@ def test_too_many_baseline_slots_is_rejected() -> None:
 def test_invalid_segments_are_rejected(segment: SchedulerSegmentConfig, message: str) -> None:
     with pytest.raises(InverterScheduleError, match=message):
         _compile(_schedule(segment))
+
+
+def _inverter_view(payload: dict, *, enabled: bool | None = None) -> dict:
+    """What foxess_modbus get_evo_schedule returns after writing this payload (slots 1-8)."""
+    slots = [{"enabled": True, **slot} for slot in expected_inverter_slots(payload)]
+    blank = {"enabled": False, "start": "00:00", "end": "00:00", "work_mode": "self_use", "min_soc": 10,
+             "max_soc": 100, "fd_soc": 10, "fd_pwr": 0}  # fmt: skip
+    slots += [dict(blank) for _ in range(8 - len(slots))]
+    return {"enabled": payload["enabled"] if enabled is None else enabled, "slots": slots}
+
+
+def test_schedule_in_sync_with_inverter() -> None:
+    payload = _compile(_schedule(SchedulerSegmentConfig(start="01:00", end="04:00", enable_force_charge=True, max_soc=90)))
+    assert schedule_differences(payload, _inverter_view(payload)) == []
+
+
+def test_schedule_drift_is_reported() -> None:
+    payload = _compile(_schedule(SchedulerSegmentConfig(start="09:00", end="10:00", work_mode="Feed-in First")))
+
+    switched_off = _inverter_view(payload, enabled=False)
+    assert schedule_differences(payload, switched_off) == ["Mode Scheduler is off on the inverter"]
+
+    edited = _inverter_view(payload)
+    edited["slots"][0]["end"] = "11:00"  # e.g. edited in the Fox app
+    assert schedule_differences(payload, edited)[0].startswith("slots differ")
+
+
+def test_minute_runner_leaves_baseline_to_the_inverter() -> None:
+    from types import SimpleNamespace
+
+    from custom_components.foxess_plant.schedule_runner import resolve_desired_bundle
+
+    plant = SimpleNamespace(
+        control_active=True,
+        override=SimpleNamespace(active=False, periods=[]),
+        plant_schedule=_schedule(SchedulerSegmentConfig(start="00:00", end="23:59", work_mode="Feed-in First")),
+    )
+    on_inverter = SimpleNamespace(plant=plant, inverter_runs_schedule=lambda: True)
+    assert resolve_desired_bundle(on_inverter) is None
 
 
 def test_disabled_schedule_still_compiles_slots() -> None:
