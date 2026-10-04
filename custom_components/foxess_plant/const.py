@@ -44,6 +44,10 @@ CONTROL_ENTITY_SUFFIXES = {
     "max_soc": "max_soc",
     "min_soc": "min_soc",
     "min_soc_on_grid": "min_soc_on_grid",
+    # EVO: 46620, System Max SoC can't be set below it
+    "max_soc_from_grid": "max_soc_from_grid",
+    # EVO: 48000 — while on, the inverter follows its schedule slots, not work_mode
+    "mode_scheduler": "mode_scheduler",
 }
 
 ANALYTICS_ENTITY_SUFFIXES = {

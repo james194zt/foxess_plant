@@ -228,6 +228,13 @@ def _entity_id_matches_suffix(entity_id: str, suffix: str) -> bool:
     return _entity_id_matches_panel_suffix(entity_id, suffix)
 
 
+def _entity_id_matches_exact_suffix(entity_id: str, suffix: str) -> bool:
+    """Match ``domain.<prefix>_<suffix>`` or ``domain.<suffix>`` only."""
+    if not entity_id or not suffix:
+        return False
+    return entity_id.endswith(f"_{suffix}") or entity_id.rsplit(".", 1)[-1] == suffix
+
+
 def _foxess_modbus_host(device: dr.DeviceEntry) -> str | None:
     for identifier in device.identifiers:
         if identifier[0] == MODBUS_DOMAIN and len(identifier) >= 3:
@@ -303,6 +310,11 @@ def resolve_entity_id(
     suffixes = _suffixes_for_key(key)
     if not suffixes:
         return entity_map.get(key)
+    # Panel keys tolerate long ids like "..._pv_power_evo_10". Control keys must match exactly, otherwise
+    # "max_soc" would also match "..._max_soc_from_grid".
+    matches_suffix = (
+        _entity_id_matches_panel_suffix if key in PANEL_ENTITY_SUFFIXES else _entity_id_matches_exact_suffix
+    )
 
     candidates: list[str] = []
     mapped = entity_map.get(key)
@@ -323,7 +335,7 @@ def resolve_entity_id(
         if not entity_id or entity_id in seen:
             continue
         seen.add(entity_id)
-        if not any(_entity_id_matches_panel_suffix(entity_id, suffix) for suffix in suffixes):
+        if not any(matches_suffix(entity_id, suffix) for suffix in suffixes):
             continue
         if not _state_is_usable(hass, entity_id):
             continue
