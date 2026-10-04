@@ -178,8 +178,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._battery_warmup_live: dict[str, Any] = {}
         self._battery_warmup_api_available: bool | None = None
         self._battery_warmup_last_error: str | None = None
-        self._fox_scheduler_live: dict[str, Any] = {}
-        self._fox_scheduler_schedule_live: dict[str, Any] = {}
         self._virtual_cap_active = False
         self._virtual_cap_saved_work_mode: str | None = None
         self._unsub_schedule: callable | None = None
@@ -2444,10 +2442,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 value,
             )
             return
-        from .discovery import device_is_evo
-
-        if not device_is_evo(self.hass, self.plant.device_id, self.plant.entity_map):
-            await self.async_ensure_fox_scheduler_disabled()
         current = {
             "min_soc": self._entity_float("min_soc"),
             "min_soc_on_grid": self._entity_float("min_soc_on_grid"),
@@ -2477,11 +2471,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         max_soc: int,
     ) -> list[dict[str, Any]]:
         """Write all three SOC limits in an inverter-safe order."""
-        from .discovery import device_is_evo
-
-        is_evo = device_is_evo(self.hass, self.plant.device_id, self.plant.entity_map)
-        if not is_evo:
-            await self.async_ensure_fox_scheduler_disabled()
         emulate_max = emulate_max_soc(self)
         results = await apply_soc_limits(
             self.hass,
@@ -2506,19 +2495,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             max_row["success"] = True
             max_row["message"] = virtual_max_soc_message(max_soc)
             max_row["skipped"] = True
-        if (
-            max_row
-            and not max_row.get("success")
-            and not emulate_max
-            and not is_evo
-        ):
-            cloud_ok, cloud_msg = await self._async_try_fox_cloud_max_soc(max_soc)
-            if cloud_ok:
-                max_row["success"] = True
-                max_row["message"] = cloud_msg
-                self.plant.virtual_soc.hardware_max_supported = True
-            elif cloud_msg:
-                max_row["message"] = cloud_msg
         if max_row:
             if emulate_max:
                 self.plant.virtual_soc.hardware_max_supported = False
@@ -2612,72 +2588,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.info("Released virtual max SOC cap; restored work mode %s", restore)
         else:
             _LOGGER.info("Released virtual max SOC cap")
-
-    async def _async_try_fox_cloud_max_soc(self, max_soc: int) -> tuple[bool, str]:
-        from .fox_cloud_api import FoxCloudApiError, format_fox_cloud_error, fox_cloud_feature_unsupported
-        from .soc_limits import _EVO_MAX_SOC_UNSUPPORTED
-
-        fox = self.plant.fox_cloud
-        if not fox.enabled or not fox.api_key_configured():
-            return False, ""
-        if not self.resolve_fox_device_sn():
-            return False, ""
-        client = self._fox_cloud_client()
-        try:
-            sn, _devices = await self._fox_cloud_device_sn(client)
-            schedule = self._fox_scheduler_schedule_live
-            if not schedule:
-                try:
-                    schedule = await client.get_scheduler_schedule(sn)
-                except FoxCloudApiError:
-                    schedule = {}
-            try:
-                await client.get_device_setting(sn, "MaxSoc")
-                await client.set_device_setting(sn, "MaxSoc", max_soc)
-                read_back = await client.get_device_setting(sn, "MaxSoc")
-                value = read_back.get("value")
-                if value is not None and int(float(value)) == int(max_soc):
-                    await self.async_request_refresh()
-                    return True, (
-                        f"System max set to {max_soc}% via Fox Cloud (Modbus register 46610 is locked on this EVO)."
-                    )
-                return True, (
-                    f"Fox Cloud MaxSoc write accepted ({max_soc}%). "
-                    "Confirm in the Fox app — Modbus 46610 remains read-only on this EVO."
-                )
-            except FoxCloudApiError as setting_err:
-                if not fox_cloud_feature_unsupported(setting_err):
-                    raise
-                _LOGGER.info("Fox Cloud MaxSoc setting unsupported (42015), trying scheduler maxSoc")
-                await client.set_scheduler_max_soc(sn, max_soc, schedule if isinstance(schedule, dict) else None)
-                await self._async_refresh_fox_scheduler_state(client, sn)
-                await self.async_request_refresh()
-                return True, (
-                    f"System max set to {max_soc}% via Fox Cloud scheduler maxSoc "
-                    "(EVO does not support the MaxSoc settings API)."
-                )
-        except FoxCloudApiError as err:
-            _LOGGER.warning("Fox Cloud max SOC fallback failed: %s", err)
-            if fox_cloud_feature_unsupported(err):
-                return False, _EVO_MAX_SOC_UNSUPPORTED
-            return False, f"Fox Cloud max SOC fallback failed: {format_fox_cloud_error(err)}"
-        except (TypeError, ValueError) as err:
-            _LOGGER.warning("Fox Cloud MaxSoc read-back parse failed: %s", err)
-            return True, f"Fox Cloud MaxSoc write sent ({max_soc}%). Modbus 46610 remains read-only on EVO."
-
-    async def _async_refresh_fox_scheduler_state(self, client, sn: str) -> dict[str, Any]:
-        from .fox_cloud_scheduler import merge_scheduler_state, normalize_scheduler_flag
-
-        flag_raw = await client.get_scheduler_flag(sn)
-        schedule_raw: dict[str, Any] = {}
-        try:
-            schedule_raw = await client.get_scheduler_schedule(sn)
-        except Exception as err:
-            _LOGGER.debug("Fox scheduler schedule fetch skipped: %s", err)
-        parsed = merge_scheduler_state(normalize_scheduler_flag(flag_raw), schedule_raw)
-        self._fox_scheduler_live = parsed
-        self._fox_scheduler_schedule_live = schedule_raw if isinstance(schedule_raw, dict) else {}
-        return parsed
 
     async def _persist(self) -> None:
         self.hass.config_entries.async_update_entry(
@@ -2830,7 +2740,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "solcast": self._solcast_state(),
             "glow": self._glow_state(),
             "fox_cloud": self._fox_cloud_state(),
-            "fox_scheduler": self._fox_scheduler_state(),
             "battery_warmup": self._battery_warmup_state(),
             "tariff": self._tariff_state(),
             "panel_runtime": get_panel_disk_info(self.hass),
@@ -3177,8 +3086,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if isinstance(err, FoxCloudApiError) and err.errno == 41200:
             return (
                 f"Fox Cloud could not read battery warmup settings ({detail}).{sn_hint} "
-                "The scheduler API may work while batteryHeating fails — open the Fox portal "
-                "device list and paste the inverter deviceSN (not always the same as the Modbus PCS serial)."
+                "Check the inverter deviceSN in the Fox portal device list (not always the same as the "
+                "Modbus PCS serial)."
             )
         return f"Battery warmup unavailable: {detail}.{sn_hint}"
 
@@ -3257,7 +3166,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.async_request_refresh()
 
     async def async_test_fox_cloud(self, *, api_key: str | None = None) -> dict[str, Any]:
-        from .fox_cloud_scheduler import normalize_scheduler_flag, scheduler_status_label
         from .fox_cloud_api import (
             FoxCloudApiError,
             FoxCloudClient,
@@ -3313,26 +3221,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     )
 
             if not canonical_sn:
-                out["scheduler_note"] = (
-                    "API key verified. Set a device serial to probe scheduler and battery warmup."
-                )
+                out["warmup_note"] = "API key verified. Set a device serial to check battery warmup."
                 return out
-
-            try:
-                scheduler = await self._async_refresh_fox_scheduler_state(client, canonical_sn)
-                out["scheduler"] = scheduler
-                out["scheduler_status"] = scheduler_status_label(scheduler)
-            except FoxCloudApiError as sched_err:
-                out["scheduler_error"] = format_fox_cloud_error(sched_err)
-                if sched_err.errno == 41200:
-                    out["scheduler_note"] = (
-                        "Fox Cloud could not read the mode scheduler for this device (41200). "
-                        "API authentication succeeded — try again later or disable the scheduler in the Fox app."
-                    )
-                elif fox_cloud_permission_denied(str(sched_err)):
-                    out["scheduler_note"] = (
-                        "Mode scheduler is not permitted for this API key or account."
-                    )
 
             try:
                 from .battery_warmup import parse_battery_heating_result
@@ -3454,128 +3344,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     device_sn=self.resolve_fox_device_sn(),
                 )
             ) from api_err
-
-    def _fox_scheduler_state(self) -> dict[str, Any]:
-        from .fox_cloud_scheduler import scheduler_status_label
-
-        fox = self.plant.fox_cloud
-        live = self._fox_scheduler_live if isinstance(self._fox_scheduler_live, dict) else {}
-        api_ready = bool(fox.enabled and fox.api_key_configured() and self.resolve_fox_device_sn())
-        return {
-            "fox_api_ready": api_ready,
-            "supported": live.get("supported"),
-            "enabled": live.get("enabled"),
-            "flag_enabled": live.get("flag_enabled"),
-            "segments_active": live.get("segments_active"),
-            "active_groups": live.get("active_groups"),
-            "cloud_max_soc": live.get("cloud_max_soc"),
-            "status": scheduler_status_label(live) if live else ("Fox API not configured" if not api_ready else "Not fetched"),
-            "last_error": fox.last_error,
-            "device_sn": self.resolve_fox_device_sn(),
-        }
-
-    async def async_fetch_fox_scheduler_flag(self) -> dict[str, Any]:
-        from .fox_cloud_api import FoxCloudApiError, format_fox_cloud_error
-        from homeassistant.util import dt as dt_util
-
-        fox = self.plant.fox_cloud
-        if not fox.enabled or not fox.api_key_configured():
-            raise HomeAssistantError("Enable Fox Cloud API under Settings → Fox API")
-        if not self.resolve_fox_device_sn():
-            raise HomeAssistantError("Inverter serial number required for Fox Cloud scheduler")
-        client = self._fox_cloud_client()
-        try:
-            sn, _devices = await self._fox_cloud_device_sn(client)
-            parsed = await self._async_refresh_fox_scheduler_state(client, sn)
-            fox.last_error = None
-            fox.last_fetch_at = dt_util.utcnow().isoformat()
-            self._persist_fox_cloud_runtime()
-            data = dict(self.config_entry.data)
-            data[CONF_FOX_CLOUD] = fox.to_dict()
-            self.hass.config_entries.async_update_entry(self.config_entry, data=data)
-            await self.async_request_refresh()
-            return parsed
-        except FoxCloudApiError as err:
-            fox.last_error = format_fox_cloud_error(err)
-            self._persist_fox_cloud_runtime()
-            raise HomeAssistantError(format_fox_cloud_error(err)) from err
-
-    async def async_disable_fox_scheduler(self) -> dict[str, Any]:
-        from .fox_cloud_scheduler import scheduler_flag_enabled, scheduler_schedule_active
-        from .fox_cloud_api import FoxCloudApiError, format_fox_cloud_error
-        from homeassistant.util import dt as dt_util
-
-        fox = self.plant.fox_cloud
-        if not fox.enabled or not fox.api_key_configured():
-            raise HomeAssistantError("Enable Fox Cloud API under Settings → Fox API")
-        if not self.resolve_fox_device_sn():
-            raise HomeAssistantError("Inverter serial number required for Fox Cloud scheduler")
-        client = self._fox_cloud_client()
-        try:
-            sn, _devices = await self._fox_cloud_device_sn(client)
-            current = await self._async_refresh_fox_scheduler_state(client, sn)
-            schedule = self._fox_scheduler_schedule_live
-            flag_was_on = scheduler_flag_enabled(current)
-            segments_were_active = scheduler_schedule_active(schedule)
-            if not flag_was_on and not segments_were_active:
-                fox.last_error = None
-                await self.async_request_refresh()
-                return {"disabled": False, "already_disabled": True, "flag": current}
-            if flag_was_on:
-                await client.set_scheduler_flag(sn, enable=False)
-            if segments_were_active or flag_was_on:
-                await client.disable_scheduler_segments(sn, schedule if schedule else None)
-            updated = await self._async_refresh_fox_scheduler_state(client, sn)
-            fox.last_error = None
-            fox.last_fetch_at = dt_util.utcnow().isoformat()
-            data = dict(self.config_entry.data)
-            data[CONF_FOX_CLOUD] = fox.to_dict()
-            self.hass.config_entries.async_update_entry(self.config_entry, data=data)
-            _LOGGER.info("Fox Cloud mode scheduler disabled for device %s", sn)
-            await self.async_request_refresh()
-            return {"disabled": True, "flag": updated}
-        except FoxCloudApiError as err:
-            fox.last_error = format_fox_cloud_error(err)
-            raise HomeAssistantError(format_fox_cloud_error(err)) from err
-
-    async def async_ensure_fox_scheduler_disabled(self) -> dict[str, Any] | None:
-        """Disable Fox Cloud mode scheduler when enabled, before Modbus SOC writes."""
-        from .discovery import device_is_evo
-        from .fox_cloud_scheduler import scheduler_flag_enabled, scheduler_schedule_active
-
-        fox = self.plant.fox_cloud
-        if not fox.enabled or not fox.api_key_configured():
-            return None
-        if not self.resolve_fox_device_sn():
-            _LOGGER.debug("Skipping Fox scheduler disable: no device serial")
-            return None
-        is_evo = device_is_evo(self.hass, self.plant.device_id, self.plant.entity_map)
-        try:
-            client = self._fox_cloud_client()
-            sn, _devices = await self._fox_cloud_device_sn(client)
-            current = await self._async_refresh_fox_scheduler_state(client, sn)
-            schedule = self._fox_scheduler_schedule_live
-            needs_disable = scheduler_flag_enabled(current) or scheduler_schedule_active(schedule)
-            if not needs_disable:
-                return {"already_disabled": True}
-            result = await self.async_disable_fox_scheduler()
-            _LOGGER.info("Disabled Fox Cloud scheduler before SOC Modbus write")
-            return result
-        except HomeAssistantError as err:
-            if is_evo:
-                _LOGGER.warning(
-                    "Could not fully disable Fox Cloud scheduler before EVO SOC write: %s",
-                    err,
-                )
-                return None
-            _LOGGER.warning("Could not disable Fox Cloud scheduler before SOC write: %s", err)
-            raise
-        except Exception as err:
-            _LOGGER.warning(
-                "Fox Cloud scheduler check failed before SOC write (continuing): %s",
-                err,
-            )
-            return None
 
     def _read_impact(self) -> dict[str, Any]:
         states = {key: self._entity_state(key) for key in IMPACT_ENTITY_SUFFIXES}

@@ -15051,7 +15051,6 @@ class FoxessPlantPanel extends HTMLElement {
     this._selectedPlantId = undefined;
     this._timer = undefined;
     this._busy = false;
-    this._foxSchedulerBusy = false;
     this._toastTimer = undefined;
     this._chargeDraft = null;
     this._scheduleDraft = null;
@@ -16664,22 +16663,14 @@ Reloading panel registration…
       if (res?.plant_state) this._plantState = res.plant_state;
       const connected = res?.connected !== false;
       const sn = res?.device_sn ? ` · ${res.device_sn}` : "";
-      const sched = res?.scheduler_status ? ` · ${res.scheduler_status}` : "";
       const notes = [
         res?.sn_note,
-        res?.scheduler_note,
         res?.warmup_note,
-        res?.scheduler_error && !res?.scheduler_note ? `Scheduler: ${res.scheduler_error}` : null,
         res?.warmup_probe_error ? `Warmup: ${res.warmup_probe_error}` : null,
       ].filter(Boolean);
       const suffix = notes.length ? `. ${notes.join(" ")}` : "";
-      const schedFailed = Boolean(res?.scheduler_error && !res?.scheduler_status);
-      const warmupUnavailable = Boolean(res?.warmup_note || (res?.warmup_probe_error && !res?.warmup_available));
       if (!connected) this._showToast(`Fox Cloud test failed${suffix}`, "err");
-      else if (warmupUnavailable && !schedFailed) {
-        this._showToast(`Fox Cloud connected${sn}${sched}${suffix}`);
-      } else if (schedFailed) this._showToast(`Fox Cloud connected${sn}${sched}${suffix}`, "err");
-      else this._showToast(`Fox Cloud connected${sn}${sched}${suffix}`);
+      else this._showToast(`Fox Cloud connected${sn}${suffix}`);
     } catch (err) {
       this._showToast(String(err?.message || err), "err");
     } finally {
@@ -16788,48 +16779,6 @@ Reloading panel registration…
     if (text.includes("ready stopped")) return "standby ready";
     if (text.includes("standby")) return "warmup standby";
     return String(state).replace(/^The battery is in (a )?/i, "").replace(/ state$/i, "");
-  }
-
-  async _fetchFoxScheduler(showToast = true) {
-    const plant = this._getPlant();
-    if (!plant) return;
-    this._foxSchedulerBusy = true;
-    this._render();
-    try {
-      const res = await this._hass.connection.sendMessagePromise({
-        type: "foxess_plant/fetch_fox_scheduler",
-        plant_id: plant.entry_id,
-      });
-      if (res?.plant_state) this._plantState = res.plant_state;
-      if (showToast) this._showToast("Fox Cloud scheduler status refreshed");
-    } catch (err) {
-      if (showToast) this._showToast(String(err?.message || err), "err");
-      throw err;
-    } finally {
-      this._foxSchedulerBusy = false;
-      this._render();
-    }
-  }
-
-  async _disableFoxScheduler() {
-    const plant = this._getPlant();
-    if (!plant) return;
-    this._foxSchedulerBusy = true;
-    this._render();
-    try {
-      const res = await this._hass.connection.sendMessagePromise({
-        type: "foxess_plant/disable_fox_scheduler",
-        plant_id: plant.entry_id,
-      });
-      if (res?.plant_state) this._plantState = res.plant_state;
-      if (res?.already_disabled) this._showToast("Fox Cloud scheduler already disabled");
-      else this._showToast("Fox Cloud scheduler disabled");
-    } catch (err) {
-      this._showToast(String(err?.message || err), "err");
-    } finally {
-      this._foxSchedulerBusy = false;
-      this._render();
-    }
   }
 
 
@@ -18636,14 +18585,6 @@ Reloading panel registration…
     }
     if (action === "release-control") {
       await this._runPlantService("release_control");
-      return;
-    }
-    if (action === "disable-fox-scheduler") {
-      await this._disableFoxScheduler();
-      return;
-    }
-    if (action === "refresh-fox-scheduler") {
-      await this._fetchFoxScheduler(true);
       return;
     }
     if (action === "arm-storm") {
@@ -23416,10 +23357,7 @@ ${note}${via}${forecastHint}${activeBadge}
     const control = this._plantState?.control_active
       ? "Fox Plant manages periods"
       : "Released to manual";
-    const sched = this._plantState?.fox_scheduler;
-    if (!sched?.fox_api_ready) return control;
-    if (sched.enabled) return `${control} · Fox scheduler ON`;
-    return `${control} · Fox scheduler off`;
+    return control;
   }
 
   _settingsMainSubtitles() {
@@ -23613,34 +23551,6 @@ ${applyFeedback}
 
   _renderQuickSettingsControlSection() {
     const active = this._plantState?.control_active;
-    const sched = this._plantState?.fox_scheduler ?? {};
-    const apiReady = Boolean(sched.fox_api_ready);
-    const schedEnabled = sched.enabled === true || sched.segments_active === true;
-    const schedSupported = sched.supported !== false;
-    const schedStatus = esc(String(sched.status || (apiReady ? "Not fetched yet" : "Configure Fox Cloud API first")));
-    const segHint = sched.active_groups
-      ? `<p class="field-hint" style="margin:8px 0 0">Active schedule segments: ${esc(String(sched.active_groups))}${sched.cloud_max_soc ? " · cloud max SOC set in schedule" : ""}</p>`
-      : "";
-    const schedErr =
-      sched.last_error && apiReady
-        ? `<p class="field-hint" style="margin:8px 0 0;color:var(--fp-amber)">Last Fox API error: ${esc(String(sched.last_error))}</p>`
-        : "";
-    const schedulerCard = apiReady
-      ? `<div class="card quick-settings-card">
-<p class="card-title">Fox Cloud mode scheduler</p>
-<p class="field-hint" style="margin:0 0 12px">On EVO, the scheduler <strong>master flag</strong> and <strong>V3 schedule segments</strong> are separate. Either can block Modbus max SOC (register 46610). Disable here before saving SOC limits.</p>
-<div class="entity-row"><span class="entity-name">Status</span><span class="entity-value">${schedStatus}</span></div>
-${segHint}
-<div class="btn-row" style="margin-top:12px">
-${schedEnabled && schedSupported ? `<button type="button" class="btn btn-danger" data-action="disable-fox-scheduler" ${this._foxSchedulerBusy ? "disabled" : ""}>Disable Fox Cloud scheduler</button>` : ""}
-<button type="button" class="btn btn-secondary" data-action="refresh-fox-scheduler" ${this._foxSchedulerBusy ? "disabled" : ""}>${this._foxSchedulerBusy ? "Refreshing…" : "Refresh status"}</button>
-</div>
-${schedErr}
-</div>`
-      : `<div class="card quick-settings-card">
-<p class="card-title">Fox Cloud mode scheduler</p>
-<p class="field-hint" style="margin:0">Enable the <strong>Fox Cloud API</strong> under <strong>Settings → Fox API</strong> to check or disable the cloud mode scheduler from here.</p>
-</div>`;
     return `<div class="card quick-settings-card" data-quick-settings-section="plant-control">
 <p class="card-title">Plant control</p>
 <p class="field-hint" style="margin:0 0 12px">When <strong>active</strong>, Fox Plant is the only writer for charge periods (via <code>foxess_modbus</code>). Release control if you need to edit schedules in the Fox app temporarily.</p>
@@ -23650,8 +23560,7 @@ ${active
       : `<button type="button" class="btn btn-primary" data-action="take-control" ${this._busy ? "disabled" : ""}>Take control</button>`}
 <button type="button" class="btn btn-secondary" data-action="apply-baseline" ${this._busy ? "disabled" : ""}>Apply baseline now</button>
 </div>
-</div>
-${schedulerCard}`;
+</div>`;
   }
 
   _renderSettingsQuick() {
@@ -24393,7 +24302,7 @@ ${effectiveBits.length ? `<p class="field-hint" style="margin:0 0 8px">Effective
   }
 
   _renderSettingsFoxApi(plant) {
-    return `<header class="header"><h1>Fox API</h1><p>FoxESS Open API for mode scheduler control, battery warmup, and other cloud-only settings (not available over Modbus).</p></header>
+    return `<header class="header"><h1>Fox API</h1><p>FoxESS Open API, used only for battery warmup (a cloud-only setting). Inverter control and scheduling use Modbus.</p></header>
 ${this._renderFoxApiCredentials()}`;
   }
 
