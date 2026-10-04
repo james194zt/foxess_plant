@@ -1,1 +1,0 @@
-Clarify EVO charge-period errors mention register 48000 (v0.9.44).
