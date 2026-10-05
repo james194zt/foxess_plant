@@ -23471,9 +23471,19 @@ ${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">
 </div>`;
   }
 
-  _renderSchedulerSegmentCard(idx, segment) {
+  _renderSchedulerSegmentCard(idx, segment, onInverter = false) {
     const seg = segment || { ...DEFAULT_SCHEDULE_SEGMENT };
     const options = selectableWorkModeOptions(this._plantState?.settings?.work_mode_options ?? []);
+    const socFields = onInverter
+      ? // An inverter slot has its own min / max SOC (force charge stops at the max); the off-grid min
+        // and the grid-charge switch are inverter-wide, not per slot.
+        `<div class="period-times">
+<div class="field"><label>Min SOC (%)</label><input type="number" min="10" max="100" data-field="schedule:${idx}:min_soc_on_grid" value="${esc(String(seg.min_soc_on_grid ?? seg.min_soc ?? 10))}"></div>
+<div class="field"><label>Max SOC (%)</label><input type="number" min="10" max="100" data-field="schedule:${idx}:max_soc" value="${esc(String(seg.max_soc ?? 100))}"></div>
+</div>
+<p class="field-hint" style="margin:0 0 8px">Stored in the inverter&rsquo;s schedule slot. With force charge on, the inverter charges until Max SOC, then holds it until the slot ends.</p>
+<div class="toggle-row"><span>Force charge</span><input type="checkbox" data-field="schedule:${idx}:enable_force_charge" ${seg.enable_force_charge ? "checked" : ""}></div>`
+      : null;
     const periodMaxHint = emulateMaxSocFromPlant(this._plantState)
       ? `<p class="field-hint" style="margin:0 0 8px">Period max is enforced by Fox Plant (inverter register 46610 unavailable).</p>`
       : `<p class="field-hint" style="margin:0 0 8px">Period max is written to inverter register 46610.</p>`;
@@ -23495,14 +23505,14 @@ ${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">
 <div class="field"><label>Work mode</label>
 <select data-field="schedule:${idx}:work_mode">${modeOpts}</select>
 </div>
-<div class="period-times">
+${socFields ?? `<div class="period-times">
 <div class="field"><label>Period min SOC (%)</label><input type="number" min="10" max="100" data-field="schedule:${idx}:min_soc" value="${esc(String(seg.min_soc ?? 10))}"></div>
 <div class="field"><label>System min SOC (%)</label><input type="number" min="10" max="100" data-field="schedule:${idx}:min_soc_on_grid" value="${esc(String(seg.min_soc_on_grid ?? seg.min_soc ?? 10))}"></div>
 <div class="field"><label>Period max SOC (%)</label><input type="number" min="10" max="100" data-field="schedule:${idx}:max_soc" value="${esc(String(seg.max_soc ?? 100))}"></div>
 </div>
 ${periodMaxHint}
 <div class="toggle-row"><span>Force charge</span><input type="checkbox" data-field="schedule:${idx}:enable_force_charge" ${seg.enable_force_charge ? "checked" : ""}></div>
-<div class="toggle-row"><span>Charge from grid</span><input type="checkbox" data-field="schedule:${idx}:enable_charge_from_grid" ${seg.enable_charge_from_grid ? "checked" : ""}></div>
+<div class="toggle-row"><span>Charge from grid</span><input type="checkbox" data-field="schedule:${idx}:enable_charge_from_grid" ${seg.enable_charge_from_grid ? "checked" : ""}></div>`}
 <div class="btn-row" style="margin-top:8px"><button type="button" class="btn btn-secondary" data-action="remove-schedule-segment" data-idx="${idx}">Remove</button></div>
 </div>`;
   }
@@ -23526,7 +23536,7 @@ ${periodMaxHint}
       .join("");
     const segments = draft.segments || [];
     const segmentCards = segments.length
-      ? segments.map((seg, idx) => this._renderSchedulerSegmentCard(idx, seg)).join("")
+      ? segments.map((seg, idx) => this._renderSchedulerSegmentCard(idx, seg, Boolean(live.on_inverter))).join("")
       : `<p class="placeholder" style="margin:0 0 12px">No custom schedules yet — add one to match the Fox app &ldquo;Add a Schedule&rdquo; screen.</p>`;
     const applyFeedback = this._scheduleApplyResults?.length
       ? renderSocResultHtml(this._scheduleApplyResults).replace(
