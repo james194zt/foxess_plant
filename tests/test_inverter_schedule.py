@@ -127,7 +127,8 @@ def test_no_window_or_target_means_no_slot() -> None:
 
 @pytest.mark.parametrize(
     ("model", "watts"),
-    [("EVO 10-5-H", 10000), ("EVO 6-5-H", 6000), ("evo10", 10000), ("H3-Pro-15.0", None), (None, None)],
+    # "EVO <battery kWh>-<inverter kW>-<variant>": the user's EVO 10-5-H has a 10.24 kWh battery, 5 kW inverter
+    [("EVO 10-5-H", 5000), ("EVO 15-6-H", 6000), ("evo 10-3.6-H", 3600), ("EVO10", None), ("H3-Pro-15.0", None), (None, None)],
 )
 def test_evo_rated_power(model, watts) -> None:
     assert evo_rated_power_w(model) == watts

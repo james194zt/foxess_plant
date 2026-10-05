@@ -183,12 +183,13 @@ def charge_window_slots(
     return window_slots(window, now=now, work_mode="force_charge", cut_off_soc=cut_off, power_w=power_w, lead=lead)
 
 
-_EVO_RATING = re.compile(r"^\s*EVO\s*(\d+(?:\.\d+)?)", re.IGNORECASE)
+# EVO model names are "EVO <battery kWh>-<inverter kW>-<variant>", e.g. EVO 10-5-H = 10 kWh battery, 5 kW inverter
+_EVO_RATING = re.compile(r"^\s*EVO\s*\d+(?:\.\d+)?\s*-\s*(\d+(?:\.\d+)?)", re.IGNORECASE)
 MAX_SLOT_POWER_W = 12000  # foxess_modbus set_evo_schedule's fd_pwr limit
 
 
 def evo_rated_power_w(model_name: str | None) -> int | None:
-    """Inverter rating from an EVO model name, e.g. "EVO 10-5-H" -> 10000 W; None if it can't be read."""
+    """Inverter rating from an EVO model name, e.g. "EVO 10-5-H" -> 5000 W; None if it can't be read."""
     match = _EVO_RATING.match(str(model_name or ""))
     if not match:
         return None
@@ -209,7 +210,7 @@ def export_window_slots(
 
     Hardware-tested: a Force Discharge slot's power caps the inverter's TOTAL output (house + export), with
     the battery making up what solar doesn't. If it's lower than the house load, the house imports from the
-    grid. So pass the inverter's full rating as ``power_w``: the house is always covered first, and the
+    grid. So pass the inverter's rating (e.g. 5 kW on an EVO 10-5-H) as ``power_w``: the house is always covered first, and the
     cut-off still stops the export at the planned level.
     """
     if end_soc is None:

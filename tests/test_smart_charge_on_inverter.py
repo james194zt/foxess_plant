@@ -124,7 +124,7 @@ async def test_upcoming_export_is_a_force_discharge_slot_at_full_inverter_power(
     fake = _FakeCoordinator(model="EVO 10-5-H")
     [slot] = await _sync(fake, _export_decision("idle", _window(timedelta(minutes=20), soc_end=52.7)))
     # Stops at the plan's end SoC (rounded down); the slot power caps total output, so use the full rating
-    assert (slot.work_mode, slot.fd_soc, slot.fd_pwr) == ("force_discharge", 52, 10000)
+    assert (slot.work_mode, slot.fd_soc, slot.fd_pwr) == ("force_discharge", 52, 5000)
     assert "Export" in fake._smart_charge_decision["reason"]
 
 
