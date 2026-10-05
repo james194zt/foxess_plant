@@ -22,3 +22,18 @@ def test_rows_skip_settings_the_inverter_does_not_have() -> None:
     assert [r["key"] for r in rows] == ["grid_standard_code", "max_active_power"]
     assert rows[0]["value"] == "G99_UK (UK)"
     assert rows[1]["value"] == "3.68 kW"
+
+
+def test_coded_settings_are_named() -> None:
+    states = {"meter1_type": "2", "meter2_type": "0", "eps_output_mode": "3", "eps_frequency_setting": "1",
+              "mppt_scan": "0", "meter_compensation": "0", "peak_shaving_threshold_soc": "0"}
+    values = {r["key"]: r["value"] for r in installer_settings_rows(states.get)}
+    assert values == {
+        "meter1_type": "CT",
+        "meter2_type": "Off",
+        "eps_output_mode": "UPS mode",
+        "eps_frequency_setting": "50 Hz",
+        "mppt_scan": "Off",
+        "meter_compensation": "0 W",
+        "peak_shaving_threshold_soc": "0 %",
+    }

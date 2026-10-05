@@ -118,12 +118,39 @@ _ROWS: dict[str, tuple[str, str, str]] = {
     "active_power_derating": ("Active power limit", "%", "100 % = no derating"),
     "fixed_active_power_derate": ("Fixed power derate", "kW", "0 = not set"),
     "installer_export_power_limit": ("Export power limit", "kW", ""),
+    "installer_import_power_limit": ("Import power limit", "kW", "The most the system draws from the grid"),
     "grid_point_power_limit": ("Grid point power limit", "kW", ""),
     "import_current_limit": ("Import current limit", "A", ""),
     "export_current_limit": ("Export current limit", "A", ""),
+    "peak_shaving_threshold_soc": ("Peak shaving threshold SoC", "%", "Used by the Peak Shaving work mode"),
+    "peak_shaving_export_limit": ("Peak shaving export limit", "kW", "Used by the Peak Shaving work mode"),
+    "meter1_type": ("Meter 1 / CT 1", "", "How the grid connection is measured"),
+    "meter2_type": ("Meter 2 / CT 2", "", "A second meter, e.g. on another inverter or generator"),
+    "meter_compensation": ("Meter compensation", "W", "Offset added to the meter reading; 0 = none"),
+    "eps_output_mode": ("EPS output", "", "Backup output during a power cut"),
+    "eps_frequency_setting": ("EPS frequency", "", ""),
+    "mppt_scan": ("MPPT scan", "", "Periodic scan for the best panel operating point, e.g. with partial shading"),
     "max_charge_current": ("Battery max charge current", "A", ""),
     "max_discharge_current": ("Battery max discharge current", "A", ""),
 }
+
+# Coded settings → meaning (FoxESS Modbus protocol V1.05.03.00)
+_METER_TYPES = {0: "Off", 1: "Single-phase meter", 2: "CT", 3: "Three-phase meter"}
+_CODES: dict[str, dict[int, str]] = {
+    "meter1_type": _METER_TYPES,
+    "meter2_type": _METER_TYPES,
+    "eps_output_mode": {0: "Disabled", 2: "EPS mode", 3: "UPS mode"},
+    "eps_frequency_setting": {0: "Not set", 1: "50 Hz", 2: "60 Hz"},
+    "mppt_scan": {0: "Off", 1: "On"},
+}
+
+
+def _code_label(key: str, raw: Any) -> str | None:
+    try:
+        code = int(float(raw))
+    except (TypeError, ValueError):
+        return None
+    return _CODES[key].get(code, f"Code {code}")
 
 
 def grid_standard_label(raw: Any) -> str | None:
@@ -145,6 +172,8 @@ def installer_settings_rows(read_state) -> list[dict[str, str]]:
         label, unit, hint = _ROWS[key]
         if key == "grid_standard_code":
             value = grid_standard_label(raw) or str(raw)
+        elif key in _CODES:
+            value = _code_label(key, raw) or str(raw)
         else:
             value = f"{raw} {unit}".strip()
         rows.append({"key": key, "label": label, "value": value, "hint": hint})
