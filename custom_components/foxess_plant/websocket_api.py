@@ -41,6 +41,7 @@ WS_TYPE_PLANT_LIST = "foxess_plant/plant_list"
 WS_TYPE_TRIGGER_CANDIDATES = "foxess_plant/trigger_candidates"
 WS_TYPE_UPDATE_STORM_PREP = "foxess_plant/update_storm_prep"
 WS_TYPE_SET_SOC_LIMITS = "foxess_plant/set_soc_limits"
+WS_TYPE_SET_WORK_MODE = "foxess_plant/set_work_mode"
 WS_TYPE_UPDATE_PLANT_SCHEDULE = "foxess_plant/update_plant_schedule"
 WS_TYPE_VERIFY_PLANT_SCHEDULE = "foxess_plant/verify_plant_schedule"
 WS_TYPE_FORECAST_ENTITY_CANDIDATES = "foxess_plant/forecast_entity_candidates"
@@ -495,6 +496,31 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             solcast_safety_margin=msg.get("solcast_safety_margin"),
             solcast_min_soc_floor=msg.get("solcast_min_soc_floor"),
         )
+        connection.send_result(msg["id"], coordinator.get_plant_state())
+
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): WS_TYPE_SET_WORK_MODE,
+            vol.Optional("plant_id"): str,
+            vol.Required("work_mode"): cv.string,
+        }
+    )
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def ws_set_work_mode(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        try:
+            await coordinator.async_set_work_mode(msg["work_mode"])
+        except HomeAssistantError as err:
+            connection.send_error(msg["id"], "work_mode_failed", str(err))
+            return
         connection.send_result(msg["id"], coordinator.get_plant_state())
 
     @websocket_api.websocket_command(
@@ -1639,6 +1665,7 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_trigger_candidates)
     websocket_api.async_register_command(hass, ws_update_storm_prep)
     websocket_api.async_register_command(hass, ws_set_soc_limits)
+    websocket_api.async_register_command(hass, ws_set_work_mode)
     websocket_api.async_register_command(hass, ws_update_plant_schedule)
     websocket_api.async_register_command(hass, ws_verify_plant_schedule)
     websocket_api.async_register_command(hass, ws_forecast_entity_candidates)

@@ -2790,7 +2790,37 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 max_row["success"] = True
                 max_row["message"] = virtual_max_soc_message(max_soc)
             await self._persist()
+        if self.inverter_runs_schedule():
+            # The all-day "remaining" slot takes its SoC limits from these; bring it up to date
+            try:
+                await self.async_check_inverter_schedule()
+            except HomeAssistantError as err:
+                _LOGGER.warning("Could not update the inverter schedule after the SoC change: %s", err)
         return results
+
+    async def async_set_work_mode(self, option: str) -> None:
+        """Work Mode quick setting.
+
+        While the inverter's Mode Scheduler is running it ignores the work mode register (49203): its
+        all-day "remaining" slot decides the mode outside the scheduled slots. So change that slot too.
+        """
+        from .inverter_schedule import InverterScheduleError, inverter_work_mode
+
+        if self.inverter_runs_schedule() and self._compile_inverter_schedule()["enabled"]:
+            try:
+                inverter_work_mode(option)
+            except InverterScheduleError as err:
+                raise HomeAssistantError(
+                    f"{option} can't be used while the inverter's Mode Scheduler is running "
+                    "(it supports Self Use, Feed-in First and Back-up)"
+                ) from err
+            if self.plant.plant_schedule.remaining_work_mode != option:
+                self.plant.plant_schedule.remaining_work_mode = option
+                await self._persist()
+                await self.async_push_inverter_schedule()
+        # Also set the register, so the mode is right whenever the scheduler is off
+        await self._set_work_mode(option)
+        await self.async_request_refresh()
 
     def _resolve_schedule_work_mode(self) -> str | None:
         """Work mode the HA scheduler wants right now, resolved to entity options."""

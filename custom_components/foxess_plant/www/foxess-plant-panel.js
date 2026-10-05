@@ -19924,14 +19924,17 @@ ${note}
     this._busy = true;
     this._render();
     try {
-      await callService(this._hass, "select", "select_option", {
-        entity_id,
-        option: this._workModeDraft,
+      // Fox Plant also updates the inverter's all-day schedule slot when its Mode Scheduler is running
+      const response = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/set_work_mode",
+        plant_id: plant.entry_id,
+        work_mode: this._workModeDraft,
       });
+      if (response) this._plantState = response;
       await this._refreshPlantState();
       this._showToast("Work mode updated");
     } catch (err) {
-      this._showToast(err?.message || "Work mode failed", "err");
+      this._showToast(formatWebsocketError(err, "Work mode failed"), "err");
     } finally {
       this._busy = false;
       this._render();
