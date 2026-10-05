@@ -15,16 +15,19 @@ def _periods(grid: bool) -> list[ChargePeriodConfig]:
 
 
 class _FakeCoordinator:
-    def __init__(self, *, armed: bool = True, grid: bool = True) -> None:
+    def __init__(self, *, armed: bool = True, grid: bool = True, mode: str = "storm") -> None:
         self.plant = SimpleNamespace(
-            override=SimpleNamespace(active=armed, mode="storm", periods=_periods(grid)),
+            override=SimpleNamespace(active=armed, mode=mode, periods=_periods(grid)),
             storm_prep=SimpleNamespace(target_max_soc=95),
+            outage_prep=SimpleNamespace(target_max_soc=100),
+            forecast_prep=SimpleNamespace(target_max_soc=80),
             smart_charge=SimpleNamespace(max_charge_kw=6.0),
         )
         self._storm_slots: list = []
         self._storm_slots_until = None
         self.pushes = 0
         self.rc_cleared = 0
+        self._prep_hold_config = MethodType(FoxessPlantCoordinator._prep_hold_config, self)
         self.storm_runs_on_inverter = MethodType(FoxessPlantCoordinator.storm_runs_on_inverter, self)
 
     def inverter_runs_schedule(self) -> bool:
@@ -68,6 +71,21 @@ async def test_slot_removed_when_storm_disarms() -> None:
     fake = _FakeCoordinator()
     await _sync(fake)
     fake.plant.override.active = False
+    await _sync(fake)
+    assert fake._storm_slots == []
+
+
+@pytest.mark.parametrize(("mode", "target"), [("outage", 100), ("forecast", 80)])
+@pytest.mark.asyncio
+async def test_outage_and_forecast_prep_hold_at_their_own_target(mode: str, target: int) -> None:
+    fake = _FakeCoordinator(mode=mode)
+    await _sync(fake)
+    assert fake._storm_slots[0].fd_soc == target
+
+
+@pytest.mark.asyncio
+async def test_smart_charge_override_is_not_a_hold() -> None:
+    fake = _FakeCoordinator(mode="smart_charge")
     await _sync(fake)
     assert fake._storm_slots == []
 

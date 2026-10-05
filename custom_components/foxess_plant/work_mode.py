@@ -5,9 +5,16 @@ from __future__ import annotations
 from homeassistant.core import HomeAssistant
 
 from .entity_live import async_read_entity_key_live
-from .virtual_max_soc import resolve_work_mode_option
 
-# EVO 49203: writes are 0-based, reads are 1-based (see foxess_modbus entity_descriptions).
+# Fox app / entity option spelling variants on different firmware builds.
+WORK_MODE_ALIASES: dict[str, tuple[str, ...]] = {
+    "Feed-in First": ("Feed-in Priority",),
+    "Feed-in Priority": ("Feed-in First",),
+    "Back-up": ("Back Up",),
+    "Back Up": ("Back-up",),
+}
+
+# EVO 49203 values; writes use the same 1-based codes as reads (see foxess_modbus docs/evo).
 EVO_WORK_MODE_READ_VALUES: dict[str, int] = {
     "Self Use": 1,
     "Feed-in First": 2,
@@ -15,6 +22,18 @@ EVO_WORK_MODE_READ_VALUES: dict[str, int] = {
     "Peak Shaving": 4,
     "Remote Control": 255,
 }
+
+
+def resolve_work_mode_option(requested: str, options: list[str] | None) -> str:
+    """Map a requested work mode to a valid foxess_modbus select option when possible."""
+    if not options:
+        return requested
+    if requested in options:
+        return requested
+    for alt in WORK_MODE_ALIASES.get(requested, ()):
+        if alt in options:
+            return alt
+    return requested
 
 
 def work_mode_options_match(

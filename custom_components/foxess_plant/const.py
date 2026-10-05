@@ -262,12 +262,6 @@ DEFAULT_OVERRIDE = {
     "saved_max_soc": None,
 }
 
-DEFAULT_VIRTUAL_SOC = {
-    "max_soc": None,
-    "cap_buffer_pct": 1.0,
-    "hardware_max_supported": None,
-}
-
 DEFAULT_PLANT_SCHEDULE = {
     "enabled": True,
     "remaining_work_mode": "Self Use",

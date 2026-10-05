@@ -47,7 +47,6 @@ def test_resolve_tariff_band_bundle_for_hour():
     plant = SimpleNamespace(
         tariff=tariff,
         entity_map={},
-        virtual_soc=SimpleNamespace(max_soc=None),
     )
     coordinator = SimpleNamespace(
         plant=plant,
@@ -76,7 +75,6 @@ def test_resolve_desired_bundle_tariff_when_ha_scheduler_off():
         plant_schedule=SimpleNamespace(enabled=False, segments=[]),
         tariff=tariff,
         entity_map={},
-        virtual_soc=SimpleNamespace(max_soc=None),
         storm_prep=SimpleNamespace(target_max_soc=100),
         smart_charge=SimpleNamespace(target_max_soc=None, max_target_soc=100),
         forecast_prep=SimpleNamespace(target_max_soc=100),

@@ -6,7 +6,7 @@ import json
 import logging
 from dataclasses import asdict, dataclass
 from datetime import datetime, time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from homeassistant.util import dt as dt_util
 
@@ -180,9 +180,8 @@ def resolve_tariff_band_bundle(
     local = dt_util.as_local(when or dt_util.now())
     band_idx = schedule.band_index_for_hour(local.hour)
     band = schedule.bands[band_idx]
-    virtual_max = plant.virtual_soc.max_soc
     current = read_soc_current(coordinator.hass, plant.entity_map)
-    max_soc = int(virtual_max) if virtual_max is not None else current.get("max_soc", 100)
+    max_soc = current.get("max_soc", 100)
     label = TARIFF_BAND_LABELS[band_idx] if band_idx < len(TARIFF_BAND_LABELS) else f"Band {band_idx + 1}"
     return bundle_from_tariff_band(
         band,
@@ -256,9 +255,8 @@ def resolve_desired_bundle(coordinator: FoxESSPlantCoordinator) -> ScheduleApply
         segment = resolve_active_segment(schedule.segments) if schedule.segments else None
         if segment:
             return bundle_from_segment(segment)
-        virtual_max = plant.virtual_soc.max_soc
         current = read_soc_current(coordinator.hass, plant.entity_map)
-        max_soc = int(virtual_max) if virtual_max is not None else current.get("max_soc", 100)
+        max_soc = current.get("max_soc", 100)
         return bundle_from_remaining(
             schedule.remaining_work_mode,
             min_soc=current.get("min_soc", 10),
@@ -269,20 +267,9 @@ def resolve_desired_bundle(coordinator: FoxESSPlantCoordinator) -> ScheduleApply
     return resolve_tariff_band_bundle(coordinator)
 
 
-def _soc_bundle_needs_write(
-    current: dict[str, int],
-    bundle: ScheduleApplyBundle,
-    *,
-    emulate_max: bool,
-) -> bool:
+def _soc_bundle_needs_write(current: dict[str, int], bundle: ScheduleApplyBundle) -> bool:
     """True when min/on-grid/max registers need a Modbus write for this bundle."""
-    if current.get("min_soc") != bundle.min_soc:
-        return True
-    if current.get("min_soc_on_grid") != bundle.min_soc_on_grid:
-        return True
-    if emulate_max:
-        return False
-    return current.get("max_soc") != bundle.max_soc
+    return any(current.get(key) != getattr(bundle, key) for key in ("min_soc", "min_soc_on_grid", "max_soc"))
 
 
 async def apply_schedule_bundle(
@@ -291,16 +278,9 @@ async def apply_schedule_bundle(
 ) -> None:
     """Write work mode, SOC limits, and remote control for one schedule bundle."""
     from .discovery import device_is_evo
-    from .virtual_max_soc import emulate_max_soc
 
     plant = coordinator.plant
     entity_map = plant.entity_map
-    emulate_max = emulate_max_soc(coordinator)
-
-    if bundle.max_soc < 100 or emulate_max:
-        plant.virtual_soc.max_soc = bundle.max_soc
-        if emulate_max:
-            plant.virtual_soc.hardware_max_supported = False
 
     # SOC writes disable Remote Control on EVO before block writes. Skip them while
     # force charge/discharge is active so we do not clear the command we just armed.
@@ -308,7 +288,7 @@ async def apply_schedule_bundle(
     if (
         not bundle.force_discharge
         and not bundle.force_charge
-        and _soc_bundle_needs_write(current_soc, bundle, emulate_max=emulate_max)
+        and _soc_bundle_needs_write(current_soc, bundle)
     ):
         try:
             await apply_soc_limits(
@@ -319,7 +299,6 @@ async def apply_schedule_bundle(
                 max_soc=bundle.max_soc,
                 force_write=True,
                 verify=False,
-                emulate_max_soc=emulate_max,
                 inverter_target=plant.inverter_target,
                 device_id=plant.device_id,
                 live_battery_soc=coordinator._entity_float("battery_soc"),
@@ -370,8 +349,6 @@ def _remote_control_dropped(coordinator: FoxESSPlantCoordinator, bundle: Schedul
         return False
     if not coordinator.plant.entity_map.get("remote_control"):
         return False
-    if getattr(coordinator, "_virtual_cap_active", False):
-        return False  # Max SOC reached: the cap switched Remote Control off on purpose.
     live = coordinator._entity_state("remote_control")
     if live in ("unknown", "unavailable"):
         return False

@@ -15,7 +15,7 @@ from .entity_live import (
 from .remote_control import is_remote_control_active
 from .schedule_runner import ScheduleApplyBundle
 from .soc_limits import SOC_KEYS
-from .virtual_max_soc import resolve_work_mode_option
+from .work_mode import resolve_work_mode_option
 
 if TYPE_CHECKING:
     from .coordinator import FoxESSPlantCoordinator

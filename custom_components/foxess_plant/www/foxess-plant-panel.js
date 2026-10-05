@@ -11501,19 +11501,10 @@ function tripleSocBatteryFillMarkup(liveSoc) {
   return `<div class="triple-soc-battery-fill" style="height:max(4px,calc((100% - 8px) * ${h} / 100))"></div>`;
 }
 
-function emulateMaxSocFromPlant(plantState) {
-  const vs = plantState?.virtual_soc;
-  if (vs?.emulate_max_soc === true) return true;
-  if (vs?.hardware_max_supported === true) return false;
-  if (vs?.hardware_max_supported === false) return true;
-  return false;
-}
-
 function validateSocLimits(draft, liveSoc, opts = {}) {
   const errors = [];
   const warnings = [];
   if (!draft) return { errors: ["SOC limits unavailable."], warnings: [] };
-  const emulateMax = Boolean(opts.emulateMaxSoc);
   const includeExport = Boolean(opts.includeExportFloor);
   const min = Math.round(Number(draft.min_soc));
   const mid = Math.round(Number(draft.min_soc_on_grid));
@@ -11544,15 +11535,9 @@ function validateSocLimits(draft, liveSoc, opts = {}) {
   }
   const live = Math.ceil(Number(liveSoc));
   if (Number.isFinite(live) && live > 0 && max < live) {
-    if (emulateMax) {
-      warnings.push(
-        `Battery is at ${live}% — Fox Plant will stop charging at ${max}% until SOC drops (inverter max register is not used on this model).`
-      );
-    } else {
-      errors.push(
-        `System max (${max}%) cannot be below the current battery level (${live}%). Discharge or wait for SOC to drop.`
-      );
-    }
+    errors.push(
+      `System max (${max}%) cannot be below the current battery level (${live}%). Discharge or wait for SOC to drop.`
+    );
   }
   return { errors, warnings };
 }
@@ -19478,7 +19463,7 @@ Reloading panel registration…
   }
 
   _socValidateOpts() {
-    return { emulateMaxSoc: emulateMaxSocFromPlant(this._plantState) };
+    return {};
   }
 
   _socValidationIssues() {
@@ -19624,21 +19609,10 @@ Reloading panel registration…
     const live = Math.max(0, Math.min(100, Math.round(liveSoc ?? 0)));
     const fillMarkup = tripleSocBatteryFillMarkup(live);
     const fieldPrefix = context === "smart" ? "sc-soc-num" : "soc-num";
-    const virtual = this._plantState?.virtual_soc;
-    const capHint =
-      context === "smart" && virtual?.cap_source === "smart_charge" && virtual?.cap_active
-        ? `<p class="field-hint" style="margin-top:8px">Fox Plant is holding charge at the SmartCharge cap (${virtual.effective_cap}%).</p>`
-        : context === "quick" && emulateMaxSocFromPlant(this._plantState)
-          ? `<p class="field-hint" style="margin-top:8px">System max is emulated on this inverter — you can set it below the current battery level; Fox Plant stops charging at the cap.</p>`
-          : context === "quick" && virtual?.cap_source === "quick" && virtual?.hardware_max_supported === false
-          ? `<p class="field-hint" style="margin-top:8px">System max is emulated on this inverter — Fox Plant stops charging at ${virtual.effective_cap ?? max}%.</p>`
-          : "";
     const note = smart
       ? `<p class="soc-limit-note">Off-grid / system min / max write to the inverter. <strong>Export floor</strong> is virtual (SmartCharge only) — force-export stops there and returns to Self Use so you keep house battery.</p>`
       : opts.note ||
-        (emulateMaxSocFromPlant(this._plantState)
-          ? `<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. On this inverter, system max is enforced by Fox Plant — you can save a cap below the current battery level.</p>`
-          : `<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. On the EVO, system max can't be below <strong>Max SOC From Grid</strong>: lowering system max lowers it too, and raising system max raises it back if they were equal.</p>`);
+        `<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. On the EVO, system max can't be below <strong>Max SOC From Grid</strong>: lowering system max lowers it too, and raising system max raises it back if they were equal.</p>`;
 
     const thumbsHtml = thumbs
       .map(
@@ -19720,7 +19694,6 @@ ${thumbsHtml}
 ${legendHtml}
 <div class="soc-numeric">${numericHtml}</div>
 ${feedback}
-${capHint}
 ${note}
 </div>`;
   }
@@ -23484,9 +23457,7 @@ ${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">
 <p class="field-hint" style="margin:0 0 8px">Stored in the inverter&rsquo;s schedule slot. With force charge on, the inverter charges until Max SOC, then holds it until the slot ends.</p>
 <div class="toggle-row"><span>Force charge</span><input type="checkbox" data-field="schedule:${idx}:enable_force_charge" ${seg.enable_force_charge ? "checked" : ""}></div>`
       : null;
-    const periodMaxHint = emulateMaxSocFromPlant(this._plantState)
-      ? `<p class="field-hint" style="margin:0 0 8px">Period max is enforced by Fox Plant (inverter register 46610 unavailable).</p>`
-      : `<p class="field-hint" style="margin:0 0 8px">Period max is written to inverter register 46610.</p>`;
+    const periodMaxHint = `<p class="field-hint" style="margin:0 0 8px">Period max is written to the inverter&rsquo;s system max SOC while this segment runs.</p>`;
     const modeOpts = options.length
       ? options
           .map(

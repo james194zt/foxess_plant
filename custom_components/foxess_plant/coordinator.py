@@ -29,13 +29,6 @@ from .remote_control import periods_want_grid_force_charge
 from .remote_control import set_remote_control_mode
 from .flow_scene import resolve_flow_scene_theme
 from .soc_limits import apply_soc_limits, clamp_soc_values
-from .virtual_max_soc import (
-    emulate_max_soc,
-    pick_feed_in_work_mode,
-    resolve_virtual_max_soc_cap,
-    virtual_max_soc_message,
-    virtual_soc_state,
-)
 from .const import (
     ANALYTICS_ENTITY_SUFFIXES,
     IMPACT_ENTITY_SUFFIXES,
@@ -184,11 +177,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._battery_warmup_live: dict[str, Any] = {}
         self._battery_warmup_api_available: bool | None = None
         self._battery_warmup_last_error: str | None = None
-        self._virtual_cap_active = False
-        self._virtual_cap_saved_work_mode: str | None = None
         self._unsub_schedule: callable | None = None
         self._last_schedule_bundle_sig: str | None = None
-        self._evo_max_soc_flag_migrated = False
         super().__init__(
             hass,
             _LOGGER,
@@ -1435,21 +1425,31 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return False
         return True
 
-    def storm_runs_on_inverter(self) -> bool:
-        """StormSafe is armed with grid pre-charge and holds the battery from the inverter's scheduler.
-
-        PV-only storm mode stays on the old path: an EVO slot can't stop the grid charging the battery.
-        """
+    def _prep_hold_config(self) -> Any | None:
+        """Config of the armed StormSafe / Outage / Forecast prep, if any (they all pre-charge and hold)."""
         override = self.plant.override
+        if not override.active:
+            return None
+        return {
+            MODE_STORM: self.plant.storm_prep,
+            MODE_OUTAGE: self.plant.outage_prep,
+            MODE_FORECAST: self.plant.forecast_prep,
+        }.get(override.mode)
+
+    def storm_runs_on_inverter(self) -> bool:
+        """A prep mode (StormSafe, Outage or Forecast) is armed with grid pre-charge and holds the battery
+        from the inverter's scheduler.
+
+        PV-only pre-charge stays on the old path: an EVO slot can't stop the grid charging the battery.
+        """
         return bool(
-            override.active
-            and override.mode == MODE_STORM
-            and any(p.enable_force_charge and p.enable_charge_from_grid for p in override.periods)
+            self._prep_hold_config() is not None
+            and any(p.enable_force_charge and p.enable_charge_from_grid for p in self.plant.override.periods)
             and self.inverter_runs_schedule()
         )
 
     async def _sync_storm_on_inverter(self) -> None:
-        """Keep StormSafe's rolling hold slot on the inverter while armed; remove it when not."""
+        """Keep the prep modes' rolling hold slot on the inverter while armed; remove it when not."""
         from homeassistant.util import dt as dt_util
 
         from .inverter_schedule import STORM_EXTEND_BELOW, storm_hold_slots
@@ -1462,7 +1462,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         now = dt_util.now()
         if self._storm_slots and self._storm_slots_until and self._storm_slots_until - now > STORM_EXTEND_BELOW:
             return
-        target = self.plant.storm_prep.target_max_soc
+        target = getattr(self._prep_hold_config(), "target_max_soc", None)
         slots, until = storm_hold_slots(
             now_local=now,
             target_soc=float(target) if target is not None else 100.0,
@@ -1474,7 +1474,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if first:
                 # Remote Control would override the slot, so make sure it isn't left on
                 await self._clear_remote_control_for_restore()
-            _LOGGER.info("StormSafe holding the battery from the inverter's scheduler until %s", until)
+            _LOGGER.info(
+                "%s prep holding the battery from the inverter's scheduler until %s", self.plant.override.mode, until
+            )
 
     def _schedule_jit_recheck(self, window: dict[str, Any] | None, *, has_slots: bool) -> None:
         """Re-evaluate when the next slot is due (or its window ends), whatever the poll interval."""
@@ -1886,7 +1888,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._save_work_mode_if_needed()
         # Max SOC first: on EVO a SOC write disables Remote Control, which would cancel
         # the Force Charge the override has just armed.
-        if target_max_soc is not None and self._hardware_max_soc_supported():
+        if target_max_soc is not None:
             await self._set_max_soc(target_max_soc)
         await self.async_set_override_periods(periods, mode, reason)
         await self._sync_storm_on_inverter()
@@ -2670,8 +2672,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 _LOGGER.debug("Remote Control disable before restore skipped: %s", err)
 
     async def _set_work_mode(self, option: str) -> None:
-        from .virtual_max_soc import resolve_work_mode_option
-        from .work_mode import work_mode_options_match
+        from .work_mode import resolve_work_mode_option, work_mode_options_match
 
         entity_id = self.plant.entity_map.get("work_mode")
         if not entity_id:
@@ -2707,21 +2708,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> None:
         await self._clear_remote_control_for_restore()
         await self.async_apply_desired()
-        if saved_max_soc is not None and self._hardware_max_soc_supported():
+        if saved_max_soc is not None:
             await self._set_max_soc(saved_max_soc)
         if saved_work_mode:
             await self._set_work_mode(saved_work_mode)
 
-    def _hardware_max_soc_supported(self) -> bool:
-        return not emulate_max_soc(self)
-
     async def _set_max_soc(self, value: float) -> None:
-        if not self._hardware_max_soc_supported():
-            _LOGGER.debug(
-                "Skipping hardware max SOC write (%s%%); emulated cap enforced by Fox Plant",
-                value,
-            )
-            return
         current = {
             "min_soc": self._entity_float("min_soc"),
             "min_soc_on_grid": self._entity_float("min_soc_on_grid"),
@@ -2751,7 +2743,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         max_soc: int,
     ) -> list[dict[str, Any]]:
         """Write all three SOC limits in an inverter-safe order."""
-        emulate_max = emulate_max_soc(self)
         results = await apply_soc_limits(
             self.hass,
             self.plant.entity_map,
@@ -2763,33 +2754,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             inverter_target=self.plant.inverter_target,
             device_id=self.plant.device_id,
             live_battery_soc=self._entity_float("battery_soc"),
-            emulate_max_soc=emulate_max,
         )
-        max_row = next((row for row in results if row.get("key") == "max_soc"), None)
-        sc_owns_max = self.plant.smart_charge.enabled and self.plant.control_active
-        if (
-            emulate_max
-            and max_row
-            and not max_row.get("success")
-        ):
-            max_row["success"] = True
-            max_row["message"] = virtual_max_soc_message(max_soc)
-            max_row["skipped"] = True
-        if max_row:
-            if emulate_max:
-                self.plant.virtual_soc.hardware_max_supported = False
-                if not sc_owns_max:
-                    self.plant.virtual_soc.max_soc = max_soc
-            elif max_row.get("success"):
-                self.plant.virtual_soc.hardware_max_supported = True
-                if not sc_owns_max:
-                    self.plant.virtual_soc.max_soc = max_soc
-            elif not sc_owns_max:
-                self.plant.virtual_soc.hardware_max_supported = False
-                self.plant.virtual_soc.max_soc = max_soc
-                max_row["success"] = True
-                max_row["message"] = virtual_max_soc_message(max_soc)
-            await self._persist()
         if self.inverter_runs_schedule():
             # The all-day "remaining" slot takes its SoC limits from these; bring it up to date
             try:
@@ -2821,83 +2786,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Also set the register, so the mode is right whenever the scheduler is off
         await self._set_work_mode(option)
         await self.async_request_refresh()
-
-    def _resolve_schedule_work_mode(self) -> str | None:
-        """Work mode the HA scheduler wants right now, resolved to entity options."""
-        from .schedule_runner import resolve_desired_bundle
-        from .virtual_max_soc import resolve_work_mode_option
-
-        schedule = self.plant.plant_schedule
-        if not schedule.enabled:
-            return None
-        bundle = resolve_desired_bundle(self)
-        if bundle is None:
-            return None
-        return resolve_work_mode_option(
-            bundle.work_mode,
-            self._entity_options("work_mode"),
-        )
-
-    async def _enforce_virtual_max_soc(self) -> None:
-        if not self.plant.control_active:
-            await self._release_virtual_max_cap()
-            return
-
-        if not emulate_max_soc(self):
-            await self._release_virtual_max_cap()
-            return
-
-        cap, _source = resolve_virtual_max_soc_cap(self)
-        if cap is None or cap >= 100:
-            await self._release_virtual_max_cap()
-            return
-
-        soc = self._entity_float("battery_soc")
-        if soc is None:
-            return
-
-        buffer = max(0.5, float(self.plant.virtual_soc.cap_buffer_pct or 1.0))
-        if soc >= cap:
-            await self._apply_virtual_max_cap(cap)
-        elif soc <= cap - buffer:
-            await self._release_virtual_max_cap()
-
-    async def _apply_virtual_max_cap(self, cap: float) -> None:
-        if self._virtual_cap_active:
-            return
-        feed_in = pick_feed_in_work_mode(self._entity_options("work_mode"))
-        if not feed_in:
-            _LOGGER.debug("Virtual max SOC cap %.1f%% but no feed-in work mode available", cap)
-            return
-        current = self._entity_state("work_mode")
-        if current == feed_in:
-            self._virtual_cap_active = True
-            return
-        scheduled = self._resolve_schedule_work_mode()
-        save_mode = scheduled
-        if not save_mode and current and current not in TRANSIENT_WORK_MODE_OPTIONS:
-            save_mode = current
-        if save_mode:
-            self._virtual_cap_saved_work_mode = save_mode
-        await self._clear_remote_control_for_restore()
-        await self._set_work_mode(feed_in)
-        self._virtual_cap_active = True
-        _LOGGER.info("Virtual max SOC cap active at %.1f%% (work mode %s)", cap, feed_in)
-
-    async def _release_virtual_max_cap(self) -> None:
-        if not self._virtual_cap_active:
-            return
-        saved = self._virtual_cap_saved_work_mode
-        self._virtual_cap_active = False
-        self._virtual_cap_saved_work_mode = None
-        scheduled = self._resolve_schedule_work_mode()
-        restore = scheduled or saved
-        if restore:
-            await self._clear_remote_control_for_restore()
-            await self._set_work_mode(restore)
-            _LOGGER.info("Released virtual max SOC cap; restored work mode %s", restore)
-        else:
-            _LOGGER.info("Released virtual max SOC cap")
 
     async def _persist(self) -> None:
         self.hass.config_entries.async_update_entry(
@@ -3062,7 +2950,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "remote_control": self._entity_state("remote_control"),
                 "remote_control_options": self._entity_options("remote_control"),
             },
-            "virtual_soc": virtual_soc_state(self, cap_active=self._virtual_cap_active),
             "plant_schedule": self._plant_schedule_state(),
             "identity": self._read_identity(),
         }
@@ -3129,7 +3016,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await sensor.async_publish()
 
     async def _async_init_performance(self) -> None:
-        from .performance.tick import async_init_performance_store, new_daily_accumulator
+        from .performance.tick import async_init_performance_store, async_performance_tick, new_daily_accumulator
 
         from homeassistant.util import dt as dt_util
 
@@ -3669,26 +3556,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self.plant.entity_map.get(key)
         }
 
-    async def _maybe_migrate_evo_max_soc_flag(self) -> None:
-        """Older builds assumed EVO max SOC was read-only; retry register 46610."""
-        if self._evo_max_soc_flag_migrated:
-            return
-        self._evo_max_soc_flag_migrated = True
-        vs = self.plant.virtual_soc
-        if vs.hardware_max_supported is not False:
-            return
-        from .discovery import device_is_evo
-
-        if not device_is_evo(self.hass, self.plant.device_id, self.plant.entity_map):
-            return
-        vs.hardware_max_supported = None
-        await self._persist()
-        _LOGGER.info(
-            "Reset stored EVO max SOC emulation flag; next save will write register 46610"
-        )
-
     async def _async_update_data(self) -> dict[str, Any]:
-        await self._maybe_migrate_evo_max_soc_flag()
         # Cache only — Solcast API polls belong on the schedule timer, never on HA restart.
         await self.async_ensure_solcast_cache(allow_poll=False)
         self._enrich_solcast_cache_metrics()
@@ -3700,10 +3568,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._evaluate_forecast_prep()
         except Exception as err:
             _LOGGER.warning("Forecast prep evaluation failed: %s", err)
-        try:
-            await self._enforce_virtual_max_soc()
-        except Exception as err:
-            _LOGGER.warning("Virtual max SOC enforcement failed: %s", err)
         return self.get_plant_state()
 
     def _entity_state(self, key: str) -> str | None:
@@ -5224,6 +5088,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.hass.config_entries.async_update_entry(self.config_entry, data=data)
         self.update_plant_config(PlantConfig.from_entry_data(data))
         if merged.get("enabled") and self.plant.solcast.api_key_configured():
+            from .solcast_api import SolcastApiError
             from .solcast_hobbyist import async_resolve_rooftop_bindings
 
             try:
