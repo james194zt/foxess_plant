@@ -10,9 +10,11 @@ from typing import Any
 from homeassistant.util import dt as dt_util
 
 from .financial import (
+    ENERGY_COUNTERS,
     accumulate_bucket_financials,
     accumulate_weather_metrics,
     bucket_financials_gbp,
+    counter_deltas,
     estimate_bucket_energy_kwh,
     net_daily_savings_gbp,
 )
@@ -39,6 +41,8 @@ def new_daily_accumulator() -> dict[str, Any]:
         "peak_power_kw": 0.0,
         "pv_kwh_today": None,
         "solcast_forecast_kwh_today": None,
+        # Last readings of the daily kWh counters (financial.ENERGY_COUNTERS); None = not read yet
+        "counters": None,
     }
 
 
@@ -66,8 +70,12 @@ async def async_performance_tick(coordinator: Any) -> None:
                 store.purge_intraday_before(purge_before)
             except Exception as err:
                 _LOGGER.debug("Intraday sample purge skipped: %s", err)
+        live_rollover = bool(coordinator._performance_day)
         coordinator._performance_day = local_date
         coordinator._performance_daily = new_daily_accumulator()
+        if live_rollover:
+            # The daily counters restart at midnight, so everything they show is today's
+            coordinator._performance_daily["counters"] = {key: 0.0 for key in ENERGY_COUNTERS}
 
     sample = collect_performance_sample(coordinator)
     coordinator._last_performance_sample = sample
@@ -100,13 +108,9 @@ async def async_performance_tick(coordinator: Any) -> None:
     if sample.solcast_forecast_kwh_today is not None:
         acc["solcast_forecast_kwh_today"] = sample.solcast_forecast_kwh_today
 
-    import_kwh = estimate_bucket_energy_kwh(
-        abs(sample.net_grid_power_kw) if (sample.net_grid_power_kw or 0) < 0 else None
-    )
-    export_kwh = estimate_bucket_energy_kwh(
-        sample.net_grid_power_kw if (sample.net_grid_power_kw or 0) > 0 else None
-    )
-    load_kwh = estimate_bucket_energy_kwh(sample.load_power_kw)
+    # Energy since the last tick from the daily kWh counters, priced at the current rates
+    deltas, acc["counters"] = counter_deltas(acc.get("counters"), coordinator._read_analytics())
+    import_kwh, export_kwh, load_kwh = deltas["import"], deltas["export"], deltas["load"]
 
     imp_p = sample.import_p_per_kwh or 0.0
     exp_p = sample.export_p_per_kwh or 0.0
@@ -130,7 +134,12 @@ async def async_performance_tick(coordinator: Any) -> None:
         "pv_power_kw": sample.pv_power_kw or 0.0,
         "virtual_panel_temp_c": sample.virtual_panel_temp_c,
     }
-    accumulate_bucket_financials(coordinator._performance_daily, bucket)
+    accumulate_bucket_financials(acc, bucket)
+    if store is not None:
+        try:
+            store.save_day_state(local_date, acc)
+        except Exception as err:
+            _LOGGER.debug("Performance day state save failed: %s", err)
 
 
 async def async_commit_daily_ledger(coordinator: Any, date: str) -> None:
@@ -249,9 +258,36 @@ async def async_init_performance_store(coordinator: Any) -> None:
         install_date=coordinator.plant.solcast.installation_date,
         system_rte=cfg.system_rte,
     )
+    await _async_restore_day_state(coordinator, store)
     from .backfill import async_backfill_intraday_from_recorder
 
     await async_backfill_intraday_from_recorder(coordinator)
+
+
+async def _async_restore_day_state(coordinator: Any, store: PerformanceStore) -> None:
+    """Carry the day's running totals over a restart; finish a day that ended while HA was down."""
+    try:
+        saved = store.load_day_state()
+    except Exception as err:
+        _LOGGER.debug("Performance day state load failed: %s", err)
+        return
+    if not saved:
+        return
+    saved_date, acc = saved
+    today = dt_util.as_local(dt_util.now()).date().isoformat()
+    if saved_date == today:
+        coordinator._performance_day = saved_date
+        coordinator._performance_daily = acc
+    elif saved_date < today and store.get_daily_ledger(saved_date) is None:
+        coordinator._performance_daily = acc
+        await async_commit_daily_ledger(coordinator, saved_date)
+        coordinator._performance_daily = new_daily_accumulator()
+
+
+def today_net_savings_gbp(coordinator: Any) -> float:
+    """Today's running saving, until midnight writes it to the ledger."""
+    acc = getattr(coordinator, "_performance_daily", None) or {}
+    return net_daily_savings_gbp(acc) if acc else 0.0
 
 
 def performance_summary(coordinator: Any) -> dict[str, Any]:
@@ -264,6 +300,8 @@ def performance_summary(coordinator: Any) -> dict[str, Any]:
     acc = coordinator._performance_daily or {}
     ledger_today = store.get_daily_ledger(today) if store else None
     total_saved = store.sum_net_savings() if store else 0.0
+    if ledger_today is None:
+        total_saved += today_net_savings_gbp(coordinator)
     avg_90 = store.avg_net_savings_days(90) if store else None
     payback = payback_summary(
         total_saved_gbp=total_saved,

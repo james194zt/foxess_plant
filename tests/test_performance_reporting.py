@@ -93,7 +93,7 @@ class ClippingTests(unittest.TestCase):
 
 
 class FinancialTests(unittest.TestCase):
-    def test_avoided_cost_included(self) -> None:
+    def test_saving_is_grid_only_bill_minus_actual_bill(self) -> None:
         row = financial.bucket_financials_gbp(
             import_kwh=0.1,
             export_kwh=0.2,
@@ -101,15 +101,52 @@ class FinancialTests(unittest.TestCase):
             import_p_per_kwh=30.0,
             export_p_per_kwh=15.0,
         )
-        self.assertGreater(row["avoided_grid_cost_gbp"], 0.0)
-        self.assertAlmostEqual(
-            row["net_bucket_gbp"],
-            row["export_earnings_gbp"] + row["avoided_grid_cost_gbp"] - row["import_spend_gbp"],
-            places=4,
+        grid_only_bill = 0.5 * 30.0 / 100.0
+        actual_bill = 0.1 * 30.0 / 100.0 - 0.2 * 15.0 / 100.0
+        self.assertAlmostEqual(row["net_bucket_gbp"], grid_only_bill - actual_bill, places=4)
+        self.assertAlmostEqual(row["avoided_grid_cost_gbp"], (0.5 - 0.1) * 0.30, places=4)
+
+    def test_grid_charging_counts_against_the_saving(self) -> None:
+        # Battery charging overnight: import with little load is a cost until the battery pays it back
+        row = financial.bucket_financials_gbp(
+            import_kwh=1.0, export_kwh=0.0, load_kwh=0.2, import_p_per_kwh=7.0, export_p_per_kwh=15.0
         )
+        self.assertLess(row["net_bucket_gbp"], 0.0)
+
+    def test_counter_deltas(self) -> None:
+        analytics = {"load_from_grid_kwh_today": 1.5, "pv_to_grid_kwh_today": 2.0, "load_consumption_kwh_today": 6.0}
+        # First reading counts nothing: energy from before we were running can't be priced
+        deltas, last = financial.counter_deltas(None, analytics)
+        self.assertEqual(deltas, {"import": 0.0, "export": 0.0, "load": 0.0})
+        later = {"load_from_grid_kwh_today": 1.6, "pv_to_grid_kwh_today": 2.5, "load_consumption_kwh_today": 6.3}
+        deltas, last = financial.counter_deltas(last, later)
+        self.assertAlmostEqual(deltas["import"], 0.1)
+        self.assertAlmostEqual(deltas["export"], 0.5)
+        self.assertAlmostEqual(deltas["load"], 0.3)
+        # A counter going down (reset or source change) is re-read without counting
+        deltas, last = financial.counter_deltas(last, {**later, "load_from_grid_kwh_today": 0.2})
+        self.assertEqual(deltas["import"], 0.0)
+        self.assertEqual(last["import"], 0.2)
+
+    def test_after_midnight_counters_start_from_zero(self) -> None:
+        zero = {"import": 0.0, "export": 0.0, "load": 0.0}
+        deltas, _ = financial.counter_deltas(
+            zero, {"load_from_grid_kwh_today": 0.1, "pv_to_grid_kwh_today": 0.0, "load_consumption_kwh_today": 0.1}
+        )
+        self.assertAlmostEqual(deltas["import"], 0.1)
 
 
 class PerformanceStoreTests(unittest.TestCase):
+    def test_day_state_roundtrip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            s = store_mod.PerformanceStore(Path(tmp) / "perf.db")
+            s.init_schema()
+            self.assertIsNone(s.load_day_state())
+            acc = {"export_earnings_gbp": 1.25, "counters": {"import": 1.0, "export": 2.0, "load": 3.0}}
+            s.save_day_state("2026-10-05", acc)
+            s.save_day_state("2026-10-05", {**acc, "export_earnings_gbp": 1.5})
+            self.assertEqual(s.load_day_state(), ("2026-10-05", {**acc, "export_earnings_gbp": 1.5}))
+
     def test_intraday_sample_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "perf.db"

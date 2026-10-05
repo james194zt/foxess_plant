@@ -225,6 +225,24 @@ def compute_forecast_metrics(
     }
 
 
+WHOLE_DAY_METRIC_KEYS = ("forecast_today_kwh", "peak_forecast_today_w", "peak_time_today")
+
+
+def whole_day_forecast_metrics(merged_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Today's total and peak from the union of today's polls (rows SmartCharge estimated are left out)."""
+    rows = [r for r in merged_rows or [] if isinstance(r, dict) and not r.get("estimated")]
+    intervals = _build_intervals(rows)
+    today = _local_date(dt_util.now())
+    if not any(_local_date(iv.start) == today for iv in intervals):
+        return {}
+    peak_w, peak_at = _peak_today(intervals, today)
+    return {
+        "forecast_today_kwh": round(_sum_kwh(intervals, day=today), 2),
+        "peak_forecast_today_w": peak_w,
+        "peak_time_today": peak_at,
+    }
+
+
 def strip_volatile_forecast_metrics(parsed: dict[str, Any]) -> dict[str, Any]:
     """Drop time-sensitive flattened metrics before persisting (recomputed on load)."""
     out = dict(parsed)

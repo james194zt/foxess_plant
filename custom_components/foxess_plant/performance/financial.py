@@ -1,10 +1,24 @@
-"""Per-bucket and daily financial calculations."""
+"""Per-bucket and daily financial calculations.
+
+Savings are measured against the same house load bought entirely from the grid at the same rates:
+  savings = load × import rate − (import × import rate − export × export rate)
+          = avoided grid cost + export earnings, where avoided grid cost = (load − import) × import rate.
+Avoided cost can be negative in a bucket where the battery charges from the grid; that's paid back
+later when the battery covers the load.
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
 BUCKET_HOURS = 5.0 / 60.0
+
+# Daily kWh counters priced each tick: key in the accumulator → key in coordinator analytics
+ENERGY_COUNTERS = {
+    "import": "load_from_grid_kwh_today",
+    "export": "pv_to_grid_kwh_today",
+    "load": "load_consumption_kwh_today",
+}
 
 
 def bucket_financials_gbp(
@@ -15,24 +29,44 @@ def bucket_financials_gbp(
     import_p_per_kwh: float,
     export_p_per_kwh: float,
 ) -> dict[str, float]:
-    """Compute export earnings, import spend, avoided cost, and net for one bucket."""
+    """Export earnings, import spend, avoided cost, and net saving for one bucket."""
     imp_kwh = max(0.0, float(import_kwh))
     exp_kwh = max(0.0, float(export_kwh))
     load = max(0.0, float(load_kwh))
     imp_p = float(import_p_per_kwh)
     exp_p = float(export_p_per_kwh)
-    self_consumed = max(0.0, load - imp_kwh)
     export_earnings = exp_kwh * exp_p / 100.0
     import_spend = imp_kwh * imp_p / 100.0
-    avoided_cost = self_consumed * imp_p / 100.0
-    net = export_earnings + avoided_cost - import_spend
+    avoided_cost = (load - imp_kwh) * imp_p / 100.0
     return {
         "export_earnings_gbp": round(export_earnings, 4),
         "import_spend_gbp": round(import_spend, 4),
         "avoided_grid_cost_gbp": round(avoided_cost, 4),
-        "net_bucket_gbp": round(net, 4),
-        "self_consumed_kwh": round(self_consumed, 4),
+        "net_bucket_gbp": round(avoided_cost + export_earnings, 4),
     }
+
+
+def counter_deltas(
+    last: dict[str, float] | None, analytics: dict[str, Any]
+) -> tuple[dict[str, float], dict[str, float]]:
+    """kWh since the last tick from the daily counters, and the readings to remember.
+
+    With no previous reading nothing is counted (we can't price energy from before we were running).
+    A counter that goes down (meter source changed, or reset) is re-read without counting.
+    """
+    deltas: dict[str, float] = {}
+    readings: dict[str, float] = dict(last or {})
+    for key, source in ENERGY_COUNTERS.items():
+        raw = analytics.get(source)
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            deltas[key] = 0.0
+            continue
+        prev = (last or {}).get(key)
+        deltas[key] = max(0.0, value - float(prev)) if prev is not None else 0.0
+        readings[key] = value
+    return deltas, readings
 
 
 def accumulate_bucket_financials(acc: dict[str, Any], bucket: dict[str, float]) -> None:
@@ -83,9 +117,4 @@ def estimate_bucket_energy_kwh(power_kw: float | None) -> float:
 
 
 def net_daily_savings_gbp(row: dict[str, Any]) -> float:
-    return round(
-        float(row.get("export_earnings_gbp") or 0)
-        + float(row.get("avoided_grid_cost_gbp") or 0)
-        - float(row.get("import_spend_gbp") or 0),
-        2,
-    )
+    return round(float(row.get("export_earnings_gbp") or 0) + float(row.get("avoided_grid_cost_gbp") or 0), 2)

@@ -83,16 +83,19 @@ Only when PV > 0.1 kW. Clamp −10…85 °C.
 
 ## Phase 4 — Cost & financial reporting
 
-Per 5-minute bucket:
+Every 5 minutes, the change in the daily kWh counters (grid import, export, house load; Glow meter when
+available) is priced at the current rates:
 
 | Line | Formula |
 |------|---------|
 | Export earnings | export_kwh × export_p |
 | Import spend | import_kwh × import_p |
-| Avoided cost | self_consumed_kwh × import_p |
-| Net | export + avoided − import |
+| Avoided cost | (load_kwh − import_kwh) × import_p |
+| Net saving | avoided + export (= load bought from the grid − actual bill) |
 
-Midnight → `daily_ledger` row. Lifetime ROI from `SUM(net_daily_savings_gbp)`.
+The day's running totals are saved in the database each tick, so a restart carries on. Midnight →
+`daily_ledger` row (a day that ended while HA was down is written at the next start). Lifetime from
+`SUM(net_daily_savings_gbp)` plus today's running figure; it only covers days Fox Plant has recorded.
 
 ---
 

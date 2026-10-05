@@ -3027,6 +3027,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if fallback:
             out["forecast_persisted"] = False
             out["forecast_source"] = "restored"
+        # Each poll only covers from its fetch time onwards, so the latest poll alone makes
+        # "today" shrink through the day. Take whole-day figures from all of today's polls.
+        from .solcast_forecast_metrics import whole_day_forecast_metrics
+
+        out.update(whole_day_forecast_metrics(self._smart_charge_forecast_rows()))
         return out
 
     def get_plant_state(self) -> dict[str, Any]:
@@ -3164,9 +3169,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         from homeassistant.util import dt as dt_util
 
         try:
-            await async_init_performance_store(self)
-            self._performance_day = dt_util.as_local(dt_util.now()).date().isoformat()
-            self._performance_daily = new_daily_accumulator()
+            await async_init_performance_store(self)  # restores today's running totals if saved
+            today = dt_util.as_local(dt_util.now()).date().isoformat()
+            if self._performance_day != today:
+                self._performance_day = today
+                self._performance_daily = new_daily_accumulator()
             self._setup_performance_timer()
             await async_performance_tick(self)
         except Exception as err:

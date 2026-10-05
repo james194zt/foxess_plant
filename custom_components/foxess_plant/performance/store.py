@@ -60,6 +60,12 @@ CREATE TABLE IF NOT EXISTS intraday_samples (
 );
 
 CREATE INDEX IF NOT EXISTS idx_intraday_samples_ts ON intraday_samples(ts);
+
+CREATE TABLE IF NOT EXISTS day_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    date TEXT NOT NULL,
+    acc_json TEXT NOT NULL
+);
 """
 
 
@@ -270,6 +276,33 @@ class PerformanceStore:
         conn = self.connect()
         row = conn.execute("SELECT * FROM payback_config WHERE id = 1").fetchone()
         return dict(row) if row else {}
+
+    def save_day_state(self, date: str, acc: dict[str, Any]) -> None:
+        """The day's running totals, so a restart carries on from them."""
+        import json
+
+        conn = self.connect()
+        conn.execute(
+            """
+            INSERT INTO day_state (id, date, acc_json) VALUES (1, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET date=excluded.date, acc_json=excluded.acc_json
+            """,
+            (date, json.dumps(acc, default=str)),
+        )
+        conn.commit()
+
+    def load_day_state(self) -> tuple[str, dict[str, Any]] | None:
+        import json
+
+        conn = self.connect()
+        row = conn.execute("SELECT date, acc_json FROM day_state WHERE id = 1").fetchone()
+        if not row:
+            return None
+        try:
+            acc = json.loads(row["acc_json"])
+        except (TypeError, ValueError):
+            return None
+        return (row["date"], acc) if isinstance(acc, dict) else None
 
     def insert_intraday_sample(self, row: dict[str, Any]) -> None:
         conn = self.connect()
