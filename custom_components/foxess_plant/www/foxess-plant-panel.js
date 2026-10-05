@@ -23591,7 +23591,15 @@ ${controlSection}`;
 
   _renderSmartChargeModePicker(draft) {
     const busy = this._busy ? "disabled" : "";
-    const modes = ["max_safety", "max_profit", "max_green"];
+    // Max Profit only earns anything when import varies or forced export pays (after battery losses)
+    const profile = this._plantState?.smart_charge?.tariff_profile || null;
+    const profitUseless = profile?.max_profit_useful === false;
+    const modes = ["max_safety", "max_profit", "max_green"].filter(
+      (mode) => mode !== "max_profit" || !profitUseless || draft.operating_mode === "max_profit"
+    );
+    const profitHint = profitUseless
+      ? `<p class="field-hint">Max Profit is ${draft.operating_mode === "max_profit" ? "not useful" : "hidden"} on your tariff: import is a flat price and exporting stored energy can&rsquo;t beat refilling it, so there&rsquo;s nothing extra to earn. Max Safety or Max Green fit better.</p>`
+      : "";
     const cards = modes
       .map((mode) => {
         const meta = SMART_CHARGE_MODE_META[mode];
@@ -23603,7 +23611,8 @@ ${controlSection}`;
       })
       .join("");
     return `<p class="card-title" style="margin-top:14px">Operating mode</p>
-<div class="mode-grid">${cards}</div>`;
+<div class="mode-grid">${cards}</div>
+${profitHint}`;
   }
 
   _renderSmartChargeExportFields(draft, mode, busy) {
@@ -23614,7 +23623,9 @@ ${controlSection}`;
       return `<p class="field-hint">No export tariff found, so SmartCharge won&rsquo;t force-export the battery. Surplus solar still exports as normal.</p>`;
     }
     if (profile && profile.has_export && !profile.forced_export_useful) {
-      return `<p class="field-hint">Export is a fixed ${esc(fmtP(profile.export_max_p))}, never above your cheapest import (${esc(fmtP(profile.import_min_p))}), so force-exporting the battery can&rsquo;t save money. Export settings are hidden; surplus solar still exports as normal.</p>`;
+      const eff = Number(profile.round_trip_efficiency);
+      const effText = Number.isFinite(eff) ? `${(eff * 100).toFixed(0)}%` : "battery";
+      return `<p class="field-hint">Export pays at most ${esc(fmtP(profile.export_max_p))}. Only ${esc(effText)} of a stored kWh comes back out, so that&rsquo;s never more than refilling it at your cheapest import (${esc(fmtP(profile.import_min_p))}): force-exporting the battery can&rsquo;t save money. Export settings are hidden; surplus solar still exports as normal.</p>`;
     }
     const keys = {
       max_profit: { minP: "min_export_p_profit", minDef: 12, frac: "exportable_fraction_profit", fracDef: 1, allow: null },
@@ -23851,7 +23862,14 @@ ${draft.enabled ? `<details class="sc-section-details" data-sc-section="energy"$
 <input type="number" min="0" max="100" step="1" data-field="smart-charge:peak_min_soc" value="${esc(String(draft.peak_min_soc ?? 20))}" ${busy}>
 <p class="field-hint">Time-of-use tariffs: the grid charge happens only in the cheapest window and is sized so the battery is still at this SOC when the dearest (peak) band ends. That spare covers loads the history can&rsquo;t predict, like the oven. Set it to your inverter&rsquo;s minimum SOC plus the biggest surprise load you want covered. A top-up at a dearer daytime rate happens only when the battery is planned to drop below this before the peak ends (e.g. PV fell short). The inverter&rsquo;s own minimum SOC is unchanged.</p></div>
 <div class="field"><label>Round-trip efficiency</label>
-<input type="number" min="0.5" max="1" step="0.01" data-field="smart-charge:round_trip_efficiency" value="${esc(String(draft.round_trip_efficiency ?? 0.9))}" ${busy}></div>
+<input type="number" min="0.5" max="1" step="0.01" data-field="smart-charge:round_trip_efficiency" value="${esc(String(draft.round_trip_efficiency ?? 0.9))}" ${busy}>
+${(() => {
+  const prof = this._plantState?.smart_charge?.tariff_profile;
+  if (prof?.round_trip_efficiency_source !== "measured") {
+    return `<p class="field-hint">Used until the inverter has enough battery history (50 kWh charged) to measure it.</p>`;
+  }
+  return `<p class="field-hint">Not used: SmartCharge uses your battery&rsquo;s measured round-trip efficiency, <strong>${esc((Number(prof.round_trip_efficiency) * 100).toFixed(1))}%</strong> (lifetime battery discharge &divide; charge, so it includes inverter and standby losses).</p>`;
+})()}</div>
 </details>
 <details class="sc-section-details" data-sc-section="reserve"${this._smartChargeSectionOpenAttr("reserve", draft)}>
 <summary>Outage reserve &amp; house load</summary>

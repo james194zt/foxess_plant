@@ -43,8 +43,12 @@ def compute_plan(
     capacity_kwh: float | None,
     kwh_remaining: float | None,
     inverter_min_soc_pct: float | None,
+    round_trip_efficiency: float | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Build and optimise the plan. CPU-bound — call from an executor."""
+    """Build and optimise the plan. CPU-bound — call from an executor.
+
+    ``round_trip_efficiency`` overrides the configured value (Fox Plant passes the measured one).
+    """
     if not capacity_kwh or capacity_kwh <= 0:
         return [], {"error": "Battery capacity unavailable"}
     if kwh_remaining is None and soc_pct is None:
@@ -69,6 +73,7 @@ def compute_plan(
         capacity_kwh=float(capacity_kwh),
         reserve_kwh=reserve_kwh,
         inverter_min_soc_pct=inverter_min_soc_pct,
+        round_trip_efficiency=round_trip_efficiency,
     )
     soc_kwh = (
         float(kwh_remaining)
@@ -109,6 +114,7 @@ def compute_plan(
         "export_floor_pct": round(params.export_floor_kwh / cap * 100.0, 1),
         "cap_pct": round(params.cap_kwh / cap * 100.0, 1),
         "charge_kw": params.charge_kw,
+        "round_trip_efficiency": round(params.round_trip_efficiency, 3),
         "discharge_kw": params.discharge_kw,
         "export_allowed": params.export_allowed,
         "load_source": "history" if load_profile else "fallback",

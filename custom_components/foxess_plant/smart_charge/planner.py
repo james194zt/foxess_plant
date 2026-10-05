@@ -399,12 +399,34 @@ def _cfg(config: Any, key: str, default: float) -> float:
         return default
 
 
+# Lifetime battery charge needed before the measured ratio is trusted, and the range it must fall in
+# (outside it the counters were probably reset or are still settling).
+MEASURED_EFFICIENCY_MIN_CHARGE_KWH = 50.0
+MEASURED_EFFICIENCY_RANGE = (0.6, 0.98)
+
+
+def measured_round_trip_efficiency(charge_total_kwh: float | None, discharge_total_kwh: float | None) -> float | None:
+    """Round-trip efficiency measured from the inverter's lifetime battery energy totals (discharge ÷ charge).
+
+    Covers everything that matters for a charge-then-use decision: battery, inverter conversion and standby
+    losses. None when there isn't enough history or the ratio isn't plausible.
+    """
+    if charge_total_kwh is None or discharge_total_kwh is None:
+        return None
+    if charge_total_kwh < MEASURED_EFFICIENCY_MIN_CHARGE_KWH:
+        return None
+    ratio = discharge_total_kwh / charge_total_kwh
+    low, high = MEASURED_EFFICIENCY_RANGE
+    return round(ratio, 3) if low <= ratio <= high else None
+
+
 def params_from_config(
     config: Any,
     *,
     capacity_kwh: float,
     reserve_kwh: float,
     inverter_min_soc_pct: float | None = None,
+    round_trip_efficiency: float | None = None,
 ) -> PlanParams:
     """Map SmartCharge config + operating mode onto planner parameters."""
     mode = str(getattr(config, "operating_mode", MODE_MAX_SAFETY) or MODE_MAX_SAFETY)
@@ -440,7 +462,11 @@ def params_from_config(
         cap_kwh=cap_kwh,
         charge_kw=charge_kw,
         discharge_kw=discharge_kw,
-        round_trip_efficiency=_cfg(config, "round_trip_efficiency", 0.9),
+        round_trip_efficiency=(
+            round_trip_efficiency
+            if round_trip_efficiency is not None
+            else _cfg(config, "round_trip_efficiency", 0.9)
+        ),
         pv_scale=pv_scale,
         load_scale=load_scale,
         export_allowed=export_on,
@@ -1039,12 +1065,16 @@ def tariff_profile(
     now: datetime,
     *,
     horizon: timedelta = MAX_HORIZON,
+    round_trip_efficiency: float = 0.9,
 ) -> dict[str, Any]:
     """Describe the next ``horizon`` of rates so the UI can hide settings that can't matter.
 
     - ``import_varies`` / ``export_varies``: price moves by at least 0.5p across the window.
-    - ``forced_export_useful``: exporting stored energy could beat refilling it later
-      (export varies, or the export rate beats the cheapest import).
+    - ``forced_export_useful``: exporting a stored kWh can beat refilling it from the grid. Only
+      ``round_trip_efficiency`` of what was charged comes back out, so the best export rate times the
+      efficiency has to beat the cheapest import.
+    - ``max_profit_useful``: there's money to be made beyond self-use — import varies (charge cheap, avoid
+      expensive) or forced export pays.
     """
     start = floor_half_hour(now)
     end = start + horizon
@@ -1076,13 +1106,14 @@ def tariff_profile(
             export_max_p=round(max(exports), 2),
             export_varies=max(exports) - min(exports) >= VARIES_THRESHOLD_P,
         )
-    out["forced_export_useful"] = bool(
-        has_export
-        and (
-            out.get("export_varies")
-            or (imports and max(exports) > min(imports))
-        )
-    )
+    efficiency = max(0.1, min(1.0, float(round_trip_efficiency)))
+    out["round_trip_efficiency"] = round(efficiency, 3)
+    if imports:
+        beats_refill = max(exports) * efficiency > min(imports) if exports else False
+    else:
+        beats_refill = bool(out.get("export_varies"))  # import unknown: don't hide export settings on a guess
+    out["forced_export_useful"] = bool(has_export and beats_refill)
+    out["max_profit_useful"] = bool(out.get("import_varies") or out["forced_export_useful"])
     return out
 
 

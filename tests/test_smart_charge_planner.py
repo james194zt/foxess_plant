@@ -184,7 +184,45 @@ class TariffProfileTests(unittest.TestCase):
         exports = agile_rows(self.NOW, 30, lambda t: 30.0 if 16 <= t.hour < 19 else 8.0)
         prof = planner.tariff_profile(self.flat(24.5), exports, self.NOW)
         self.assertTrue(prof["export_varies"])
-        self.assertTrue(prof["forced_export_useful"])
+        self.assertTrue(prof["forced_export_useful"])  # 30p x 0.9 = 27p > 24.5p
+        self.assertTrue(prof["max_profit_useful"])
+
+    def test_round_trip_losses_can_make_export_pointless(self) -> None:
+        # Export peak 26p beats a flat 24.5p import on paper, but at 80% efficiency a stored kWh only
+        # returns 20.8p — less than refilling it.
+        exports = agile_rows(self.NOW, 30, lambda t: 26.0 if 16 <= t.hour < 19 else 8.0)
+        prof = planner.tariff_profile(self.flat(24.5), exports, self.NOW, round_trip_efficiency=0.8)
+        self.assertFalse(prof["forced_export_useful"])
+        self.assertFalse(prof["max_profit_useful"])  # flat import too
+        self.assertEqual(prof["round_trip_efficiency"], 0.8)
+
+    def test_flat_import_no_useful_export_hides_max_profit(self) -> None:
+        prof = planner.tariff_profile(self.flat(24.5), self.flat(15.0), self.NOW)
+        self.assertFalse(prof["max_profit_useful"])
+
+    def test_varying_import_keeps_max_profit(self) -> None:
+        prof = planner.tariff_profile(agile_rows(self.NOW, 30, overnight_cheap), [], self.NOW)
+        self.assertTrue(prof["max_profit_useful"])
+
+
+class MeasuredEfficiencyTests(unittest.TestCase):
+    def test_lifetime_totals(self) -> None:
+        # The user's EVO on 2026-10-05: 889.4 kWh charged, 714.0 kWh discharged
+        self.assertEqual(planner.measured_round_trip_efficiency(889.4, 714.0), 0.803)
+
+    def test_not_enough_history(self) -> None:
+        self.assertIsNone(planner.measured_round_trip_efficiency(20.0, 17.0))
+
+    def test_implausible_ratio_falls_back(self) -> None:
+        self.assertIsNone(planner.measured_round_trip_efficiency(100.0, 99.5))  # e.g. counters reset
+        self.assertIsNone(planner.measured_round_trip_efficiency(100.0, 40.0))
+        self.assertIsNone(planner.measured_round_trip_efficiency(None, 40.0))
+
+    def test_plan_uses_the_override(self) -> None:
+        cfg = SimpleNamespace(round_trip_efficiency=0.9)
+        params = planner.params_from_config(cfg, capacity_kwh=10.0, reserve_kwh=1.0, round_trip_efficiency=0.8)
+        self.assertEqual(params.round_trip_efficiency, 0.8)
+        self.assertEqual(planner.params_from_config(cfg, capacity_kwh=10.0, reserve_kwh=1.0).round_trip_efficiency, 0.9)
 
 
 class SolcastRowTests(unittest.TestCase):

@@ -1972,6 +1972,21 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return import_rows, export_rows
         return self._smart_charge_schedule_rate_rows()
 
+    def _round_trip_efficiency(self) -> tuple[float, str]:
+        """Battery round-trip efficiency for SmartCharge: (value, "measured" | "setting").
+
+        Measured = the inverter's lifetime battery discharge ÷ charge totals, when there's enough history;
+        otherwise the SmartCharge setting.
+        """
+        from .smart_charge.planner import measured_round_trip_efficiency
+
+        measured = measured_round_trip_efficiency(
+            self._entity_float("battery_charge_total"), self._entity_float("battery_discharge_total")
+        )
+        if measured is not None:
+            return measured, "measured"
+        return float(self.plant.smart_charge.round_trip_efficiency), "setting"
+
     def _smart_charge_tariff_profile(self) -> dict[str, Any] | None:
         """Import/export price shape (flat vs varying) for the SmartCharge settings UI."""
         from homeassistant.util import dt as dt_util
@@ -1980,7 +1995,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         try:
             import_rows, export_rows = self._smart_charge_rate_rows()
-            return tariff_profile(import_rows, export_rows, dt_util.utcnow())
+            efficiency, source = self._round_trip_efficiency()
+            profile = tariff_profile(
+                import_rows, export_rows, dt_util.utcnow(), round_trip_efficiency=efficiency
+            )
+            profile["round_trip_efficiency_source"] = source
+            return profile
         except Exception:  # noqa: BLE001 — UI hint only
             _LOGGER.debug("SmartCharge tariff profile unavailable", exc_info=True)
             return None
@@ -2408,6 +2428,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         soc_pct, capacity_kwh, kwh_remaining = self._smart_charge_battery_metrics()
         carbon_periods, _greener = self._smart_charge_greener_inputs()
         load_profile = await self._async_smart_charge_load_profile()
+        efficiency, efficiency_source = self._round_trip_efficiency()
 
         def job():
             return compute_plan(
@@ -2422,9 +2443,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 capacity_kwh=capacity_kwh,
                 kwh_remaining=kwh_remaining,
                 inverter_min_soc_pct=self._entity_float("min_soc"),
+                round_trip_efficiency=efficiency,
             )
 
         plan, meta = await self.hass.async_add_executor_job(job)
+        meta["round_trip_efficiency_source"] = efficiency_source
         meta["rates_sig"] = plan_rates_signature(import_rows, now)
         meta["forecast_sig"] = forecast_signature(forecast_rows)
         meta["replan_reason"] = reason
