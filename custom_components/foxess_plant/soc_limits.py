@@ -469,16 +469,6 @@ def _soc_targets_match(target: dict[str, int], current: dict[str, int]) -> bool:
     return all(current.get(key) == target[key] for key in SOC_KEYS)
 
 
-def _max_soc_from_grid_step(
-    hass: HomeAssistant, entity_map: dict[str, str], target_max: int
-) -> tuple[str, int] | None:
-    """EVO: Max SoC (46610) can't go below Max SoC From Grid (46620). Lower 46620 first when needed."""
-    current = _read_soc_key(hass, entity_map, "max_soc_from_grid")
-    if current is None or current <= target_max:
-        return None
-    return ("max_soc_from_grid", target_max)
-
-
 async def _apply_contiguous_soc_writes(
     hass: HomeAssistant,
     entity_map: dict[str, str],
@@ -499,11 +489,18 @@ async def _apply_contiguous_soc_writes(
         write_steps = compute_soc_write_sequence(target, seq_current)
     else:
         write_steps = [(key, target[key]) for key in EVO_SOC_WRITE_ORDER]
-    from_grid_step = _max_soc_from_grid_step(hass, entity_map, target["max_soc"]) if is_evo else None
-    if from_grid_step is not None and not emulate_max_soc:
-        # The EVO refuses a Max SoC below Max SoC From Grid (46620), so lower that first
-        max_index = next((i for i, (key, _) in enumerate(write_steps) if key == "max_soc"), len(write_steps))
-        write_steps.insert(max_index, from_grid_step)
+    if is_evo and not emulate_max_soc:
+        from_grid = _read_soc_key(hass, entity_map, "max_soc_from_grid")
+        current_max = seq_current.get("max_soc")
+        max_index = next((i for i, (key, _) in enumerate(write_steps) if key == "max_soc"), None)
+        if from_grid is not None and max_index is not None:
+            if from_grid > target["max_soc"]:
+                # The EVO refuses a Max SoC below Max SoC From Grid (46620), so lower that first
+                write_steps.insert(max_index, ("max_soc_from_grid", target["max_soc"]))
+            elif from_grid == current_max and target["max_soc"] > from_grid:
+                # They were tied (e.g. lowered together earlier): raise it back with Max SoC so grid
+                # charging isn't left capped. A deliberately lower setting is left alone.
+                write_steps.insert(max_index + 1, ("max_soc_from_grid", target["max_soc"]))
 
     needs_prepare = False
     for key, value in write_steps:

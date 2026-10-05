@@ -70,8 +70,15 @@ async def test_lowering_max_soc_lowers_max_soc_from_grid_first() -> None:
 
 
 @pytest.mark.asyncio
-async def test_raising_max_soc_leaves_max_soc_from_grid() -> None:
+async def test_raising_max_soc_raises_a_tied_max_soc_from_grid() -> None:
     evo = _FakeEvo(min_soc=10, min_soc_on_grid=10, max_soc=80, max_soc_from_grid=80)
+    await _apply(evo, 10, 10, 100)
+    assert evo.writes == [("max_soc", 100), ("max_soc_from_grid", 100)]
+
+
+@pytest.mark.asyncio
+async def test_raising_max_soc_leaves_a_deliberately_lower_max_soc_from_grid() -> None:
+    evo = _FakeEvo(min_soc=10, min_soc_on_grid=10, max_soc=90, max_soc_from_grid=80)
     await _apply(evo, 10, 10, 100)
     assert evo.writes == [("max_soc", 100)]
 
@@ -81,5 +88,5 @@ async def test_writes_are_ordered_so_every_step_is_valid() -> None:
     # Raising system min above the current max needs max raised first
     evo = _FakeEvo(min_soc=10, min_soc_on_grid=10, max_soc=50, max_soc_from_grid=50)
     rows = await _apply(evo, 10, 60, 90)
-    assert evo.values == {"min_soc": 10, "min_soc_on_grid": 60, "max_soc": 90, "max_soc_from_grid": 50}
+    assert evo.values == {"min_soc": 10, "min_soc_on_grid": 60, "max_soc": 90, "max_soc_from_grid": 90}
     assert all(row["success"] for row in rows)
