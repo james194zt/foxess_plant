@@ -3761,6 +3761,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """UI drift banner: compare saved schedule to inverter, not transient automation windows."""
         if self.plant.override.active and self.plant.override.mode in AUTOMATION_MODES:
             return False
+        if self._is_evo():
+            # The EVO has no charge periods to compare. Its schedule drift is handled by the inverter schedule
+            # check, which re-writes it and raises a notification if that fails.
+            return False
         reference = [p.to_dict() for p in self.plant.desired_periods()]
         return self._compute_drift(reference, actual)
 
