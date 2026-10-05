@@ -14,10 +14,30 @@ const grab = (name) => {
   }
   return src.slice(start, i + 1);
 };
-const code = ["historyRowTimeMs", "historyToStateRows", "bmsFaultNames", "eventsFromNamedHistory"].map(grab).join("\n");
-const { bmsFaultNames, eventsFromNamedHistory } = new Function(
-  `${code}; return { bmsFaultNames, eventsFromNamedHistory };`
+const code = [
+  "historyRowTimeMs",
+  "historyToStateRows",
+  "bmsFaultNames",
+  "eventsFromNamedHistory",
+  "mergeStoredAlertEvents",
+]
+  .map(grab)
+  .join("\n");
+const { bmsFaultNames, eventsFromNamedHistory, mergeStoredAlertEvents } = new Function(
+  `${code}; return { bmsFaultNames, eventsFromNamedHistory, mergeStoredAlertEvents };`
 )();
+
+// Stored log + HA history: the same event once, older stored events kept
+{
+  const t0 = Date.parse("2026-09-10T08:00:00Z");
+  const history = [{ action: "cleared", name: "Meter lost", t: t0 + 3 * 86400000 + 60000, source: "alarms" }];
+  const stored = [
+    { action: "raised", name: "Meter lost", t: "2026-09-10T08:00:00Z" },
+    { action: "cleared", name: "Meter lost", t: "2026-09-13T08:00:00Z" },
+  ];
+  const merged = mergeStoredAlertEvents(history, stored);
+  assert.deepEqual(merged.map((e) => e.action), ["raised", "cleared"]);
+}
 
 assert.deepEqual(bmsFaultNames(["0", "0", "0", "0", "0", "0"]), []);
 assert.deepEqual(bmsFaultNames(["0", "9", "unavailable"]), [

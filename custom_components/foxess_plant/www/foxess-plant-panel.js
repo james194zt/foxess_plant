@@ -7872,6 +7872,25 @@ function bmsFaultNames(values) {
   return names;
 }
 
+/**
+ * Combine events from HA history with Fox Plant's stored alert log (plantState.alert_log). The same event seen
+ * by both (same alert and action within 5 minutes) is kept once. Returns events sorted by time.
+ */
+function mergeStoredAlertEvents(historyEvents, storedLog) {
+  const stored = (Array.isArray(storedLog) ? storedLog : [])
+    .map((e) => ({ action: e.action, name: e.name, t: Date.parse(e.t), source: "log" }))
+    .filter((e) => e.name && (e.action === "raised" || e.action === "cleared") && Number.isFinite(e.t));
+  const all = [...historyEvents, ...stored].sort((a, b) => a.t - b.t);
+  const out = [];
+  for (const ev of all) {
+    const duplicate = out.some(
+      (o) => o.name === ev.name && o.action === ev.action && Math.abs(o.t - ev.t) <= 5 * 60 * 1000
+    );
+    if (!duplicate) out.push(ev);
+  }
+  return out;
+}
+
 /** Raised / cleared events from history rows, given a function turning a state into a list of alarm names. */
 function eventsFromNamedHistory(rows, toNames) {
   const events = [];
@@ -8682,7 +8701,7 @@ async function fetchDeviceAlarmDashboard(hass, plant, plantState) {
     ...bmsFaultNames(bmsIds.map((id) => stateString(hass, id))),
     ...(connectionId ? notResponding(stateString(hass, connectionId)) : []),
   ];
-  const historyEvents = [
+  const liveHistoryEvents = [
     ...mergeAlarmHistoryEvents(
       lastId ? historyRowsForEntity(hist, lastId) : [],
       alarmsId ? historyRowsForEntity(hist, alarmsId) : []
@@ -8694,7 +8713,9 @@ async function fetchDeviceAlarmDashboard(hass, plant, plantState) {
       )
     ),
     ...(connectionId ? eventsFromNamedHistory(historyRowsForEntity(hist, connectionId), notResponding) : []),
-  ].sort((a, b) => a.t - b.t);
+  ];
+  // Fox Plant's own alert log reaches further back than HA's history and survives restarts
+  const historyEvents = mergeStoredAlertEvents(liveHistoryEvents, plantState?.alert_log);
   return buildFoxAlarmDashboard(activeNames, historyEvents, {
     fetchedAt: Date.now(),
     deviceName: plant.title || "Device",

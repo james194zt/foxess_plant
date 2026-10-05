@@ -114,6 +114,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # StormSafe's rolling hold slots on the inverter, and when they end (local time)
         self._storm_slots: list[Any] = []
         self._storm_slots_until: datetime | None = None
+        # Fox Plant's own alert log (alert_log.py) and the alert names active per source
+        self._alert_log: Any = None
+        self._alert_active: dict[str, set[str]] = {}
+        self._unsub_alert_log: Any = None
         self._hems_audit_sigs: dict[str, str] = {}
         self._smart_charge_plan_meta: dict[str, Any] = {}
         self._smart_charge_target_max_soc: float | None = None
@@ -1226,6 +1230,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._setup_smart_charge_daily_plan_timer()
         self._setup_smart_charge_entity_listener()
         self._setup_pv_efficiency_timer()
+        try:
+            await self._async_setup_alert_log()
+        except Exception as err:
+            _LOGGER.warning("Alert log setup failed: %s", err)
         await self._async_init_performance()
         try:
             await self._async_apply_pv_efficiency_age_derating()
@@ -1254,6 +1262,69 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self.async_apply_desired(force=True)
             except Exception as err:
                 _LOGGER.warning("Initial baseline apply failed: %s", err)
+
+    # ---- Alert log ------------------------------------------------------------------------------
+    # Fox Plant keeps its own record of inverter alerts (see alert_log.py) so the Alerts page isn't limited to
+    # HA's history and events survive restarts.
+
+    def _alert_source_entities(self) -> dict[str, str]:
+        """Alert source -> entity_id, all from the same foxess_modbus device as the Inverter Alarms sensor."""
+        from .alert_log import SOURCE_ALARMS, SOURCE_CONNECTION, bms_source
+
+        alarms_id = self.plant.entity_map.get("inverter_alarms")
+        if not alarms_id:
+            return {}
+        prefix = alarms_id[: -len("inverter_alarms")] if alarms_id.endswith("inverter_alarms") else None
+        sources = {SOURCE_ALARMS: alarms_id}
+        if prefix:
+            for index in range(1, 7):
+                sources[bms_source(index)] = f"{prefix}bms_fault_{index}_raw"
+            sources[SOURCE_CONNECTION] = f"{prefix}connection_status"
+        return {source: eid for source, eid in sources.items() if self.hass.states.get(eid) is not None}
+
+    async def _async_setup_alert_log(self) -> None:
+        from homeassistant.util import dt as dt_util
+
+        from .alert_log import AlertLogStore, alert_names, diff_events, open_alerts
+
+        if self._unsub_alert_log:
+            self._unsub_alert_log()
+            self._unsub_alert_log = None
+        if self._alert_log is None:
+            self._alert_log = AlertLogStore(self.hass, self.config_entry.entry_id)
+            await self._alert_log.async_load()
+        sources = self._alert_source_entities()
+        if not sources:
+            return
+
+        # Reconcile with what's active now: alerts that cleared (or started) while HA was down
+        still_open = open_alerts(self._alert_log.events)
+        now = dt_util.utcnow().isoformat()
+        for source, entity_id in sources.items():
+            previous = {name for name, src in still_open.items() if src == source}
+            current = alert_names(source, getattr(self.hass.states.get(entity_id), "state", None))
+            if current is None:
+                current = previous  # no reading yet: assume unchanged
+            self._alert_log.add(diff_events(previous, current, now, source))
+            self._alert_active[source] = current
+
+        by_entity = {entity_id: source for source, entity_id in sources.items()}
+
+        @callback
+        def _changed(event: Event) -> None:
+            source = by_entity.get(event.data.get("entity_id"))
+            new_state = event.data.get("new_state")
+            names = alert_names(source, getattr(new_state, "state", None)) if source else None
+            if names is None:
+                return
+            when = dt_util.utcnow().isoformat()
+            self._alert_log.add(diff_events(self._alert_active.get(source, set()), names, when, source))
+            self._alert_active[source] = names
+
+        self._unsub_alert_log = async_track_state_change_event(self.hass, list(by_entity), _changed)
+
+    def _alert_log_state(self) -> list[dict[str, Any]]:
+        return list(self._alert_log.events[-300:]) if self._alert_log else []
 
     def _setup_drift_timer(self) -> None:
         if self._unsub_drift:
@@ -3023,6 +3094,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "remote_control_options": self._entity_options("remote_control"),
             },
             "plant_schedule": self._plant_schedule_state(),
+            "alert_log": self._alert_log_state(),
             "identity": self._read_identity(),
         }
 
@@ -5260,6 +5332,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if getattr(self, "_unsub_jit_recheck", None):
             self._unsub_jit_recheck()
             self._unsub_jit_recheck = None
+        if getattr(self, "_unsub_alert_log", None):
+            self._unsub_alert_log()
+            self._unsub_alert_log = None
         self._clear_smart_charge_meter_recheck()
         if getattr(self, "_unsub_smart_charge_daily_plan", None):
             self._unsub_smart_charge_daily_plan()
