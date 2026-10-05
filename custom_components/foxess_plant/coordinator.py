@@ -1520,7 +1520,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         from homeassistant.util import dt as dt_util
 
-        from .inverter_schedule import InverterScheduleError, charge_window_slots, export_window_slots
+        from .inverter_schedule import (
+            InverterScheduleError,
+            charge_window_slots,
+            evo_rated_power_w,
+            export_window_slots,
+        )
 
         cfg = self.plant.smart_charge
         now = dt_util.utcnow()
@@ -1544,14 +1549,18 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         export_window = (
             (decision.discharge_window or decision.windows[0]) if exporting else getattr(decision, "next_export", None)
         )
-        discharge_kw = cfg.max_discharge_kw or cfg.max_charge_kw
+        # The slot's power caps the inverter's total output (house + export), so use its full rating: the house
+        # never imports at peak price during an export, and the cut-off still stops the export as planned.
+        export_power_w = evo_rated_power_w(self._entity_state("pcs_model_name")) or int(
+            round((cfg.max_discharge_kw or cfg.max_charge_kw) * 1000)
+        )
         try:
             export_slots = export_window_slots(
                 export_window,
                 now=now,
                 end_soc=(export_window or {}).get("soc_end_pct"),
                 floor_soc=float(cfg.export_min_soc or 0),
-                power_w=int(round(discharge_kw * 1000)),
+                power_w=export_power_w,
             )
         except InverterScheduleError as err:
             _LOGGER.warning("SmartCharge export window can't be scheduled on the inverter: %s", err)

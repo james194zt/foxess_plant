@@ -23,7 +23,10 @@ def _window(start_in: timedelta, length: timedelta = timedelta(hours=2), soc_end
 class _FakeCoordinator:
     """Just enough of the coordinator for _sync_smart_charge_on_inverter."""
 
-    def __init__(self, *, meter_blocks: bool = False, target_max_soc: float | None = None) -> None:
+    def __init__(
+        self, *, meter_blocks: bool = False, target_max_soc: float | None = None, model: str | None = None
+    ) -> None:
+        self.model = model
         self.plant = SimpleNamespace(
             smart_charge=SimpleNamespace(
                 target_max_soc=target_max_soc,
@@ -38,6 +41,9 @@ class _FakeCoordinator:
         self._jit_slots: list = []
         self.meter_blocks = meter_blocks
         self.rechecks: list = []
+
+    def _entity_state(self, key: str) -> str | None:
+        return self.model if key == "pcs_model_name" else None
 
     async def _set_jit_slots(self, slots: list) -> None:
         self._jit_slots = list(slots)
@@ -114,12 +120,19 @@ async def test_meter_check_failure_removes_the_slot() -> None:
 
 
 @pytest.mark.asyncio
-async def test_upcoming_export_is_a_force_discharge_slot() -> None:
+async def test_upcoming_export_is_a_force_discharge_slot_at_full_inverter_power() -> None:
+    fake = _FakeCoordinator(model="EVO 10-5-H")
+    [slot] = await _sync(fake, _export_decision("idle", _window(timedelta(minutes=20), soc_end=52.7)))
+    # Stops at the plan's end SoC (rounded down); the slot power caps total output, so use the full rating
+    assert (slot.work_mode, slot.fd_soc, slot.fd_pwr) == ("force_discharge", 52, 10000)
+    assert "Export" in fake._smart_charge_decision["reason"]
+
+
+@pytest.mark.asyncio
+async def test_export_power_falls_back_without_a_model() -> None:
     fake = _FakeCoordinator()
     [slot] = await _sync(fake, _export_decision("idle", _window(timedelta(minutes=20), soc_end=52.7)))
-    # Stops at the plan's end SoC (rounded down), at the charge power when no discharge power is set
-    assert (slot.work_mode, slot.fd_soc, slot.fd_pwr) == ("force_discharge", 52, 3000)
-    assert "Export" in fake._smart_charge_decision["reason"]
+    assert slot.fd_pwr == 3000  # max charge power, as no discharge power is set
 
 
 @pytest.mark.asyncio

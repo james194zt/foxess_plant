@@ -10,6 +10,7 @@ from custom_components.foxess_plant.inverter_schedule import (
     InverterSlot,
     charge_window_slots,
     compile_inverter_schedule,
+    evo_rated_power_w,
     expected_inverter_slots,
     schedule_differences,
     split_at_midnight,
@@ -122,6 +123,14 @@ def test_charge_window_crossing_midnight_uses_two_slots() -> None:
 def test_no_window_or_target_means_no_slot() -> None:
     assert charge_window_slots(None, now=_utc("02:00"), target_soc=80, power_w=3000) == []
     assert charge_window_slots(_WINDOW, now=_utc("02:00"), target_soc=None, power_w=3000) == []
+
+
+@pytest.mark.parametrize(
+    ("model", "watts"),
+    [("EVO 10-5-H", 10000), ("EVO 6-5-H", 6000), ("evo10", 10000), ("H3-Pro-15.0", None), (None, None)],
+)
+def test_evo_rated_power(model, watts) -> None:
+    assert evo_rated_power_w(model) == watts
 
 
 def test_storm_hold_slot() -> None:
