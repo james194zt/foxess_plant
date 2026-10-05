@@ -24390,7 +24390,7 @@ ${blockedBanner}
 <div class="warmup-hero-badge">${esc(statusLabel)}</div>
 <div class="warmup-hero-temp">${esc(tempDisplay)}</div>
 <button type="button" class="warmup-power-btn${draft.enabled ? " is-on" : ""}" data-action="warmup-toggle-enabled" aria-label="${draft.enabled ? "Disable battery warmup" : "Enable battery warmup"}" ${this._busy ? "disabled" : ""}>
-<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path fill="currentColor" d="M12 2a1 1 0 0 1 1 1v8.17a3 3 0 1 1-2 0V3a1 1 0 0 1 1-1zm-7.07 4.93a1 1 0 0 1 1.41 0 8 8 0 1 0 11.32 0 1 1 0 1 1 1.41-1.41 10 10 0 1 1-14.14 0 1 1 0 0 1 1.41 0z"/></svg>
+<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path fill="currentColor" d="M16.56 5.44l-1.45 1.45A5.97 5.97 0 0 1 18 12a6 6 0 0 1-12 0c0-2.17 1.16-4.06 2.88-5.12L7.44 5.44A7.96 7.96 0 0 0 4 12a8 8 0 0 0 16 0c0-2.72-1.36-5.12-3.44-6.56zM13 3h-2v10h2z"/></svg>
 </button>
 <input type="checkbox" data-field="warmup:enabled" ${draft.enabled ? "checked" : ""} hidden>
 </div>
