@@ -48,7 +48,6 @@ class _FakeEvo:
 
 @pytest.fixture(autouse=True)
 def _evo(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(soc_limits, "device_is_evo", lambda *args: True)
     monkeypatch.setattr(soc_limits, "resolve_uses_h3_pro_soc_block", lambda *args: True)
 
     async def _no_sleep(_seconds: float) -> None:
