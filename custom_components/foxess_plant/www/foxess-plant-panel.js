@@ -7848,7 +7848,42 @@ const FOX_ALARM_SEVERITY_COLORS = {
 };
 
 function foxAlarmMeta(name) {
-  return FOX_ALARM_META[name] || { category: "Other", severity: "warning" };
+  if (FOX_ALARM_META[name]) return FOX_ALARM_META[name];
+  if (String(name).startsWith("Battery fault")) return { category: "Storage", severity: "warning" };
+  if (name === INVERTER_NOT_RESPONDING) return { category: "Communication", severity: "warning" };
+  return { category: "Other", severity: "warning" };
+}
+
+const INVERTER_NOT_RESPONDING = "Inverter not responding (Modbus)";
+
+/**
+ * Battery (BMS) fault names from the six BMS1 Fault 1-6 raw registers (37626-37631). The protocol document
+ * doesn't name these bits, so they're reported by register and bit, e.g. "Battery fault 2 bit 3 (0x0008)".
+ */
+function bmsFaultNames(values) {
+  const names = [];
+  values.forEach((raw, i) => {
+    const value = parseInt(String(raw), 10);
+    if (!Number.isFinite(value) || value <= 0) return;
+    for (let bit = 0; bit < 16; bit += 1) {
+      if (value & (1 << bit)) names.push(`Battery fault ${i + 1} bit ${bit} (0x${(1 << bit).toString(16).padStart(4, "0")})`);
+    }
+  });
+  return names;
+}
+
+/** Raised / cleared events from history rows, given a function turning a state into a list of alarm names. */
+function eventsFromNamedHistory(rows, toNames) {
+  const events = [];
+  let prev = new Set();
+  for (const row of historyToStateRows(rows)) {
+    if (row.s === "unknown" || row.s === "unavailable") continue; // no reading isn't "cleared"
+    const active = new Set(toNames(row.s));
+    for (const name of active) if (!prev.has(name)) events.push({ action: "raised", name, t: row.t });
+    for (const name of prev) if (!active.has(name)) events.push({ action: "cleared", name, t: row.t });
+    prev = active;
+  }
+  return events;
 }
 
 /** Modbus alarm bit index → Fox-style code (register word + bit). */
@@ -8630,16 +8665,36 @@ async function fetchDeviceAlarmDashboard(hass, plant, plantState) {
     };
   }
 
+  // Battery (BMS) fault registers and the Modbus connection status, from the same device as the alarm sensor
+  const prefix = (alarmsId || lastId || "").replace(/(inverter_alarms|inverter_fault_code|inverter_alarm_last)$/, "");
+  const sameDevice = (suffix) => (prefix && hass?.states?.[`${prefix}${suffix}`] ? `${prefix}${suffix}` : null);
+  const bmsIds = [1, 2, 3, 4, 5, 6].map((i) => sameDevice(`bms_fault_${i}_raw`)).filter(Boolean);
+  const connectionId = sameDevice("connection_status");
+  const notResponding = (state) => (state && state !== "Connected" ? [INVERTER_NOT_RESPONDING] : []);
+
   const now = new Date();
   const start = startOfLocalDay(new Date(now.getTime() - (FOX_ALARM_HISTORY_DAYS - 1) * 86400000));
   const end = now;
-  const ids = [alarmsId, lastId].filter(Boolean);
+  const ids = [alarmsId, lastId, ...bmsIds, connectionId].filter(Boolean);
   const hist = await fetchHistoryDuring(hass, ids, start, end, { significantChangesOnly: true });
-  const activeNames = alarmsId ? parseAlarmStateList(stateString(hass, alarmsId)) : [];
-  const historyEvents = mergeAlarmHistoryEvents(
-    lastId ? historyRowsForEntity(hist, lastId) : [],
-    alarmsId ? historyRowsForEntity(hist, alarmsId) : []
-  );
+  const activeNames = [
+    ...(alarmsId ? parseAlarmStateList(stateString(hass, alarmsId)) : []),
+    ...bmsFaultNames(bmsIds.map((id) => stateString(hass, id))),
+    ...(connectionId ? notResponding(stateString(hass, connectionId)) : []),
+  ];
+  const historyEvents = [
+    ...mergeAlarmHistoryEvents(
+      lastId ? historyRowsForEntity(hist, lastId) : [],
+      alarmsId ? historyRowsForEntity(hist, alarmsId) : []
+    ),
+    // Each BMS register's history on its own: the other registers' values don't matter for its bits
+    ...bmsIds.flatMap((id, i) =>
+      eventsFromNamedHistory(historyRowsForEntity(hist, id), (s) =>
+        bmsFaultNames(Array.from({ length: 6 }, (_, j) => (j === i ? s : 0)))
+      )
+    ),
+    ...(connectionId ? eventsFromNamedHistory(historyRowsForEntity(hist, connectionId), notResponding) : []),
+  ].sort((a, b) => a.t - b.t);
   return buildFoxAlarmDashboard(activeNames, historyEvents, {
     fetchedAt: Date.now(),
     deviceName: plant.title || "Device",
