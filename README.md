@@ -66,13 +66,14 @@ fork's `set_evo_schedule`), so they keep running if Home Assistant stops:
 
 - **Quick Settings → Mode scheduler**: up to 6 slots (work mode, min / max SOC, force charge) plus the
   remaining-time work mode. With no slots, the inverter's scheduler is switched off and it follows Work Mode.
-- **SmartCharge** puts each planned grid charge on the inverter as a Force Charge slot 30 minutes before it
-  starts, and removes it afterwards.
+- **SmartCharge** puts each planned grid charge (Force Charge) and planned export (Force Discharge, stopping
+  at the plan's level and never below the export floor) on the inverter as a slot 30 minutes before it starts,
+  and removes it afterwards.
 - **StormSafe, Outage prep and Forecast prep** hold the battery with a rolling 3-hour Force Charge slot,
   extended while armed, so it stays protected if Home Assistant goes down during a storm.
 - Fox Plant checks the inverter's schedule every few minutes and re-writes it if it was changed elsewhere
   (don't edit the schedule in the Fox app while Fox Plant is in control).
-- Remote Control is only used for "do it now" commands (SmartCharge export).
+- Remote Control isn't used for planned actions any more; it stays available for "do it now" commands.
 - How the EVO's registers behave, and why: the foxess_modbus fork's `docs/evo/`.
 
 **Other models** use charge periods and Remote Control as before. They're assumed to behave like the EVO and

@@ -26,7 +26,12 @@ class _FakeCoordinator:
     def __init__(self, *, meter_blocks: bool = False, target_max_soc: float | None = None) -> None:
         self.plant = SimpleNamespace(
             smart_charge=SimpleNamespace(
-                target_max_soc=target_max_soc, max_target_soc=100.0, max_charge_kw=3.0, meter_rate_recheck_minutes=5
+                target_max_soc=target_max_soc,
+                max_target_soc=100.0,
+                max_charge_kw=3.0,
+                max_discharge_kw=None,
+                export_min_soc=40.0,
+                meter_rate_recheck_minutes=5,
             )
         )
         self._smart_charge_decision: dict = {}
@@ -37,8 +42,8 @@ class _FakeCoordinator:
     async def _set_jit_slots(self, slots: list) -> None:
         self._jit_slots = list(slots)
 
-    def _schedule_jit_recheck(self, window, *, has_slots: bool) -> None:
-        self.rechecks.append(has_slots)
+    def _schedule_jit_recheck(self, windows) -> None:
+        self.rechecks.append(windows)
 
     def _sync_octopus_current_rates_from_cache(self) -> None:
         pass
@@ -59,7 +64,22 @@ def _decision(action: str, window: dict, target: float | None = None) -> SimpleN
         action=action,
         windows=[window] if charging else [],
         next_charge=None if charging else window,
+        next_export=None,
+        discharge_window=None,
         target_max_soc=target,
+        reason="Planned",
+    )
+
+
+def _export_decision(action: str, window: dict) -> SimpleNamespace:
+    exporting = action == "export_discharge"
+    return SimpleNamespace(
+        action=action,
+        windows=[window] if exporting else [],
+        next_charge=None,
+        next_export=None if exporting else window,
+        discharge_window=window if exporting else None,
+        target_max_soc=None,
         reason="Planned",
     )
 
@@ -91,6 +111,22 @@ async def test_meter_check_failure_removes_the_slot() -> None:
     fake._jit_slots = ["previous slot"]
     assert await _sync(fake, _decision("grid_charge", _window(timedelta(minutes=-10)), target=90)) == []
     assert fake._smart_charge_decision["reason"].startswith("Meter check held")
+
+
+@pytest.mark.asyncio
+async def test_upcoming_export_is_a_force_discharge_slot() -> None:
+    fake = _FakeCoordinator()
+    [slot] = await _sync(fake, _export_decision("idle", _window(timedelta(minutes=20), soc_end=52.7)))
+    # Stops at the plan's end SoC (rounded down), at the charge power when no discharge power is set
+    assert (slot.work_mode, slot.fd_soc, slot.fd_pwr) == ("force_discharge", 52, 3000)
+    assert "Export" in fake._smart_charge_decision["reason"]
+
+
+@pytest.mark.asyncio
+async def test_export_never_goes_below_the_export_floor() -> None:
+    fake = _FakeCoordinator()
+    [slot] = await _sync(fake, _export_decision("export_discharge", _window(timedelta(minutes=-5), soc_end=20.0)))
+    assert slot.fd_soc == 40
 
 
 @pytest.mark.asyncio

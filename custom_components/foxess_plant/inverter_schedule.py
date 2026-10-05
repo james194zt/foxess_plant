@@ -138,21 +138,21 @@ def slots_from_segment(segment: Any, *, default_force_power_w: int) -> list[Inve
 JIT_LEAD = timedelta(minutes=30)
 
 
-def charge_window_slots(
+def window_slots(
     window: dict[str, Any] | None,
     *,
     now: datetime,
-    target_soc: float | None,
+    work_mode: str,
+    cut_off_soc: int | None,
     power_w: int,
     lead: timedelta = JIT_LEAD,
 ) -> list[InverterSlot]:
-    """Force Charge slots for a planned charge window, or [] when it isn't due yet or has finished.
+    """Force Charge / Force Discharge slots for a planned window, or [] when it isn't due yet or has finished.
 
     ``window`` is a SmartCharge plan window: local ``start``/``end`` (HH:MM) for the slot times and
-    ``start_utc``/``end_utc`` (ISO) for timing. The inverter charges at ``power_w`` and stops at
-    ``target_soc``.
+    ``start_utc``/``end_utc`` (ISO) for timing. The inverter runs at ``power_w`` and stops at ``cut_off_soc``.
     """
-    if not window or target_soc is None:
+    if not window or cut_off_soc is None:
         return []
     try:
         start_utc = datetime.fromisoformat(str(window["start_utc"]))
@@ -161,12 +161,42 @@ def charge_window_slots(
         return []
     if not start_utc - lead <= now < end_utc:
         return []
-    cut_off = max(SOC_MIN, min(SOC_MAX, math.ceil(float(target_soc))))
-    template = InverterSlot(start="", end="", work_mode="force_charge", fd_soc=cut_off, fd_pwr=int(power_w))
+    cut_off = max(SOC_MIN, min(SOC_MAX, int(cut_off_soc)))
+    template = InverterSlot(start="", end="", work_mode=work_mode, fd_soc=cut_off, fd_pwr=int(power_w))
     return [
         replace(template, start=start, end=end)
         for start, end in split_at_midnight(str(window.get("start")), str(window.get("end")))
     ]
+
+
+def charge_window_slots(
+    window: dict[str, Any] | None,
+    *,
+    now: datetime,
+    target_soc: float | None,
+    power_w: int,
+    lead: timedelta = JIT_LEAD,
+) -> list[InverterSlot]:
+    """Force Charge slots for a planned charge window: charge at ``power_w``, stop at ``target_soc`` (rounded up)."""
+    cut_off = math.ceil(float(target_soc)) if target_soc is not None else None
+    return window_slots(window, now=now, work_mode="force_charge", cut_off_soc=cut_off, power_w=power_w, lead=lead)
+
+
+def export_window_slots(
+    window: dict[str, Any] | None,
+    *,
+    now: datetime,
+    end_soc: float | None,
+    floor_soc: float,
+    power_w: int,
+    lead: timedelta = JIT_LEAD,
+) -> list[InverterSlot]:
+    """Force Discharge slots for a planned export window: export at ``power_w``, stop at the plan's end SoC
+    (rounded down), never below ``floor_soc`` (SmartCharge's export floor)."""
+    if end_soc is None:
+        return []
+    cut_off = max(math.ceil(float(floor_soc)), math.floor(float(end_soc)))
+    return window_slots(window, now=now, work_mode="force_discharge", cut_off_soc=cut_off, power_w=power_w, lead=lead)
 
 
 # StormSafe holds the battery with a rolling slot: long enough to cover HA being down for a while, short

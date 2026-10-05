@@ -1480,8 +1480,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "%s prep holding the battery from the inverter's scheduler until %s", self.plant.override.mode, until
             )
 
-    def _schedule_jit_recheck(self, window: dict[str, Any] | None, *, has_slots: bool) -> None:
-        """Re-evaluate when the next slot is due (or its window ends), whatever the poll interval."""
+    def _schedule_jit_recheck(self, windows: list[tuple[dict[str, Any] | None, bool]]) -> None:
+        """Re-evaluate when the next slot is due (or a window with a slot ends), whatever the poll interval.
+
+        ``windows``: (plan window, whether its slot is on the inverter now) for each kind of JIT slot.
+        """
         from homeassistant.util import dt as dt_util
 
         from .inverter_schedule import JIT_LEAD
@@ -1489,19 +1492,22 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._unsub_jit_recheck:
             self._unsub_jit_recheck()
             self._unsub_jit_recheck = None
-        if not window:
-            return
-        key = "end_utc" if has_slots else "start_utc"
-        try:
-            when = datetime.fromisoformat(str(window[key]))
-        except (KeyError, TypeError, ValueError):
-            return
-        if not has_slots:
-            when -= JIT_LEAD
-        when += timedelta(seconds=5)
-        if when <= dt_util.utcnow():
-            return
-        self._unsub_jit_recheck = async_track_point_in_time(self.hass, self._jit_recheck_callback, when)
+        now = dt_util.utcnow()
+        times = []
+        for window, has_slots in windows:
+            if not window:
+                continue
+            try:
+                when = datetime.fromisoformat(str(window["end_utc" if has_slots else "start_utc"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+            if not has_slots:
+                when -= JIT_LEAD
+            when += timedelta(seconds=5)
+            if when > now:
+                times.append(when)
+        if times:
+            self._unsub_jit_recheck = async_track_point_in_time(self.hass, self._jit_recheck_callback, min(times))
 
     @callback
     def _jit_recheck_callback(self, _now) -> None:
@@ -1509,12 +1515,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.hass.async_create_task(self._async_smart_charge_meter_recheck())
 
     async def _sync_smart_charge_on_inverter(self, decision: Any) -> None:
-        """Put the current or next planned grid charge on the inverter shortly before it starts."""
+        """Put the current or next planned grid charge / export on the inverter shortly before it starts."""
         import math
 
         from homeassistant.util import dt as dt_util
 
-        from .inverter_schedule import InverterScheduleError, charge_window_slots
+        from .inverter_schedule import InverterScheduleError, charge_window_slots, export_window_slots
 
         cfg = self.plant.smart_charge
         now = dt_util.utcnow()
@@ -1533,6 +1539,24 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.warning("SmartCharge window can't be scheduled on the inverter: %s", err)
             slots = []
 
+        # Planned export: a Force Discharge slot that stops at the plan's end SoC, never below the export floor
+        exporting = decision.action == "export_discharge" and bool(decision.discharge_window or decision.windows)
+        export_window = (
+            (decision.discharge_window or decision.windows[0]) if exporting else getattr(decision, "next_export", None)
+        )
+        discharge_kw = cfg.max_discharge_kw or cfg.max_charge_kw
+        try:
+            export_slots = export_window_slots(
+                export_window,
+                now=now,
+                end_soc=(export_window or {}).get("soc_end_pct"),
+                floor_soc=float(cfg.export_min_soc or 0),
+                power_w=int(round(discharge_kw * 1000)),
+            )
+        except InverterScheduleError as err:
+            _LOGGER.warning("SmartCharge export window can't be scheduled on the inverter: %s", err)
+            export_slots = []
+
         if slots and charging:
             # Inside the window: check the meter agrees the rate is cheap; take the slot off if not
             self._sync_octopus_current_rates_from_cache()
@@ -1546,10 +1570,14 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             else:
                 self._clear_smart_charge_meter_recheck()
 
-        await self._set_jit_slots(slots)
-        self._schedule_jit_recheck(window, has_slots=bool(slots))
+        await self._set_jit_slots([*slots, *export_slots])
+        self._schedule_jit_recheck([(window, bool(slots)), (export_window, bool(export_slots))])
         if slots and not charging and window:
             decision.reason = f"Charge {window.get('start')}-{window.get('end')} is set on the inverter — {decision.reason}"
+        if export_slots and not exporting and export_window:
+            decision.reason = (
+                f"Export {export_window.get('start')}-{export_window.get('end')} is set on the inverter — {decision.reason}"
+            )
         if isinstance(self._smart_charge_decision, dict):
             self._smart_charge_decision["reason"] = decision.reason
             self._smart_charge_decision["inverter_slots"] = [slot.to_service() for slot in self._jit_slots]
@@ -2659,7 +2687,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         else:
             await self._set_jit_slots([])
 
-        if decision.action == "export_discharge":
+        # On the EVO both planned charges and planned exports run as slots on the inverter (synced above), so
+        # Remote Control isn't used for either; the else branch clears anything left armed the old way.
+        if decision.action == "export_discharge" and not on_inverter:
             await self._arm_smart_charge_export(decision)
         elif decision.action in ("grid_charge", "arbitrage") and not on_inverter:
             await self._arm_smart_charge_grid(decision)
