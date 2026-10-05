@@ -1,8 +1,18 @@
 // Battery (BMS) fault decoding and raised/cleared history for the Alerts page.
-import { readFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import assert from "node:assert/strict";
 
-const src = readFileSync(new URL("../custom_components/foxess_plant/www/foxess-plant-panel.js", import.meta.url), "utf8");
+const www = new URL("../custom_components/foxess_plant/www/", import.meta.url);
+const src = readFileSync(new URL("foxess-plant-panel.js", www), "utf8");
+
+// The guide is an ES module with a .js name: import a .mjs copy of it
+const tmp = mkdtempSync(join(tmpdir(), "fox-guide-"));
+copyFileSync(new URL("fox-alarm-guide.js", www), join(tmp, "fox-alarm-guide.mjs"));
+const { bmsFaultLabel } = await import(pathToFileURL(join(tmp, "fox-alarm-guide.mjs")).href);
+
 const grab = (name) => {
   const start = src.indexOf(`function ${name}(`);
   assert.ok(start >= 0, `function ${name} not found`);
@@ -24,25 +34,19 @@ const code = [
   .map(grab)
   .join("\n");
 const { bmsFaultNames, eventsFromNamedHistory, mergeStoredAlertEvents } = new Function(
+  "bmsFaultLabel",
   `${code}; return { bmsFaultNames, eventsFromNamedHistory, mergeStoredAlertEvents };`
-)();
+)(bmsFaultLabel);
 
-// Stored log + HA history: the same event once, older stored events kept
-{
-  const t0 = Date.parse("2026-09-10T08:00:00Z");
-  const history = [{ action: "cleared", name: "Meter lost", t: t0 + 3 * 86400000 + 60000, source: "alarms" }];
-  const stored = [
-    { action: "raised", name: "Meter lost", t: "2026-09-10T08:00:00Z" },
-    { action: "cleared", name: "Meter lost", t: "2026-09-13T08:00:00Z" },
-  ];
-  const merged = mergeStoredAlertEvents(history, stored);
-  assert.deepEqual(merged.map((e) => e.action), ["raised", "cleared"]);
-}
-
+// Named from the EVO manual's BS1-BS6 table; unnamed bits keep the raw bit
 assert.deepEqual(bmsFaultNames(["0", "0", "0", "0", "0", "0"]), []);
-assert.deepEqual(bmsFaultNames(["0", "9", "unavailable"]), [
-  "Battery fault 2 bit 0 (0x0001)",
-  "Battery fault 2 bit 3 (0x0008)",
+assert.deepEqual(bmsFaultNames(["3"]), [
+  "Battery BS1 E01: Communication fault with PCS (EXT COM)",
+  "Battery BS1 E02: Internal communication fault (INT COM)",
+]);
+assert.deepEqual(bmsFaultNames(["0", "5", "unavailable"]), [
+  "Battery BS2 E01: Cell imbalance alarm (CB)",
+  "Battery BS2 bit 2 (0x0004)",
 ]);
 
 // A fault raised for two days, a gap where the inverter couldn't be read, then cleared
@@ -52,11 +56,23 @@ const rows = [
   { s: "8", lu: 1 },
   { s: "unavailable", lu: 1 + day / 1000 },
   { s: "8", lu: 2 + day / 1000 },
-  { s: "0", lu: 2 * day / 1000 },
+  { s: "0", lu: (2 * day) / 1000 },
 ];
+const uv = "Battery BS1 E08: Under voltage fault (UV)";
 const events = eventsFromNamedHistory(rows, (s) => bmsFaultNames([s]));
 assert.deepEqual(
   events.map((e) => [e.action, e.name]),
-  [["raised", "Battery fault 1 bit 3 (0x0008)"], ["cleared", "Battery fault 1 bit 3 (0x0008)"]]
+  [["raised", uv], ["cleared", uv]]
 );
+
+// Stored log + HA history: the same event once, older stored events kept
+{
+  const t0 = Date.parse("2026-09-10T08:00:00Z");
+  const history = [{ action: "cleared", name: "Meter lost", t: t0 + 3 * day + 60000, source: "alarms" }];
+  const stored = [
+    { action: "raised", name: "Meter lost", t: "2026-09-10T08:00:00Z" },
+    { action: "cleared", name: "Meter lost", t: "2026-09-13T08:00:00Z" },
+  ];
+  assert.deepEqual(mergeStoredAlertEvents(history, stored).map((e) => e.action), ["raised", "cleared"]);
+}
 console.log("alarm sources: all checks passed");

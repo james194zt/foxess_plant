@@ -4,7 +4,7 @@
  * @version 0.9.267
  */
 
-import { renderFoxAlarmDetailModal } from "./fox-alarm-guide.js";
+import { bmsFaultLabel, renderFoxAlarmDetailModal } from "./fox-alarm-guide.js";
 
 /** @deprecated Legacy device UI — not in nav (replaced by device_new). */
 const PANEL_VIEW_DEVICE_LEGACY = "device_legacy";
@@ -7849,7 +7849,7 @@ const FOX_ALARM_SEVERITY_COLORS = {
 
 function foxAlarmMeta(name) {
   if (FOX_ALARM_META[name]) return FOX_ALARM_META[name];
-  if (String(name).startsWith("Battery fault")) return { category: "Storage", severity: "warning" };
+  if (String(name).startsWith("Battery BS")) return { category: "Storage", severity: "warning" };
   if (name === INVERTER_NOT_RESPONDING) return { category: "Communication", severity: "warning" };
   return { category: "Other", severity: "warning" };
 }
@@ -7857,8 +7857,8 @@ function foxAlarmMeta(name) {
 const INVERTER_NOT_RESPONDING = "Inverter not responding (Modbus)";
 
 /**
- * Battery (BMS) fault names from the six BMS1 Fault 1-6 raw registers (37626-37631). The protocol document
- * doesn't name these bits, so they're reported by register and bit, e.g. "Battery fault 2 bit 3 (0x0008)".
+ * Battery (BMS) fault names from the six BMS1 Fault raw registers BS1-BS6 (37626-37631), named from the EVO
+ * manual's table, e.g. "Battery BS1 E01: Communication fault with PCS (EXT COM)".
  */
 function bmsFaultNames(values) {
   const names = [];
@@ -7866,7 +7866,7 @@ function bmsFaultNames(values) {
     const value = parseInt(String(raw), 10);
     if (!Number.isFinite(value) || value <= 0) return;
     for (let bit = 0; bit < 16; bit += 1) {
-      if (value & (1 << bit)) names.push(`Battery fault ${i + 1} bit ${bit} (0x${(1 << bit).toString(16).padStart(4, "0")})`);
+      if (value & (1 << bit)) names.push(bmsFaultLabel(i + 1, bit));
     }
   });
   return names;

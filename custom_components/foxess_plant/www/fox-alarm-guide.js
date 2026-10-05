@@ -468,6 +468,19 @@ export const FOX_BMS_FAULT_BITS = [
 const FOX_BMS_E_CODES = ["E01", "E02", "E04", "E08", "E10", "E20", "E40", "E80"];
 
 /**
+ * Alert name for one BMS fault bit, using the EVO manual's table, e.g. index 1 bit 0 ->
+ * "Battery BS1 E01: Communication fault with PCS (EXT COM)". Bits the manual doesn't name keep their raw bit.
+ * Keep in step with BMS_FAULT_BITS in alert_log.py.
+ * @param {number} index BS register 1-6 (37626-37631)
+ * @param {number} bit 0-15
+ */
+export function bmsFaultLabel(index, bit) {
+  const label = FOX_BMS_FAULT_BITS[index - 1]?.[bit];
+  if (label) return `Battery BS${index} ${FOX_BMS_E_CODES[bit]}: ${label}`;
+  return `Battery BS${index} bit ${bit} (0x${(1 << bit).toString(16).padStart(4, "0")})`;
+}
+
+/**
  * @param {string} alarmName
  * @returns {FoxAlarmGuideEntry}
  */

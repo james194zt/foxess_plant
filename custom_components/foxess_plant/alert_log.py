@@ -2,7 +2,7 @@
 
 Sources (all from the linked foxess_modbus device):
 - the Inverter Alarms sensor ("None" or "Alarm A; Alarm B")
-- the six BMS1 Fault raw sensors (37626-37631); the bits aren't named by Fox, so they're "Battery fault N bit B"
+- the six BMS1 Fault raw sensors BS1-BS6 (37626-37631), named from the EVO user manual's table
 - the Modbus Connection Status sensor ("Connected" or not)
 
 The log keeps raised / cleared events. A reading of unknown / unavailable is a gap, not a clear.
@@ -26,6 +26,64 @@ NO_READING = frozenset({"unknown", "unavailable", "", None})
 SOURCE_ALARMS = "alarms"
 SOURCE_CONNECTION = "connection"
 
+# BMS fault bits BS1-BS6 (registers 37626-37631) from the EVO user manual pp. 58-59; bits 0-7, code = E01..E80.
+# Keep in step with FOX_BMS_FAULT_BITS in www/fox-alarm-guide.js.
+BMS_FAULT_BITS: list[list[str | None]] = [
+    [
+        "Communication fault with PCS (EXT COM)",
+        "Internal communication fault (INT COM)",
+        "Over voltage fault (OV)",
+        "Under voltage fault (UV)",
+        "Charge over current (OCC)",
+        "Discharge over current (OCD)",
+        "Over temperature fault (OT)",
+        "Under temperature (UT)",
+    ],
+    [
+        "Cell imbalance alarm (CB)",
+        "Hardware Protect",
+        None,
+        "BMS Other Fault",
+        "Voltage Sensor Fault",
+        "Temperature Sensor Fault",
+        "Current Sensor Fault",
+        "Relay Fault",
+    ],
+    ["Inconsistent cell capacity fault (BMS_Typc_Unmatch)", None, None, None, None,
+     "Unanswered charging request (BMS_MR_Unmatch)", None, None],  # fmt: skip
+    [None, None, None, None, "Pre-charge fault", None, None, None],
+    [
+        "Relay drive circuit failure (Actor_Fault)",
+        "SOH_LOW",
+        None,
+        None,
+        "Single cell 0V fault (SUV)",
+        "Extreme overvoltage fault (CellVolt R&H Invalid)",
+        "Cell Temperature High Invalid",
+        "Balance Temperature High",
+    ],
+    [
+        "Precharge resistor overtemperature (PreChg_Restemperature High)",
+        "Hardware overcurrent fault (short_current)",
+        "AFE Communication Fault",
+        "AFE Fault (AFE UT/OT/UV/OV)",
+        "IVU Communication fault",
+        None,
+        "Module addressing fault",
+        None,
+    ],
+]
+_BMS_E_CODES = ("E01", "E02", "E04", "E08", "E10", "E20", "E40", "E80")
+
+
+def bms_fault_label(index: int, bit: int) -> str:
+    """e.g. (1, 0) -> "Battery BS1 E01: Communication fault with PCS (EXT COM)"; unnamed bits keep the raw bit."""
+    bits = BMS_FAULT_BITS[index - 1] if 1 <= index <= len(BMS_FAULT_BITS) else []
+    label = bits[bit] if bit < len(bits) else None
+    if label:
+        return f"Battery BS{index} {_BMS_E_CODES[bit]}: {label}"
+    return f"Battery BS{index} bit {bit} (0x{1 << bit:04x})"
+
 
 def bms_source(index: int) -> str:
     return f"bms_{index}"
@@ -45,10 +103,8 @@ def alert_names(source: str, state: Any) -> set[str] | None:
             value = int(float(text))
         except ValueError:
             return None
-        register = source.split("_", 1)[1]
-        return {
-            f"Battery fault {register} bit {bit} (0x{1 << bit:04x})" for bit in range(16) if value & (1 << bit)
-        }
+        index = int(source.split("_", 1)[1])
+        return {bms_fault_label(index, bit) for bit in range(16) if value & (1 << bit)}
     return None
 
 
