@@ -4452,6 +4452,65 @@ function parseTariffRate(raw) {
   return Number.isFinite(v) ? Math.max(0, v) : 0;
 }
 
+/** Hourly import price (minor units) from the tariff map, or null when the map has no prices. */
+function tariffHourlyImport(schedule) {
+  const prices = schedule.hours.map((band) => Number(schedule.bands[band]?.import_p_per_kwh) || 0);
+  return prices.some((p) => p > 0) ? prices : null;
+}
+
+/**
+ * Cheapest-rate windows in the daily tariff map, for battery warm-up periods: the hours at the lowest import
+ * price, joined into runs (a run may cross midnight), longest first, at most `maxSlots`.
+ * Returns null when there's no map or the price is the same all day.
+ */
+function warmupWindowsFromTariff(schedule, maxSlots = 3) {
+  const prices = tariffHourlyImport(schedule);
+  if (!prices) return null;
+  const cheapest = Math.min(...prices);
+  const cheap = prices.map((p) => p - cheapest < 0.005);
+  if (cheap.every(Boolean)) return null;
+  // Start scanning just after an expensive hour so a run crossing midnight stays in one piece
+  const offset = (cheap.findIndex((c) => !c) + 1) % 24;
+  const runs = [];
+  let run = null;
+  for (let i = 0; i < 24; i += 1) {
+    const hour = (offset + i) % 24;
+    if (cheap[hour]) {
+      if (run) run.length += 1;
+      else run = { start: hour, length: 1 };
+    } else if (run) {
+      runs.push(run);
+      run = null;
+    }
+  }
+  if (run) runs.push(run);
+  const hhmm = (h) => `${String(h % 24).padStart(2, "0")}:00`;
+  return {
+    price: cheapest,
+    windows: runs
+      .sort((a, b) => b.length - a.length || a.start - b.start)
+      .slice(0, maxSlots)
+      .sort((a, b) => a.start - b.start)
+      .map((r) => ({ start: hhmm(r.start), end: hhmm(r.start + r.length) })),
+  };
+}
+
+/** True when hour `h` (0-23) falls inside an enabled warm-up period (HH:MM, may cross midnight). */
+function warmupCoversHour(slots, h) {
+  const mins = (t) => {
+    const [hh, mm] = String(t || "00:00").split(":").map((x) => parseInt(x, 10) || 0);
+    return hh * 60 + mm;
+  };
+  const m = h * 60 + 30;
+  return (slots || []).some((s) => {
+    if (!s?.enabled) return false;
+    const a = mins(s.start);
+    const b = mins(s.end);
+    if (a === b) return false;
+    return a < b ? m >= a && m < b : m >= a || m < b;
+  });
+}
+
 function normalizeTariffSchedule(raw) {
   const base = DEFAULT_TARIFF.schedule;
   const src = raw && typeof raw === "object" ? raw : {};
@@ -14380,6 +14439,13 @@ const STYLES = `
 .tariff-hour-grid { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 3px; margin: 0 0 6px; }
 .tariff-hour-block { aspect-ratio: 1; min-height: 18px; border: none; border-radius: 3px; padding: 0; cursor: pointer; opacity: 0.92; }
 .tariff-hour-block:hover { opacity: 1; transform: scaleY(1.08); }
+.warmup-tariff-grid { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 3px; margin: 4px 0 6px; }
+.warmup-tariff-hour { height: 18px; border-radius: 3px; opacity: 0.55; box-sizing: border-box; }
+.warmup-tariff-hour.is-warmup { opacity: 1; border-bottom: 4px solid #ff6a1a; }
+.warmup-tariff-labels { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 3px; font-size: 9px; color: var(--secondary-text-color); margin-bottom: 8px; }
+.warmup-tariff-legend { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 12px; color: var(--secondary-text-color); }
+.warmup-tariff-key { display: inline-flex; align-items: center; gap: 6px; }
+.warmup-tariff-key-mark { width: 14px; height: 4px; border-radius: 2px; background: #ff6a1a; }
 .tariff-hour-labels { display: grid; grid-template-columns: repeat(24, minmax(0, 1fr)); gap: 3px; font-size: 9px; color: var(--secondary-text-color); text-align: center; margin-bottom: 12px; }
 .tariff-band-rates { display: grid; gap: 10px; }
 .tariff-band-rate-row { display: grid; grid-template-columns: auto 1fr 1fr minmax(180px, 1.4fr) auto; gap: 10px; align-items: end; }
@@ -18467,6 +18533,22 @@ Reloading panel registration…
     if (action === "warmup-toggle-enabled") {
       if (!this._warmupDraft) return;
       this._warmupDraft.enabled = !this._warmupDraft.enabled;
+      this._scheduleRender();
+      return;
+    }
+    if (action === "warmup-fill-from-tariff") {
+      if (!this._warmupDraft) return;
+      const found = warmupWindowsFromTariff(normalizeTariffSchedule(this._plantState?.tariff?.schedule));
+      if (!found) {
+        this._showToast("No cheaper window in your tariff map to use", "err");
+        return;
+      }
+      this._warmupDraft.slots = [0, 1, 2].map((i) =>
+        found.windows[i]
+          ? { enabled: true, start: found.windows[i].start, end: found.windows[i].end }
+          : { enabled: false, start: "00:00", end: "00:00" }
+      );
+      this._showToast("Warm-up periods set to your cheapest-rate windows. Save to apply.");
       this._scheduleRender();
       return;
     }
@@ -24343,10 +24425,46 @@ ${live.last_error ? `<p class="field-hint" style="margin-top:8px;color:var(--fp-
       : "";
     return `<div class="card">
 <p class="card-title">Fox Cloud API</p>
-<p class="field-hint">FoxESS Open API for mode scheduler control, battery warmup, and other cloud-only settings (not available over Modbus). A falling API quota on the Fox portal means authentication is working — some endpoints may still return &ldquo;permissions&rdquo; errors for owner accounts.</p>
+<p class="field-hint">FoxESS Open API, used only to change battery warmup settings (the inverter shows them over Modbus but won&rsquo;t accept changes that way). A falling API quota on the Fox portal means authentication is working — some endpoints may still return &ldquo;permissions&rdquo; errors for owner accounts.</p>
 <div class="toggle-row"><span><strong>Enable Fox Cloud API</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Required for <strong>Device → Warmup</strong></span></span>
 <input type="checkbox" data-field="fox:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 ${detailBlock}
+</div>`;
+  }
+
+  _renderWarmupTariffStrip(draft) {
+    /** Simplified daily tariff map with the warm-up periods marked, plus "Fill from tariff". */
+    const schedule = normalizeTariffSchedule(this._plantState?.tariff?.schedule);
+    const prices = tariffHourlyImport(schedule);
+    if (!prices) return "";
+    const found = warmupWindowsFromTariff(schedule);
+    const fmt = (p) => `${Number(p).toFixed(2)}p`;
+    const cells = schedule.hours
+      .map((band, hour) => {
+        const covered = warmupCoversHour(draft.slots, hour);
+        const label = `${String(hour).padStart(2, "0")}:00–${String((hour + 1) % 24).padStart(2, "0")}:00 · ${fmt(prices[hour])}/kWh${covered ? " · warm-up" : ""}`;
+        return `<div class="warmup-tariff-hour${covered ? " is-warmup" : ""}" style="background:${TARIFF_BAND_COLORS[band] ?? TARIFF_BAND_COLORS[0]}" title="${esc(label)}"></div>`;
+      })
+      .join("");
+    const labels = schedule.hours
+      .map((_, hour) => `<span>${hour % 6 === 0 ? String(hour).padStart(2, "0") : ""}</span>`)
+      .join("");
+    const bandsUsed = [...new Set(schedule.hours)].sort((a, b) => prices[schedule.hours.indexOf(a)] - prices[schedule.hours.indexOf(b)]);
+    const legend = bandsUsed
+      .map(
+        (band) =>
+          `<span class="tariff-band-chip" style="cursor:default;border:none;padding:2px 0"><span class="tariff-band-swatch" style="background:${TARIFF_BAND_COLORS[band]}"></span>${esc(fmt(schedule.bands[band]?.import_p_per_kwh || 0))}</span>`
+      )
+      .join("");
+    const action = found
+      ? `<button type="button" class="btn btn-secondary" data-action="warmup-fill-from-tariff" ${this._busy ? "disabled" : ""}>Fill from tariff</button>
+<span class="field-hint" style="margin:0">Cheapest rate ${esc(fmt(found.price))}: ${esc(found.windows.map((w) => `${w.start}–${w.end}`).join(", "))}</span>`
+      : `<span class="field-hint" style="margin:0">Your import price is the same all day, so there&rsquo;s no cheaper window to pick.</span>`;
+    return `<div class="warmup-tariff">
+<div class="warmup-tariff-grid">${cells}</div>
+<div class="warmup-tariff-labels">${labels}</div>
+<div class="warmup-tariff-legend">${legend}<span class="warmup-tariff-key"><span class="warmup-tariff-key-mark"></span>warm-up</span></div>
+<div class="btn-row" style="align-items:center;gap:10px;margin:6px 0 12px">${action}</div>
 </div>`;
   }
 
@@ -24415,6 +24533,7 @@ ${blockedBanner}
 <div class="card">
 <p class="card-title">Warmup slots in low price</p>
 <p class="field-hint">During these windows, grid power is allowed to warm the battery (up to three slots, like the Fox app).</p>
+${this._renderWarmupTariffStrip(draft)}
 <div class="warmup-slot-list">${slotCards}</div>
 </div>
 <div class="btn-row">

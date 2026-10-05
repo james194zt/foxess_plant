@@ -16,3 +16,4 @@ for f in foxess-plant-panel.js fox-alarm-guide.js fox-flow-scene-card.js; do
 done
 
 node tools/test_panel_charts.mjs
+node tools/test_warmup_tariff.mjs
