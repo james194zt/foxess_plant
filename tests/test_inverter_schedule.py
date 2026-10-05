@@ -63,6 +63,12 @@ def test_disabled_segments_are_skipped() -> None:
     assert payload["slots"] == []
 
 
+def test_scheduler_stays_off_when_nothing_is_scheduled() -> None:
+    # No slots: the inverter keeps following its normal work mode instead of an all-day Self Use slot
+    assert _compile(_schedule())["enabled"] is False
+    assert _compile(_schedule(SchedulerSegmentConfig(start="09:00", end="10:00")))["enabled"] is True
+
+
 def test_jit_slots_go_first() -> None:
     jit = InverterSlot(start="01:00", end="02:00", work_mode="force_charge", fd_soc=80, fd_pwr=3000)
     payload = _compile(

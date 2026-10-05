@@ -163,9 +163,12 @@ def compile_inverter_schedule(
     if remaining_min > remaining_max:
         remaining_min = remaining_max
 
+    slots = [*jit, *baseline]
     return {
-        "enabled": bool(getattr(plant_schedule, "enabled", True)),
-        "slots": [slot.to_service() for slot in [*jit, *baseline]],
+        # Only switch the inverter's Mode Scheduler on when there's something to schedule. With it off the
+        # inverter follows its normal work mode (49203), so work mode changes keep working.
+        "enabled": bool(getattr(plant_schedule, "enabled", True)) and bool(slots),
+        "slots": [slot.to_service() for slot in slots],
         "remaining": {"work_mode": remaining_mode, "min_soc": remaining_min, "max_soc": remaining_max},
     }
 
