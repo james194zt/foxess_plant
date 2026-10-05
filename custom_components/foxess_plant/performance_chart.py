@@ -208,6 +208,12 @@ def _recorder_series(
     return series
 
 
+def _effective_ac_limit_kw(coordinator: Any) -> float:
+    from .performance.sample import effective_ac_limit_kw
+
+    return effective_ac_limit_kw(coordinator)
+
+
 def _entity_unit(hass: HomeAssistant, entity_id: str | None) -> str | None:
     if not entity_id:
         return None
@@ -597,15 +603,13 @@ async def async_build_performance_day_chart(
     if series:
         from .performance.physics_insights import build_intraday_physics_insights
 
-        from .performance.sample import effective_ac_limit_kw
-
         wind_cooling_c = None
         sample = getattr(coordinator, "_last_performance_sample", None)
         still_air = getattr(coordinator, "_panel_temp_still_air_c", None)
         if is_today and sample is not None and sample.virtual_panel_temp_c is not None and still_air is not None:
             wind_cooling_c = still_air - sample.virtual_panel_temp_c
         physics_insights = build_intraday_physics_insights(
-            series, ac_limit_kw=effective_ac_limit_kw(coordinator), wind_cooling_c=wind_cooling_c
+            series, ac_limit_kw=_effective_ac_limit_kw(coordinator), wind_cooling_c=wind_cooling_c
         )
 
     clipping_kwh_today = None
@@ -635,7 +639,7 @@ async def async_build_performance_day_chart(
         "config": cfg.to_dict(),
         "entities": entities,
         "series": series,
-        "ac_limit_kw": cfg.inverter_ac_limit_kw,
+        "ac_limit_kw": _effective_ac_limit_kw(coordinator),
         "summary": summary,
         "ledger": ledger_row,
         "live": {

@@ -68,7 +68,6 @@ async def async_performance_tick(coordinator: Any) -> None:
                 _LOGGER.debug("Intraday sample purge skipped: %s", err)
         coordinator._performance_day = local_date
         coordinator._performance_daily = new_daily_accumulator()
-        coordinator._performance_recent_peak_kw = 0.0
 
     sample = collect_performance_sample(coordinator)
     coordinator._last_performance_sample = sample

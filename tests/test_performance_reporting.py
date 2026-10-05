@@ -78,19 +78,18 @@ class PanelTempTests(unittest.TestCase):
 
 
 class ClippingTests(unittest.TestCase):
-    def test_no_clipping_below_threshold(self) -> None:
+    def test_no_clipping_below_the_limit(self) -> None:
+        # Solcast says more was possible, but the inverter wasn't at its limit: that's not clipping
         self.assertEqual(
-            clipping.compute_clipping_loss_kw(pv_power_kw=4.0, inverter_ac_limit_kw=4.3),
-            0.0,
+            clipping.compute_clipping_loss_kw(pv_power_kw=4.0, inverter_ac_limit_kw=5.0, potential_kw=4.6), 0.0
         )
 
-    def test_clipping_when_at_limit(self) -> None:
-        loss = clipping.compute_clipping_loss_kw(
-            pv_power_kw=4.5,
-            inverter_ac_limit_kw=4.3,
-            recent_peak_kw=4.6,
-        )
-        self.assertGreater(loss, 0.0)
+    def test_clipping_is_potential_above_output_at_the_limit(self) -> None:
+        loss = clipping.compute_clipping_loss_kw(pv_power_kw=4.95, inverter_ac_limit_kw=5.0, potential_kw=5.6)
+        self.assertAlmostEqual(loss, 0.65, places=3)
+
+    def test_no_estimate_no_clipping_figure(self) -> None:
+        self.assertEqual(clipping.compute_clipping_loss_kw(pv_power_kw=5.0, inverter_ac_limit_kw=5.0), 0.0)
 
 
 class FinancialTests(unittest.TestCase):

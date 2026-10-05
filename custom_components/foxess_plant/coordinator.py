@@ -173,7 +173,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._performance_store = None
         self._performance_day: str = ""
         self._performance_daily: dict[str, Any] = {}
-        self._performance_recent_peak_kw: float = 0.0
         self._unsub_performance: callable | None = None
         self._battery_warmup_live: dict[str, Any] = {}
         self._battery_warmup_api_available: bool | None = None

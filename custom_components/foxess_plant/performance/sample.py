@@ -242,14 +242,10 @@ def collect_performance_sample(coordinator: Any) -> PerformanceSample:
     )
     coordinator._panel_temp_still_air_c = still_air_temp
 
-    recent_peak = float(coordinator._performance_recent_peak_kw or 0.0)
-    if pv_kw is not None:
-        coordinator._performance_recent_peak_kw = max(recent_peak, pv_kw)
-
     clipping = compute_clipping_loss_kw(
         pv_power_kw=pv_kw,
         inverter_ac_limit_kw=ac_limit_kw,
-        recent_peak_kw=coordinator._performance_recent_peak_kw,
+        potential_kw=solcast_kw,
     )
 
     imp_p, exp_p = _octopus_rates_p_per_kwh(coordinator)

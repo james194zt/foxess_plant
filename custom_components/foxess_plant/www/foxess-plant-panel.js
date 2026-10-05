@@ -3351,23 +3351,39 @@ function performanceSparseHint(pointCount, xDomain) {
   return `<p class="field-hint fox-perf-chart-hint">${pointCount} sample${pointCount === 1 ? "" : "s"} so far${zoom}. New points every 5 minutes.</p>`;
 }
 
-function performanceClippingHatchSvg(pv, xDomain, xScale, yScaleP, acLimit) {
+// Same rule as performance/clipping.py: output within 3 % of the AC limit counts as "at the limit"
+const PERF_AT_LIMIT_FRACTION = 0.97;
+
+function performanceNearestValue(points, t, maxGapMs = 10 * 60000) {
+  let best = null;
+  for (const p of points) {
+    const gap = Math.abs(p.t - t);
+    if (gap <= maxGapMs && (best == null || gap < best.gap)) best = { gap, v: p.v };
+  }
+  return best ? best.v : null;
+}
+
+/** Shade between the AC limit and Solcast's potential, only where the inverter was at its limit. */
+function performanceClippingHatchSvg(pv, potential, xDomain, xScale, yScaleP, acLimit) {
   if (!Number.isFinite(acLimit) || acLimit <= 0) return "";
-  const threshold = acLimit * 0.98;
   const pts = performanceClipPoints(pv, xDomain.tMin, xDomain.tMax).sort((a, b) => a.t - b.t);
-  if (pts.length < 2) return "";
+  const pot = performanceClipPoints(potential, xDomain.tMin, xDomain.tMax);
+  if (pts.length < 2 || !pot.length) return "";
+  const clippedTop = (p) => {
+    if (p.v < acLimit * PERF_AT_LIMIT_FRACTION) return null;
+    const could = performanceNearestValue(pot, p.t);
+    return could != null && could > acLimit ? could : null;
+  };
   const polys = [];
+  const yBase = yScaleP(acLimit);
   for (let i = 0; i < pts.length - 1; i++) {
-    const a = pts[i];
-    const b = pts[i + 1];
-    if (a.v < threshold && b.v < threshold) continue;
-    const topA = Math.max(a.v, acLimit);
-    const topB = Math.max(b.v, acLimit);
-    const x1 = xScale(a.t);
-    const x2 = xScale(b.t);
-    const yBase = yScaleP(acLimit);
+    const topA = clippedTop(pts[i]);
+    const topB = clippedTop(pts[i + 1]);
+    if (topA == null || topB == null) continue;
+    const x1 = xScale(pts[i].t);
+    const x2 = xScale(pts[i + 1].t);
     polys.push(
-      `<polygon points="${x1.toFixed(1)},${yBase.toFixed(1)} ${x2.toFixed(1)},${yBase.toFixed(1)} ${x2.toFixed(1)},${yScaleP(topB).toFixed(1)} ${x1.toFixed(1)},${yScaleP(topA).toFixed(1)}" fill="url(#fox-perf-clip-hatch)" opacity="0.5" />`
+      `<polygon points="${x1.toFixed(1)},${yBase.toFixed(1)} ${x2.toFixed(1)},${yBase.toFixed(1)} ${x2.toFixed(1)},${yScaleP(topB).toFixed(1)} ${x1.toFixed(1)},${yScaleP(topA).toFixed(1)}" fill="url(#fox-perf-clip-hatch)" opacity="0.6" />`
     );
   }
   if (!polys.length) return "";
@@ -3388,8 +3404,8 @@ function renderPerformancePowerChartSvg(chart) {
   const pv = series.pv_power_kw || [];
   const grid = series.net_grid_power_kw || [];
   const clip = series.clipping_loss_kw || [];
-  const rate = series.import_rate_p_kwh || [];
-  if (!pv.length && !grid.length && !rate.length) {
+  const potential = series.solcast_forecast_kw || [];
+  if (!pv.length && !grid.length) {
     return `<p class="placeholder chart-empty">No performance recorder data yet. Sensors update every 5 minutes.</p>`;
   }
   const xDomain = performanceZoomXDomain(range, pv, grid, clip);
@@ -3397,21 +3413,23 @@ function renderPerformancePowerChartSvg(chart) {
   const W = 640;
   const H = 200;
   const padL = 42;
-  const padR = rate.length ? 38 : 12;
+  const padR = 12;
   const padT = 12;
   const padB = 28;
   const w = W - padL - padR;
   const h = H - padT - padB;
   const span = Math.max(xDomain.tMax - xDomain.tMin, 60000);
   const xScale = (t) => padL + ((t - xDomain.tMin) / span) * w;
-  const powerVals = performanceClipPoints([...pv, ...grid, ...clip], xDomain.tMin, xDomain.tMax).map((p) => p.v);
+  const acLimit = Number(chart?.ac_limit_kw);
+  const hasLimit = Number.isFinite(acLimit) && acLimit > 0;
+  const powerVals = performanceClipPoints([...pv, ...grid, ...clip, ...potential], xDomain.tMin, xDomain.tMax).map(
+    (p) => p.v
+  );
+  // Always show the inverter limit so it's clear how much headroom the array had
+  if (hasLimit) powerVals.push(acLimit * 1.05);
   const pMin = Math.min(0, ...(powerVals.length ? powerVals : [0]));
   const pMax = Math.max(0.5, ...(powerVals.length ? powerVals : [1]));
   const yScaleP = (v) => padT + h - ((v - pMin) / Math.max(pMax - pMin, 0.1)) * h;
-  const rateVals = performanceClipPoints(rate, xDomain.tMin, xDomain.tMax).map((p) => p.v);
-  const rMin = rateVals.length ? Math.min(...rateVals) : 0;
-  const rMax = rateVals.length ? Math.max(...rateVals, rMin + 1) : 50;
-  const yScaleR = (v) => padT + h - ((v - rMin) / Math.max(rMax - rMin, 0.1)) * h;
   const yTicks = performanceYTicks(pMin, pMax);
   const axes = performanceChartAxesSvg({
     padL,
@@ -3423,43 +3441,46 @@ function renderPerformancePowerChartSvg(chart) {
     yScale: yScaleP,
     yTicks,
   });
-  const acLimit = Number(chart?.ac_limit_kw);
   let limitLine = "";
   let clipHatch = "";
-  if (Number.isFinite(acLimit) && acLimit > 0 && acLimit >= pMin && acLimit <= pMax * 1.2) {
+  if (hasLimit) {
     const y = yScaleP(acLimit);
     limitLine = `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + w}" y2="${y.toFixed(1)}" stroke="#f59e0b" stroke-dasharray="4 3" stroke-width="1" />`;
-    clipHatch = performanceClippingHatchSvg(pv, xDomain, xScale, yScaleP, acLimit);
+    clipHatch = performanceClippingHatchSvg(pv, potential, xDomain, xScale, yScaleP, acLimit);
   }
+  const hasClipping = performanceClipPoints(clip, xDomain.tMin, xDomain.tMax).some((p) => p.v > 0);
   const lines = [
+    { pts: potential, color: "#f5c542", width: 1.4, dash: "4 3" },
     { pts: pv, color: "#19D4DE", width: 2 },
     { pts: grid, color: "#2F6BFF", width: 1.8 },
-    { pts: clip, color: "#ef4444", width: 1.4 },
+    ...(hasClipping ? [{ pts: clip, color: "#ef4444", width: 1.4 }] : []),
   ]
-    .map((s) => performanceSeriesSvg(s.pts, xDomain, xScale, yScaleP, s.color, { width: s.width }))
+    .map((s) => performanceSeriesSvg(s.pts, xDomain, xScale, yScaleP, s.color, { width: s.width, dash: s.dash }))
     .join("");
-  const rateLine = rate.length
-    ? performanceSeriesSvg(rate, xDomain, xScale, yScaleR, "#8A4DFF", { width: 1.6, dash: "3 2" })
-    : "";
+  const limitText = hasLimit ? ` (${acLimit.toFixed(1)} kW)` : "";
   const legend = `<div class="fox-perf-chart-legend">
-<span><i style="background:#19D4DE"></i> PV kW</span>
+<span><i style="background:#19D4DE"></i> Solar output kW</span>
+${potential.length ? `<span><i style="background:#f5c542"></i> Solcast could produce</span>` : ""}
 <span><i style="background:#2F6BFF"></i> Net grid kW</span>
-<span><i style="background:#ef4444"></i> Clipping</span>
-<span><i style="background:repeating-linear-gradient(45deg,#ef4444,#ef4444 2px,transparent 2px,transparent 4px)"></i> Clipped region</span>
-${rate.length ? `<span><i style="background:#8A4DFF"></i> Import p/kWh</span>` : ""}
+${hasLimit ? `<span><i style="background:#f59e0b"></i> Inverter limit${esc(limitText)}</span>` : ""}
+${hasClipping ? `<span><i style="background:#ef4444"></i> Clipping kW</span>` : ""}
+<span><i style="background:repeating-linear-gradient(45deg,#ef4444,#ef4444 2px,transparent 2px,transparent 4px)"></i> Clipped</span>
 </div>`;
+  const clipNote =
+    hasLimit && !hasClipping && primaryCount
+      ? `<p class="field-hint fox-perf-chart-hint">No clipping in this range: output stayed below the inverter limit, or Solcast didn't expect more.</p>`
+      : "";
   const hint = performanceSparseHint(
     Number.isFinite(Number(chart?.live?.sample_count)) && Number(chart.live.sample_count) > 0
       ? Number(chart.live.sample_count)
-      : primaryCount || performanceClipPoints(rate, xDomain.tMin, xDomain.tMax).length,
+      : primaryCount,
     xDomain
   );
-  return `${legend}${hint}<svg class="fox-perf-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Performance power and price chart">
+  return `${legend}${hint}${clipNote}<svg class="fox-perf-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Solar output and clipping chart">
 ${axes}
 ${clipHatch}
 ${limitLine}
 ${lines}
-${rateLine}
 </svg>`;
 }
 
@@ -3478,7 +3499,7 @@ function renderPerformancePhysicsChartSvg(chart) {
           : " Mapped wind sensor has no readable history yet — check the entity is available.";
       return `<p class="placeholder chart-empty">Waiting for panel-cooling samples.${liveNote}</p>`;
     }
-    return `<p class="placeholder chart-empty">Map a wind speed sensor under Settings → Weather. Virtual panel temperature appears after sunny periods with a valid voltage baseline.</p>`;
+    return `<p class="placeholder chart-empty">Map a wind speed sensor under Settings → Weather. Panel temperature appears while the panels are producing.</p>`;
   }
   const range = performanceChartRange(chart);
   const xDomain = performanceZoomXDomain(range, temp, wind);
@@ -3815,7 +3836,7 @@ function renderPerformanceReportPage(chart, { loading = false, dayOffset = 0 } =
 ${insightNote}
 ${renderPerformanceSummaryCards(chart)}
 <div class="card fox-perf-chart-card">
-<h3 class="fox-analysis-summary-title fox-analysis-chart-title">Power &amp; Agile import rate</h3>
+<h3 class="fox-analysis-summary-title fox-analysis-chart-title">Solar output &amp; clipping</h3>
 ${renderPerformancePowerChartSvg(chart)}
 </div>
 <div class="card fox-perf-chart-card">

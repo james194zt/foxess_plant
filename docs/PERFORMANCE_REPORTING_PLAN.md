@@ -98,9 +98,10 @@ Midnight → `daily_ledger` row. Lifetime ROI from `SUM(net_daily_savings_gbp)`.
 
 ## Phase 5 — Dashboard UI
 
-### Dual-axis day chart (recorder)
+### Solar output & clipping chart (recorder)
 
-Left: PV, net grid, clipping. Right: Agile import rate (p/kWh).
+Solar output, net grid, Solcast's "could produce" (dashed), the inverter AC limit, and clipping. Clipping is
+shaded only where output was within 3 % of the limit and Solcast expected more (same rule as `performance/clipping.py`).
 
 ### Summary cards
 

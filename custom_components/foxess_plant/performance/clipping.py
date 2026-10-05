@@ -1,27 +1,25 @@
-"""Inverter AC clipping loss estimation."""
+"""Inverter AC clipping loss.
+
+Clipping is power the panels could have made but the inverter couldn't pass on because it was at its AC limit.
+It needs an estimate of what the panels could make: Solcast's estimate for the array. Without one, or when the
+inverter isn't at its limit, the loss is 0. (A system whose panels can't exceed the inverter's rating never clips.)
+"""
 
 from __future__ import annotations
 
-CLIPPING_THRESHOLD = 0.98
+AT_LIMIT_FRACTION = 0.97  # output within 3 % of the AC limit counts as "at the limit"
 
 
 def compute_clipping_loss_kw(
     *,
     pv_power_kw: float | None,
     inverter_ac_limit_kw: float,
-    recent_peak_kw: float | None = None,
+    potential_kw: float | None = None,
 ) -> float:
-    """Estimated kW lost to inverter AC saturation (0 when not clipping)."""
-    if pv_power_kw is None or inverter_ac_limit_kw <= 0:
+    """kW lost to the inverter's AC limit: Solcast's potential above the actual output while at the limit."""
+    if pv_power_kw is None or potential_kw is None or inverter_ac_limit_kw <= 0:
         return 0.0
-    limit = float(inverter_ac_limit_kw)
     pv = max(0.0, float(pv_power_kw))
-    threshold = limit * CLIPPING_THRESHOLD
-    if pv < threshold:
+    if pv < float(inverter_ac_limit_kw) * AT_LIMIT_FRACTION:
         return 0.0
-    if recent_peak_kw is not None and recent_peak_kw > pv:
-        theoretical = float(recent_peak_kw)
-    else:
-        theoretical = pv * 1.05
-    loss = max(0.0, theoretical - limit)
-    return round(min(loss, theoretical), 3)
+    return round(max(0.0, float(potential_kw) - pv), 3)
