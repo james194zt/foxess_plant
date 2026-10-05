@@ -12,8 +12,9 @@ const grab = (name) => {
   }
   return src.slice(start, i + 1);
 };
-const { priceDailyCounter, syncSparkSeriesToTotal } = new Function(
-  `${grab("priceDailyCounter")}\n${grab("syncSparkSeriesToTotal")}; return { priceDailyCounter, syncSparkSeriesToTotal };`
+const { priceDailyCounter, syncSparkSeriesToTotal, recordedRateAt } = new Function(
+  `${grab("priceDailyCounter")}\n${grab("syncSparkSeriesToTotal")}\n${grab("recordedRateAt")};
+  return { priceDailyCounter, syncSparkSeriesToTotal, recordedRateAt };`
 )();
 
 const H = 3600 * 1000;
@@ -47,6 +48,23 @@ near(g.cost, 2 * (1.0 * 0.1805 + 0.5 * 0.4525), "scaled cost");
 // No energy: no cost; no target applied to nothing
 const z = priceDailyCounter([{ t: day, v: 0 }], day, day + 2 * H, 10 * 60 * 1000, rate, 1.0);
 near(z.cost, 0, "nothing imported");
+
+// Recorded rate history wins over the rate map: the map changed later, the old day keeps its old rates.
+// Gaps (restart "unavailable" rows are dropped by historyToPoints) hold the last recorded rate.
+const recorded = [
+  { t: day, v: 0.2465 },
+  { t: day + 2 * H, v: 0.1505 }, // the cheap rate that day, since changed in the map
+  { t: day + 5 * H, v: 0.2465 },
+  { t: day + 16 * H, v: 0.4525 },
+  { t: day + 19 * H, v: 0.2465 },
+];
+const rated = recordedRateAt(recorded, rate);
+near(rated(day + 3 * H), 0.1505, "recorded cheap rate");
+near(rated(day + 17 * H), 0.4525, "recorded peak");
+near(recordedRateAt([], rate)(day + 3 * H), 0.1805, "no record: rate map");
+near(recordedRateAt([{ t: day + 6 * H, v: 0.3 }], rate)(day + 3 * H), 0.1805, "before the first record: rate map");
+const hist = priceDailyCounter(pts, day, day + 20 * H, 10 * 60 * 1000, rated);
+near(hist.cost, 1.0 * 0.1505 + 0.5 * 0.4525, "priced with the recorded rates");
 
 // Sparkline scaled to the total rather than a jump at the end
 assert.deepEqual(syncSparkSeriesToTotal([0, 5, 10], 11), [0, 5.5, 11]);

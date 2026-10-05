@@ -6583,6 +6583,19 @@ function priceDailyCounter(points, tMin, tEnd, stepMs, rateAt, targetKwh = null)
   return { kwh, cost, cumulative };
 }
 
+/** Rate in force at t from a recorded rate sensor's history ([{t, v}]); fallback(t) before the first record. */
+function recordedRateAt(points, fallback) {
+  const sorted = (points || []).filter((p) => Number.isFinite(p?.t) && Number.isFinite(p?.v)).sort((a, b) => a.t - b.t);
+  return (t) => {
+    let v = null;
+    for (const p of sorted) {
+      if (p.t > t) break;
+      v = p.v;
+    }
+    return v ?? fallback(t);
+  };
+}
+
 async function fetchAnalysisTariffIntraday(hass, plant, plantState, overviewDaily, { start, end } = {}) {
   const tariff = plantState?.tariff;
   if (!tariff?.configured) {
@@ -6602,13 +6615,20 @@ async function fetchAnalysisTariffIntraday(hass, plant, plantState, overviewDail
           tMax: end.getTime(),
         }
       : getStatisticsDayRange(now);
-  const ids = [importId, exportId].filter(Boolean);
+  // Fox Plant's own rate sensors (currency per kWh / per day) are recorded at every change, so a past day is
+  // priced with the rates that applied then, even if the rate map has changed since
+  const rateIds = tariff.plugin_sensors ?? {};
+  const ids = [importId, exportId, rateIds.import, rateIds.export, rateIds.standing].filter(Boolean);
   let importPts = [];
   let exportPts = [];
+  const ratePts = { import: [], export: [], standing: [] };
   if (ids.length) {
     const hist = await fetchHistoryDuring(hass, ids, new Date(range.tMin), new Date(range.nowMs));
     importPts = importId ? historyToPoints(historyRowsForEntity(hist, importId)) : [];
     exportPts = exportId ? historyToPoints(historyRowsForEntity(hist, exportId)) : [];
+    for (const kind of Object.keys(ratePts)) {
+      if (rateIds[kind]) ratePts[kind] = historyToPoints(historyRowsForEntity(hist, rateIds[kind]));
+    }
   }
   // Today: the live day totals (Glow meter when present) set the kWh; history gives the timing for the prices
   const isToday = range.nowMs >= now.getTime() - 60 * 60 * 1000;
@@ -6618,8 +6638,14 @@ async function fetchAnalysisTariffIntraday(hass, plant, plantState, overviewDail
   const billing = String(server.grid_data_source || "").startsWith("glow") ? server : analytics;
   const liveImport = isToday ? Number(billing.load_from_grid_kwh_today ?? 0) || 0 : null;
   const liveExport = isToday ? Number(billing.pv_to_grid_kwh_today ?? 0) || 0 : null;
-  const importRate = (t) => minorToMajor(tariffRatesAtTime(tariff, t).import_p_per_kwh, currency);
-  const exportRate = (t) => minorToMajor(tariffRatesAtTime(tariff, t).export_p_per_kwh, currency);
+  // Recorded rates first; the rate map only where there's no record (e.g. before the sensors existed)
+  const importRate = recordedRateAt(ratePts.import, (t) =>
+    minorToMajor(tariffRatesAtTime(tariff, t).import_p_per_kwh, currency)
+  );
+  const exportRate = recordedRateAt(ratePts.export, (t) =>
+    minorToMajor(tariffRatesAtTime(tariff, t).export_p_per_kwh, currency)
+  );
+  const standingAt = recordedRateAt(ratePts.standing, () => minorToMajor(rates.standing_charge_p_per_day, currency));
   const step = ANALYSIS_SPARK_SAMPLE_MS;
   const imp = importPts.length
     ? priceDailyCounter(importPts, range.tMin, range.nowMs, step, importRate, liveImport)
@@ -6627,7 +6653,7 @@ async function fetchAnalysisTariffIntraday(hass, plant, plantState, overviewDail
   const exp = exportPts.length
     ? priceDailyCounter(exportPts, range.tMin, range.nowMs, step, exportRate, liveExport)
     : { kwh: liveExport || 0, cost: (liveExport || 0) * exportRate(range.nowMs), cumulative: [] };
-  const standing = minorToMajor(rates.standing_charge_p_per_day, currency);
+  const standing = standingAt(range.nowMs);
   const totalCost = standing + imp.cost - exp.cost;
   const steps = Math.max(imp.cumulative.length, exp.cumulative.length);
   const at = (arr, i) => arr[Math.min(i, arr.length - 1)] ?? 0;
