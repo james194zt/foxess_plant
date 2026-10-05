@@ -452,6 +452,7 @@ async def _apply_contiguous_soc_writes(
         write_steps = compute_soc_write_sequence(target, seq_current)
     else:
         write_steps = [(key, target[key]) for key in EVO_SOC_WRITE_ORDER]
+    from_grid = None
     if is_evo:
         from_grid = _read_soc_key(hass, entity_map, "max_soc_from_grid")
         current_max = seq_current.get("max_soc")
@@ -465,11 +466,9 @@ async def _apply_contiguous_soc_writes(
                 # charging isn't left capped. A deliberately lower setting is left alone.
                 write_steps.insert(max_index + 1, ("max_soc_from_grid", target["max_soc"]))
 
-    needs_prepare = False
-    for key, value in write_steps:
-        if _read_soc_key(hass, entity_map, key) != value:
-            needs_prepare = True
-            break
+    # The EVO accepts SoC writes while Remote Control is on and leaves it running (hardware-tested), so don't
+    # cancel a running Force Charge / Discharge there. Untested on the H3 Pro, which keeps the old behaviour.
+    needs_prepare = not is_evo and any(_read_soc_key(hass, entity_map, key) != value for key, value in write_steps)
     if needs_prepare:
         await _prepare_inverter_for_soc_writes(hass, entity_map)
 
@@ -518,6 +517,27 @@ async def _apply_contiguous_soc_writes(
             )
             outcomes[key] = _soc_result(key, value, success=False, message=msg)
             write_failed = True
+
+    max_failed = "max_soc" in outcomes and not outcomes["max_soc"].success
+    from_grid_result = outcomes.get("max_soc_from_grid")
+    if (
+        max_failed
+        and from_grid is not None
+        and from_grid_result is not None
+        and from_grid_result.success
+        and from_grid_result.value < from_grid
+    ):
+        # Max SoC was refused (the EVO won't set it below the current battery level) after Max SoC From Grid
+        # was lowered for it. Put Max SoC From Grid back, so grid charging isn't left capped.
+        try:
+            await _write_soc_number(hass, entity_map, "max_soc_from_grid", from_grid)
+            outcomes["max_soc_from_grid"] = _soc_result(
+                "max_soc_from_grid", from_grid, success=True, message="Put back (System Max SOC wasn't changed)"
+            )
+        except Exception as err:  # noqa: BLE001 - reported in the result; the Max SoC failure already is
+            outcomes["max_soc_from_grid"] = _soc_result(
+                "max_soc_from_grid", from_grid_result.value, success=False, message=f"Couldn't put it back: {err}"
+            )
 
     for key in ("min_soc", "min_soc_on_grid"):
         if key in outcomes:

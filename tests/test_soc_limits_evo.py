@@ -17,7 +17,8 @@ ENTITY_MAP = {
 class _FakeEvo:
     """Number entities backed by an inverter that enforces the EVO's SoC rules."""
 
-    def __init__(self, **values: int) -> None:
+    def __init__(self, battery: int = 0, **values: int) -> None:
+        self.battery = battery
         self.values = dict(values)
         self.writes: list[tuple[str, int]] = []
         self.states = SimpleNamespace(get=self._state)
@@ -38,6 +39,8 @@ class _FakeEvo:
         if not new["min_soc"] <= new["min_soc_on_grid"] <= new["max_soc"]:
             raise RuntimeError("Exception Response IllegalValue")
         if new["max_soc"] < new.get("max_soc_from_grid", 0):
+            raise RuntimeError("Exception Response IllegalValue")
+        if key == "max_soc" and value < self.battery:  # hardware-tested: refused below the battery level
             raise RuntimeError("Exception Response IllegalValue")
         self.values = new
         self.writes.append((key, value))
@@ -67,6 +70,18 @@ async def test_lowering_max_soc_lowers_max_soc_from_grid_first() -> None:
     assert evo.writes == [("max_soc_from_grid", 80), ("max_soc", 80)]
     assert all(row["success"] for row in rows)
     assert rows[0]["label"] == "Max SOC From Grid"
+
+
+@pytest.mark.asyncio
+async def test_refused_max_soc_puts_max_soc_from_grid_back() -> None:
+    # The battery has risen above the new max since the panel checked it
+    evo = _FakeEvo(battery=60, min_soc=10, min_soc_on_grid=10, max_soc=100, max_soc_from_grid=100)
+    rows = await _apply(evo, 10, 10, 50)
+    assert evo.values["max_soc"] == 100
+    assert evo.values["max_soc_from_grid"] == 100
+    by_key = {row["key"]: row for row in rows}
+    assert not by_key["max_soc"]["success"]
+    assert by_key["max_soc_from_grid"]["message"].startswith("Put back")
 
 
 @pytest.mark.asyncio

@@ -1888,10 +1888,13 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> None:
         await self._save_max_soc_if_needed(target_max_soc)
         self._save_work_mode_if_needed()
-        # Max SOC first: on EVO a SOC write disables Remote Control, which would cancel
-        # the Force Charge the override has just armed.
         if target_max_soc is not None:
-            await self._set_max_soc(target_max_soc)
+            try:
+                await self._set_max_soc(target_max_soc)
+            except HomeAssistantError as err:
+                # e.g. the battery is already above the target: the inverter refuses a Max SoC below it.
+                # The prep still arms; its charge stops at the target anyway.
+                _LOGGER.warning("Max SoC not set to %s%% for %s: %s", target_max_soc, mode, err)
         await self.async_set_override_periods(periods, mode, reason)
         await self._sync_storm_on_inverter()
         self._fire(event_name, {"reason": reason, "mode": mode})
@@ -2711,7 +2714,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self._clear_remote_control_for_restore()
         await self.async_apply_desired()
         if saved_max_soc is not None:
-            await self._set_max_soc(saved_max_soc)
+            try:
+                await self._set_max_soc(saved_max_soc)
+            except HomeAssistantError as err:
+                # The inverter refuses a Max SoC below the current battery level (e.g. after a prep charge)
+                _LOGGER.warning("Couldn't restore Max SoC to %s%% yet: %s", saved_max_soc, err)
         if saved_work_mode:
             await self._set_work_mode(saved_work_mode)
 
