@@ -4,9 +4,12 @@
 
 ## Rules
 
-1. **Do not** call `foxess_modbus.update_charge_period` from Node-RED if `foxess_plant` control is active.
-2. Use `foxess_plant.set_charge_periods` or `set_charge_period` instead.
+1. **Do not** call `foxess_modbus.update_charge_period` (or, on the EVO, `foxess_modbus.set_evo_schedule`) from
+   Node-RED if `foxess_plant` control is active: Fox Plant re-writes the inverter's schedule when it drifts.
+2. On models with charge periods, use `foxess_plant.set_charge_periods` or `set_charge_period` instead. The EVO
+   has no charge periods: edit its schedule in Fox Plant (Quick Settings → Mode scheduler).
 3. Use `get_plant_state` in a function node when you need a full JSON snapshot.
+4. `foxess_plant.arm_storm_prep` / `disarm_storm_prep` arm and disarm StormSafe by hand (handy for testing).
 
 ## Example: cheap-rate window
 

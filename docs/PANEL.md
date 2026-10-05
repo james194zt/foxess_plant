@@ -53,7 +53,7 @@ Animated dashed lines show direction and magnitude of power flow.
 | Screen | What it does |
 |--------|----------------|
 | **Quick Settings** | Fox-style triple-handle SOC bar (off-grid min · system min · system max) + numeric inputs |
-| **Charge schedule** | Edit both baseline periods → `foxess_plant.set_charge_periods` + apply |
+| **Charge schedule** | Edit both baseline periods → `foxess_plant.set_charge_periods` + apply (not the EVO, which has no charge periods; use Quick Settings → Mode scheduler) |
 | **Work mode** | Pick inverter mode → `select.select_option` on work_mode entity |
 | **StormSafe** | Enable, pick warning binary sensors, storm charge periods, optional max SoC, test arm/disarm |
 | **Plant control** | Take / release exclusive period control |

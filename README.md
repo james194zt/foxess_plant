@@ -38,7 +38,7 @@ Current release: **v0.9.503**
 | **Octopus Energy** (API key in Fox Plant) | Agile / Tracker / Go / Economy 7 / flat tariffs, export/SEG rates, Greener Nights |
 | **E.ON Next** (browser sign-in token in Fox Plant) | Fixed / flexible / Economy 7 / Next Drive tariffs, export rates, standing charge |
 | **Glow / Hildebrand IHD** (MQTT and/or Bright API) | Live grid import for analysis; optional SmartCharge meter rate verify |
-| **Fox Cloud Open API** | Battery Warmup and cloud scheduler helpers (disable cloud mode scheduler when HA owns control) |
+| **Fox Cloud Open API** | Battery Warmup changes (the inverter refuses warm-up writes over Modbus) |
 | Local weather / PWS (e.g. Ecowitt) | Performance wind, rain, dew point, and related charts |
 
 ## Quick install
@@ -61,11 +61,26 @@ Manual install: copy `custom_components/foxess_plant` to `config/custom_componen
 
 ### Inverter control (via foxess_modbus)
 
-- Exclusive ownership of charge periods, work mode, and SOC limits when plant control is active
-- **Quick Settings** for day-to-day SOC / work mode (locked while SmartCharge is managing the inverter)
-- Baseline charge schedule, drift detection vs actual Modbus periods
-- Multi-segment Home Assistant scheduler (up to 95 segments)
-- Services for take/release control, apply baseline, save schedule — see [docs/NODE_RED.md](docs/NODE_RED.md)
+**FoxESS EVO:** Fox Plant stores its plans **on the inverter's own Mode Scheduler** (through the foxess_modbus
+fork's `set_evo_schedule`), so they keep running if Home Assistant stops:
+
+- **Quick Settings → Mode scheduler**: up to 6 slots (work mode, min / max SOC, force charge) plus the
+  remaining-time work mode. With no slots, the inverter's scheduler is switched off and it follows Work Mode.
+- **SmartCharge** puts each planned grid charge on the inverter as a Force Charge slot 30 minutes before it
+  starts, and removes it afterwards.
+- **StormSafe, Outage prep and Forecast prep** hold the battery with a rolling 3-hour Force Charge slot,
+  extended while armed, so it stays protected if Home Assistant goes down during a storm.
+- Fox Plant checks the inverter's schedule every few minutes and re-writes it if it was changed elsewhere
+  (don't edit the schedule in the Fox app while Fox Plant is in control).
+- Remote Control is only used for "do it now" commands (SmartCharge export).
+- How the EVO's registers behave, and why: the foxess_modbus fork's `docs/evo/`.
+
+**Other models** use charge periods and Remote Control as before. They're assumed to behave like the EVO and
+haven't been tested on hardware yet; reports welcome.
+
+- **Quick Settings** for day-to-day SOC and work mode. On the EVO, System Max SOC can't be set below the
+  current battery level (the inverter refuses it), and Fox Plant keeps Max SOC From Grid in step.
+- Services for take/release control, apply baseline, StormSafe arm/disarm — see [docs/NODE_RED.md](docs/NODE_RED.md)
 
 ### SmartCharge
 
@@ -75,7 +90,7 @@ Cost-optimised grid charging and export using your **tariff**, the **Solcast** P
 - Simulates the battery through that timeline and picks charge and export half-hours by cost. It charges overnight only when tomorrow's solar won't cover the house. It never charges at 15p just to avoid importing at 14p. It charges on negative prices and exports at peaks when the energy can be refilled more cheaply.
 - Works with Octopus Agile / Tracker / Go / Economy 7 / flat (API or HA rate entities) and with the manual tariff schedule. Prices Agile hasn't published yet are estimated and never scheduled.
 - The plan is committed. It is rebuilt when rates, the Solcast forecast or battery SOC change materially, at the daily plan time (default 16:00), and at least hourly.
-- Force charge arms only inside the planned half-hour window, with max SOC set to the planned level so it stops at the right point.
+- Each planned charge stops at the plan's SOC for that window. On the EVO it runs as a Force Charge slot on the inverter (setting "Charge from the inverter's own schedule", on by default); on other models Fox Plant holds Remote Control on during the window.
 - Operating modes: **Max safety** (pessimistic solar, larger reserve), **Max profit** (lowest cost), **Max green** (cost plus carbon weighting)
 - Settings include max charge / discharge power (kW), minimum saving per kWh, load history days, outage reserve, and export floor
 - Optional **Glow / smart-meter import rate check** before arming: compares the live meter rate with the API within a tolerance, and rechecks after a mismatch
@@ -117,6 +132,8 @@ Pre-charge before severe weather. Configure under **Device → StormSafe** (not 
 | **Current condition** | Google weather condition type is severe now |
 | **Alerts** | Official alert binaries on (if available in your region) |
 
+On the EVO, an armed StormSafe charges to its target and holds the battery there from the inverter's own scheduler (a rolling 3-hour slot, extended while armed), so the battery stays protected even if Home Assistant goes down.
+
 Optional Solcast pre-check can prefer PV top-up over grid import when forecast solar covers the gap. Disable Fox cloud StormSafe when using this. Detail: [docs/STORMSAFE_GOOGLE_WEATHER.md](docs/STORMSAFE_GOOGLE_WEATHER.md).
 
 ### Glow smart meter
@@ -128,8 +145,8 @@ Optional Solcast pre-check can prefer PV top-up over grid import when forecast s
 
 ### Fox Cloud & Battery Warmup
 
-- **Settings → Fox API** — Cloud Open API key + device SN; option to disable the cloud mode scheduler so it does not fight HA
-- **Device → Warmup** — Fox-app-style battery heating (start/stop temperatures, low-price slots) via Cloud API
+- **Settings → Fox API** — Cloud Open API key + device SN (used only for battery warm-up)
+- **Device → Warmup** — Fox-app-style battery heating (start/stop temperatures, heating periods) via the Cloud API. On the EVO the current settings can also be read over Modbus (foxess_modbus fork Battery Warm-up entities), but changes have to go through the cloud.
 
 ### Performance reporting
 
