@@ -13,6 +13,7 @@ from custom_components.foxess_plant.inverter_schedule import (
     expected_inverter_slots,
     schedule_differences,
     split_at_midnight,
+    storm_hold_slots,
 )
 from custom_components.foxess_plant.models import PlantScheduleConfig, SchedulerSegmentConfig
 
@@ -121,6 +122,19 @@ def test_charge_window_crossing_midnight_uses_two_slots() -> None:
 def test_no_window_or_target_means_no_slot() -> None:
     assert charge_window_slots(None, now=_utc("02:00"), target_soc=80, power_w=3000) == []
     assert charge_window_slots(_WINDOW, now=_utc("02:00"), target_soc=None, power_w=3000) == []
+
+
+def test_storm_hold_slot() -> None:
+    now = datetime(2026, 10, 5, 14, 7, 42, tzinfo=timezone.utc)
+    slots, until = storm_hold_slots(now_local=now, target_soc=99.5, power_w=6000)
+    assert slots == [InverterSlot(start="14:07", end="17:07", work_mode="force_charge", fd_soc=100, fd_pwr=6000)]
+    assert until == datetime(2026, 10, 5, 17, 7, tzinfo=timezone.utc)
+
+
+def test_storm_hold_slot_across_midnight() -> None:
+    now = datetime(2026, 10, 5, 22, 30, tzinfo=timezone.utc)
+    slots, _ = storm_hold_slots(now_local=now, target_soc=100, power_w=6000)
+    assert [(s.start, s.end) for s in slots] == [("22:30", "23:59"), ("00:00", "01:30")]
 
 
 def test_too_many_baseline_slots_is_rejected() -> None:

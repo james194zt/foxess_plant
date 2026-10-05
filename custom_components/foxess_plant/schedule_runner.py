@@ -200,6 +200,9 @@ def resolve_desired_bundle(coordinator: FoxESSPlantCoordinator) -> ScheduleApply
         return None
 
     if plant.override.active and plant.override.periods:
+        storm_runs_on_inverter = getattr(coordinator, "storm_runs_on_inverter", None)
+        if callable(storm_runs_on_inverter) and storm_runs_on_inverter():
+            return None  # StormSafe holds the battery with a slot on the inverter's own scheduler
         target_max: float | None = None
         mode = plant.override.mode
         if mode == "storm":

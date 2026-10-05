@@ -169,6 +169,33 @@ def charge_window_slots(
     ]
 
 
+# StormSafe holds the battery with a rolling slot: long enough to cover HA being down for a while, short
+# enough that the inverter goes back to normal on its own if HA never returns.
+STORM_HOLD = timedelta(hours=3)
+STORM_EXTEND_BELOW = timedelta(hours=2)
+
+
+def storm_hold_slots(
+    *, now_local: datetime, target_soc: float, power_w: int, length: timedelta = STORM_HOLD
+) -> tuple[list[InverterSlot], datetime]:
+    """Force Charge slots from now for ``length``: charge to ``target_soc`` and hold it there.
+
+    Returns the slots and when they end (local time).
+    """
+    start = now_local.replace(second=0, microsecond=0)
+    end = start + length
+    cut_off = max(SOC_MIN, min(SOC_MAX, math.ceil(float(target_soc))))
+    template = InverterSlot(start="", end="", work_mode="force_charge", fd_soc=cut_off, fd_pwr=int(power_w))
+    if end.date() == start.date():
+        spans = [(_hhmm(start.hour * 60 + start.minute), _hhmm(end.hour * 60 + end.minute))]
+    else:
+        # Stop at 23:59 and carry on from 00:00 (inverter slots can't cross midnight)
+        spans = [(_hhmm(start.hour * 60 + start.minute), "23:59")]
+        if end.hour or end.minute:
+            spans.append(("00:00", _hhmm(end.hour * 60 + end.minute)))
+    return [replace(template, start=s, end=e) for s, e in spans], end
+
+
 def compile_inverter_schedule(
     plant_schedule: Any,
     *,

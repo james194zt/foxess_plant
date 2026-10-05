@@ -121,6 +121,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Just-in-time SmartCharge slots currently on the inverter's scheduler (InverterSlot list)
         self._jit_slots: list[Any] = []
         self._unsub_jit_recheck: Any = None
+        # StormSafe's rolling hold slots on the inverter, and when they end (local time)
+        self._storm_slots: list[Any] = []
+        self._storm_slots_until: datetime | None = None
         self._hems_audit_sigs: dict[str, str] = {}
         self._smart_charge_plan_meta: dict[str, Any] = {}
         self._smart_charge_target_max_soc: float | None = None
@@ -1346,7 +1349,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 remaining_min_soc=current.get("min_soc_on_grid", 10),
                 remaining_max_soc=current.get("max_soc", 100),
                 default_force_power_w=int(round(self.plant.smart_charge.max_charge_kw * 1000)),
-                jit_slots=self._jit_slots,
+                # StormSafe first: it takes priority over a SmartCharge slot
+                jit_slots=[*self._storm_slots, *self._jit_slots],
             )
         except InverterScheduleError as err:
             raise HomeAssistantError(f"Schedule can't be stored on the inverter: {err}") from err
@@ -1406,18 +1410,71 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return bool(self.plant.smart_charge.charge_on_inverter and self.inverter_runs_schedule())
 
     async def _set_jit_slots(self, slots: list[Any]) -> None:
-        """Replace the just-in-time slots and re-write the inverter schedule if they changed."""
-        if slots == self._jit_slots:
-            return
-        previous, self._jit_slots = self._jit_slots, list(slots)
+        """Replace SmartCharge's just-in-time slots (see _set_extra_slots)."""
+        await self._set_extra_slots(jit=slots)
+
+    async def _set_extra_slots(self, *, storm: list[Any] | None = None, jit: list[Any] | None = None) -> bool:
+        """Replace StormSafe and/or SmartCharge slots and re-write the inverter schedule if they changed.
+
+        Returns False if the inverter couldn't be updated (the old slots are kept so the next run retries).
+        """
+        new_storm = self._storm_slots if storm is None else list(storm)
+        new_jit = self._jit_slots if jit is None else list(jit)
+        if new_storm == self._storm_slots and new_jit == self._jit_slots:
+            return True
+        previous = (self._storm_slots, self._jit_slots)
+        self._storm_slots, self._jit_slots = new_storm, new_jit
         if not self.inverter_runs_schedule():
-            return
+            return True
         try:
             await self.async_push_inverter_schedule()
         except HomeAssistantError as err:
-            # Keep the old list so the next evaluation retries; the push already raised a notification
-            self._jit_slots = previous
-            _LOGGER.warning("Could not update SmartCharge slots on the inverter: %s", err)
+            # The push already raised a persistent notification
+            self._storm_slots, self._jit_slots = previous
+            _LOGGER.warning("Could not update StormSafe / SmartCharge slots on the inverter: %s", err)
+            return False
+        return True
+
+    def storm_runs_on_inverter(self) -> bool:
+        """StormSafe is armed with grid pre-charge and holds the battery from the inverter's scheduler.
+
+        PV-only storm mode stays on the old path: an EVO slot can't stop the grid charging the battery.
+        """
+        override = self.plant.override
+        return bool(
+            override.active
+            and override.mode == MODE_STORM
+            and any(p.enable_force_charge and p.enable_charge_from_grid for p in override.periods)
+            and self.inverter_runs_schedule()
+        )
+
+    async def _sync_storm_on_inverter(self) -> None:
+        """Keep StormSafe's rolling hold slot on the inverter while armed; remove it when not."""
+        from homeassistant.util import dt as dt_util
+
+        from .inverter_schedule import STORM_EXTEND_BELOW, storm_hold_slots
+
+        if not self.storm_runs_on_inverter():
+            if self._storm_slots:
+                await self._set_extra_slots(storm=[])
+                self._storm_slots_until = None
+            return
+        now = dt_util.now()
+        if self._storm_slots and self._storm_slots_until and self._storm_slots_until - now > STORM_EXTEND_BELOW:
+            return
+        target = self.plant.storm_prep.target_max_soc
+        slots, until = storm_hold_slots(
+            now_local=now,
+            target_soc=float(target) if target is not None else 100.0,
+            power_w=int(round(self.plant.smart_charge.max_charge_kw * 1000)),
+        )
+        first = not self._storm_slots
+        if await self._set_extra_slots(storm=slots):
+            self._storm_slots_until = until
+            if first:
+                # Remote Control would override the slot, so make sure it isn't left on
+                await self._clear_remote_control_for_restore()
+            _LOGGER.info("StormSafe holding the battery from the inverter's scheduler until %s", until)
 
     def _schedule_jit_recheck(self, window: dict[str, Any] | None, *, has_slots: bool) -> None:
         """Re-evaluate when the next slot is due (or its window ends), whatever the poll interval."""
@@ -1832,6 +1889,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if target_max_soc is not None and self._hardware_max_soc_supported():
             await self._set_max_soc(target_max_soc)
         await self.async_set_override_periods(periods, mode, reason)
+        await self._sync_storm_on_inverter()
         self._fire(event_name, {"reason": reason, "mode": mode})
 
     async def _disarm_policy(self, mode: str, event_name: str) -> None:
@@ -1841,6 +1899,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         saved_work_mode = self.plant.override.saved_work_mode
         self.plant.override = OverrideState()
         await self._persist()
+        await self._sync_storm_on_inverter()
         await self._restore_after_automation_disarm(
             saved_max_soc=saved_max_soc,
             saved_work_mode=saved_work_mode,
@@ -5198,13 +5257,16 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.async_apply_desired(force=True)
 
     async def async_release_control(self) -> None:
-        # Don't leave a SmartCharge slot behind on the inverter: it would repeat every day
-        await self._set_jit_slots([])
+        # Don't leave StormSafe / SmartCharge slots behind on the inverter: they would repeat every day
+        await self._set_extra_slots(storm=[], jit=[])
+        self._storm_slots_until = None
         self.plant.control_active = False
         await self._persist()
         await self.async_request_refresh()
 
     async def async_check_drift(self) -> None:
+        # Extend (or remove) StormSafe's rolling hold slot; runs whatever the drift settings
+        await self._sync_storm_on_inverter()
         if not self.plant.control.exclusive or not self.plant.control_active:
             return
         if self._applying:
