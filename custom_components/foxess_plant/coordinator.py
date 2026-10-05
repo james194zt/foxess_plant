@@ -3701,6 +3701,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         }
 
     async def _async_update_data(self) -> dict[str, Any]:
+        if self._unsub_alert_log is None and self._alert_log is not None:
+            # At HA start-up foxess_modbus may not have created its sensors yet: keep trying until it has
+            try:
+                await self._async_setup_alert_log()
+            except Exception as err:
+                _LOGGER.debug("Alert log not ready yet: %s", err)
         # Cache only — Solcast API polls belong on the schedule timer, never on HA restart.
         await self.async_ensure_solcast_cache(allow_poll=False)
         self._enrich_solcast_cache_metrics()
