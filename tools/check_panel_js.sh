@@ -18,3 +18,4 @@ done
 node tools/test_panel_charts.mjs
 node tools/test_warmup_tariff.mjs
 node tools/test_alarm_sources.mjs
+node tools/test_tariff_pricing.mjs

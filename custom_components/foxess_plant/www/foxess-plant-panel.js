@@ -6546,42 +6546,41 @@ function renderFoxAnalysisLineSparkline(values, color, { placeholder = false } =
   return `<svg class="fox-analysis-sparkline" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" aria-hidden="true"><path d="${path}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 }
 
-function buildTariffIntradaySeries(importPts, exportPts, rates, range, currency, tariff) {
-  const useSchedule =
-    tariff &&
-    (normalizeTariffImportSource(tariff.import_source) === "schedule" ||
-      normalizeTariffExportSource(tariff.export_source) === "schedule");
-  const standingDailyMajor = minorToMajor(rates.standing_charge_p_per_day, currency);
-  const importKwh = interpolatePointsToPeriod(importPts, ANALYSIS_SPARK_SAMPLE_MS, range.tMin, range.nowMs).map(
-    (p) => Math.max(0, p.v)
-  );
-  const exportKwh = interpolatePointsToPeriod(exportPts, ANALYSIS_SPARK_SAMPLE_MS, range.tMin, range.nowMs).map(
-    (p) => Math.max(0, p.v)
-  );
-  const slots = Math.max(importKwh.length, exportKwh.length, 1);
-  const daySpan = range.tMax - range.tMin;
-  const importCost = [];
-  const exportRevenue = [];
-  const totalCost = [];
-  for (let i = 0; i < slots; i += 1) {
-    const ik = importKwh[i] ?? importKwh[importKwh.length - 1] ?? 0;
-    const ek = exportKwh[i] ?? exportKwh[exportKwh.length - 1] ?? 0;
-    const t = range.tMin + i * ANALYSIS_SPARK_SAMPLE_MS;
-    const slotRates = useSchedule ? tariffRatesAtTime(tariff, t) : rates;
-    const importRateMajor = minorToMajor(slotRates.import_p_per_kwh, currency);
-    const exportRateMajor = minorToMajor(slotRates.export_p_per_kwh, currency);
-    const standing = standingDailyMajor * Math.min(1, Math.max(0, (t - range.tMin) / daySpan));
-    const ic = ik * importRateMajor;
-    const er = ek * exportRateMajor;
-    importCost.push(ic);
-    exportRevenue.push(er);
-    totalCost.push(standing + ic - er);
-  }
-  return {
-    importCost: downsampleSparkSeries(importCost),
-    exportRevenue: downsampleSparkSeries(exportRevenue),
-    totalCost: downsampleSparkSeries(totalCost),
+/**
+ * Price a daily kWh counter step by step: each step's energy at the rate in force then (time-of-use bands).
+ * points: [{t, v}] counter history; rateAt(tMs) → price per kWh. A counter that drops (midnight reset) counts
+ * from 0. targetKwh (optional): the day's total from a better meter (e.g. Glow) — the steps are scaled to it,
+ * keeping their timing. Returns { kwh, cost, cumulative: cost so far at each step }.
+ */
+function priceDailyCounter(points, tMin, tEnd, stepMs, rateAt, targetKwh = null) {
+  const sorted = (points || []).filter((p) => Number.isFinite(p?.t) && Number.isFinite(p?.v)).sort((a, b) => a.t - b.t);
+  const valueAt = (t) => {
+    let v = null;
+    for (const p of sorted) {
+      if (p.t > t) break;
+      v = p.v;
+    }
+    return v;
   };
+  let prev = valueAt(tMin) ?? 0;
+  let kwh = 0;
+  let cost = 0;
+  const cumulative = [0];
+  for (let t = tMin + stepMs; t <= tEnd + stepMs - 1; t += stepMs) {
+    const at = Math.min(t, tEnd);
+    const cur = valueAt(at) ?? prev;
+    const step = cur >= prev ? cur - prev : Math.max(0, cur);
+    prev = cur;
+    kwh += step;
+    cost += step * (Number(rateAt(at - stepMs / 2)) || 0);
+    cumulative.push(cost);
+  }
+  const target = Number(targetKwh);
+  if (Number.isFinite(target) && target > 0 && kwh > 0) {
+    const scale = target / kwh;
+    return { kwh: target, cost: cost * scale, cumulative: cumulative.map((c) => c * scale) };
+  }
+  return { kwh, cost, cumulative };
 }
 
 async function fetchAnalysisTariffIntraday(hass, plant, plantState, overviewDaily, { start, end } = {}) {
@@ -6611,20 +6610,45 @@ async function fetchAnalysisTariffIntraday(hass, plant, plantState, overviewDail
     importPts = importId ? historyToPoints(historyRowsForEntity(hist, importId)) : [];
     exportPts = exportId ? historyToPoints(historyRowsForEntity(hist, exportId)) : [];
   }
-  const series = buildTariffIntradaySeries(importPts, exportPts, rates, range, currency, tariff);
-  const analytics = readLiveAnalytics(hass, plant, plantState, overviewDaily);
-  const importKwh = Number(analytics.load_from_grid_kwh_today ?? 0) || 0;
-  const exportKwh = Number(analytics.pv_to_grid_kwh_today ?? 0) || 0;
-  const importCost = importKwh * minorToMajor(rates.import_p_per_kwh, currency);
-  const exportRevenue = exportKwh * minorToMajor(rates.export_p_per_kwh, currency);
+  // Today: the live day totals (Glow meter when present) set the kWh; history gives the timing for the prices
+  const isToday = range.nowMs >= now.getTime() - 60 * 60 * 1000;
+  const analytics = isToday ? readLiveAnalytics(hass, plant, plantState, overviewDaily) : {};
+  // Money follows the billing meter: the plant's Glow figures when it has them, else the inverter's counters
+  const server = plantState?.analytics ?? {};
+  const billing = String(server.grid_data_source || "").startsWith("glow") ? server : analytics;
+  const liveImport = isToday ? Number(billing.load_from_grid_kwh_today ?? 0) || 0 : null;
+  const liveExport = isToday ? Number(billing.pv_to_grid_kwh_today ?? 0) || 0 : null;
+  const importRate = (t) => minorToMajor(tariffRatesAtTime(tariff, t).import_p_per_kwh, currency);
+  const exportRate = (t) => minorToMajor(tariffRatesAtTime(tariff, t).export_p_per_kwh, currency);
+  const step = ANALYSIS_SPARK_SAMPLE_MS;
+  const imp = importPts.length
+    ? priceDailyCounter(importPts, range.tMin, range.nowMs, step, importRate, liveImport)
+    : { kwh: liveImport || 0, cost: (liveImport || 0) * importRate(range.nowMs), cumulative: [] };
+  const exp = exportPts.length
+    ? priceDailyCounter(exportPts, range.tMin, range.nowMs, step, exportRate, liveExport)
+    : { kwh: liveExport || 0, cost: (liveExport || 0) * exportRate(range.nowMs), cumulative: [] };
   const standing = minorToMajor(rates.standing_charge_p_per_day, currency);
-  const totalCost = standing + importCost - exportRevenue;
+  const totalCost = standing + imp.cost - exp.cost;
+  const steps = Math.max(imp.cumulative.length, exp.cumulative.length);
+  const at = (arr, i) => arr[Math.min(i, arr.length - 1)] ?? 0;
+  const net = Array.from({ length: steps }, (_, i) => standing + at(imp.cumulative, i) - at(exp.cumulative, i));
   return {
     configured: true,
     currency,
     rates,
-    totals: { importCost, exportRevenue, standing, totalCost, importKwh, exportKwh },
-    series,
+    totals: {
+      importCost: imp.cost,
+      exportRevenue: exp.cost,
+      standing,
+      totalCost,
+      importKwh: imp.kwh,
+      exportKwh: exp.kwh,
+    },
+    series: {
+      importCost: downsampleSparkSeries(imp.cumulative),
+      exportRevenue: downsampleSparkSeries(exp.cumulative),
+      totalCost: downsampleSparkSeries(net),
+    },
   };
 }
 
@@ -6667,8 +6691,10 @@ function renderFoxAnalysisSummaryCard(a, sparkData, analysisTariff, { loading = 
     consSpark = renderFoxAnalysisLineSparkline([], FOX_ANALYSIS_SPARK_COLORS.consumption);
   }
 
-  const tariffReady = analysisTariff?.configured;
-  const tariffLoading = loading && !tariffReady;
+  // Money is priced from a single day's counters; week/month/year totals aren't worked out (yet), so show "—"
+  // rather than today's figures under a longer period
+  const tariffReady = period === "day" && analysisTariff?.configured;
+  const tariffLoading = period === "day" && loading && !tariffReady;
   const placeholderSpark = (color) =>
     renderFoxAnalysisLineSparkline(null, color, { placeholder: true });
   let exportSpark = placeholderSpark(FOX_ANALYSIS_SPARK_COLORS.exportRevenue);
@@ -6728,7 +6754,8 @@ function renderFoxAnalysisSummaryCard(a, sparkData, analysisTariff, { loading = 
       valueKey: "import_cost",
       muted: !tariffReady,
     }),
-    renderFoxAnalysisSummaryRow("Total Revenue", totalDisplay, totalUnit, totalSpark, {
+    // Standing charge + import − export: what the day cost (negative = you earned more than you paid)
+    renderFoxAnalysisSummaryRow("Net Cost (incl. standing)", totalDisplay, totalUnit, totalSpark, {
       valueKey: "total_cost",
       muted: totalMuted,
     }),
@@ -10574,6 +10601,10 @@ function syncSparkSeriesToTotal(series, total) {
   const target = Number(total) || 0;
   if (!data.length) return target > 0 ? [0, target] : [];
   if (data.length === 1) return [0, target];
+  // Scale the whole curve to the day's total (its shape comes from power history, which reads a little low);
+  // only replacing the last point made a jump at the end
+  const last = data[data.length - 1];
+  if (last > 0 && target > 0) return data.map((v) => v * (target / last));
   data[data.length - 1] = target;
   return data;
 }
@@ -22762,15 +22793,22 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
     if (prodEl) prodEl.innerHTML = `${pvVal.toFixed(2)}<span>kWh</span>`;
     if (consEl) consEl.innerHTML = `${loadVal.toFixed(2)}<span>kWh</span>`;
     const tariffState = this._plantState?.tariff;
-    if (!tariffState?.configured && !this._analysisTariffForCard()?.configured) return;
-    const rates = tariffEffectiveRates(tariffState || {});
-    const importKwh = Number(a.load_from_grid_kwh_today ?? 0) || 0;
-    const exportKwh = Number(a.pv_to_grid_kwh_today ?? 0) || 0;
-    const currency = tariffCurrencyFromTariff(tariffState || {});
-    const importCost = importKwh * minorToMajor(rates.import_p_per_kwh, currency);
-    const exportRevenue = exportKwh * minorToMajor(rates.export_p_per_kwh, currency);
-    const standing = minorToMajor(rates.standing_charge_p_per_day, currency);
-    const totalCost = standing + importCost - exportRevenue;
+    const priced = this._analysisTariffForCard();
+    // Only today's figures move live; the card prices history by time-of-use band (fetchAnalysisTariffIntraday)
+    if (period !== "day" || this._energyPeriodOffset || !priced?.configured || !priced.totals) return;
+    const currency = priced.currency ?? tariffCurrencyFromTariff(tariffState || {});
+    const nowRates = tariffRatesAtTime(tariffState || {}, Date.now());
+    // Energy since the card was priced came in just now, so it's at the current rate (billing meter as above)
+    const server = this._plantState?.analytics ?? {};
+    const billing = String(server.grid_data_source || "").startsWith("glow") ? server : a;
+    const extra = (live, pricedKwh) => Math.max(0, (Number(live) || 0) - (Number(pricedKwh) || 0));
+    const importCost =
+      priced.totals.importCost +
+      extra(billing.load_from_grid_kwh_today, priced.totals.importKwh) * minorToMajor(nowRates.import_p_per_kwh, currency);
+    const exportRevenue =
+      priced.totals.exportRevenue +
+      extra(billing.pv_to_grid_kwh_today, priced.totals.exportKwh) * minorToMajor(nowRates.export_p_per_kwh, currency);
+    const totalCost = priced.totals.standing + importCost - exportRevenue;
     const exportEl = root.querySelector('[data-summary-value="export_revenue"]');
     const importEl = root.querySelector('[data-summary-value="import_cost"]');
     const totalEl = root.querySelector('[data-summary-value="total_cost"]');
