@@ -19638,7 +19638,7 @@ Reloading panel registration…
       : opts.note ||
         (emulateMaxSocFromPlant(this._plantState)
           ? `<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. On this inverter, system max is enforced by Fox Plant — you can save a cap below the current battery level.</p>`
-          : `<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. System max is written to inverter register <strong>46610</strong> (disable Fox app scheduler if writes fail).</p>`);
+          : `<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. On the EVO, system max can't be below <strong>Max SOC From Grid</strong>: lowering system max lowers it too, and raising system max raises it back if they were equal.</p>`);
 
     const thumbsHtml = thumbs
       .map(
