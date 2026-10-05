@@ -88,6 +88,25 @@ class ClippingTests(unittest.TestCase):
         loss = clipping.compute_clipping_loss_kw(pv_power_kw=4.95, inverter_ac_limit_kw=5.0, potential_kw=5.6)
         self.assertAlmostEqual(loss, 0.65, places=3)
 
+    def test_hybrid_battery_soaking_up_the_surplus_is_not_clipping(self) -> None:
+        # 3.68 kW AC cap, PV 4.48 kW: the battery takes the extra 0.8 kW, nothing is lost
+        loss = clipping.compute_clipping_loss_kw(
+            pv_power_kw=4.48, inverter_ac_limit_kw=3.68, potential_kw=4.6, ac_output_kw=3.67, battery_charge_kw=0.8
+        )
+        self.assertEqual(loss, 0.0)
+
+    def test_hybrid_with_full_battery_clips(self) -> None:
+        loss = clipping.compute_clipping_loss_kw(
+            pv_power_kw=3.7, inverter_ac_limit_kw=3.68, potential_kw=4.5, ac_output_kw=3.67, battery_charge_kw=0.0
+        )
+        self.assertAlmostEqual(loss, 0.8, places=3)
+
+    def test_pv_above_ac_limit_is_not_clipping_while_ac_has_headroom(self) -> None:
+        loss = clipping.compute_clipping_loss_kw(
+            pv_power_kw=4.0, inverter_ac_limit_kw=3.68, potential_kw=4.5, ac_output_kw=1.0, battery_charge_kw=0.0
+        )
+        self.assertEqual(loss, 0.0)
+
     def test_no_estimate_no_clipping_figure(self) -> None:
         self.assertEqual(clipping.compute_clipping_loss_kw(pv_power_kw=5.0, inverter_ac_limit_kw=5.0), 0.0)
 

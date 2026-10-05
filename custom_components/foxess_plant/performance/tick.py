@@ -167,9 +167,12 @@ async def async_commit_daily_ledger(coordinator: Any, date: str) -> None:
         float(solcast_kwh) if solcast_kwh is not None else None,
     )
     peak = float(acc.get("peak_power_kw") or 0.0)
+    from .sample import effective_ac_limit_kw
+
+    ac_limit_kw = effective_ac_limit_kw(coordinator)
     peak_vs_rated = None
-    if cfg.inverter_ac_limit_kw > 0 and peak > 0:
-        peak_vs_rated = round(peak / cfg.inverter_ac_limit_kw * 100.0, 1)
+    if ac_limit_kw > 0 and peak > 0:
+        peak_vs_rated = round(peak / ac_limit_kw * 100.0, 1)
 
     solar_day_class = classify_forecast_day(
         forecast_accuracy_pct=forecast_accuracy,

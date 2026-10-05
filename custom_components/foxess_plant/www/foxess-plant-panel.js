@@ -3351,9 +3351,6 @@ function performanceSparseHint(pointCount, xDomain) {
   return `<p class="field-hint fox-perf-chart-hint">${pointCount} sample${pointCount === 1 ? "" : "s"} so far${zoom}. New points every 5 minutes.</p>`;
 }
 
-// Same rule as performance/clipping.py: output within 3 % of the AC limit counts as "at the limit"
-const PERF_AT_LIMIT_FRACTION = 0.97;
-
 function performanceNearestValue(points, t, maxGapMs = 10 * 60000) {
   let best = null;
   for (const p of points) {
@@ -3363,27 +3360,30 @@ function performanceNearestValue(points, t, maxGapMs = 10 * 60000) {
   return best ? best.v : null;
 }
 
-/** Shade between the AC limit and Solcast's potential, only where the inverter was at its limit. */
-function performanceClippingHatchSvg(pv, potential, xDomain, xScale, yScaleP, acLimit) {
-  if (!Number.isFinite(acLimit) || acLimit <= 0) return "";
+/**
+ * Shade the energy lost to clipping: from solar output up by the recorded clipping loss. The loss is only
+ * recorded while the inverter's AC output is at its limit and the battery isn't taking the surplus
+ * (performance/clipping.py), so PV above the limit line while the battery charges isn't shaded.
+ */
+function performanceClippingHatchSvg(pv, clip, xDomain, xScale, yScaleP) {
   const pts = performanceClipPoints(pv, xDomain.tMin, xDomain.tMax).sort((a, b) => a.t - b.t);
-  const pot = performanceClipPoints(potential, xDomain.tMin, xDomain.tMax);
-  if (pts.length < 2 || !pot.length) return "";
-  const clippedTop = (p) => {
-    if (p.v < acLimit * PERF_AT_LIMIT_FRACTION) return null;
-    const could = performanceNearestValue(pot, p.t);
-    return could != null && could > acLimit ? could : null;
+  const loss = performanceClipPoints(clip, xDomain.tMin, xDomain.tMax);
+  if (pts.length < 2 || !loss.length) return "";
+  const lossAt = (p) => {
+    const v = performanceNearestValue(loss, p.t, 3 * 60000);
+    return v != null && v > 0 ? v : null;
   };
   const polys = [];
-  const yBase = yScaleP(acLimit);
   for (let i = 0; i < pts.length - 1; i++) {
-    const topA = clippedTop(pts[i]);
-    const topB = clippedTop(pts[i + 1]);
-    if (topA == null || topB == null) continue;
-    const x1 = xScale(pts[i].t);
-    const x2 = xScale(pts[i + 1].t);
+    const a = pts[i];
+    const b = pts[i + 1];
+    const lossA = lossAt(a);
+    const lossB = lossAt(b);
+    if (lossA == null || lossB == null) continue;
+    const x1 = xScale(a.t);
+    const x2 = xScale(b.t);
     polys.push(
-      `<polygon points="${x1.toFixed(1)},${yBase.toFixed(1)} ${x2.toFixed(1)},${yBase.toFixed(1)} ${x2.toFixed(1)},${yScaleP(topB).toFixed(1)} ${x1.toFixed(1)},${yScaleP(topA).toFixed(1)}" fill="url(#fox-perf-clip-hatch)" opacity="0.6" />`
+      `<polygon points="${x1.toFixed(1)},${yScaleP(a.v).toFixed(1)} ${x2.toFixed(1)},${yScaleP(b.v).toFixed(1)} ${x2.toFixed(1)},${yScaleP(b.v + lossB).toFixed(1)} ${x1.toFixed(1)},${yScaleP(a.v + lossA).toFixed(1)}" fill="url(#fox-perf-clip-hatch)" opacity="0.6" />`
     );
   }
   if (!polys.length) return "";
@@ -3442,12 +3442,11 @@ function renderPerformancePowerChartSvg(chart) {
     yTicks,
   });
   let limitLine = "";
-  let clipHatch = "";
   if (hasLimit) {
     const y = yScaleP(acLimit);
     limitLine = `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + w}" y2="${y.toFixed(1)}" stroke="#f59e0b" stroke-dasharray="4 3" stroke-width="1" />`;
-    clipHatch = performanceClippingHatchSvg(pv, potential, xDomain, xScale, yScaleP, acLimit);
   }
+  const clipHatch = performanceClippingHatchSvg(pv, clip, xDomain, xScale, yScaleP);
   const hasClipping = performanceClipPoints(clip, xDomain.tMin, xDomain.tMax).some((p) => p.v > 0);
   const lines = [
     { pts: potential, color: "#f5c542", width: 1.4, dash: "4 3" },
@@ -3462,13 +3461,13 @@ function renderPerformancePowerChartSvg(chart) {
 <span><i style="background:#19D4DE"></i> Solar output kW</span>
 ${potential.length ? `<span><i style="background:#f5c542"></i> Solcast could produce</span>` : ""}
 <span><i style="background:#2F6BFF"></i> Net grid kW</span>
-${hasLimit ? `<span><i style="background:#f59e0b"></i> Inverter limit${esc(limitText)}</span>` : ""}
+${hasLimit ? `<span><i style="background:#f59e0b"></i> Inverter AC limit${esc(limitText)}</span>` : ""}
 ${hasClipping ? `<span><i style="background:#ef4444"></i> Clipping kW</span>` : ""}
 <span><i style="background:repeating-linear-gradient(45deg,#ef4444,#ef4444 2px,transparent 2px,transparent 4px)"></i> Clipped</span>
 </div>`;
   const clipNote =
     hasLimit && !hasClipping && primaryCount
-      ? `<p class="field-hint fox-perf-chart-hint">No clipping in this range: output stayed below the inverter limit, or Solcast didn't expect more.</p>`
+      ? `<p class="field-hint fox-perf-chart-hint">No clipping in this range. Solar above the AC limit line went into the battery; it's only lost when the inverter is at its limit and the battery is full.</p>`
       : "";
   const hint = performanceSparseHint(
     Number.isFinite(Number(chart?.live?.sample_count)) && Number(chart.live.sample_count) > 0
@@ -21485,6 +21484,22 @@ ${this._renderDeviceNewEnergyCardToolbar()}
       .join("")}</div>`;
   }
 
+  /** Installer settings the Fox app doesn't show, read-only from Modbus (installer_settings.py). */
+  _renderInstallerSettings() {
+    const rows = Array.isArray(this._plantState?.installer_settings) ? this._plantState.installer_settings : [];
+    if (!rows.length) return "";
+    return `<section class="fox-device-new-section fox-installer-settings">
+<h3 class="fox-device-new-section-title">Installer settings</h3>
+<p class="field-hint">Set by your installer on the inverter; not shown in the Fox app. Read-only.</p>
+<div class="entity-list">${rows
+      .map(
+        (r) =>
+          `<div class="entity-row"${r.hint ? ` title="${esc(r.hint)}"` : ""}><span class="entity-name">${esc(r.label)}</span><span class="entity-value">${esc(r.value)}</span></div>`
+      )
+      .join("")}</div>
+</section>`;
+  }
+
   _renderDeviceNew(plant) {
     if (this._deviceNewScreen === "system") {
       return `<div data-device-new-main="1" data-plant-id="${esc(plant.entry_id)}">
@@ -21544,6 +21559,7 @@ ${sidebar}
 <div class="fox-device-new-content">
 ${summary}
 ${body}
+${this._renderInstallerSettings()}
 </div>
 </div>
 </div>`;

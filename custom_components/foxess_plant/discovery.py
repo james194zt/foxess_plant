@@ -13,6 +13,7 @@ from .const import (
     CHARGE_PERIOD_KEYS,
     DISCOVERY_SUFFIXES,
     IDENTITY_ENTITY_SUFFIXES,
+    INSTALLER_ENTITY_SUFFIXES,
     MODBUS_DOMAIN,
     PANEL_ENTITY_SUFFIXES,
 )
@@ -274,6 +275,8 @@ def _suffixes_for_key(key: str) -> tuple[str, ...]:
         return PANEL_ENTITY_SUFFIXES[key]
     if key in IDENTITY_ENTITY_SUFFIXES:
         return IDENTITY_ENTITY_SUFFIXES[key]
+    if key in INSTALLER_ENTITY_SUFFIXES:
+        return INSTALLER_ENTITY_SUFFIXES[key]
     single = DISCOVERY_SUFFIXES.get(key)
     if isinstance(single, str):
         return (single,)

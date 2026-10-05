@@ -132,9 +132,17 @@ MIN_PV_KW_FOR_TEMP = 0.05  # below this there's too little sun to say anything a
 
 
 def effective_ac_limit_kw(coordinator: Any) -> float:
-    """Inverter AC rating: the setting, unless it's still the old 4.3 kW default and the model name gives it."""
+    """The most the inverter puts out on the AC side.
+
+    The inverter's own installer setting (Max Active Power) when foxess_modbus exposes it, e.g. 3.68 kW on a
+    5 kW EVO limited for its grid connection; otherwise the setting, unless it's still the old 4.3 kW default
+    and the model name gives the rating.
+    """
     from ..inverter_schedule import evo_rated_power_w
 
+    max_kw = coordinator._entity_float("max_active_power") if hasattr(coordinator, "_entity_float") else None
+    if max_kw is not None and max_kw > 0:
+        return float(max_kw)
     configured = float(coordinator.plant.performance.inverter_ac_limit_kw or 0)
     if configured and abs(configured - 4.3) > 1e-6:
         return configured
@@ -149,7 +157,7 @@ def _model_panel_temp(
     ambient: float | None,
     wind_ms: float | None,
     solcast_kw: float | None,
-    ac_limit_kw: float,
+    held_back: bool,
 ) -> tuple[float | None, float | None]:
     """(panel temperature, the same in still air) from the datasheet model (panel_temp.py)."""
     from .panel_temp import ArrayThermal, plant_panel_temp_c, still_air_temp_c
@@ -166,10 +174,10 @@ def _model_panel_temp(
         # No per-string reading: share the total by array size
         measured = [pv_kw * cfg.effective_dc_w / total_stc for cfg, _ in strings]
 
-    # When output is held back (battery full with nowhere to send it, or the inverter at its limit) the panels
+    # When output is held back (battery full with nowhere to send it, or clipped at the AC limit) the panels
     # still get the full sun: use Solcast's estimate of what they could make instead
     soc = coordinator._entity_float("battery_soc") if hasattr(coordinator, "_entity_float") else None
-    limited = (soc is not None and soc >= 98.0) or pv_kw >= 0.97 * ac_limit_kw
+    limited = held_back or (soc is not None and soc >= 98.0)
     if limited and solcast_kw and solcast_kw > pv_kw > 0:
         measured = [power * solcast_kw / pv_kw for power in measured]
 
@@ -231,22 +239,22 @@ def collect_performance_sample(coordinator: Any) -> PerformanceSample:
     elif solcast_state.get("pv_power_now_kw") is not None:
         solcast_kw = float(solcast_state["pv_power_now_kw"])
 
-    ac_limit_kw = effective_ac_limit_kw(coordinator)
+    clipping = compute_clipping_loss_kw(
+        pv_power_kw=pv_kw,
+        inverter_ac_limit_kw=effective_ac_limit_kw(coordinator),
+        potential_kw=solcast_kw,
+        ac_output_kw=_entity_power_kw(coordinator, "inv_power"),
+        battery_charge_kw=_entity_power_kw(coordinator, "battery_charge"),
+    )
     virtual_temp, still_air_temp = _model_panel_temp(
         coordinator,
         pv_kw=pv_kw,
         ambient=ambient,
         wind_ms=weather.get("wind_speed_ms"),
         solcast_kw=solcast_kw,
-        ac_limit_kw=ac_limit_kw,
+        held_back=clipping > 0,
     )
     coordinator._panel_temp_still_air_c = still_air_temp
-
-    clipping = compute_clipping_loss_kw(
-        pv_power_kw=pv_kw,
-        inverter_ac_limit_kw=ac_limit_kw,
-        potential_kw=solcast_kw,
-    )
 
     imp_p, exp_p = _octopus_rates_p_per_kwh(coordinator)
 

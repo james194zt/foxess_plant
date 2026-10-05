@@ -89,6 +89,21 @@ IDENTITY_ENTITY_SUFFIXES: dict[str, tuple[str, ...]] = {
     "inverter_state": ("inverter_state",),
 }
 
+# Installer settings the Fox app doesn't show (foxess_modbus read-only sensors), in display order
+INSTALLER_ENTITY_SUFFIXES: dict[str, tuple[str, ...]] = {
+    "grid_standard_code": ("grid_standard_code",),
+    "rated_power": ("rated_power",),
+    "max_active_power": ("max_active_power",),
+    "active_power_derating": ("active_power_derating",),
+    "fixed_active_power_derate": ("fixed_active_power_derate",),
+    "installer_export_power_limit": ("installer_export_power_limit",),
+    "grid_point_power_limit": ("grid_point_power_limit",),
+    "import_current_limit": ("import_current_limit",),
+    "export_current_limit": ("export_current_limit",),
+    "max_charge_current": ("max_charge_current",),
+    "max_discharge_current": ("max_discharge_current",),
+}
+
 PANEL_ENTITY_SUFFIXES: dict[str, tuple[str, ...]] = {
     # PV strings
     "pv1_voltage": ("pv1_voltage", "pv1_volt", "pv1_volts"),

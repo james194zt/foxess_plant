@@ -3100,6 +3100,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "plant_schedule": self._plant_schedule_state(),
             "alert_log": self._alert_log_state(),
             "identity": self._read_identity(),
+            "installer_settings": self._read_installer_settings(),
         }
 
     def _read_analytics(self) -> dict[str, Any]:
@@ -3705,6 +3706,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for key in IDENTITY_ENTITY_SUFFIXES
             if self.plant.entity_map.get(key)
         }
+
+    def _read_installer_settings(self) -> list[dict[str, str]]:
+        from .installer_settings import installer_settings_rows
+
+        return installer_settings_rows(self._entity_state)
 
     async def _async_update_data(self) -> dict[str, Any]:
         if self._unsub_alert_log is None and self._alert_log is not None:
