@@ -59,11 +59,30 @@ def _detailed_rows_from_attrs(attrs: dict[str, Any] | None) -> list[dict[str, An
     return rows if isinstance(rows, list) and len(rows) >= 2 else []
 
 
-def _kw_at_time(rows: list[dict[str, Any]], when: datetime) -> float | None:
-    for interval in _build_intervals(rows):
-        if interval.start <= when < interval.end:
-            return interval.kw
+def _kw_smooth(intervals: list[Any], when: datetime) -> float | None:
+    """kW at *when*, drawn through the middle of each period.
+
+    Solcast gives the average for each 30-minute period. Holding that flat drew the forecast as steps; a line
+    between period midpoints looks like a PV curve and keeps about the same energy under it.
+    """
+    for i, iv in enumerate(intervals):
+        if not iv.start <= when < iv.end:
+            continue
+        mid = iv.start + (iv.end - iv.start) / 2
+        if when < mid:
+            other = intervals[i - 1] if i > 0 and intervals[i - 1].end == iv.start else None
+        else:
+            other = intervals[i + 1] if i + 1 < len(intervals) and intervals[i + 1].start == iv.end else None
+        if other is None:
+            return iv.kw
+        other_mid = other.start + (other.end - other.start) / 2
+        frac = (when - mid) / (other_mid - mid)
+        return iv.kw + (other.kw - iv.kw) * frac
     return None
+
+
+def _kw_at_time(rows: list[dict[str, Any]], when: datetime) -> float | None:
+    return _kw_smooth(_build_intervals(rows), when)
 
 
 def _kw_at_or_after(rows: list[dict[str, Any]], when: datetime) -> float | None:
@@ -71,6 +90,9 @@ def _kw_at_or_after(rows: list[dict[str, Any]], when: datetime) -> float | None:
     intervals = _build_intervals(rows)
     if not intervals:
         return None
+    smooth = _kw_smooth(intervals, when)
+    if smooth is not None:
+        return smooth
     chosen: float | None = None
     for interval in intervals:
         if interval.start <= when:

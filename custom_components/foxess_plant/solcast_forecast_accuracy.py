@@ -530,12 +530,21 @@ def build_forecast_accuracy_report(
     )
     revisions: list[dict[str, Any]] = []
     prev_total: float | None = None
+    # A poll only covers from its fetch time onwards; the day total as seen at each poll keeps the earlier
+    # periods from the polls before it (otherwise "today" shrinks to almost nothing by the evening)
+    from .solcast_pv import _parse_dt
+
+    known_rows: dict[datetime, dict[str, Any]] = {}
     for fetched_ms, rows in snapshots:
+        for row in rows:
+            start = _parse_dt(row.get("period_start")) if isinstance(row, dict) else None
+            if start is not None:
+                known_rows[dt_util.as_utc(start)] = row
         when = _utc_from_timestamp(fetched_ms / 1000)
         when_local = dt_util.as_local(when)
         if _local_date(when_local) != target_day:
             continue
-        total_kwh = _forecast_kwh_for_day(rows, target_day)
+        total_kwh = _forecast_kwh_for_day(list(known_rows.values()), target_day)
         remaining_kwh = _forecast_remaining_kwh(rows, target_day, when_local)
         if total_kwh is None and remaining_kwh is None:
             continue

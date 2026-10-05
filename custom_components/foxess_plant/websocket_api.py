@@ -341,20 +341,18 @@ def _fetch_statistics_points(
     """5-minute (etc.) recorder statistics — same source as plotly-graph cards."""
     from homeassistant.components.recorder.statistics import statistics_during_period
 
-    period_delta = {
-        "5minute": timedelta(minutes=5),
-        "hour": timedelta(hours=1),
-        "day": timedelta(days=1),
-    }.get(period, timedelta(minutes=5))
+    # HA takes the period by name and only reads the 5-minute table for exactly "5minute"; anything else
+    # (it was given a timedelta here) silently came back hourly
+    period_name = period if period in ("5minute", "hour", "day", "week", "month") else "5minute"
     stat_type = statistic if statistic in ("mean", "min", "max", "sum", "state") else "mean"
     stats = statistics_during_period(
         hass,
         start_time,
         end_time,
-        entity_ids,
-        period_delta,
+        set(entity_ids),
+        period_name,
         None,
-        [stat_type],
+        {stat_type},
     )
     out: dict[str, list[dict[str, float]]] = {entity_id: [] for entity_id in entity_ids}
     for entity_id in entity_ids:

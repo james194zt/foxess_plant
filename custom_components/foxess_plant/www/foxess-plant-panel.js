@@ -1490,7 +1490,7 @@ const FORECAST_ACCURACY_COLORS = {
   actual: "#19D4DE",
   predicted: "#FFD700",
   firstRevision: "rgba(255,215,0,0.42)",
-  latestRevision: "#FFD700",
+  latestRevision: "#FF8A3D",
   cloud: "rgba(168,178,198,0.85)",
   cloudFill: "rgba(168,178,198,0.24)",
 };
@@ -1576,7 +1576,7 @@ function buildForecastAccuracySeriesMeta(intraday, { compact = false } = {}) {
     });
   };
   add("pv_actual", "PV generation", FORECAST_ACCURACY_COLORS.actual, intraday.actual_power_kw);
-  add("pv_forecast", "Forecast PV", FORECAST_ACCURACY_COLORS.predicted, intraday.predicted_power_kw);
+  add("pv_forecast", "Forecast at the time", FORECAST_ACCURACY_COLORS.predicted, intraday.predicted_power_kw);
   if (!compact) {
     add(
       "pv_latest",
@@ -1875,7 +1875,8 @@ function renderForecastAccuracyChartHtml(intraday, range, { compact = false } = 
     },
     {
       id: "pv_forecast",
-      label: "Forecast PV",
+      // Each moment shows the forecast Solcast had then, so it steps when a new forecast arrives
+      label: "Forecast at the time",
       color: FORECAST_ACCURACY_COLORS.predicted,
       points: intraday?.predicted_power_kw,
     },
