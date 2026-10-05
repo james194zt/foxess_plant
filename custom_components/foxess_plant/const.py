@@ -454,8 +454,6 @@ DEFAULT_SMART_CHARGE = {
 
 DEFAULT_PERFORMANCE = {
     "enabled": True,
-    "baseline_v_at_25c": 400.0,
-    "temp_coefficient_v_per_c": -0.003,
     "inverter_ac_limit_kw": 4.3,
     "system_install_cost_gbp": None,
     "system_rte": 0.85,

@@ -101,10 +101,6 @@ PV_STRING_SCHEMA = vol.Schema(
 PERFORMANCE_SCHEMA = vol.Schema(
     {
         vol.Optional("enabled"): cv.boolean,
-        vol.Optional("baseline_v_at_25c"): vol.All(vol.Coerce(float), vol.Range(min=200, max=600)),
-        vol.Optional("temp_coefficient_v_per_c"): vol.All(
-            vol.Coerce(float), vol.Range(min=-0.02, max=0)
-        ),
         vol.Optional("inverter_ac_limit_kw"): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=50)),
         vol.Optional("system_install_cost_gbp"): vol.Any(None, vol.Coerce(float)),
         vol.Optional("system_rte"): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=1.0)),

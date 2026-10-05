@@ -17519,7 +17519,7 @@ Reloading panel registration…
     if (cost != null && Number(cost) > 0) {
       return `On · £${Number(cost).toFixed(0)} install cost · ${Number(cfg.inverter_ac_limit_kw || 4.3).toFixed(1)} kW AC limit`;
     }
-    return `On · ${Number(cfg.baseline_v_at_25c || 400).toFixed(0)} V baseline · set install cost for payback`;
+    return "On · set install cost for payback";
   }
 
   _performanceConfigFromState() {
@@ -17538,8 +17538,6 @@ Reloading panel registration…
     const cfg = this._performanceConfigFromState();
     this._performanceDraft = {
       enabled: cfg.enabled !== false,
-      baseline_v_at_25c: Number(cfg.baseline_v_at_25c ?? 400),
-      temp_coefficient_v_per_c: Number(cfg.temp_coefficient_v_per_c ?? -0.003),
       inverter_ac_limit_kw: Number(cfg.inverter_ac_limit_kw ?? 4.3),
       system_install_cost_gbp: this._parsePerformanceInstallCost(cfg.system_install_cost_gbp),
       system_rte: Number(cfg.system_rte ?? 0.85),
@@ -17712,8 +17710,6 @@ Reloading panel registration…
     const enabledEl = root.querySelector('[data-field="performance:enabled"]');
     if (enabledEl) this._performanceDraft.enabled = enabledEl.checked;
     const fields = [
-      "baseline_v_at_25c",
-      "temp_coefficient_v_per_c",
       "inverter_ac_limit_kw",
       "system_rte",
       "degradation_buffer_p_per_kwh",
@@ -17752,8 +17748,6 @@ Reloading panel registration…
     const installCost = this._performanceInstallCostFromDom();
     return {
       enabled: Boolean(d.enabled),
-      baseline_v_at_25c: Number(d.baseline_v_at_25c) || 400,
-      temp_coefficient_v_per_c: Number(d.temp_coefficient_v_per_c) || -0.003,
       inverter_ac_limit_kw: Number(d.inverter_ac_limit_kw) || 4.3,
       system_install_cost_gbp: installCost,
       system_rte: Number(d.system_rte) || 0.85,
@@ -19134,8 +19128,6 @@ Reloading panel registration…
         return;
       }
       if (
-        field === "baseline_v_at_25c" ||
-        field === "temp_coefficient_v_per_c" ||
         field === "inverter_ac_limit_kw" ||
         field === "system_rte" ||
         field === "degradation_buffer_p_per_kwh"
@@ -25092,16 +25084,13 @@ ${brightApiFields}
 <button type="button" class="btn btn-secondary" data-action="settings-sub" data-sub="weather">Open Weather settings</button>
 </div>
 <div class="card">
-<p class="card-title">Virtual panel temperature</p>
-<p class="field-hint">Baseline is string voltage at ~25°C near MPP (not Voc). If left at the 400 V factory default, it auto-calibrates from live voltage once PV is strong enough. Manual override still wins after you save a value.</p>
-<div class="field"><label>Baseline string voltage at 25°C (V)</label>
-<input type="number" step="0.1" data-field="performance:baseline_v_at_25c" value="${esc(String(draft.baseline_v_at_25c))}" ${this._busy ? "disabled" : ""}></div>
-<div class="field"><label>Temperature coefficient (V/°C)</label>
-<input type="number" step="0.0001" data-field="performance:temp_coefficient_v_per_c" value="${esc(String(draft.temp_coefficient_v_per_c))}" ${this._busy ? "disabled" : ""}></div>
+<p class="card-title">Panel temperature</p>
+<p class="field-hint">Worked out from each array&rsquo;s panel datasheet values and mounting (Device &rarr; PV Configuration), its output, and the outdoor temperature and wind from your weather sensors.</p>
 </div>
 <div class="card">
 <p class="card-title">Inverter &amp; payback</p>
-<div class="field"><label>AC export limit (kW)</label>
+<div class="field"><label>Inverter AC rating (kW)</label>
+<p class="field-hint">Used for clipping. Left at 4.3, Fox Plant uses the rating in your inverter&rsquo;s model name (EVO 10-5-H &rarr; 5 kW).</p>
 <input type="number" step="0.1" data-field="performance:inverter_ac_limit_kw" value="${esc(String(draft.inverter_ac_limit_kw))}" ${this._busy ? "disabled" : ""}></div>
 <div class="field"><label>System install cost (£)</label>
 <p class="field-hint">Total system cost for payback tracking (migrated from legacy PV string costs if set).</p>

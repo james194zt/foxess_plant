@@ -549,8 +549,6 @@ class PerformanceConfig:
     """Recorder-backed performance reporting and SQLite financial ledger."""
 
     enabled: bool = True
-    baseline_v_at_25c: float = 400.0
-    temp_coefficient_v_per_c: float = -0.003
     inverter_ac_limit_kw: float = 4.3
     system_install_cost_gbp: float | None = None
     system_rte: float = 0.85
@@ -576,8 +574,6 @@ class PerformanceConfig:
                 install_cost = None
         return cls(
             enabled=bool(data.get("enabled", True)),
-            baseline_v_at_25c=float(data.get("baseline_v_at_25c", 400.0) or 400.0),
-            temp_coefficient_v_per_c=float(data.get("temp_coefficient_v_per_c", -0.003) or -0.003),
             inverter_ac_limit_kw=float(data.get("inverter_ac_limit_kw", 4.3) or 4.3),
             system_install_cost_gbp=install_cost,
             system_rte=float(data.get("system_rte", 0.85) or 0.85),
@@ -596,8 +592,6 @@ class PerformanceConfig:
     def to_dict(self) -> dict[str, Any]:
         return {
             "enabled": self.enabled,
-            "baseline_v_at_25c": round(self.baseline_v_at_25c, 1),
-            "temp_coefficient_v_per_c": round(self.temp_coefficient_v_per_c, 5),
             "inverter_ac_limit_kw": round(self.inverter_ac_limit_kw, 2),
             "system_install_cost_gbp": round(self.system_install_cost_gbp, 2)
             if self.system_install_cost_gbp is not None
