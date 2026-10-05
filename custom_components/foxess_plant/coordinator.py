@@ -23,9 +23,7 @@ from .analytics import compute_analytics
 from .impact import compute_impact
 from .charge_period import apply_charge_periods, assert_charge_period_entities
 from .discovery import missing_charge_period_entities
-from .remote_control import is_charge_period_modbus_blocked
 from .remote_control import is_remote_control_active
-from .remote_control import periods_want_grid_force_charge
 from .remote_control import set_remote_control_mode
 from .flow_scene import resolve_flow_scene_theme
 from .soc_limits import apply_soc_limits, clamp_soc_values
@@ -93,7 +91,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     _unsub_drift: callable | None = None
     _unsub_triggers: callable | None = None
     _applying: bool = False
-    _period_apply_fallback: str | None = None
     _active_storm_triggers: set[str]
     _active_outage_triggers: set[str]
     _forecast_armed: bool
@@ -1316,6 +1313,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # ---- On-inverter Mode Scheduler (EVO) -------------------------------------------------------
     # The plant schedule is written to the inverter's own scheduler (foxess_modbus set_evo_schedule), so it
     # keeps running if Home Assistant stops. See inverter_schedule.py.
+
+    def _is_evo(self) -> bool:
+        from .discovery import device_is_evo
+
+        return bool(device_is_evo(self.hass, self.plant.device_id, self.plant.entity_map))
 
     def inverter_runs_schedule(self) -> bool:
         """True when Fox Plant controls an EVO whose foxess_modbus can write the on-inverter scheduler."""
@@ -3782,75 +3784,31 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 await self.async_request_refresh()
             return
 
+        if self._is_evo():
+            # The EVO has no charge periods: foxess_modbus maps them onto Mode Scheduler slots 1-2, which
+            # would overwrite the schedule Fox Plant keeps there. Its schedule goes through
+            # set_evo_schedule (inverter_runs_schedule), so getting here means that isn't available.
+            message = (
+                "Can't apply the schedule: the EVO's Mode Scheduler actions (foxess_modbus set_evo_schedule) "
+                "aren't available. Check FoxESS Modbus is loaded and up to date."
+            )
+            if strict:
+                raise HomeAssistantError(message)
+            _LOGGER.warning(message)
+            return
+
         periods = self.plant.desired_periods()
         if not periods:
             raise HomeAssistantError("No charge periods configured")
 
         self._applying = True
-        self._period_apply_fallback = None
         try:
-            try:
-                await apply_charge_periods(
-                    self.hass,
-                    self.plant.inverter_target,
-                    periods,
-                    entity_map=self.plant.entity_map,
-                )
-            except HomeAssistantError as err:
-                if is_charge_period_modbus_blocked(err):
-                    if periods_want_grid_force_charge(periods):
-                        _LOGGER.warning(
-                            "Charge-period Modbus write blocked; using Remote Control Force Charge instead"
-                        )
-                        try:
-                            await set_remote_control_mode(
-                                self.hass, self.plant.entity_map, "Force Charge"
-                            )
-                            self._period_apply_fallback = "remote_control_force_charge"
-                            self._fire(
-                                EVENT_PERIOD_APPLIED,
-                                {
-                                    "mode": self.plant.plant_mode(),
-                                    "periods": [p.to_dict() for p in periods],
-                                    "fallback": "remote_control_force_charge",
-                                },
-                            )
-                            return
-                        except HomeAssistantError as rc_err:
-                            if strict:
-                                raise HomeAssistantError(
-                                    "Could not write charge windows via Modbus and Remote Control "
-                                    f"Force Charge also failed: {rc_err}"
-                                ) from rc_err
-                            raise
-                    if strict:
-                        raise HomeAssistantError(
-                            "Could not write charge windows to the inverter via FoxESS Modbus. "
-                            "On EVO 10-H the 480xx period registers may be read-only on this firmware — "
-                            "enable grid charge on your schedule, or use FoxESS Modbus "
-                            "Remote Control → Force Charge. "
-                            f"Details: {err}"
-                        ) from err
-                    try:
-                        await set_remote_control_mode(
-                            self.hass, self.plant.entity_map, "Disable"
-                        )
-                    except HomeAssistantError as rc_err:
-                        _LOGGER.debug("Remote Control disable skipped: %s", rc_err)
-                    _LOGGER.warning(
-                        "Charge-period Modbus write blocked on this EVO firmware: %s",
-                        err,
-                    )
-                    self._fire(
-                        EVENT_PERIOD_APPLIED,
-                        {
-                            "mode": self.plant.plant_mode(),
-                            "periods": [p.to_dict() for p in periods],
-                            "skipped": "charge_period_modbus_readonly",
-                        },
-                    )
-                    return
-                raise
+            await apply_charge_periods(
+                self.hass,
+                self.plant.inverter_target,
+                periods,
+                entity_map=self.plant.entity_map,
+            )
             self._fire(
                 EVENT_PERIOD_APPLIED,
                 {
@@ -3894,25 +3852,23 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_save_charge_schedule(self, periods: list[ChargePeriodConfig]) -> None:
         """Persist baseline schedule, take control, write via foxess_modbus, verify read-back."""
+        if self._is_evo():
+            raise HomeAssistantError(
+                "The EVO has no charge periods. Use Quick Settings → Mode scheduler; Fox Plant stores that "
+                "schedule on the inverter."
+            )
         assert_charge_period_entities(self.plant.entity_map)
         self.plant.baseline_periods = periods
         if not self.plant.control_active:
             self.plant.control_active = True
         await self._persist()
         await self.async_apply_desired(force=True, strict=True)
-        if self._period_apply_fallback == "remote_control_force_charge":
-            _LOGGER.info(
-                "Schedule saved; inverter charging via Remote Control Force Charge "
-                "(480xx period registers not writable on this EVO firmware)"
-            )
-            return
         desired = [p.to_dict() for p in periods]
         actual = self._read_actual_periods()
         if self._compute_drift(desired, actual):
             raise HomeAssistantError(
                 "Fox Plant saved the schedule but the inverter still reports different charge windows. "
-                "Check the FoxESS Modbus log — on EVO, period 1 uses registers 48011–48013 and "
-                f"period 2 uses 48021–48023. Expected: {desired}. Inverter reports: {actual}."
+                f"Check the FoxESS Modbus log. Expected: {desired}. Inverter reports: {actual}."
             )
 
     @staticmethod

@@ -14,14 +14,6 @@ from .models import ChargePeriodConfig
 
 _LOGGER = logging.getLogger(__name__)
 
-_EVO_CHARGE_PERIOD_HINT = (
-    "FoxESS Modbus could not write EVO charge-period registers (480xx). "
-    "The HA Mode Scheduler does not use 480xx — it applies work mode, SOC, and "
-    "Remote Control on the clock instead. "
-    "Disable the Fox app scheduler before writing 480xx directly (Modbus lab only)."
-)
-
-
 def assert_charge_period_entities(entity_map: dict[str, str]) -> None:
     """Ensure foxess_modbus charge-period entities were discovered for this plant."""
     missing = missing_charge_period_entities(entity_map)
@@ -35,10 +27,6 @@ def assert_charge_period_entities(entity_map: dict[str, str]) -> None:
 
 def _raise_charge_period_error(err: BaseException) -> None:
     message = str(err)
-    from .remote_control import is_charge_period_modbus_blocked
-
-    if is_charge_period_modbus_blocked(err):
-        raise HomeAssistantError(f"{_EVO_CHARGE_PERIOD_HINT} Details: {message}") from err
     if "does not support setting charge periods" in message:
         raise HomeAssistantError(
             "This inverter profile in FoxESS Modbus does not expose charge periods. "
