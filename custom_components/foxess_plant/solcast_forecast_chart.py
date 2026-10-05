@@ -21,7 +21,7 @@ SNAPSHOT_GRACE_MS = 24 * 3_600_000
 
 
 def _utc_from_timestamp(ts: float) -> datetime:
-    """UTC datetime from epoch seconds (HA removed dt_util.utc_from_timestamp)."""
+    """UTC datetime from epoch seconds (stdlib; dt_util.utc_from_timestamp may go in a future HA)."""
     return datetime.fromtimestamp(ts, tz=timezone.utc)
 
 

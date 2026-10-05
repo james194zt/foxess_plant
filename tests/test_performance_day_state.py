@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 from homeassistant.util import dt as dt_util
 
+from custom_components.foxess_plant.performance.backfill import _needs_backfill
 from custom_components.foxess_plant.performance.store import PerformanceStore
 from custom_components.foxess_plant.performance.tick import (
     _async_restore_day_state,
@@ -30,6 +31,14 @@ def _acc() -> dict:
         "avoided_grid_cost_gbp": 1.25,
         "counters": {"import": 1.0, "export": 2.0, "load": 6.0},
     }
+
+
+def test_hourly_backfilled_days_are_refilled_at_five_minutes() -> None:
+    start = dt_util.start_of_local_day() - timedelta(days=2)
+    assert _needs_backfill(24, start, dt_util.now())  # a whole past day with only hourly rows
+    assert not _needs_backfill(250, start, dt_util.now())  # most of the 288 five-minute slots
+    today = dt_util.start_of_local_day()
+    assert not _needs_backfill(5, today, today + timedelta(minutes=30))  # just after midnight: few expected
 
 
 @pytest.mark.asyncio

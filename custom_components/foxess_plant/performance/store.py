@@ -304,7 +304,24 @@ class PerformanceStore:
             return None
         return (row["date"], acc) if isinstance(acc, dict) else None
 
+    _INTRADAY_FIELDS = (
+        "ts",
+        "pv_power_kw",
+        "net_grid_power_kw",
+        "virtual_panel_temp_c",
+        "wind_speed_ms",
+        "clipping_loss_kw",
+        "solcast_forecast_kw",
+        "import_p_per_kwh",
+        "export_p_per_kwh",
+        "visibility_km",
+        "dew_point_c",
+        "precipitation_mm",
+    )
+
     def insert_intraday_sample(self, row: dict[str, Any]) -> None:
+        """Insert or update one sample. Missing fields are stored empty; an update never blanks a stored value."""
+        row = {field: row.get(field) for field in self._INTRADAY_FIELDS}
         conn = self.connect()
         conn.execute(
             """
@@ -320,17 +337,17 @@ class PerformanceStore:
                 :precipitation_mm
             )
             ON CONFLICT(ts) DO UPDATE SET
-                pv_power_kw=excluded.pv_power_kw,
-                net_grid_power_kw=excluded.net_grid_power_kw,
-                virtual_panel_temp_c=excluded.virtual_panel_temp_c,
-                wind_speed_ms=excluded.wind_speed_ms,
-                clipping_loss_kw=excluded.clipping_loss_kw,
-                solcast_forecast_kw=excluded.solcast_forecast_kw,
-                import_p_per_kwh=excluded.import_p_per_kwh,
-                export_p_per_kwh=excluded.export_p_per_kwh,
-                visibility_km=excluded.visibility_km,
-                dew_point_c=excluded.dew_point_c,
-                precipitation_mm=excluded.precipitation_mm
+                pv_power_kw=COALESCE(excluded.pv_power_kw, pv_power_kw),
+                net_grid_power_kw=COALESCE(excluded.net_grid_power_kw, net_grid_power_kw),
+                virtual_panel_temp_c=COALESCE(excluded.virtual_panel_temp_c, virtual_panel_temp_c),
+                wind_speed_ms=COALESCE(excluded.wind_speed_ms, wind_speed_ms),
+                clipping_loss_kw=COALESCE(excluded.clipping_loss_kw, clipping_loss_kw),
+                solcast_forecast_kw=COALESCE(excluded.solcast_forecast_kw, solcast_forecast_kw),
+                import_p_per_kwh=COALESCE(excluded.import_p_per_kwh, import_p_per_kwh),
+                export_p_per_kwh=COALESCE(excluded.export_p_per_kwh, export_p_per_kwh),
+                visibility_km=COALESCE(excluded.visibility_km, visibility_km),
+                dew_point_c=COALESCE(excluded.dew_point_c, dew_point_c),
+                precipitation_mm=COALESCE(excluded.precipitation_mm, precipitation_mm)
             """,
             row,
         )

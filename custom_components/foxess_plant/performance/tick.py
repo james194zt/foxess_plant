@@ -264,7 +264,11 @@ async def async_init_performance_store(coordinator: Any) -> None:
     await _async_restore_day_state(coordinator, store)
     from .backfill import async_backfill_intraday_from_recorder
 
-    await async_backfill_intraday_from_recorder(coordinator)
+    try:
+        await async_backfill_intraday_from_recorder(coordinator)
+    except Exception:
+        # Filling old gaps is a nicety: never let it stop the recorder from starting
+        _LOGGER.exception("Performance backfill from the recorder failed")
 
 
 async def _async_restore_day_state(coordinator: Any, store: PerformanceStore) -> None:

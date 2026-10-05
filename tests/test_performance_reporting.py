@@ -156,6 +156,19 @@ class FinancialTests(unittest.TestCase):
 
 
 class PerformanceStoreTests(unittest.TestCase):
+    def test_partial_sample_insert_and_update_keeps_stored_values(self) -> None:
+        # The backfill writes only the fields it has statistics for; sqlite used to refuse that outright
+        with tempfile.TemporaryDirectory() as tmp:
+            s = store_mod.PerformanceStore(Path(tmp) / "perf.db")
+            s.init_schema()
+            s.insert_intraday_sample({"ts": "2026-10-05T10:00:00+01:00", "pv_power_kw": 1.2, "wind_speed_ms": 3.0})
+            s.insert_intraday_sample({"ts": "2026-10-05T10:00:00+01:00", "pv_power_kw": 1.4})
+            rows = s.list_intraday_samples("2026-10-05T00:00:00", "2026-10-05T23:59:59")
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["pv_power_kw"], 1.4)
+            self.assertEqual(rows[0]["wind_speed_ms"], 3.0)  # not blanked by the second write
+            self.assertIsNone(rows[0]["net_grid_power_kw"])
+
     def test_day_state_roundtrip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             s = store_mod.PerformanceStore(Path(tmp) / "perf.db")

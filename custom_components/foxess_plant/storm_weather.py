@@ -861,6 +861,8 @@ def build_cloud_coverage_points(
     """Resampled Google Weather cloud coverage (%), for forecast vs production charts."""
     if not weather_entity_id:
         return []
+    from datetime import datetime
+
     from homeassistant.util import dt as dt_util
 
     end_ms = float(min(as_of_ms, t_max_ms if t_max_ms is not None else as_of_ms))
@@ -870,8 +872,8 @@ def build_cloud_coverage_points(
 
     merged: dict[int, float] = {}
     if end_ms > day_start_ms:
-        window_start = dt_util.as_local(dt_util.utc_from_timestamp(day_start_ms / 1000))
-        window_end = dt_util.as_local(dt_util.utc_from_timestamp(end_ms / 1000))
+        window_start = dt_util.as_local(datetime.fromtimestamp(day_start_ms / 1000, tz=dt_util.UTC))
+        window_end = dt_util.as_local(datetime.fromtimestamp(end_ms / 1000, tz=dt_util.UTC))
         for t_ms, pct in _cloud_samples_from_recorder(
             hass, weather_entity_id, window_start, window_end
         ):

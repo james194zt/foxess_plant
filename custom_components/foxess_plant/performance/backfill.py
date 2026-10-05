@@ -16,8 +16,19 @@ from ..performance_chart import (
 
 _LOGGER = logging.getLogger(__name__)
 
-MIN_SAMPLES_PER_DAY = 6
 BACKFILL_DAYS = 7
+SAMPLE_MINUTES = 5
+
+
+def _needs_backfill(existing_count: int, day_start: datetime, now: datetime) -> bool:
+    """Fewer than half the 5-minute samples the day should have so far.
+
+    Days backfilled while the statistics lookup was (wrongly) hourly have ~24 rows; this lets them refill at
+    5-minute detail.
+    """
+    elapsed_min = max(0.0, (min(now, day_start + timedelta(days=1)) - day_start).total_seconds() / 60)
+    expected = int(elapsed_min // SAMPLE_MINUTES)
+    return existing_count < expected // 2
 
 _FIELD_FROM_KIND = {
     "pv_power_kw": "pv_power_kw",
@@ -41,7 +52,7 @@ def _day_bounds(target_day: date) -> tuple[datetime, datetime]:
 
 
 def _bucket_key(t_ms: float) -> str:
-    dt_local = dt_util.as_local(dt_util.utc_from_timestamp(t_ms / 1000.0))
+    dt_local = dt_util.as_local(datetime.fromtimestamp(t_ms / 1000.0, tz=dt_util.UTC))
     rounded = dt_local.replace(second=0, microsecond=0)
     minute = (rounded.minute // 5) * 5
     rounded = rounded.replace(minute=minute)
@@ -65,7 +76,7 @@ async def async_backfill_intraday_from_recorder(coordinator: Any) -> int:
         target_day = today - timedelta(days=offset)
         day_start, day_end = _day_bounds(target_day)
         existing = store.list_intraday_samples(day_start.isoformat(), day_end.isoformat())
-        if len(existing) >= MIN_SAMPLES_PER_DAY:
+        if not _needs_backfill(len(existing), day_start, dt_util.now()):
             continue
 
         entity_ids: list[str] = []
@@ -99,7 +110,15 @@ async def async_backfill_intraday_from_recorder(coordinator: Any) -> int:
                 bucket = buckets.setdefault(key, {"ts": key})
                 bucket[field] = point["v"]
 
+        # Leave 5-minute slots that already have a sample (live samples are stamped to the minute)
+        taken = set()
+        for sample in existing:
+            parsed = dt_util.parse_datetime(str(sample.get("ts") or ""))
+            if parsed is not None:
+                taken.add(_bucket_key(parsed.timestamp() * 1000))
         for row in buckets.values():
+            if row.get("ts") in taken:
+                continue
             if row.get("ts") and any(k != "ts" for k in row):
                 store.insert_intraday_sample(row)
                 inserted += 1

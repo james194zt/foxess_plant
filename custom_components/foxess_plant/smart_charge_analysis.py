@@ -300,7 +300,7 @@ def collect_plan_snapshots(
         if sig in seen_sigs:
             continue
         seen_sigs.add(sig)
-        anchor = dt_util.as_local(dt_util.utc_from_timestamp(t_ms / 1000))
+        anchor = dt_util.as_local(datetime.fromtimestamp(t_ms / 1000, tz=dt_util.UTC))
         snapshots.append(
             {
                 "captured_ms": t_ms,
@@ -382,13 +382,13 @@ def build_daily_chart(
     by_day: dict[str, dict[str, float]] = {}
 
     def day_key(ms: float) -> str:
-        d = dt_util.as_local(dt_util.utc_from_timestamp(ms / 1000))
+        d = dt_util.as_local(datetime.fromtimestamp(ms / 1000, tz=dt_util.UTC))
         return d.strftime("%Y-%m-%d")
 
-    cursor = dt_util.as_local(dt_util.utc_from_timestamp(range_start_ms / 1000)).replace(
+    cursor = dt_util.as_local(datetime.fromtimestamp(range_start_ms / 1000, tz=dt_util.UTC)).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
-    end_local = dt_util.as_local(dt_util.utc_from_timestamp(range_end_ms / 1000))
+    end_local = dt_util.as_local(datetime.fromtimestamp(range_end_ms / 1000, tz=dt_util.UTC))
     while cursor <= end_local:
         by_day[cursor.strftime("%Y-%m-%d")] = {
             "import_actual_kwh": 0.0,
