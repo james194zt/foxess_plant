@@ -1906,7 +1906,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         saved_work_mode = self.plant.override.saved_work_mode
         self.plant.override = OverrideState()
         await self._persist()
-        await self._sync_storm_on_inverter()
         await self._restore_after_automation_disarm(
             saved_max_soc=saved_max_soc,
             saved_work_mode=saved_work_mode,
@@ -2711,6 +2710,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         saved_max_soc: float | None,
         saved_work_mode: str | None,
     ) -> None:
+        # Every disarm path comes through here: take a prep hold slot off the inverter straight away
+        await self._sync_storm_on_inverter()
         await self._clear_remote_control_for_restore()
         await self.async_apply_desired()
         if saved_max_soc is not None:
