@@ -2654,7 +2654,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._set_work_mode(saved_work_mode)
 
     def _hardware_max_soc_supported(self) -> bool:
-        return self.plant.virtual_soc.hardware_max_supported is not False
+        return not emulate_max_soc(self)
 
     async def _set_max_soc(self, value: float) -> None:
         if not self._hardware_max_soc_supported():

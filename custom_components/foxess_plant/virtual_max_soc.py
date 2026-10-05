@@ -77,6 +77,9 @@ def pick_feed_in_work_mode(options: list[str] | None) -> str | None:
 
 def emulate_max_soc(coordinator: FoxESSPlantCoordinator) -> bool:
     """True when system max is enforced in software (hardware register 46610 unavailable)."""
+    if (getattr(coordinator.plant, "entity_map", None) or {}).get("max_soc_from_grid"):
+        # EVO with the 46620 entity: Max SoC is writable once Max SoC From Grid is lowered first
+        return False
     hw = coordinator.plant.virtual_soc.hardware_max_supported
     if hw is True:
         return False

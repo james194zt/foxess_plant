@@ -22,6 +22,7 @@ SOC_LABELS = {
     "min_soc": "Off-grid Min. SOC",
     "min_soc_on_grid": "System Min. SOC",
     "max_soc": "System Max. SOC",
+    "max_soc_from_grid": "Max SOC From Grid",
 }
 
 # Physical holding registers: 46609=off-grid min, 46610=max, 46611=system min.
@@ -45,23 +46,13 @@ class SocWriteResult:
 
 _ILLEGAL_VALUE_HINT = (
     "Modbus rejected an SOC limit write (EVO/H3 Pro: 46609 off-grid min, 46610 max, 46611 system min). "
-    "On EVO write all three limits as single registers in order: off-grid min, system min, then max. "
-    "The inverter also requires off-grid min ≤ system min ≤ max. "
-    "Disable FoxESS Modbus Remote Control and close the Fox app before saving."
-)
-
-_EVO_MAX_SOC_UNSUPPORTED = (
-    "System max SOC cannot be changed on this EVO — Modbus register 46610 is read-only and "
-    "Fox Cloud returns API 42015 (feature not supported). Off-grid min and system min were saved. "
-    "Set system max in the Fox web portal installer settings, or cap charging using "
-    "FoxESS Modbus charge periods / max charge current automations instead."
+    "The inverter requires off-grid min ≤ system min ≤ max."
 )
 
 _EVO_MAX_SOC_BLOCKED_HINT = (
-    "System max (register 46610) was rejected by the EVO inverter. Off-grid min and system min were saved. "
-    "Fox Plant tries Fox Cloud MaxSoc and scheduler maxSoc when Modbus fails. "
-    "If you see API 42015, this EVO does not expose system max via the Open API — use the Fox web portal "
-    "(installer settings) or charge-period / max-current workarounds instead."
+    "System max (register 46610) was rejected by the EVO. It can't be set below Max SOC From Grid "
+    "(46620) — check the Max SoC From Grid entity in FoxESS Modbus is available so Fox Plant can "
+    "lower it first."
 )
 
 _VERIFY_FAIL_HINT = (
@@ -377,6 +368,8 @@ def _build_soc_results(
 ) -> list[dict[str, Any]]:
     """One Fox-app-style row per limit, in display order."""
     rows: list[dict[str, Any]] = []
+    # Extra steps (e.g. EVO Max SOC From Grid) are shown first, in the order they were written
+    rows.extend(result.to_dict() for key, result in outcomes.items() if key not in SOC_DISPLAY_ORDER)
     for key in SOC_DISPLAY_ORDER:
         if key in outcomes:
             rows.append(outcomes[key].to_dict())
@@ -476,6 +469,16 @@ def _soc_targets_match(target: dict[str, int], current: dict[str, int]) -> bool:
     return all(current.get(key) == target[key] for key in SOC_KEYS)
 
 
+def _max_soc_from_grid_step(
+    hass: HomeAssistant, entity_map: dict[str, str], target_max: int
+) -> tuple[str, int] | None:
+    """EVO: Max SoC (46610) can't go below Max SoC From Grid (46620). Lower 46620 first when needed."""
+    current = _read_soc_key(hass, entity_map, "max_soc_from_grid")
+    if current is None or current <= target_max:
+        return None
+    return ("max_soc_from_grid", target_max)
+
+
 async def _apply_contiguous_soc_writes(
     hass: HomeAssistant,
     entity_map: dict[str, str],
@@ -488,11 +491,19 @@ async def _apply_contiguous_soc_writes(
 ) -> list[dict[str, Any]]:
     """EVO/H3 Pro: FC6 writes for 46609, 46611, 46610 — always in min → system min → max order."""
     is_evo = device_is_evo(hass, device_id, entity_map)
+    seq_current = read_soc_current(hass, entity_map)
     if emulate_max_soc:
-        seq_current = read_soc_current(hass, entity_map)
         write_steps = compute_evo_min_write_steps(target, seq_current)
+    elif len(seq_current) == len(SOC_KEYS):
+        # Order the writes so min <= system min <= max holds after every step
+        write_steps = compute_soc_write_sequence(target, seq_current)
     else:
         write_steps = [(key, target[key]) for key in EVO_SOC_WRITE_ORDER]
+    from_grid_step = _max_soc_from_grid_step(hass, entity_map, target["max_soc"]) if is_evo else None
+    if from_grid_step is not None and not emulate_max_soc:
+        # The EVO refuses a Max SoC below Max SoC From Grid (46620), so lower that first
+        max_index = next((i for i, (key, _) in enumerate(write_steps) if key == "max_soc"), len(write_steps))
+        write_steps.insert(max_index, from_grid_step)
 
     needs_prepare = False
     for key, value in write_steps:
