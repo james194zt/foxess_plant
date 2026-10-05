@@ -128,86 +128,73 @@ def _string_voltage_v(coordinator: Any) -> float | None:
     return round(sum(vals) / len(vals), 1)
 
 
-def _resolve_virtual_panel_temp(
+MIN_PV_KW_FOR_TEMP = 0.05  # below this there's too little sun to say anything about panel heating
+
+
+def effective_ac_limit_kw(coordinator: Any) -> float:
+    """Inverter AC rating: the setting, unless it's still the old 4.3 kW default and the model name gives it."""
+    from ..inverter_schedule import evo_rated_power_w
+
+    configured = float(coordinator.plant.performance.inverter_ac_limit_kw or 0)
+    if configured and abs(configured - 4.3) > 1e-6:
+        return configured
+    rated = evo_rated_power_w(coordinator._entity_state("pcs_model_name")) if hasattr(coordinator, "_entity_state") else None
+    return rated / 1000.0 if rated else (configured or 4.3)
+
+
+def _model_panel_temp(
     coordinator: Any,
     *,
-    string_v: float | None,
     pv_kw: float | None,
     ambient: float | None,
-) -> float | None:
-    """Estimate panel temp; auto-seed baseline when stored baseline rejects live V."""
-    from .virtual_panel_temp import (
-        MIN_PV_KW_FOR_TEMP,
-        compute_virtual_panel_temp_c,
-        suggest_baseline_v_at_25c,
-        voltage_out_of_baseline_band,
-    )
+    wind_ms: float | None,
+    solcast_kw: float | None,
+    ac_limit_kw: float,
+) -> tuple[float | None, float | None]:
+    """(panel temperature, the same in still air) from the datasheet model (panel_temp.py)."""
+    from .panel_temp import ArrayThermal, plant_panel_temp_c, still_air_temp_c
 
-    cfg = coordinator.plant.performance
-    baseline = float(cfg.baseline_v_at_25c)
-    coeff = float(cfg.temp_coefficient_v_per_c)
-    ac_limit = cfg.inverter_ac_limit_kw
+    if ambient is None or pv_kw is None or pv_kw < MIN_PV_KW_FOR_TEMP:
+        return None, None
+    pv_config = coordinator.plant.pv_config
+    strings = [(cfg, key) for cfg, key in ((pv_config.pv1, "pv1_power"), (pv_config.pv2, "pv2_power")) if cfg.enabled]
+    if not strings:
+        return None, None
+    measured = [_entity_power_kw(coordinator, key) for _, key in strings]
+    total_stc = sum(cfg.effective_dc_w for cfg, _ in strings) or 1.0
+    if any(power is None for power in measured):
+        # No per-string reading: share the total by array size
+        measured = [pv_kw * cfg.effective_dc_w / total_stc for cfg, _ in strings]
 
-    virtual_temp = compute_virtual_panel_temp_c(
-        string_voltage_v=string_v,
-        pv_power_kw=pv_kw,
-        baseline_v_at_25c=baseline,
-        temp_coefficient_v_per_c=coeff,
-        inverter_ac_limit_kw=ac_limit,
-        ambient_temp_c=ambient,
-    )
-    # Ambient clamp can reject a usable estimate when outdoor mapping is off —
-    # retry without ambient before giving up on seeding.
-    if virtual_temp is None and ambient is not None and string_v is not None and pv_kw is not None:
-        virtual_temp = compute_virtual_panel_temp_c(
-            string_voltage_v=string_v,
-            pv_power_kw=pv_kw,
-            baseline_v_at_25c=baseline,
-            temp_coefficient_v_per_c=coeff,
-            inverter_ac_limit_kw=ac_limit,
-            ambient_temp_c=None,
+    # When output is held back (battery full with nowhere to send it, or the inverter at its limit) the panels
+    # still get the full sun: use Solcast's estimate of what they could make instead
+    soc = coordinator._entity_float("battery_soc") if hasattr(coordinator, "_entity_float") else None
+    limited = (soc is not None and soc >= 98.0) or pv_kw >= 0.97 * ac_limit_kw
+    if limited and solcast_kw and solcast_kw > pv_kw > 0:
+        measured = [power * solcast_kw / pv_kw for power in measured]
+
+    arrays = [
+        (
+            ArrayThermal(
+                stc_kw=cfg.effective_dc_w / 1000.0,
+                noct_c=cfg.noct_c,
+                power_temp_coeff_pct=cfg.power_temp_coeff_pct,
+                mounting=cfg.mounting,
+            ),
+            float(power or 0.0),
         )
-    if virtual_temp is not None or string_v is None or pv_kw is None:
-        return virtual_temp
-    if float(pv_kw) < MIN_PV_KW_FOR_TEMP:
-        return None
-    # Stored baseline incompatible with live string voltage — re-seed from Vmp.
-    if not voltage_out_of_baseline_band(live_v=float(string_v), baseline_v=baseline):
-        return None
-
-    seeded = suggest_baseline_v_at_25c(
-        string_voltage_v=float(string_v),
-        ambient_temp_c=ambient,
-        pv_power_kw=float(pv_kw),
-        inverter_ac_limit_kw=ac_limit,
-        temp_coefficient_v_per_c=coeff,
+        for (cfg, _), power in zip(strings, measured)
+    ]
+    return (
+        plant_panel_temp_c(arrays, air_c=ambient, wind_ms=wind_ms),
+        still_air_temp_c(arrays, air_c=ambient),
     )
-    if seeded is None:
-        return None
-
-    virtual_temp = compute_virtual_panel_temp_c(
-        string_voltage_v=string_v,
-        pv_power_kw=pv_kw,
-        baseline_v_at_25c=seeded,
-        temp_coefficient_v_per_c=coeff,
-        inverter_ac_limit_kw=ac_limit,
-        ambient_temp_c=ambient,
-    )
-    if virtual_temp is None:
-        return None
-
-    # Persist factory placeholder or any baseline that was clearly wrong (>5%).
-    if abs(seeded - baseline) >= max(1.0, abs(baseline) * 0.05):
-        cfg.baseline_v_at_25c = seeded
-        coordinator._performance_baseline_autoseed = seeded
-    return virtual_temp
 
 
 def collect_performance_sample(coordinator: Any) -> PerformanceSample:
     from .clipping import compute_clipping_loss_kw
     from .weather import read_weather_metrics
 
-    cfg = coordinator.plant.performance
     pv_kw = _entity_power_kw(coordinator, "pv_power")
     if pv_kw is None:
         for key in ("pv1_power", "pv_power_total"):
@@ -232,12 +219,6 @@ def collect_performance_sample(coordinator: Any) -> PerformanceSample:
 
     string_v = _string_voltage_v(coordinator)
     ambient = _ambient_temp_c(coordinator.hass, coordinator)
-    virtual_temp = _resolve_virtual_panel_temp(
-        coordinator,
-        string_v=string_v,
-        pv_kw=pv_kw,
-        ambient=ambient,
-    )
 
     weather = read_weather_metrics(coordinator.hass, coordinator)
     coordinator._last_weather_sources = weather.get("sources")
@@ -250,13 +231,24 @@ def collect_performance_sample(coordinator: Any) -> PerformanceSample:
     elif solcast_state.get("pv_power_now_kw") is not None:
         solcast_kw = float(solcast_state["pv_power_now_kw"])
 
+    ac_limit_kw = effective_ac_limit_kw(coordinator)
+    virtual_temp, still_air_temp = _model_panel_temp(
+        coordinator,
+        pv_kw=pv_kw,
+        ambient=ambient,
+        wind_ms=weather.get("wind_speed_ms"),
+        solcast_kw=solcast_kw,
+        ac_limit_kw=ac_limit_kw,
+    )
+    coordinator._panel_temp_still_air_c = still_air_temp
+
     recent_peak = float(coordinator._performance_recent_peak_kw or 0.0)
     if pv_kw is not None:
         coordinator._performance_recent_peak_kw = max(recent_peak, pv_kw)
 
     clipping = compute_clipping_loss_kw(
         pv_power_kw=pv_kw,
-        inverter_ac_limit_kw=cfg.inverter_ac_limit_kw,
+        inverter_ac_limit_kw=ac_limit_kw,
         recent_peak_kw=coordinator._performance_recent_peak_kw,
     )
 

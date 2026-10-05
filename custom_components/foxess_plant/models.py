@@ -661,6 +661,9 @@ class PanelDisplayConfig:
         return {"forecast_entity_id": self.forecast_entity_id}
 
 
+PV_MOUNTINGS = ("open_rack", "roof_gap", "in_roof")
+
+
 @dataclass
 class PvStringConfig:
     """Physical PV string settings for analysis and forecasting."""
@@ -671,6 +674,10 @@ class PvStringConfig:
     efficiency_factor: float = 100.0
     tilt: int = 25
     azimuth: int = 180
+    # From the panel datasheet, for the panel temperature model (performance/panel_temp.py)
+    noct_c: float = 45.0  # Nominal Operating Cell Temperature
+    power_temp_coeff_pct: float = -0.30  # Pmax temperature coefficient, %/°C
+    mounting: str = "roof_gap"  # open_rack | roof_gap | in_roof
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], *, defaults: dict[str, Any] | None = None) -> PvStringConfig:
@@ -703,6 +710,17 @@ class PvStringConfig:
             azimuth = 180
         tilt = max(0, min(90, tilt))
         azimuth = max(0, min(359, azimuth))
+
+        def _float(key: str, default: float, low: float, high: float) -> float:
+            try:
+                value = float(data.get(key, base.get(key, default)))
+            except (TypeError, ValueError):
+                value = default
+            return max(low, min(high, value))
+
+        mounting = str(data.get("mounting", base.get("mounting", "roof_gap")) or "roof_gap")
+        if mounting not in PV_MOUNTINGS:
+            mounting = "roof_gap"
         return cls(
             enabled=bool(data.get("enabled", base.get("enabled", True))),
             panel_count=panel_count,
@@ -710,6 +728,9 @@ class PvStringConfig:
             efficiency_factor=efficiency_factor,
             tilt=tilt,
             azimuth=azimuth,
+            noct_c=_float("noct_c", 45.0, 35.0, 60.0),
+            power_temp_coeff_pct=_float("power_temp_coeff_pct", -0.30, -0.6, -0.1),
+            mounting=mounting,
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -720,6 +741,9 @@ class PvStringConfig:
             "efficiency_factor": self.efficiency_factor,
             "tilt": self.tilt,
             "azimuth": self.azimuth,
+            "noct_c": round(self.noct_c, 1),
+            "power_temp_coeff_pct": round(self.power_temp_coeff_pct, 3),
+            "mounting": self.mounting,
         }
 
     @property

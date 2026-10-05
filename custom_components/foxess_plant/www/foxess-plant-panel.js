@@ -198,6 +198,9 @@ function smartChargeOwnsPlantControls(plantState) {
 }
 
 const DEFAULT_PV_STRING = {
+  noct_c: 45,
+  power_temp_coeff_pct: -0.3,
+  mounting: "roof_gap",
   enabled: true,
   panel_count: 6,
   watts_per_panel: 450,
@@ -885,6 +888,12 @@ function foxWorkModeDisplay(label) {
   return s;
 }
 
+const PV_MOUNTINGS = {
+  open_rack: "Open rack / ground mount (free air behind)",
+  roof_gap: "On the roof, a few cm above the tiles",
+  in_roof: "In-roof (integrated, little air behind)",
+};
+
 function normalizePvString(raw, defaults) {
   const base = defaults || DEFAULT_PV_STRING;
   const src = raw && typeof raw === "object" ? raw : {};
@@ -903,6 +912,14 @@ function normalizePvString(raw, defaults) {
   let azimuth = parseInt(src.azimuth, 10);
   if (!Number.isFinite(azimuth)) azimuth = base.azimuth ?? 180;
   azimuth = Math.max(0, Math.min(359, azimuth));
+  // Panel datasheet values for the panel temperature model
+  let noct = parseFloat(src.noct_c);
+  if (!Number.isFinite(noct)) noct = base.noct_c ?? 45;
+  noct = Math.max(35, Math.min(60, noct));
+  let gamma = parseFloat(src.power_temp_coeff_pct);
+  if (!Number.isFinite(gamma)) gamma = base.power_temp_coeff_pct ?? -0.3;
+  gamma = Math.max(-0.6, Math.min(-0.1, gamma));
+  const mounting = PV_MOUNTINGS[src.mounting] ? src.mounting : base.mounting ?? "roof_gap";
   return {
     enabled: Boolean(src.enabled ?? base.enabled),
     panel_count: panelCount,
@@ -910,6 +927,9 @@ function normalizePvString(raw, defaults) {
     efficiency_factor: eff,
     tilt,
     azimuth,
+    noct_c: noct,
+    power_temp_coeff_pct: gamma,
+    mounting,
   };
 }
 
@@ -19537,6 +19557,14 @@ Reloading panel registration…
         cfg.efficiency_factor = Math.max(1, Math.min(100, v));
         if (e.type === "change") this._scheduleRender();
         return;
+      } else if (field === "noct_c" || field === "power_temp_coeff_pct") {
+        const v = parseFloat(String(el.value).trim());
+        if (!Number.isFinite(v)) return;
+        cfg[field] = field === "noct_c" ? Math.max(35, Math.min(60, v)) : Math.max(-0.6, Math.min(-0.1, v));
+        return;
+      } else if (field === "mounting") {
+        if (PV_MOUNTINGS[el.value]) cfg.mounting = el.value;
+        return;
       } else if (field === "tilt") {
         cfg.tilt = Math.max(0, Math.min(90, parseInt(el.value, 10) || 25));
       } else if (field === "azimuth") {
@@ -24202,6 +24230,20 @@ ${effHint}
 </div>
 ${this._renderPvTiltAzimuthFields(which)}
 <p class="field-hint" style="margin-top:4px">Nameplate ${esc(nameplateKw)} kW DC · Effective ${esc(effectiveKw)} kW (after efficiency)</p>
+<details class="pv-datasheet">
+<summary>Panel datasheet &amp; mounting (for panel temperature)</summary>
+<div class="field"><label>NOCT (°C)</label>
+<input type="number" class="pv-eff-input" min="35" max="60" step="0.5" data-field="pv:${which}:noct_c" value="${esc(String(cfg.noct_c ?? 45))}" ${disabled ? "disabled" : ""}>
+<p class="field-hint">Nominal Operating Cell Temperature from the panel datasheet (often 42–47 °C).</p></div>
+<div class="field"><label>Power temperature coefficient (%/°C)</label>
+<input type="number" class="pv-eff-input" min="-0.6" max="-0.1" step="0.01" data-field="pv:${which}:power_temp_coeff_pct" value="${esc(String(cfg.power_temp_coeff_pct ?? -0.3))}" ${disabled ? "disabled" : ""}>
+<p class="field-hint">&ldquo;Temperature coefficient of Pmax&rdquo; on the datasheet, e.g. −0.30.</p></div>
+<div class="field"><label>Mounting</label>
+<select data-field="pv:${which}:mounting" ${disabled ? "disabled" : ""}>${Object.entries(PV_MOUNTINGS)
+  .map(([value, label]) => `<option value="${value}" ${cfg.mounting === value ? "selected" : ""}>${esc(label)}</option>`)
+  .join("")}</select>
+<p class="field-hint">Panels with less air behind them run hotter in the same sun.</p></div>
+</details>
 </div>
 </div>`;
   }

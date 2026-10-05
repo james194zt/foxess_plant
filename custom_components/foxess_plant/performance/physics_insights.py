@@ -31,28 +31,14 @@ def _wind_at(t_ms: float, wind: list[dict[str, float]]) -> float | None:
     return nearest["v"]
 
 
-def _wind_cooling_insight(
-    temp: list[dict[str, float]],
-    wind: list[dict[str, float]],
-) -> str | None:
-    if len(temp) < 4 or len(wind) < 4:
+def _wind_cooling_insight(wind_cooling_c: float | None) -> str | None:
+    """How much cooler the wind is keeping the panels than still air would, from the panel temperature model.
+
+    (Comparing windy and calm readings instead mostly compares cloudy and sunny ones.)
+    """
+    if wind_cooling_c is None or wind_cooling_c < 2.0:
         return None
-    windy_temps: list[float] = []
-    calm_temps: list[float] = []
-    for pt in temp:
-        w = _wind_at(pt["t"], wind)
-        if w is None:
-            continue
-        if w >= 4.0:
-            windy_temps.append(pt["v"])
-        elif w <= 2.0:
-            calm_temps.append(pt["v"])
-    if len(windy_temps) < 2 or len(calm_temps) < 2:
-        return None
-    delta = (sum(calm_temps) / len(calm_temps)) - (sum(windy_temps) / len(windy_temps))
-    if delta < 3.0:
-        return None
-    return f"Wind cooling: panels ~{delta:.0f}°C cooler when wind > 4 m/s"
+    return f"Wind cooling: panels ~{wind_cooling_c:.0f}°C cooler than in still air right now"
 
 
 def _cloud_flush_insight(
@@ -154,10 +140,10 @@ def build_intraday_physics_insights(
     series: dict[str, list[dict[str, Any]]],
     *,
     ac_limit_kw: float,
+    wind_cooling_c: float | None = None,
 ) -> list[str]:
     """Return human-readable physics insights for a performance day chart."""
     temp = _sorted_points(series.get("virtual_panel_temp_c"))
-    wind = _sorted_points(series.get("wind_speed_ms"))
     pv = _sorted_points(series.get("pv_power_kw"))
     clip = _sorted_points(series.get("clipping_loss_kw"))
     visibility = _sorted_points(series.get("visibility_km"))
@@ -167,7 +153,7 @@ def build_intraday_physics_insights(
 
     insights: list[str] = []
     for note in (
-        _wind_cooling_insight(temp, wind),
+        _wind_cooling_insight(wind_cooling_c),
         _cloud_flush_insight(temp, pv, ac_limit_kw=ac_limit_kw),
         _clipping_insight(clip, ac_limit_kw=ac_limit_kw),
         _haze_insight(visibility, pv, solcast),

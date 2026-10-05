@@ -22,7 +22,7 @@ def _load_module(name: str, relative: str):
     return module
 
 
-virtual_temp = _load_module("perf_virtual_temp", "performance/virtual_panel_temp.py")
+panel_temp = _load_module("perf_panel_temp", "performance/panel_temp.py")
 clipping = _load_module("perf_clipping", "performance/clipping.py")
 financial = _load_module("perf_financial", "performance/financial.py")
 store_mod = _load_module("perf_store", "performance/store.py")
@@ -41,114 +41,40 @@ sys.modules["foxess_plant.tariff_currency"] = _load_module(
 models = _load_module("foxess_plant.models", "models.py")
 
 
-class VirtualPanelTempTests(unittest.TestCase):
-    def test_cold_panel_above_baseline_voltage(self) -> None:
-        temp = virtual_temp.compute_virtual_panel_temp_c(
-            string_voltage_v=408.0,
-            pv_power_kw=2.0,
-            baseline_v_at_25c=400.0,
-            temp_coefficient_v_per_c=-0.003,
-        )
-        self.assertIsNotNone(temp)
-        assert temp is not None
-        self.assertLess(temp, 25.0)
+class PanelTempTests(unittest.TestCase):
+    """Datasheet (NOCT) panel temperature model, extended for wind and mounting."""
 
-    def test_hot_panel_below_baseline_voltage(self) -> None:
-        temp = virtual_temp.compute_virtual_panel_temp_c(
-            string_voltage_v=392.0,
-            pv_power_kw=3.0,
-            baseline_v_at_25c=400.0,
-            temp_coefficient_v_per_c=-0.003,
-        )
-        self.assertIsNotNone(temp)
-        assert temp is not None
-        self.assertGreater(temp, 25.0)
+    def _array(self, mounting: str = "open_rack", noct: float = 45.0):
+        return panel_temp.ArrayThermal(stc_kw=4.5, noct_c=noct, power_temp_coeff_pct=-0.30, mounting=mounting)
 
-    def test_none_when_pv_idle(self) -> None:
-        self.assertIsNone(
-            virtual_temp.compute_virtual_panel_temp_c(
-                string_voltage_v=400.0,
-                pv_power_kw=0.05,
-                baseline_v_at_25c=400.0,
-            )
-        )
+    def test_matches_the_datasheet_noct_conditions(self) -> None:
+        # NOCT is defined at 800 W/m2, 20 C air, 1 m/s wind, open rack
+        temp = panel_temp.cell_temp_c(self._array(), air_c=20.0, irradiance_w_m2=800.0, wind_ms=1.0)
+        self.assertAlmostEqual(temp, 45.0, places=1)
 
-    def test_none_at_dawn_weak_power(self) -> None:
-        # 393 W is below the 0.5 kW floor.
-        self.assertIsNone(
-            virtual_temp.compute_virtual_panel_temp_c(
-                string_voltage_v=330.0,
-                pv_power_kw=0.393,
-                baseline_v_at_25c=400.0,
-                inverter_ac_limit_kw=10.0,
-            )
-        )
+    def test_roof_mounted_runs_hotter_than_open_rack(self) -> None:
+        open_rack = panel_temp.cell_temp_c(self._array(), air_c=25.0, irradiance_w_m2=1000.0, wind_ms=1.0)
+        roof = panel_temp.cell_temp_c(self._array("roof_gap"), air_c=25.0, irradiance_w_m2=1000.0, wind_ms=1.0)
+        self.assertAlmostEqual(open_rack, 56.25, places=1)
+        self.assertGreater(roof, 65.0)  # calm full summer sun on a roof
 
-    def test_allows_morning_power_on_large_inverter(self) -> None:
-        # Must not require 12% of a 10 kW AC limit (~1.2 kW) — 0.6 kW is enough.
-        temp = virtual_temp.compute_virtual_panel_temp_c(
-            string_voltage_v=396.0,
-            pv_power_kw=0.6,
-            baseline_v_at_25c=400.0,
-            inverter_ac_limit_kw=10.0,
-        )
-        self.assertIsNotNone(temp)
+    def test_wind_cools(self) -> None:
+        calm = panel_temp.cell_temp_c(self._array("roof_gap"), air_c=25.0, irradiance_w_m2=1000.0, wind_ms=0.0)
+        windy = panel_temp.cell_temp_c(self._array("roof_gap"), air_c=25.0, irradiance_w_m2=1000.0, wind_ms=5.0)
+        self.assertGreater(calm - windy, 15.0)
 
-    def test_none_when_voltage_far_below_baseline(self) -> None:
-        # Classic miscalibration: Voc-ish baseline vs loaded Vmp (~18% lower).
-        self.assertIsNone(
-            virtual_temp.compute_virtual_panel_temp_c(
-                string_voltage_v=328.0,
-                pv_power_kw=2.5,
-                baseline_v_at_25c=400.0,
-            )
-        )
+    def test_irradiance_from_output(self) -> None:
+        # 4.5 kWp array making 4.0 kW on a 25 C calm day: sunlight above 1000 W/m2 once heat losses are allowed for
+        irradiance, temp = panel_temp.irradiance_and_temp(self._array("roof_gap"), dc_kw=4.0, air_c=25.0, wind_ms=1.0)
+        self.assertGreater(irradiance, 900.0)
+        self.assertGreater(temp, 60.0)
 
-    def test_none_when_exceeds_ambient_rise(self) -> None:
-        # ~12% below baseline → ~65°C; ambient 16°C cannot support that rise.
-        self.assertIsNone(
-            virtual_temp.compute_virtual_panel_temp_c(
-                string_voltage_v=352.0,
-                pv_power_kw=2.5,
-                baseline_v_at_25c=400.0,
-                ambient_temp_c=16.0,
-            )
-        )
-
-    def test_none_when_would_hit_clamp(self) -> None:
-        # Softer coeff lets a mid-band voltage delta hit the old 85°C ceiling.
-        self.assertIsNone(
-            virtual_temp.compute_virtual_panel_temp_c(
-                string_voltage_v=352.0,
-                pv_power_kw=3.0,
-                baseline_v_at_25c=400.0,
-                temp_coefficient_v_per_c=-0.002,
-            )
-        )
-
-    def test_suggest_baseline_recovers_factory_mismatch(self) -> None:
-        # Live ~328 V vs factory 400 V — seed a plant-specific baseline.
-        seeded = virtual_temp.suggest_baseline_v_at_25c(
-            string_voltage_v=328.0,
-            ambient_temp_c=18.0,
-            pv_power_kw=0.877,
-            inverter_ac_limit_kw=4.3,
-        )
-        self.assertIsNotNone(seeded)
-        assert seeded is not None
-        self.assertGreater(seeded, 300.0)
-        self.assertLess(seeded, 360.0)
-        temp = virtual_temp.compute_virtual_panel_temp_c(
-            string_voltage_v=328.0,
-            pv_power_kw=0.877,
-            baseline_v_at_25c=seeded,
-            inverter_ac_limit_kw=4.3,
-            ambient_temp_c=18.0,
-        )
-        self.assertIsNotNone(temp)
-        assert temp is not None
-        self.assertGreater(temp, 18.0)
-        self.assertLess(temp, 45.0)
+    def test_weighted_across_arrays_and_no_air_temperature(self) -> None:
+        arrays = [(self._array(), 2.0), (self._array("roof_gap"), 2.0)]
+        both = panel_temp.plant_panel_temp_c(arrays, air_c=20.0, wind_ms=1.0)
+        self.assertIsNotNone(both)
+        self.assertIsNone(panel_temp.plant_panel_temp_c(arrays, air_c=None, wind_ms=1.0))
+        self.assertGreater(panel_temp.still_air_temp_c(arrays, air_c=20.0), both)
 
 
 class ClippingTests(unittest.TestCase):

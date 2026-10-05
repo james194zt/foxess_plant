@@ -354,34 +354,21 @@ def _virtual_panel_temp_from_inverter_history(
     start_utc: datetime,
     end_utc: datetime,
 ) -> list[dict[str, float]]:
-    """Rebuild virtual panel °C from PV voltage + power history when samples are empty."""
+    """Rebuild panel °C from PV power, outdoor temperature and wind history when samples are empty.
+
+    Uses the same datasheet model as the live figure (performance/panel_temp.py).
+    """
     from .discovery import resolve_entity_id
-    from .performance.virtual_panel_temp import (
-        compute_virtual_panel_temp_c,
-        suggest_baseline_v_at_25c,
-        voltage_out_of_baseline_band,
-    )
+    from .performance.panel_temp import ArrayThermal, plant_panel_temp_c
     from .websocket_api import _fetch_history_points, _fetch_statistics_points
 
     cfg = coordinator.plant.performance
     device_id = coordinator.plant.device_id
     entity_map = coordinator.plant.entity_map
-    baseline = float(cfg.baseline_v_at_25c)
-    coeff = float(cfg.temp_coefficient_v_per_c)
-    ac_limit = cfg.inverter_ac_limit_kw
-
-    volt_ids: list[str] = []
-    for key in (
-        "pv1_voltage",
-        "pv2_voltage",
-        "pv3_voltage",
-        "pv4_voltage",
-        "pv1_volts",
-        "pv2_volts",
-    ):
-        eid = resolve_entity_id(hass, entity_map, key, device_id=device_id)
-        if eid and eid not in volt_ids:
-            volt_ids.append(eid)
+    strings = [s for s in (coordinator.plant.pv_config.pv1, coordinator.plant.pv_config.pv2) if s.enabled]
+    total_stc_w = sum(s.effective_dc_w for s in strings)
+    if not strings or total_stc_w <= 0:
+        return []
 
     power_id = resolve_entity_id(hass, entity_map, "pv_power", device_id=device_id)
     if not power_id:
@@ -389,10 +376,12 @@ def _virtual_panel_temp_from_inverter_history(
             power_id = resolve_entity_id(hass, entity_map, key, device_id=device_id)
             if power_id:
                 break
-    if not volt_ids or not power_id:
+    air_id = getattr(cfg, "outdoor_temp_entity_id", None)
+    wind_id = getattr(cfg, "wind_speed_entity_id", None)
+    if not power_id or not air_id:
         return []
 
-    entity_ids = [*volt_ids, power_id]
+    entity_ids = [eid for eid in (power_id, air_id, wind_id) if eid]
     stats = _fetch_statistics_points(
         hass, start_utc, end_utc, entity_ids, period="5minute", statistic="mean"
     )
@@ -415,50 +404,39 @@ def _virtual_panel_temp_from_inverter_history(
         return pts
 
     power_lookup = _points_to_lookup(series_for(power_id))
-    volt_lookups = [_points_to_lookup(series_for(eid)) for eid in volt_ids]
-    buckets = sorted(set(power_lookup) | {b for lu in volt_lookups for b in lu})
+    air_lookup = _points_to_lookup(series_for(air_id))
+    wind_points = (
+        _convert_weather_points(series_for(wind_id), kind="wind_speed_ms", unit=_entity_unit(hass, wind_id))
+        if wind_id
+        else []
+    )
+    wind_lookup = _points_to_lookup(wind_points)
+    arrays = [
+        ArrayThermal(
+            stc_kw=s.effective_dc_w / 1000.0,
+            noct_c=s.noct_c,
+            power_temp_coeff_pct=s.power_temp_coeff_pct,
+            mounting=s.mounting,
+        )
+        for s in strings
+    ]
     out: list[dict[str, float]] = []
-    working_baseline = baseline
-    for bucket in buckets:
-        voltages = [lu[bucket] for lu in volt_lookups if bucket in lu and lu[bucket] > 50]
-        if not voltages or bucket not in power_lookup:
+    for bucket in sorted(power_lookup):
+        if bucket not in air_lookup:
             continue
         pv_kw = float(power_lookup[bucket])
-        # Stats/history may be in W for some entities.
-        if pv_kw > 50:
+        if pv_kw > 50:  # stats/history may be in W
             pv_kw /= 1000.0
-        string_v = sum(voltages) / len(voltages)
-        temp = compute_virtual_panel_temp_c(
-            string_voltage_v=string_v,
-            pv_power_kw=pv_kw,
-            baseline_v_at_25c=working_baseline,
-            temp_coefficient_v_per_c=coeff,
-            inverter_ac_limit_kw=ac_limit,
-            ambient_temp_c=None,
-        )
-        if temp is None and voltage_out_of_baseline_band(
-            live_v=string_v, baseline_v=working_baseline
-        ):
-            seeded = suggest_baseline_v_at_25c(
-                string_voltage_v=string_v,
-                ambient_temp_c=None,
-                pv_power_kw=pv_kw,
-                inverter_ac_limit_kw=ac_limit,
-                temp_coefficient_v_per_c=coeff,
-            )
-            if seeded is not None:
-                working_baseline = seeded
-                temp = compute_virtual_panel_temp_c(
-                    string_voltage_v=string_v,
-                    pv_power_kw=pv_kw,
-                    baseline_v_at_25c=working_baseline,
-                    temp_coefficient_v_per_c=coeff,
-                    inverter_ac_limit_kw=ac_limit,
-                    ambient_temp_c=None,
-                )
-        if temp is None:
+        if pv_kw < 0.05:
             continue
-        out.append({"t": float(bucket), "v": float(temp)})
+        # No per-string history: share the total by array size
+        temp = plant_panel_temp_c(
+            [(a, pv_kw * a.stc_kw * 1000.0 / total_stc_w) for a in arrays],
+            air_c=float(air_lookup[bucket]),
+            wind_ms=wind_lookup.get(bucket),
+        )
+        if temp is not None:
+            out.append({"t": float(bucket), "v": float(temp)})
     return out
 
 
@@ -619,7 +597,16 @@ async def async_build_performance_day_chart(
     if series:
         from .performance.physics_insights import build_intraday_physics_insights
 
-        physics_insights = build_intraday_physics_insights(series, ac_limit_kw=cfg.inverter_ac_limit_kw)
+        from .performance.sample import effective_ac_limit_kw
+
+        wind_cooling_c = None
+        sample = getattr(coordinator, "_last_performance_sample", None)
+        still_air = getattr(coordinator, "_panel_temp_still_air_c", None)
+        if is_today and sample is not None and sample.virtual_panel_temp_c is not None and still_air is not None:
+            wind_cooling_c = still_air - sample.virtual_panel_temp_c
+        physics_insights = build_intraday_physics_insights(
+            series, ac_limit_kw=effective_ac_limit_kw(coordinator), wind_cooling_c=wind_cooling_c
+        )
 
     clipping_kwh_today = None
     if ledger_row and ledger_row.get("clipping_loss_kwh") is not None:

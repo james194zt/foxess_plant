@@ -90,6 +90,11 @@ PV_STRING_SCHEMA = vol.Schema(
         vol.Required("efficiency_factor"): vol.All(vol.Coerce(float), vol.Range(min=1, max=100)),
         vol.Required("tilt"): vol.All(vol.Coerce(int), vol.Range(min=0, max=90)),
         vol.Required("azimuth"): vol.All(vol.Coerce(int), vol.Range(min=0, max=359)),
+        vol.Optional("noct_c", default=45.0): vol.All(vol.Coerce(float), vol.Range(min=35, max=60)),
+        vol.Optional("power_temp_coeff_pct", default=-0.30): vol.All(
+            vol.Coerce(float), vol.Range(min=-0.6, max=-0.1)
+        ),
+        vol.Optional("mounting", default="roof_gap"): vol.In(["open_rack", "roof_gap", "in_roof"]),
     }
 )
 
