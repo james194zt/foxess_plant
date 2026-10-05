@@ -1,11 +1,14 @@
 """Compiling Fox Plant's schedule into the EVO Mode Scheduler payload."""
 
+from datetime import datetime, timezone
+
 import pytest
 
 from custom_components.foxess_plant.inverter_schedule import (
     MAX_BASELINE_SLOTS,
     InverterScheduleError,
     InverterSlot,
+    charge_window_slots,
     compile_inverter_schedule,
     expected_inverter_slots,
     schedule_differences,
@@ -75,6 +78,49 @@ def test_jit_slots_go_first() -> None:
         _schedule(SchedulerSegmentConfig(start="00:00", end="06:00", work_mode="Back-up")), jit_slots=[jit]
     )
     assert [s["work_mode"] for s in payload["slots"]] == ["force_charge", "back_up"]
+
+
+_WINDOW = {
+    "start": "01:00",
+    "end": "04:30",
+    "start_utc": "2026-10-06T00:00:00+00:00",  # 01:00 BST
+    "end_utc": "2026-10-06T03:30:00+00:00",
+}
+
+
+def _utc(hhmm: str, day: int = 6) -> datetime:
+    hour, minute = (int(x) for x in hhmm.split(":"))
+    return datetime(2026, 10, day, hour, minute, tzinfo=timezone.utc)
+
+
+@pytest.mark.parametrize(
+    ("now", "expected"),
+    [
+        (_utc("23:00", day=5), False),  # 01:00 BST is still 1 hour away
+        (_utc("23:31", day=5), True),  # inside the 30 minute lead
+        (_utc("02:00"), True),  # charging
+        (_utc("03:30"), False),  # window over: remove the slot
+    ],
+)
+def test_charge_window_slot_timing(now: datetime, expected: bool) -> None:
+    slots = charge_window_slots(_WINDOW, now=now, target_soc=79.2, power_w=3000)
+    assert bool(slots) is expected
+
+
+def test_charge_window_slot_values() -> None:
+    [slot] = charge_window_slots(_WINDOW, now=_utc("00:00"), target_soc=79.2, power_w=3000)
+    assert slot == InverterSlot(start="01:00", end="04:30", work_mode="force_charge", fd_soc=80, fd_pwr=3000)
+
+
+def test_charge_window_crossing_midnight_uses_two_slots() -> None:
+    window = {**_WINDOW, "start": "23:30", "end": "02:00", "start_utc": "2026-10-05T22:30:00+00:00"}
+    slots = charge_window_slots(window, now=_utc("22:45", day=5), target_soc=100, power_w=3000)
+    assert [(s.start, s.end) for s in slots] == [("23:30", "23:59"), ("00:00", "02:00")]
+
+
+def test_no_window_or_target_means_no_slot() -> None:
+    assert charge_window_slots(None, now=_utc("02:00"), target_soc=80, power_w=3000) == []
+    assert charge_window_slots(_WINDOW, now=_utc("02:00"), target_soc=None, power_w=3000) == []
 
 
 def test_too_many_baseline_slots_is_rejected() -> None:

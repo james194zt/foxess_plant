@@ -16138,6 +16138,7 @@ Reloading panel registration…
       peak_import_penalty_p_per_kwh: sc.peak_import_penalty_p_per_kwh ?? 5,
       export_min_soc: sc.export_min_soc ?? 40,
       meter_rate_verify_enabled: sc.meter_rate_verify_enabled !== false,
+      charge_on_inverter: sc.charge_on_inverter !== false,
       meter_rate_entity_id: sc.meter_rate_entity_id || "",
       max_charge_kw: sc.max_charge_kw ?? 3,
       max_discharge_kw: sc.max_discharge_kw ?? null,
@@ -16357,6 +16358,7 @@ Reloading panel registration…
         peak_import_penalty_p_per_kwh: Number(d.peak_import_penalty_p_per_kwh) || 5,
         export_min_soc: Number(d.export_min_soc) || 40,
         meter_rate_verify_enabled: Boolean(d.meter_rate_verify_enabled),
+        charge_on_inverter: d.charge_on_inverter !== false,
         meter_rate_entity_id: String(d.meter_rate_entity_id || "").trim() || null,
         meter_rate_tolerance_p_per_kwh: Number(d.meter_rate_tolerance_p_per_kwh) || 0.5,
         max_charge_kw: Number(d.max_charge_kw) || 3,
@@ -19039,6 +19041,10 @@ Reloading panel registration…
       if (field === "meter_rate_verify_enabled") {
         this._smartChargeDraft.meter_rate_verify_enabled = el.checked;
         this._scheduleRender();
+        return;
+      }
+      if (field === "charge_on_inverter") {
+        this._smartChargeDraft.charge_on_inverter = el.checked;
         return;
       }
       if (field === "meter_rate_entity_id") {
@@ -23886,6 +23892,8 @@ ${draft.enabled ? `<details class="sc-section-details" data-sc-section="energy"$
 <div class="field"><label>Daily plan time (UK local)</label>
 <input type="time" data-field="smart-charge:daily_plan_time" value="${esc(String(draft.daily_plan_time ?? "16:00"))}" ${busy}>
 <p class="field-hint">${this._plantState?.smart_charge?.tariff_profile?.import_varies === false ? "Forces a fresh rate fetch and replan." : "Forces a fresh Octopus fetch and replan (Agile publishes tomorrow&rsquo;s rates around 16:00). Slots whose price isn&rsquo;t published yet are estimated and never scheduled."} The plan always runs to the end of tomorrow and is also rebuilt when rates, the Solcast forecast or battery SOC change materially, and at least hourly.</p></div>
+<div class="toggle-row"><span><strong>Charge from the inverter's own schedule (EVO)</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Put each planned grid charge on the inverter as a Force Charge slot 30 minutes before it starts, and remove it afterwards. The inverter then starts and stops the charge itself. Off: Fox Plant holds Remote Control on for the whole charge.</span></span>
+<input type="checkbox" data-field="smart-charge:charge_on_inverter" ${draft.charge_on_inverter !== false ? "checked" : ""} ${busy}></div>
 <div class="toggle-row"><span><strong>Glow / smart-meter rate check</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Double-check live meter import rate against Octopus API before force-charging</span></span>
 <input type="checkbox" data-field="smart-charge:meter_rate_verify_enabled" ${draft.meter_rate_verify_enabled !== false ? "checked" : ""} ${busy}></div>
 ${draft.meter_rate_verify_enabled !== false ? `<div class="field"><label>Import rate sensor (Glow / IHD)</label>

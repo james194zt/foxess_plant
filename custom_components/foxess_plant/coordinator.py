@@ -118,6 +118,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._smart_charge_daily_plan: list[dict[str, Any]] = []
         self._smart_charge_periods_sig = ""
         self._smart_charge_discharge_sig = ""
+        # Just-in-time SmartCharge slots currently on the inverter's scheduler (InverterSlot list)
+        self._jit_slots: list[Any] = []
+        self._unsub_jit_recheck: Any = None
         self._hems_audit_sigs: dict[str, str] = {}
         self._smart_charge_plan_meta: dict[str, Any] = {}
         self._smart_charge_target_max_soc: float | None = None
@@ -1343,6 +1346,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 remaining_min_soc=current.get("min_soc_on_grid", 10),
                 remaining_max_soc=current.get("max_soc", 100),
                 default_force_power_w=int(round(self.plant.smart_charge.max_charge_kw * 1000)),
+                jit_slots=self._jit_slots,
             )
         except InverterScheduleError as err:
             raise HomeAssistantError(f"Schedule can't be stored on the inverter: {err}") from err
@@ -1396,6 +1400,98 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.warning("Inverter schedule differs from Fox Plant's (%s); re-writing", "; ".join(differences))
             await self.async_push_inverter_schedule(payload)
         return differences
+
+    def _smart_charge_on_inverter(self) -> bool:
+        """SmartCharge grid charges run as just-in-time Force Charge slots on the inverter."""
+        return bool(self.plant.smart_charge.charge_on_inverter and self.inverter_runs_schedule())
+
+    async def _set_jit_slots(self, slots: list[Any]) -> None:
+        """Replace the just-in-time slots and re-write the inverter schedule if they changed."""
+        if slots == self._jit_slots:
+            return
+        previous, self._jit_slots = self._jit_slots, list(slots)
+        if not self.inverter_runs_schedule():
+            return
+        try:
+            await self.async_push_inverter_schedule()
+        except HomeAssistantError as err:
+            # Keep the old list so the next evaluation retries; the push already raised a notification
+            self._jit_slots = previous
+            _LOGGER.warning("Could not update SmartCharge slots on the inverter: %s", err)
+
+    def _schedule_jit_recheck(self, window: dict[str, Any] | None, *, has_slots: bool) -> None:
+        """Re-evaluate when the next slot is due (or its window ends), whatever the poll interval."""
+        from homeassistant.util import dt as dt_util
+
+        from .inverter_schedule import JIT_LEAD
+
+        if self._unsub_jit_recheck:
+            self._unsub_jit_recheck()
+            self._unsub_jit_recheck = None
+        if not window:
+            return
+        key = "end_utc" if has_slots else "start_utc"
+        try:
+            when = datetime.fromisoformat(str(window[key]))
+        except (KeyError, TypeError, ValueError):
+            return
+        if not has_slots:
+            when -= JIT_LEAD
+        when += timedelta(seconds=5)
+        if when <= dt_util.utcnow():
+            return
+        self._unsub_jit_recheck = async_track_point_in_time(self.hass, self._jit_recheck_callback, when)
+
+    @callback
+    def _jit_recheck_callback(self, _now) -> None:
+        self._unsub_jit_recheck = None
+        self.hass.async_create_task(self._async_smart_charge_meter_recheck())
+
+    async def _sync_smart_charge_on_inverter(self, decision: Any) -> None:
+        """Put the current or next planned grid charge on the inverter shortly before it starts."""
+        import math
+
+        from homeassistant.util import dt as dt_util
+
+        from .inverter_schedule import InverterScheduleError, charge_window_slots
+
+        cfg = self.plant.smart_charge
+        now = dt_util.utcnow()
+        charging = decision.action in ("grid_charge", "arbitrage") and bool(decision.windows)
+        window = decision.windows[0] if charging else decision.next_charge
+        planned = decision.target_max_soc if charging else (window or {}).get("soc_end_pct")
+        target = None
+        if planned is not None:
+            cap = cfg.target_max_soc if cfg.target_max_soc is not None else cfg.max_target_soc
+            target = min(float(cap), float(math.ceil(float(planned))))
+        try:
+            slots = charge_window_slots(
+                window, now=now, target_soc=target, power_w=int(round(cfg.max_charge_kw * 1000))
+            )
+        except InverterScheduleError as err:
+            _LOGGER.warning("SmartCharge window can't be scheduled on the inverter: %s", err)
+            slots = []
+
+        if slots and charging:
+            # Inside the window: check the meter agrees the rate is cheap; take the slot off if not
+            self._sync_octopus_current_rates_from_cache()
+            meter_verify = self._verify_meter_rate_before_charge()
+            if isinstance(self._smart_charge_decision, dict):
+                self._smart_charge_decision["meter_verify"] = meter_verify.to_dict()
+            if meter_verify.blocks_arm:
+                slots = []
+                decision.reason = f"Meter check held — {meter_verify.detail}"
+                self._schedule_smart_charge_meter_recheck(int(cfg.meter_rate_recheck_minutes or 5))
+            else:
+                self._clear_smart_charge_meter_recheck()
+
+        await self._set_jit_slots(slots)
+        self._schedule_jit_recheck(window, has_slots=bool(slots))
+        if slots and not charging and window:
+            decision.reason = f"Charge {window.get('start')}-{window.get('end')} is set on the inverter — {decision.reason}"
+        if isinstance(self._smart_charge_decision, dict):
+            self._smart_charge_decision["reason"] = decision.reason
+            self._smart_charge_decision["inverter_slots"] = [slot.to_service() for slot in self._jit_slots]
 
     @staticmethod
     def _inverter_schedule_result_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -2392,6 +2488,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if blocked:
             if blocked in ("outage", "storm"):
                 await self._disarm_smart_charge_export()
+            await self._set_jit_slots([])
             return
         cfg = self.plant.smart_charge
         soc_pct, _capacity_kwh, _kwh_remaining = self._smart_charge_battery_metrics()
@@ -2468,9 +2565,15 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         self._audit_smart_charge_decision(decision)
 
+        on_inverter = self._smart_charge_on_inverter()
+        if on_inverter:
+            await self._sync_smart_charge_on_inverter(decision)
+        else:
+            await self._set_jit_slots([])
+
         if decision.action == "export_discharge":
             await self._arm_smart_charge_export(decision)
-        elif decision.action in ("grid_charge", "arbitrage"):
+        elif decision.action in ("grid_charge", "arbitrage") and not on_inverter:
             await self._arm_smart_charge_grid(decision)
         else:
             if self._smart_charge_discharge_armed:
@@ -5095,6 +5198,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.async_apply_desired(force=True)
 
     async def async_release_control(self) -> None:
+        # Don't leave a SmartCharge slot behind on the inverter: it would repeat every day
+        await self._set_jit_slots([])
         self.plant.control_active = False
         await self._persist()
         await self.async_request_refresh()
@@ -5165,6 +5270,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if getattr(self, "_unsub_smart_charge", None):
             self._unsub_smart_charge()
             self._unsub_smart_charge = None
+        if getattr(self, "_unsub_jit_recheck", None):
+            self._unsub_jit_recheck()
+            self._unsub_jit_recheck = None
+        self._clear_smart_charge_meter_recheck()
         if getattr(self, "_unsub_smart_charge_daily_plan", None):
             self._unsub_smart_charge_daily_plan()
             self._unsub_smart_charge_daily_plan = None

@@ -426,6 +426,9 @@ class SmartChargeConfig:
     # Time-of-use tariffs: plan to still hold this SOC when the peak band ends (spare for
     # unpredictable loads). Outside the cheapest band, grid charge only to protect it.
     peak_min_soc: float = 20.0
+    # EVO: run planned grid charges as a Force Charge slot on the inverter's own scheduler (added shortly
+    # before the window, removed after it) instead of holding Remote Control on from Home Assistant.
+    charge_on_inverter: bool = True
     charge_periods: list[ChargePeriodConfig] = field(default_factory=list)
 
     @classmethod
@@ -507,6 +510,7 @@ class SmartChargeConfig:
             peak_min_soc=max(
                 0.0, min(100.0, float(data.get("peak_min_soc", 20.0) or 0.0))
             ),
+            charge_on_inverter=bool(data.get("charge_on_inverter", True)),
             charge_periods=[ChargePeriodConfig.from_dict(p) for p in periods_raw],
         )
 
@@ -561,6 +565,7 @@ class SmartChargeConfig:
             "load_history_days": int(self.load_history_days),
             "min_saving_p_per_kwh": round(self.min_saving_p_per_kwh, 2),
             "peak_min_soc": round(self.peak_min_soc, 1),
+            "charge_on_inverter": self.charge_on_inverter,
             "charge_periods": [p.to_dict() for p in self.charge_periods],
         }
 

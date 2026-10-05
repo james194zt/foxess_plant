@@ -9,7 +9,9 @@ Pure functions only: no Home Assistant imports.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, replace
+from datetime import datetime, timedelta
 from typing import Any
 
 # The inverter holds 7 slots plus the all-day "remaining" slot; keep one free for just-in-time
@@ -129,6 +131,42 @@ def slots_from_segment(segment: Any, *, default_force_power_w: int) -> list[Inve
             max_soc=max_soc,
         )
     return [replace(template, start=start, end=end) for start, end in split_at_midnight(segment.start, segment.end)]
+
+
+# Just-in-time slots go onto the inverter this long before their window, so a short HA or network hiccup
+# around the start doesn't miss the charge.
+JIT_LEAD = timedelta(minutes=30)
+
+
+def charge_window_slots(
+    window: dict[str, Any] | None,
+    *,
+    now: datetime,
+    target_soc: float | None,
+    power_w: int,
+    lead: timedelta = JIT_LEAD,
+) -> list[InverterSlot]:
+    """Force Charge slots for a planned charge window, or [] when it isn't due yet or has finished.
+
+    ``window`` is a SmartCharge plan window: local ``start``/``end`` (HH:MM) for the slot times and
+    ``start_utc``/``end_utc`` (ISO) for timing. The inverter charges at ``power_w`` and stops at
+    ``target_soc``.
+    """
+    if not window or target_soc is None:
+        return []
+    try:
+        start_utc = datetime.fromisoformat(str(window["start_utc"]))
+        end_utc = datetime.fromisoformat(str(window["end_utc"]))
+    except (KeyError, TypeError, ValueError):
+        return []
+    if not start_utc - lead <= now < end_utc:
+        return []
+    cut_off = max(SOC_MIN, min(SOC_MAX, math.ceil(float(target_soc))))
+    template = InverterSlot(start="", end="", work_mode="force_charge", fd_soc=cut_off, fd_pwr=int(power_w))
+    return [
+        replace(template, start=start, end=end)
+        for start, end in split_at_midnight(str(window.get("start")), str(window.get("end")))
+    ]
 
 
 def compile_inverter_schedule(
