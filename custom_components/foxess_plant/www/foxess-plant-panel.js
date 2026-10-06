@@ -429,9 +429,30 @@ function panelVersionFromModuleUrl() {
   return null;
 }
 
+/** Build fingerprint from the served module filename (foxess-plant-panel.v0_9_503.{hash}.js). */
+function panelBuildHashFromModuleUrl() {
+  const re = /foxess-plant-panel\.v\d+_\d+_\d+\.([a-f0-9]+)\.js/i;
+  const urls = [];
+  if (typeof import.meta !== "undefined" && import.meta.url) urls.push(import.meta.url);
+  for (const script of document.getElementsByTagName("script")) {
+    if (script.src) urls.push(script.src);
+  }
+  for (const src of urls) {
+    const m = String(src).match(re);
+    if (m) return m[1].toLowerCase();
+  }
+  return null;
+}
+
+/**
+ * Element tag per build: manifest version + fingerprint, matching panel.py _panel_component_name. A tab keeps
+ * the classes it has registered until a full reload, so with the version alone an update that didn't bump it
+ * kept running the old panel code.
+ */
 function panelElementTag() {
-  const ver = panelVersionFromModuleUrl() || PANEL_VERSION;
-  return `foxess-plant-panel-${String(ver).replace(/\./g, "_")}`;
+  const ver = String(panelVersionFromModuleUrl() || PANEL_VERSION).replace(/\./g, "_");
+  const hash = panelBuildHashFromModuleUrl();
+  return hash ? `foxess-plant-panel-${ver}-${hash}` : `foxess-plant-panel-${ver}`;
 }
 
 /** HA scoped registry: one tag, one class — reusing the constructor for multiple tags throws. */

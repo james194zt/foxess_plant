@@ -52,8 +52,13 @@ def _log_panel_js_missing_once() -> None:
 
 
 def _panel_component_name() -> str:
-    """Versioned custom element tag so HA loads new panel code instead of a cached class."""
-    return f"{PANEL_COMPONENT}-{_panel_js_version().replace('.', '_')}"
+    """Custom element tag per build (manifest version + JS fingerprint).
+
+    A browser tab keeps the classes it has registered until a full reload, and the panel only registers its tag
+    if it's free. With the manifest version alone, updates that didn't bump it kept running the old panel code.
+    Must match panelElementTag() in the panel JS.
+    """
+    return f"{PANEL_COMPONENT}-{_panel_js_version().replace('.', '_')}-{_panel_js_fingerprint()}"
 
 
 def _panel_js_version() -> str:
