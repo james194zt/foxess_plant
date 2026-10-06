@@ -3147,7 +3147,11 @@ function renderHemsEventSlots(ev) {
     const end = hemsSlotTime(s.end, null);
     const when = start ? (end ? `${start}–${end}` : start) : "slot";
     const kwh = s[kwhKey] != null ? ` · ${formatSmartChargeKwh(s[kwhKey])}` : "";
-    return `<div class="fox-sc-hems-slot">${esc(when)}${esc(kwh)}</div>`;
+    const used = s.actual_kwh != null && Number(s.actual_kwh) > 0.1;
+    const tag = used
+      ? `<span style="color:#52c41a">used ${esc(formatSmartChargeKwh(s.actual_kwh))}</span>`
+      : `<span style="color:var(--secondary-text-color)">predicted</span>`;
+    return `<div class="fox-sc-hems-slot">${esc(when)}${esc(kwh)} · ${tag}</div>`;
   };
   let out = "";
   if (charge.length) {

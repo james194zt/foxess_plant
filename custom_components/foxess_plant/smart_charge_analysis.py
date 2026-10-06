@@ -491,6 +491,31 @@ def _integrate_over_windows(points: list[dict[str, float]], windows: list[tuple[
     return round(sum(integrate_power_kwh(points, s, e) for s, e in _merge_windows(windows)), 3)
 
 
+def _mark_hems_slots_used(
+    hems_audit: dict[str, Any],
+    battery_charge_pts: list[dict[str, float]],
+    grid_export_pts: list[dict[str, float]],
+) -> None:
+    """Annotate each HEMS daily-plan slot with the energy actually seen in its clock window (half-hour),
+    so the UI can mark every slot predicted vs used, not just the deduped planned-slots list."""
+    for event in hems_audit.get("events", []) or []:
+        payload = event.get("payload") or {}
+        slots = payload.get("slots")
+        if not isinstance(slots, list):
+            continue
+        for slot in slots:
+            parsed = dt_util.parse_datetime(str(slot.get("start_utc") or ""))
+            if parsed is None:
+                slot["actual_kwh"] = None
+                continue
+            start_ms = dt_util.as_utc(parsed).timestamp() * 1000
+            end_ms = start_ms + 1_800_000  # the planner uses half-hour slots
+            if str(slot.get("action") or "") in EXPORT_PLAN_ACTIONS:
+                slot["actual_kwh"] = integrate_power_kwh(grid_export_pts, start_ms, end_ms)
+            else:
+                slot["actual_kwh"] = integrate_power_kwh(battery_charge_pts, start_ms, end_ms)
+
+
 def build_how_used(
     *,
     daily_economics: dict[str, dict[str, Any]],
@@ -988,6 +1013,9 @@ def _build_analysis_sync(
         start_date = dt_util.as_local(start_local).date().isoformat()
         end_date = dt_util.as_local(end_local).date().isoformat()
         payload["hems_audit"] = build_hems_audit_report(store, start_date=start_date, end_date=end_date)
+        _mark_hems_slots_used(
+            payload["hems_audit"], power_pts.get("battery_charge", []), power_pts.get("grid_export", [])
+        )
         # Whole-system saving vs having no PV/battery (buy everything from the grid): avoided import +
         # export earnings, from the performance ledger, per day and summed. Today isn't finalised in the
         # ledger yet, so fold in the live running totals so the current week isn't all zeros.
