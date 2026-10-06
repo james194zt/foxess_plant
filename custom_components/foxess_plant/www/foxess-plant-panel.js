@@ -11256,6 +11256,18 @@ function renderBarChartSvg(groups, labels, { height = 200 } = {}) {
   yMax *= 1.15;
   const groupW = w / n;
   const barW = Math.min(14, (groupW / Math.max(groups.length, 1)) * 0.7);
+  // Pick x-axis labels from the right so the latest day always shows, and never within one label-width of
+  // the next (stops the "5 Oc6Oct" overlap when the forced last label lands next to a regular one).
+  const minLabelGapPx = narrow ? 46 : 58;
+  const labelIdx = new Set();
+  let lastLabelX = Infinity;
+  for (let i = n - 1; i >= 0; i -= 1) {
+    const gx = pad.l + i * groupW + groupW / 2;
+    if (i === n - 1 || lastLabelX - gx >= minLabelGapPx) {
+      labelIdx.add(i);
+      lastLabelX = gx;
+    }
+  }
   const rects = [];
   labels.forEach((_, i) => {
     const gx = pad.l + i * groupW + groupW / 2;
@@ -11268,7 +11280,7 @@ function renderBarChartSvg(groups, labels, { height = 200 } = {}) {
         `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" rx="2" fill="${g.color}" opacity="0.92"/>`
       );
     });
-    if (narrow ? i % Math.max(1, Math.ceil(n / 5)) === 0 : n <= 16 || i % Math.ceil(n / 8) === 0 || i === n - 1) {
+    if (labelIdx.has(i)) {
       const lx = gx;
       const ly = height - 10;
       const lbl = labels[i] instanceof Date ? formatChartDayLabel(labels[i]) : String(labels[i]);
