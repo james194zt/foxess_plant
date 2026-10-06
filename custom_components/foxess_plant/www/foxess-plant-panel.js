@@ -20,12 +20,12 @@ const NAV = [
 const DEVICE_NEW_NAV = [
   { id: "analysis", label: "Analysis" },
   { id: "realtime", label: "Realtime" },
-  { id: "alarms", label: "Alerts" },
   { id: "pv-config", label: "PV Configuration" },
   { id: "quick-settings", label: "Quick Settings" },
   { id: "storm", label: "StormSafe" },
   { id: "smart", label: "SmartCharge" },
-  { id: "warmup", label: "Warmup" },
+  { id: "warmup", label: "Battery WarmUp" },
+  { id: "alarms", label: "Alerts" },
 ];
 
 function isQuickSettingsDeviceSub(sub) {
@@ -24930,7 +24930,7 @@ ${detailBlock}
     const warmupError = live.last_error || this._plantState?.fox_cloud?.last_error || "";
     if (!ready) {
       return `${this._renderWarmupHero()}
-<header class="header"><h1>Battery Warmup</h1><p>Pre-heat the battery pack in cold weather using grid power during cheap-rate windows — matches the Fox app <strong>Battery warmup</strong> screen.</p></header>
+<header class="header"><h1>Battery WarmUp</h1><p>Pre-heat the battery pack in cold weather using grid power during cheap-rate windows — matches the Fox app <strong>Battery warmup</strong> screen.</p></header>
 <div class="card"><p class="field-hint" style="margin:0">Enable the <strong>Fox Cloud API</strong> under <strong>Settings → Fox API</strong> and save your API key first. Warmup is controlled via Fox Cloud (not Modbus).</p></div>`;
     }
     const ranges = draft.ranges || { start_min: 1, start_max: 9, end_min: 5, end_max: 15 };
@@ -24958,7 +24958,7 @@ ${detailBlock}
       ? `<div class="banner err" style="margin-bottom:14px"><strong>Battery warmup not reachable via Fox Cloud API</strong><br>${esc(warmupError || "Fox returned an error when reading batteryHeating settings.")} Open the Fox portal device list and confirm the <strong>inverter deviceSN</strong> under Settings → Fox API — it is often different from the Modbus PCS serial (${esc(String(live.device_sn || "—"))}).</div>`
       : "";
     return `${this._renderWarmupHero()}
-<header class="header"><h1>Battery Warmup</h1><p>Grid-assisted battery heating during low-price periods. Settings sync with your inverter via Fox Cloud.</p></header>
+<header class="header"><h1>Battery WarmUp</h1><p>Grid-assisted battery heating during low-price periods. Settings sync with your inverter via Fox Cloud.</p></header>
 ${blockedBanner}
 ${this._renderWarmupStatusCard(draft, statusLabel, tempDisplay)}
 <div class="card">
