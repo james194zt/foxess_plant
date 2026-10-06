@@ -23,7 +23,8 @@ const code =
   `
 ;globalThis.__fp = { setChartPanelWidth, isNarrowChart, chartRenderWidth, statisticsChartLayout,
   batterySocChartLayout, renderStatisticsChartHtml, renderBatterySocChartHtml,
-  renderMirroredEnergyBarChart, renderBarChartSvg, emptyEnergyBucket, FOX_SUPPLY_SERIES, FOX_USAGE_SERIES };`;
+  renderMirroredEnergyBarChart, renderBarChartSvg, emptyEnergyBucket, FOX_SUPPLY_SERIES, FOX_USAGE_SERIES,
+  renderPerformancePowerChartSvg, renderPerformancePhysicsChartSvg, renderPerformanceMicroclimateChartSvg };`;
 
 class Stub { constructor() {} }
 const el = () => ({ style: {}, classList: { toggle() {}, add() {}, remove() {} }, append() {}, appendChild() {},
@@ -124,6 +125,30 @@ for (const [label, panelW] of [["phone 390px", 390], ["desktop 1400px", 1400]]) 
   // Small bar chart
   const bar = fp.renderBarChartSvg([{ label: "PV", color: "#f90", values: [1, 2, 3, 4, 5, 6, 7] }], days.slice(0, 7), { height: 180 });
   check("energy bar chart renders", noNaN(bar) && /energy-bar-chart/.test(bar));
+}
+
+// Performance charts at 5-minute detail (2026-10-06: bead-string dots, dew point read off the km axis)
+{
+  console.log("\n== performance charts, dense 5-minute day ==");
+  const dense = (f) => Array.from({ length: 78 }, (_, i) => ({ t: tMin + i * 300000, v: f(i) }));
+  const perfChart = (series) => ({ series, ac_limit_kw: 3.68, chart_window: { start_ms: tMin, end_ms: tMax } });
+  const power = fp.renderPerformancePowerChartSvg(
+    perfChart({ pv_power_kw: dense(() => 0), net_grid_power_kw: dense((i) => -0.02 * (i % 5)) })
+  );
+  check("power chart renders", noNaN(power) && /fox-perf-chart-svg/.test(power));
+  check("  no per-sample dots on a dense line", !/<circle/.test(power));
+  check("  sample hint counts what's drawn", !/\d+ samples? so far/.test(power));
+  const physics = fp.renderPerformancePhysicsChartSvg(
+    perfChart({ virtual_panel_temp_c: dense((i) => 10 + i / 10), wind_speed_ms: dense((i) => (i % 9) / 10) })
+  );
+  check("panel cooling chart renders", noNaN(physics));
+  check("  wind has its own right-hand axis", /fill="#52C41A"[^>]*>[\d.]+</.test(physics) || /text-anchor="start"[^>]*fill="#52C41A"/.test(physics));
+  check("  old voltage-method hint gone", !/400 V baselines/.test(physics));
+  const micro = fp.renderPerformanceMicroclimateChartSvg(
+    perfChart({ visibility_km: dense(() => 11), dew_point_c: dense((i) => 5 + (i % 20) / 10) })
+  );
+  check("microclimate chart renders", noNaN(micro));
+  check("  dew point has its own °C axis", /text-anchor="start"[^>]*fill="#597EF7"[^>]*>[\d.]+°</.test(micro));
 }
 
 console.log(failures ? `\n${failures} FAILURE(S)` : "\nALL CHECKS PASSED");

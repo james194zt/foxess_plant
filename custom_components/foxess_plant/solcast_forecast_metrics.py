@@ -42,12 +42,17 @@ class _Interval:
     kwh: float
 
 
+# Solcast periods are 5-60 minutes; a longer step to the next row is a gap (e.g. between two polls' data)
+MAX_PERIOD_HOURS = 1.0
+
+
 def _period_hours(rows: list[dict[str, Any]], index: int, default: float = 0.5) -> float:
     if index + 1 < len(rows):
         t0 = _parse_dt(rows[index].get("period_start"))
         t1 = _parse_dt(rows[index + 1].get("period_start"))
         if t0 and t1:
-            return max(0.083, (t1 - t0).total_seconds() / 3600.0)
+            hours = max(0.083, (t1 - t0).total_seconds() / 3600.0)
+            return hours if hours <= MAX_PERIOD_HOURS else default
     return default
 
 
@@ -69,7 +74,8 @@ def _build_intervals(rows: list[dict[str, Any]]) -> list[_Interval]:
         end = start + timedelta(hours=hours)
         if i + 1 < len(ordered):
             next_start = _parse_dt(ordered[i + 1].get("period_start"))
-            if next_start and next_start > start:
+            # Run up to the next period, but never across a gap (that stretched one value over hours)
+            if next_start and start < next_start <= start + timedelta(hours=MAX_PERIOD_HOURS):
                 end = next_start
         intervals.append(_Interval(start=start, end=end, kw=kw, kwh=kw * hours))
     return intervals

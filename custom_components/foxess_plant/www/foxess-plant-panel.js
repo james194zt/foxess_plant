@@ -3331,17 +3331,31 @@ function performanceChartAxesSvg({ padL, padT, w, h, xDomain, xScale, yScale, yT
   return `${grid}${yLabels}${xLabels}`;
 }
 
+// Dots mark individual samples only while there are few; at 5-minute detail they turned lines into bead strings
+const PERF_DOTS_MAX_POINTS = 24;
+
+/** Unit labels down the right-hand side, for a chart's second series (its own scale). */
+function performanceRightAxisSvg({ x, ticks, scale, unit, color }) {
+  return ticks
+    .map((v) => {
+      const label = Number.isInteger(v) ? String(v) : v.toFixed(1);
+      return `<text x="${x.toFixed(1)}" y="${(scale(v) + 4).toFixed(1)}" text-anchor="start" class="statistics-axis-y" fill="${color}">${esc(label)}${esc(unit)}</text>`;
+    })
+    .join("");
+}
+
 function performanceSeriesSvg(points, xDomain, xScale, yScale, stroke, { width = 2, dash = null } = {}) {
   const clipped = performanceClipPoints(points, xDomain.tMin, xDomain.tMax);
   if (!clipped.length) return "";
   const pts = clipped.map((p) => ({ x: xScale(p.t), y: yScale(p.v) }));
   const line =
     pts.length >= 2
-      ? `<polyline fill="none" points="${pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}" />`
+      ? `<polyline fill="none" stroke-linejoin="round" points="${pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}" />`
       : "";
-  const dots = pts
-    .map((p) => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="${stroke}" />`)
-    .join("");
+  const dots =
+    pts.length <= PERF_DOTS_MAX_POINTS
+      ? pts.map((p) => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="${stroke}" />`).join("")
+      : "";
   const dashAttr = dash ? ` stroke-dasharray="${dash}"` : "";
   return `<g stroke="${stroke}" stroke-width="${width}"${dashAttr} fill="none">${line}${dots}</g>`;
 }
@@ -3470,12 +3484,8 @@ ${hasClipping ? `<span><i style="background:#ef4444"></i> Clipping kW</span>` : 
     hasLimit && !hasClipping && primaryCount
       ? `<p class="field-hint fox-perf-chart-hint">No clipping in this range. Solar above the AC limit line went into the battery; it's only lost when the inverter is at its limit and the battery is full.</p>`
       : "";
-  const hint = performanceSparseHint(
-    Number.isFinite(Number(chart?.live?.sample_count)) && Number(chart.live.sample_count) > 0
-      ? Number(chart.live.sample_count)
-      : primaryCount,
-    xDomain
-  );
+  // Count what's drawn (recorder samples and statistics alike), not just the recorder's own samples
+  const hint = performanceSparseHint(primaryCount, xDomain);
   return `${legend}${hint}${clipNote}<svg class="fox-perf-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Solar output and clipping chart">
 ${axes}
 ${clipHatch}
@@ -3541,19 +3551,31 @@ function renderPerformancePhysicsChartSvg(chart) {
     yUnit: axisIsWind ? " m/s" : "°",
   });
   const tempLine = performanceSeriesSvg(temp, xDomain, xScale, yScaleT, "#08979C", { width: 2 });
-  const windLine = performanceSeriesSvg(wind, xDomain, xScale, yScaleW, "#52C41A", { width: 1.6, dash: "4 2" });
+  const windLine = performanceSeriesSvg(wind, xDomain, xScale, yScaleW, "#52C41A", { width: 1.6 });
+  // With panel temperature on the left axis, wind gets its own scale on the right
+  const windAxis =
+    !axisIsWind && wVals.length
+      ? performanceRightAxisSvg({
+          x: padL + w + 4,
+          ticks: performanceYTicks(wMin, wMax),
+          scale: yScaleW,
+          unit: "",
+          color: "#52C41A",
+        })
+      : "";
   const hint = performanceSparseHint(Math.max(tempPts.length, windPts.length), xDomain);
   const tempMissing =
     !tempPts.length && windPts.length
-      ? `<p class="field-hint fox-perf-chart-hint">Virtual panel °C needs PV above ~0.5 kW plus string voltage (PV1/PV2). Wrong factory 400 V baselines auto-calibrate once sun is on the array — overnight / sub-0.5 kW stays blank.</p>`
+      ? `<p class="field-hint fox-perf-chart-hint">Panel temperature is worked out from the panels' output, the air temperature and wind (PV Configuration datasheet values), so it only appears while they're producing.</p>`
       : "";
   return `<div class="fox-perf-chart-legend">
-<span><i style="background:#08979C"></i> Virtual panel °C</span>
-<span><i style="background:#52C41A"></i> Wind m/s</span>
+<span><i style="background:#08979C"></i> Panel °C (modelled)</span>
+<span><i style="background:#52C41A"></i> Wind m/s${!axisIsWind && wVals.length ? " (right)" : ""}</span>
 </div>
 ${hint}${tempMissing}
 <svg class="fox-perf-chart-svg fox-perf-chart-svg--physics" viewBox="0 0 ${W} ${H}" role="img" aria-label="Panel temperature and wind chart">
 ${axes}
+${windAxis}
 ${tempLine}
 ${windLine}
 </svg>`;
@@ -3601,6 +3623,9 @@ function renderPerformanceMicroclimateChartSvg(chart) {
   const yScaleVis = (v) => padT + h - ((v - vMin) / Math.max(vMax - vMin, 0.1)) * h;
   const yScaleDew = (v) => padT + h - ((v - dMin) / Math.max(dMax - dMin, 0.1)) * h;
   const yScalePrecip = (v) => padT + h - (Math.max(0, v) / precipMax) * (h * 0.35);
+  // Visibility (km) on the left; dew point (°C) has its own scale, so it gets the right-hand axis.
+  // Without a visibility sensor dew point takes the left axis.
+  const hasVis = visVals.length > 0;
   const axes = performanceChartAxesSvg({
     padL,
     padT,
@@ -3608,10 +3633,20 @@ function renderPerformanceMicroclimateChartSvg(chart) {
     h,
     xDomain,
     xScale,
-    yScale: yScaleVis,
-    yTicks: performanceYTicks(vMin, vMax),
-    yUnit: " km",
+    yScale: hasVis ? yScaleVis : yScaleDew,
+    yTicks: hasVis ? performanceYTicks(vMin, vMax) : performanceYTicks(dMin, dMax),
+    yUnit: hasVis ? " km" : "°",
   });
+  const dewAxis =
+    hasVis && dewVals.length
+      ? performanceRightAxisSvg({
+          x: padL + w + 4,
+          ticks: performanceYTicks(dMin, dMax),
+          scale: yScaleDew,
+          unit: "°",
+          color: "#597EF7",
+        })
+      : "";
   const visSteady =
     visVals.length >= 2 && Math.max(...visVals) - Math.min(...visVals) < 0.05
       ? `<p class="field-hint fox-perf-chart-hint">Visibility steady at ${Number(visVals[visVals.length - 1]).toFixed(1)} km</p>`
@@ -3620,7 +3655,7 @@ function renderPerformanceMicroclimateChartSvg(chart) {
     ? performanceSeriesSvg(visibility, xDomain, xScale, yScaleVis, "#FA8C16", { width: 2 })
     : "";
   const dewLine = dew.length
-    ? performanceSeriesSvg(dew, xDomain, xScale, yScaleDew, "#597EF7", { width: 1.6, dash: "4 2" })
+    ? performanceSeriesSvg(dew, xDomain, xScale, yScaleDew, "#597EF7", { width: 1.6 })
     : "";
   const precipBars = precipPts
     .map((p) => {
@@ -3634,12 +3669,13 @@ function renderPerformanceMicroclimateChartSvg(chart) {
   const hint = performanceSparseHint(Math.max(visPts.length, dewPts.length), xDomain);
   return `<div class="fox-perf-chart-legend">
 <span><i style="background:#FA8C16"></i> Visibility km</span>
-<span><i style="background:#597EF7"></i> Dew point °C</span>
+<span><i style="background:#597EF7"></i> Dew point °C${hasVis && dewVals.length ? " (right)" : ""}</span>
 <span><i style="background:#69C0FF"></i> Precip mm</span>
 </div>
 ${hint}${visSteady}
 <svg class="fox-perf-chart-svg fox-perf-chart-svg--microclimate" viewBox="0 0 ${W} ${H}" role="img" aria-label="Visibility dew and precipitation chart">
 ${axes}
+${dewAxis}
 ${precipBars}
 ${visLine}
 ${dewLine}
@@ -21546,15 +21582,46 @@ ${this._renderDeviceNewEnergyCardToolbar()}
   _renderInstallerSettings() {
     const rows = Array.isArray(this._plantState?.installer_settings) ? this._plantState.installer_settings : [];
     if (!rows.length) return "";
+    // Same grid as Battery Information, grouped the same way
+    const groups = [
+      [
+        "Grid connection",
+        [
+          "grid_standard_code",
+          "rated_power",
+          "max_active_power",
+          "active_power_derating",
+          "fixed_active_power_derate",
+          "installer_export_power_limit",
+          "installer_import_power_limit",
+          "grid_point_power_limit",
+          "import_current_limit",
+          "export_current_limit",
+        ],
+      ],
+      ["Metering", ["meter1_type", "meter2_type", "meter_compensation"]],
+      ["Backup (EPS)", ["eps_output_mode", "eps_frequency_setting"]],
+      ["Battery", ["max_charge_current", "max_discharge_current"]],
+      ["Peak shaving", ["peak_shaving_threshold_soc", "peak_shaving_export_limit"]],
+      ["Solar", ["mppt_scan"]],
+    ];
+    const byKey = new Map(rows.map((r) => [r.key, r]));
+    const placed = new Set(groups.flatMap(([, keys]) => keys));
+    const leftover = rows.filter((r) => !placed.has(r.key));
+    const body = [...groups, ["Other", leftover.map((r) => r.key)]]
+      .map(([title, keys]) => {
+        const items = keys.map((k) => byKey.get(k)).filter(Boolean);
+        if (!items.length) return "";
+        return `<div class="fox-device-new-subsection"><h4 class="fox-device-new-subsection-title">${esc(title)}</h4>${renderDeviceNewMetricGrid(
+          this._hass,
+          items.map((r) => ({ label: r.label, value: r.value }))
+        )}</div>`;
+      })
+      .join("");
     return `<section class="fox-device-new-section fox-installer-settings">
 <h3 class="fox-device-new-section-title">Installer settings</h3>
 <p class="field-hint">Set by your installer on the inverter; not shown in the Fox app. Read-only.</p>
-<div class="entity-list">${rows
-      .map(
-        (r) =>
-          `<div class="entity-row"${r.hint ? ` title="${esc(r.hint)}"` : ""}><span class="entity-name">${esc(r.label)}</span><span class="entity-value">${esc(r.value)}</span></div>`
-      )
-      .join("")}</div>
+${body}
 </section>`;
   }
 

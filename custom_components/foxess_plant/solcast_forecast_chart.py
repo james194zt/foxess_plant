@@ -104,17 +104,6 @@ def _kw_at_or_after(rows: list[dict[str, Any]], when: datetime) -> float | None:
     return chosen if chosen is not None else intervals[-1].kw
 
 
-def _snapshot_for_time(
-    snapshots: list[tuple[float, list[dict[str, Any]]]],
-    slot_ms: float,
-) -> list[dict[str, Any]] | None:
-    chosen: list[dict[str, Any]] | None = None
-    for fetched_ms, rows in snapshots:
-        if fetched_ms <= slot_ms:
-            chosen = rows
-    return chosen
-
-
 def _merge_snapshots(
     *groups: list[tuple[float, list[dict[str, Any]]]],
 ) -> list[tuple[float, list[dict[str, Any]]]]:
@@ -272,27 +261,45 @@ def build_forecast_intraday_chart_for_range(
     as_of_ms: float,
     include_future: bool,
 ) -> list[dict[str, float]]:
-    """Build 5-minute forecast kW points for a local day up to as_of_ms."""
+    """Build 5-minute forecast kW points for a local day up to as_of_ms.
+
+    Each point uses every poll known at that moment, newest first for each period (after as_of_ms: every
+    poll). A single poll only covers from its fetch time onwards, so taking just the latest one left gaps;
+    worse, when the latest didn't cover the day at all, its last (night-time, 0 kW) value was repeated across
+    the whole day. Slots no poll covers are left out, never filled with a stale value.
+    """
     if not snapshots:
         return []
-    latest_rows = snapshots[-1][1]
+    from .solcast_pv import _parse_dt
+
+    ordered = sorted(snapshots, key=lambda item: item[0])
     t_max_ms = day_start_ms + 24 * 60 * 60 * 1000
+    known: dict[datetime, dict[str, Any]] = {}
+    intervals: list[Any] = []
+    next_snap = 0
+
+    def take(upto_ms: float) -> None:
+        nonlocal next_snap, intervals
+        changed = False
+        while next_snap < len(ordered) and ordered[next_snap][0] <= upto_ms:
+            for row in ordered[next_snap][1] or []:
+                start = _parse_dt(row.get("period_start")) if isinstance(row, dict) else None
+                if start is not None:
+                    known[dt_util.as_utc(start)] = row
+                    changed = True
+            next_snap += 1
+        if changed:
+            intervals = _build_intervals([known[k] for k in sorted(known)])
+
     out: list[dict[str, float]] = []
     slot = int(day_start_ms)
     while slot <= t_max_ms:
-        if not include_future and slot > as_of_ms:
+        if slot > as_of_ms and not include_future:
             break
-        when = _utc_from_timestamp(slot / 1000)
-        if include_future and slot > as_of_ms:
-            rows = latest_rows
-            kw_fn = _kw_at_or_after
-        else:
-            rows = _snapshot_for_time(snapshots, slot)
-            kw_fn = _kw_at_time
-        if rows:
-            kw = kw_fn(rows, when)
-            if kw is not None:
-                out.append({"t": float(slot), "v": float(kw)})
+        take(float("inf") if slot > as_of_ms else slot)
+        kw = _kw_smooth(intervals, _utc_from_timestamp(slot / 1000)) if intervals else None
+        if kw is not None:
+            out.append({"t": float(slot), "v": float(kw)})
         slot += STATISTICS_PERIOD_MS
     return out
 
