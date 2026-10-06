@@ -132,16 +132,22 @@ class TestHowUsed(unittest.TestCase):
             {"start_ms": s_a, "end_ms": e_a, "action": "charge", "planned_import_kwh": 1.8, "import_p_per_kwh": 8.0},
             {"start_ms": s_b, "end_ms": e_b, "action": "charge", "planned_import_kwh": 1.8, "import_p_per_kwh": 8.0},
         ]
-        # grid import ran during slot A (1.8 kW for the hour), nothing during slot B
-        grid_import = [{"t": s_a, "v": 1.8}, {"t": e_a, "v": 1.8}, {"t": s_b, "v": 0.0}, {"t": e_b, "v": 0.0}]
+        # battery charged during slot A (1.8 kW for the hour), nothing during slot B
+        batt_charge = [{"t": s_a, "v": 1.8}, {"t": e_a, "v": 1.8}, {"t": s_b, "v": 0.0}, {"t": e_b, "v": 0.0}]
         econ = {
-            "2026-10-05": {"reason": "Off-peak charge", "saving_p": 12.0, "operating_mode": "price_arbitrage"},
-            "2026-10-06": {"reason": "Self use — no grid charge needed", "saving_p": 0.0, "operating_mode": "max_safety"},
+            "2026-10-05": {
+                "reason": "Off-peak charge", "saving_p": 12.0, "operating_mode": "price_arbitrage",
+                "planned_grid_charge_kwh": 1.8,
+            },
+            "2026-10-06": {
+                "reason": "Self use — no grid charge needed", "saving_p": 0.0, "operating_mode": "max_safety",
+                "planned_grid_charge_kwh": 1.8,
+            },
         }
         rows = sca.build_how_used(
             daily_economics=econ,
             planned_slots=planned,
-            grid_import_pts=grid_import,
+            battery_charge_pts=batt_charge,
             grid_export_pts=[],
             range_start_ms=self._ms(2026, 10, 5, 0),
             range_end_ms=self._ms(2026, 10, 6, 23),

@@ -473,19 +473,39 @@ def _local_day_key(ms: float) -> str:
     return dt_util.as_local(datetime.fromtimestamp(ms / 1000, tz=dt_util.UTC)).strftime("%Y-%m-%d")
 
 
+def _merge_windows(windows: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Merge overlapping/adjacent (start, end) windows so a night's revised slots aren't counted twice."""
+    ordered = sorted((min(a, b), max(a, b)) for a, b in windows)
+    merged: list[tuple[float, float]] = []
+    for start, end in ordered:
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _integrate_over_windows(points: list[dict[str, float]], windows: list[tuple[float, float]]) -> float:
+    if not windows:
+        return 0.0
+    return round(sum(integrate_power_kwh(points, s, e) for s, e in _merge_windows(windows)), 3)
+
+
 def build_how_used(
     *,
     daily_economics: dict[str, dict[str, Any]],
     planned_slots: list[dict[str, Any]],
-    grid_import_pts: list[dict[str, float]],
+    battery_charge_pts: list[dict[str, float]],
     grid_export_pts: list[dict[str, float]],
     range_start_ms: float,
     range_end_ms: float,
 ) -> list[dict[str, Any]]:
     """Per-day 'what SmartCharge did': planned vs actual, the reason, and its own saving figure.
 
-    Actual grid import/export is integrated over the *planned* windows (so it's meaningful even when the
-    armed-session sensor didn't record), giving a clear ran / skipped (solar covered) / self-use status.
+    Planned kWh comes from the plan's own ``grid_charge_kwh`` (authoritative — summing slots double-counts
+    plan revisions). Actual charge is battery charging during the planned overnight windows (grid import
+    there is mostly base household load, so it misreads as a charge). Gives a clean charged / skipped
+    (solar covered) / exported / self-use status.
     """
     days: dict[str, dict[str, Any]] = {}
     cursor = dt_util.as_local(datetime.fromtimestamp(range_start_ms / 1000, tz=dt_util.UTC)).replace(
@@ -494,40 +514,38 @@ def build_how_used(
     end_local = dt_util.as_local(datetime.fromtimestamp(range_end_ms / 1000, tz=dt_util.UTC))
     while cursor <= end_local:
         days[cursor.strftime("%Y-%m-%d")] = {
-            "planned_charge_kwh": 0.0,
-            "actual_charge_kwh": 0.0,
-            "planned_export_kwh": 0.0,
-            "actual_export_kwh": 0.0,
+            "charge_windows": [],
+            "export_windows": [],
+            "slot_planned_charge_kwh": 0.0,
             "charge_rate_p": None,
         }
         cursor += timedelta(days=1)
 
     for slot in planned_slots:
-        key = _local_day_key(slot["start_ms"])
-        day = days.get(key)
+        day = days.get(_local_day_key(slot["start_ms"]))
         if day is None:
             continue
         if slot.get("action") in CHARGE_PLAN_ACTIONS:
-            day["planned_charge_kwh"] += float(slot.get("planned_import_kwh") or 0)
-            day["actual_charge_kwh"] += integrate_power_kwh(grid_import_pts, slot["start_ms"], slot["end_ms"])
+            day["charge_windows"].append((slot["start_ms"], slot["end_ms"]))
+            day["slot_planned_charge_kwh"] += float(slot.get("planned_import_kwh") or 0)
             rate = slot.get("import_p_per_kwh")
             if rate is not None:
                 day["charge_rate_p"] = rate if day["charge_rate_p"] is None else min(day["charge_rate_p"], rate)
         elif slot.get("action") in EXPORT_PLAN_ACTIONS:
-            day["planned_export_kwh"] += float(slot.get("planned_export_kwh") or 0)
-            day["actual_export_kwh"] += integrate_power_kwh(grid_export_pts, slot["start_ms"], slot["end_ms"])
+            day["export_windows"].append((slot["start_ms"], slot["end_ms"]))
 
     rows: list[dict[str, Any]] = []
     for date, d in sorted(days.items()):
         econ = daily_economics.get(date) or {}
-        planned_c = round(d["planned_charge_kwh"], 3)
-        actual_c = round(d["actual_charge_kwh"], 3)
-        planned_e = round(d["planned_export_kwh"], 3)
-        actual_e = round(d["actual_export_kwh"], 3)
-        if planned_c > 0.05 and actual_c > 0.1:
-            status = "charged"
-        elif planned_c > 0.05:
-            status = "skipped"  # planned a grid charge but didn't need it (solar forecast covered it)
+        planned_c = econ.get("planned_grid_charge_kwh")
+        if planned_c is None:
+            planned_c = d["slot_planned_charge_kwh"]
+        planned_c = round(float(planned_c or 0), 3)
+        planned_e = round(float(econ.get("planned_export_kwh") or 0), 3)
+        actual_c = _integrate_over_windows(battery_charge_pts, d["charge_windows"])
+        actual_e = _integrate_over_windows(grid_export_pts, d["export_windows"])
+        if planned_c > 0.05:
+            status = "charged" if actual_c > 0.3 else "skipped"
         elif planned_e > 0.05 or actual_e > 0.1:
             status = "exported"
         elif econ:
@@ -668,7 +686,7 @@ def build_smart_charge_analysis_payload(
     how_used = build_how_used(
         daily_economics=daily_economics,
         planned_slots=planned_slots,
-        grid_import_pts=grid_import_pts,
+        battery_charge_pts=battery_charge_pts,
         grid_export_pts=grid_export_pts,
         range_start_ms=range_start_ms,
         range_end_ms=range_end_ms,
@@ -786,6 +804,25 @@ async def async_build_smart_charge_analysis(
     sc = coordinator.plant.smart_charge
     store = getattr(coordinator, "_performance_store", None)
 
+    # Today's row isn't in the finalised daily ledger yet, so pull the live running totals (same source the
+    # Performance page uses for "today") to fold into the period savings.
+    today_live: dict[str, Any] | None = None
+    try:
+        from .performance.tick import performance_summary
+
+        today_live = (performance_summary(coordinator) or {}).get("today")
+        if today_live is not None:
+            # The live "today" carries savings but not energy totals; fill those from analytics.
+            analytics = coordinator._read_analytics() or {}
+            today_live = {
+                **today_live,
+                "pv_kwh": today_live.get("pv_kwh") or analytics.get("pv_production_kwh_today") or 0,
+                "import_kwh": today_live.get("import_kwh") or analytics.get("load_from_grid_kwh_today") or 0,
+                "export_kwh": today_live.get("export_kwh") or analytics.get("pv_to_grid_kwh_today") or 0,
+            }
+    except Exception as err:  # noqa: BLE001 — report still renders without today's live figures
+        _LOGGER.debug("SmartCharge analysis live today summary failed: %s", err)
+
     def job() -> dict[str, Any]:
         return _build_analysis_sync(
             hass,
@@ -800,6 +837,7 @@ async def async_build_smart_charge_analysis(
             power_scale=power_scale,
             operating_mode=getattr(sc, "operating_mode", None),
             store=store,
+            today_live=today_live,
         )
 
     return await get_instance(hass).async_add_executor_job(job)
@@ -846,6 +884,7 @@ def _build_analysis_sync(
     power_scale: dict[str, float],
     operating_mode: str | None,
     store: Any,
+    today_live: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Recorder-executor half of the report: all database reads live here."""
     from .websocket_api import _fetch_statistics_points
@@ -941,12 +980,54 @@ def _build_analysis_sync(
         end_date = dt_util.as_local(end_local).date().isoformat()
         payload["hems_audit"] = build_hems_audit_report(store, start_date=start_date, end_date=end_date)
         # Whole-system saving vs having no PV/battery (buy everything from the grid): avoided import +
-        # export earnings, straight from the performance ledger. The headline the report leads with.
+        # export earnings, from the performance ledger, per day and summed. Today isn't finalised in the
+        # ledger yet, so fold in the live running totals so the current week isn't all zeros.
         try:
-            payload["system_savings"] = store.period_aggregate(start_date, end_date)
+            today_iso = dt_util.as_local(dt_util.utcnow()).date().isoformat()
+            daily: dict[str, dict[str, Any]] = {}
+            for row in store.list_ledger_between(start_date, end_date):
+                daily[str(row.get("date"))] = _system_day_row(row)
+            if today_live and start_date <= today_iso <= end_date:
+                daily[today_iso] = _system_day_row({**today_live, "date": today_iso})
+            system_daily = [daily[k] for k in sorted(daily)]
+            payload["system_daily"] = system_daily
+            payload["system_savings"] = _system_savings_totals(system_daily)
         except Exception as err:  # noqa: BLE001 — report still renders without it
             _LOGGER.debug("SmartCharge analysis system savings aggregate failed: %s", err)
     return payload
+
+
+def _system_day_row(row: dict[str, Any]) -> dict[str, Any]:
+    def num(key: str) -> float:
+        try:
+            return round(float(row.get(key) or 0), 3)
+        except (TypeError, ValueError):
+            return 0.0
+
+    return {
+        "date": str(row.get("date")),
+        "net_saving_gbp": num("net_daily_savings_gbp"),
+        "avoided_grid_cost_gbp": num("avoided_grid_cost_gbp"),
+        "export_earnings_gbp": num("export_earnings_gbp"),
+        "pv_kwh": num("pv_kwh"),
+        "import_kwh": num("import_kwh"),
+        "export_kwh": num("export_kwh"),
+    }
+
+
+def _system_savings_totals(system_daily: list[dict[str, Any]]) -> dict[str, Any]:
+    def total(key: str) -> float:
+        return round(sum(float(r.get(key) or 0) for r in system_daily), 2)
+
+    return {
+        "net_daily_savings_gbp": total("net_saving_gbp"),
+        "avoided_grid_cost_gbp": total("avoided_grid_cost_gbp"),
+        "export_earnings_gbp": total("export_earnings_gbp"),
+        "pv_kwh": round(sum(float(r.get("pv_kwh") or 0) for r in system_daily), 2),
+        "import_kwh": round(sum(float(r.get("import_kwh") or 0) for r in system_daily), 2),
+        "export_kwh": round(sum(float(r.get("export_kwh") or 0) for r in system_daily), 2),
+        "days": len(system_daily),
+    }
 
 
 __all__ = [

@@ -3144,7 +3144,7 @@ function renderSmartChargeHowUsed(howUsed) {
   if (!rows.length) {
     return `<p class="placeholder">No SmartCharge plan history recorded for this period yet.</p>`;
   }
-  const body = rows
+  const items = rows
     .slice()
     .sort((a, b) => (a.date < b.date ? 1 : -1))
     .map((r) => {
@@ -3153,32 +3153,71 @@ function renderSmartChargeHowUsed(howUsed) {
       const dayLabel = Number.isNaN(d.getTime())
         ? r.date
         : d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
-      let detail = "—";
+      let detail = "Ran on solar + battery — no grid action needed";
       if (r.status === "charged") {
-        const rate = r.charge_rate_p != null ? ` @ ${Number(r.charge_rate_p).toFixed(1)}p/kWh` : "";
-        detail = `charged ${formatSmartChargeKwh(r.actual_charge_kwh)} of ${formatSmartChargeKwh(r.planned_charge_kwh)} planned${rate}`;
+        const rate = r.charge_rate_p != null ? ` at ${Number(r.charge_rate_p).toFixed(1)}p/kWh` : "";
+        detail = `Charged ${formatSmartChargeKwh(r.actual_charge_kwh)} of ${formatSmartChargeKwh(r.planned_charge_kwh)} planned${rate}`;
       } else if (r.status === "skipped") {
-        detail = `planned ${formatSmartChargeKwh(r.planned_charge_kwh)} — not needed, solar covered it`;
+        detail = `Planned ${formatSmartChargeKwh(r.planned_charge_kwh)} grid charge — skipped, solar forecast covered it`;
       } else if (r.status === "exported") {
-        detail = `exported ${formatSmartChargeKwh(r.actual_export_kwh)}`;
-      } else if (r.status === "self_use") {
-        detail = "ran on solar + battery, no grid action";
+        detail = `Exported ${formatSmartChargeKwh(r.actual_export_kwh)} at premium`;
+      } else if (r.status === "no_data") {
+        detail = "No plan recorded";
       }
-      const pill = `<span class="fox-sc-howused-status" style="background:${meta.color}">${esc(meta.label)}</span>`;
-      return `<tr>
-<td>${esc(dayLabel)}</td>
-<td>${pill}</td>
-<td>${esc(detail)}</td>
-<td>${esc(r.reason || "—")}</td>
-<td>${esc(formatPenceSaving(r.saving_p))}</td>
-</tr>`;
+      const saved = formatPenceSaving(r.saving_p);
+      return `<li class="fox-sc-howused-row">
+<div class="fox-sc-howused-main"><span class="fox-sc-howused-status" style="background:${meta.color}">${esc(meta.label)}</span><span class="fox-sc-howused-day">${esc(dayLabel)}</span></div>
+<div class="fox-sc-howused-detail"><div>${esc(detail)}</div>${r.reason ? `<div class="fox-sc-howused-reason">${esc(r.reason)}</div>` : ""}</div>
+<div class="fox-sc-howused-saved">${saved === "—" ? "" : esc(saved)}</div>
+</li>`;
     })
     .join("");
-  return `<div class="table-wrap"><table class="data-table fox-sc-analysis-table">
-<thead><tr><th>Day</th><th>SmartCharge</th><th>What happened</th><th>Reason</th><th>Saved</th></tr></thead>
-<tbody>${body}</tbody>
-</table></div>
-<p class="field-hint">“Saved” is SmartCharge’s own estimate of what its scheduling added on top of plain self-use. The headline “System saved” above is the whole solar + battery system vs buying everything from the grid.</p>`;
+  return `<ul class="fox-sc-howused-list">${items}</ul>
+<p class="field-hint">“Saved” is SmartCharge’s own estimate of what its scheduling added vs plain self-use. The “System saved” headline is the whole solar + battery system vs buying everything from the grid.</p>`;
+}
+
+function renderSmartChargeSavingsChart(systemDaily) {
+  const rows = (Array.isArray(systemDaily) ? systemDaily : []).filter((r) => r && r.date);
+  if (!rows.length) return "";
+  const mapped = rows.map((r) => {
+    const d = new Date(`${r.date}T12:00:00`);
+    return {
+      label: Number.isNaN(d.getTime()) ? r.date : d.toLocaleDateString(undefined, { day: "numeric", month: "short" }),
+      avoided: Math.max(0, Number(r.avoided_grid_cost_gbp) || 0),
+      exportg: Math.max(0, Number(r.export_earnings_gbp) || 0),
+    };
+  });
+  if (!mapped.some((m) => m.avoided + m.exportg > 0.005)) return "";
+  const maxVal = Math.max(0.5, ...mapped.map((m) => m.avoided + m.exportg));
+  const W = chartRenderWidth(PERF_CHART_W);
+  const H = 210;
+  const padL = 24;
+  const padR = 12;
+  const padT = 20;
+  const padB = 26;
+  const chartW = W - padL - padR;
+  const chartH = H - padT - padB;
+  const slotW = chartW / mapped.length;
+  const barW = Math.min(36, slotW * 0.5);
+  const parts = mapped
+    .map((m, i) => {
+      const cx = padL + i * slotW + slotW / 2;
+      const x = cx - barW / 2;
+      const hA = (m.avoided / maxVal) * chartH;
+      const hE = (m.exportg / maxVal) * chartH;
+      const yA = padT + chartH - hA;
+      const yE = yA - hE;
+      const total = m.avoided + m.exportg;
+      let out = "";
+      if (hA > 0.5) out += `<rect x="${x.toFixed(1)}" y="${yA.toFixed(1)}" width="${barW.toFixed(1)}" height="${hA.toFixed(1)}" fill="#52c41a" rx="2"/>`;
+      if (hE > 0.5) out += `<rect x="${x.toFixed(1)}" y="${yE.toFixed(1)}" width="${barW.toFixed(1)}" height="${hE.toFixed(1)}" fill="#8DB6FF" rx="2"/>`;
+      if (total > maxVal * 0.03) out += `<text x="${cx.toFixed(1)}" y="${(yE - 5).toFixed(1)}" text-anchor="middle" class="chart-axis" style="font-weight:600">£${total.toFixed(2)}</text>`;
+      out += `<text x="${cx.toFixed(1)}" y="${H - 8}" text-anchor="middle" class="chart-axis">${esc(m.label)}</text>`;
+      return out;
+    })
+    .join("");
+  const legend = `<div class="fox-sc-analysis-chart-legend"><span><i style="background:#52c41a"></i> Avoided import</span><span><i style="background:#8DB6FF"></i> Export earnings</span></div>`;
+  return `${legend}<svg class="fox-sc-analysis-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Daily savings from solar and battery"><line x1="${padL}" y1="${(padT + chartH).toFixed(1)}" x2="${W - padR}" y2="${(padT + chartH).toFixed(1)}" stroke="var(--divider-color,#333)" stroke-opacity="0.3"/>${parts}</svg>`;
 }
 
 function renderSmartChargeAnalysisPage(report, { loading = false } = {}) {
@@ -3196,6 +3235,12 @@ function renderSmartChargeAnalysisPage(report, { loading = false } = {}) {
 <header class="header"><h1>SmartCharge Analysis</h1><p>${esc(report.period_label || "")}</p></header>
 ${hint}
 ${renderSmartChargeSummaryCards(report)}
+${(() => {
+  const chart = renderSmartChargeSavingsChart(report.system_daily);
+  return chart
+    ? `<div class="card fox-report-chart-card fox-analysis-chart-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Daily savings (solar + battery)</h3>${chart}</div>`
+    : "";
+})()}
 <div class="card fox-report-details">
 <h3 class="fox-report-details-title">How SmartCharge was used</h3>
 ${renderSmartChargeHowUsed(report.how_used)}
@@ -13771,6 +13816,55 @@ details.fox-report-details[open] > summary.fox-report-details-title {
   font-weight: 600;
   color: #fff;
   white-space: nowrap;
+}
+.fox-sc-howused-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.fox-sc-howused-row {
+  display: grid;
+  grid-template-columns: minmax(150px, max-content) 1fr auto;
+  gap: 14px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.25));
+  border-radius: 10px;
+  background: var(--secondary-background-color, rgba(127, 127, 127, 0.06));
+}
+.fox-sc-howused-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.fox-sc-howused-day {
+  font-weight: 600;
+}
+.fox-sc-howused-detail {
+  min-width: 0;
+  font-size: 13px;
+  color: var(--primary-text-color);
+}
+.fox-sc-howused-reason {
+  font-size: 12px;
+  color: var(--secondary-text-color);
+  margin-top: 2px;
+}
+.fox-sc-howused-saved {
+  font-weight: 700;
+  color: var(--primary-text-color);
+  white-space: nowrap;
+}
+@media (max-width: 560px) {
+  .fox-sc-howused-row {
+    grid-template-columns: 1fr auto;
+  }
+  .fox-sc-howused-main {
+    grid-column: 1 / -1;
+  }
 }
 .fox-report-details-table-wrap {
   overflow-x: auto;
