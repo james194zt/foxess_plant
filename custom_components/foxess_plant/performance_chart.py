@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
@@ -491,6 +492,41 @@ def _append_live_weather_point(
         pts.sort(key=lambda p: p["t"])
 
 
+PANEL_TEMP_SMOOTH_TAU_MIN = 10.0  # panel thermal time constant: the glass can't jump in one 5-min sample
+
+
+def _ema_smooth_points(
+    points: list[dict[str, float]] | None, tau_min: float
+) -> list[dict[str, float]] | None:
+    """Time-aware exponential moving average over [{t(ms), v}].
+
+    The panel-temp model is instantaneous steady-state, so a brief output spike (cloud-edge lensing) shows
+    as an unphysical temperature spike. A first-order lag with the panels' thermal time constant damps those
+    while keeping the real trend. Display only — the raw sensor is unchanged.
+    """
+    if not points or tau_min <= 0:
+        return points
+    pts = sorted(points, key=lambda p: p["t"])
+    out: list[dict[str, float]] = []
+    ema: float | None = None
+    prev_t: float | None = None
+    for p in pts:
+        try:
+            t = float(p["t"])
+            v = float(p["v"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        if ema is None or prev_t is None:
+            ema = v
+        else:
+            dt_min = max(0.0, (t - prev_t) / 60000.0)
+            alpha = 1.0 - math.exp(-dt_min / tau_min) if dt_min > 0 else 0.0
+            ema += alpha * (v - ema)
+        prev_t = t
+        out.append({"t": t, "v": round(ema, 4)})
+    return out
+
+
 def _day_bounds(target_day: date) -> tuple[datetime, datetime]:
     day_start = dt_util.start_of_local_day(
         dt_util.as_local(datetime.combine(target_day, time.min))
@@ -543,6 +579,12 @@ async def async_build_performance_day_chart(
             hass, coordinator, start_utc=start_utc, end_utc=end_utc
         )
         series = _merge_series(series, modbus_series)
+
+    # Smooth the modelled panel temperature so cloud-edge spikes don't show as unphysical jumps.
+    if series.get("virtual_panel_temp_c"):
+        series["virtual_panel_temp_c"] = _ema_smooth_points(
+            series["virtual_panel_temp_c"], PANEL_TEMP_SMOOTH_TAU_MIN
+        )
 
     entities = resolve_performance_entities(hass, entry_id)
     kind_to_entity = {kind: eid for kind, eid in entities.items()}
