@@ -3120,6 +3120,41 @@ function renderSmartChargePlannedTable(slots) {
   return `<ul class="fox-sc-howused-list">${items}</ul>`;
 }
 
+const SC_CHARGE_ACTIONS = ["charge", "spread_charge", "winter_fill", "solar_gap_fill", "charge_candidate", "arbitrage"];
+const SC_EXPORT_ACTIONS = ["export", "spread_export"];
+
+function hemsSlotTime(value, utc) {
+  if (value) return String(value);
+  if (utc) {
+    const d = new Date(utc);
+    if (!Number.isNaN(d.getTime())) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+  return "";
+}
+
+function renderHemsEventSlots(ev) {
+  const slots = Array.isArray(ev?.payload?.slots) ? ev.payload.slots : [];
+  if (!slots.length) return "";
+  const charge = slots.filter((s) => SC_CHARGE_ACTIONS.includes(String(s.action || "")));
+  const exportS = slots.filter((s) => SC_EXPORT_ACTIONS.includes(String(s.action || "")));
+  if (!charge.length && !exportS.length) return "";
+  const line = (s, kwhKey) => {
+    const start = hemsSlotTime(s.start, s.start_utc);
+    const end = hemsSlotTime(s.end, null);
+    const when = start ? (end ? `${start}–${end}` : start) : "slot";
+    const kwh = s[kwhKey] != null ? ` · ${formatSmartChargeKwh(s[kwhKey])}` : "";
+    return `<div class="fox-sc-hems-slot">${esc(when)}${esc(kwh)}</div>`;
+  };
+  let out = "";
+  if (charge.length) {
+    out += `<div class="fox-sc-hems-group">Import</div>${charge.map((s) => line(s, "planned_import_kwh")).join("")}`;
+  }
+  if (exportS.length) {
+    out += `<div class="fox-sc-hems-group">Export</div>${exportS.map((s) => line(s, "planned_export_kwh")).join("")}`;
+  }
+  return `<div class="fox-sc-hems-slots">${out}</div>`;
+}
+
 function renderSmartChargeHemsAuditTable(audit) {
   const events = Array.isArray(audit?.events) ? audit.events : [];
   if (!events.length) {
@@ -3131,10 +3166,13 @@ function renderSmartChargeHemsAuditTable(audit) {
         ev.event_label ||
         (ev.event_type ? String(ev.event_type).replace("smart_charge_", "").replace(/_/g, " ") : "Event");
       const when = ev.local_label || ev.ts || "—";
-      return `<li class="fox-sc-howused-row">
+      return `<li class="fox-sc-hems-item">
+<div class="fox-sc-howused-row">
 <div class="fox-sc-howused-main"><span class="fox-sc-howused-status" style="background:#894bfc">${esc(label)}</span><span class="fox-sc-howused-day">${esc(when)}</span></div>
 <div class="fox-sc-howused-detail"><div>${esc(ev.summary || "")}</div></div>
 <div class="fox-sc-howused-saved"></div>
+</div>
+${renderHemsEventSlots(ev)}
 </li>`;
     })
     .join("");
@@ -13881,6 +13919,29 @@ details.fox-report-details[open] > summary.fox-report-details-title {
   .fox-sc-howused-main {
     grid-column: 1 / -1;
   }
+}
+.fox-sc-hems-item {
+  list-style: none;
+}
+.fox-sc-hems-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 6px 0 2px 14px;
+}
+.fox-sc-hems-group {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary-text-color);
+  margin-top: 6px;
+}
+.fox-sc-hems-slot {
+  font-size: 12px;
+  color: var(--secondary-text-color);
+  background: var(--secondary-background-color, rgba(127, 127, 127, 0.08));
+  border: 1px solid var(--divider-color, rgba(127, 127, 127, 0.2));
+  border-radius: 6px;
+  padding: 3px 9px;
 }
 .fox-report-details-table-wrap {
   overflow-x: auto;
