@@ -62,13 +62,32 @@ def _panel_js_version() -> str:
         return json.load(mf).get("version", "0")
 
 
+# ES modules the panel imports. Their URLs don't change between releases, so a browser can keep an old copy
+# (seen: "fox-alarm-guide.js does not provide an export named 'bmsFaultLabel'" -> blank panel). The served
+# panel copy imports them with ?v=<their hash>, and their content is part of the panel's fingerprint.
+PANEL_IMPORTED_MODULES = ("fox-alarm-guide.js",)
+
+
+def _module_hash(name: str) -> str:
+    path = WWW_DIR / name
+    return hashlib.sha256(path.read_bytes()).hexdigest()[:12] if path.is_file() else "missing"
+
+
+def _versioned_panel_bytes() -> bytes:
+    """The panel JS as served: each local module import pinned to its content hash."""
+    data = panel_js_path().read_bytes()
+    for name in PANEL_IMPORTED_MODULES:
+        data = data.replace(f'"./{name}"'.encode(), f'"./{name}?v={_module_hash(name)}"'.encode())
+    return data
+
+
 def _panel_js_fingerprint() -> str:
-    """Short hash of panel JS so module_url changes whenever the file changes."""
+    """Short hash of panel JS (and the modules it imports) so module_url changes whenever any of them do."""
     path = panel_js_path()
     if not path.is_file():
         _log_panel_js_missing_once()
         return "missing"
-    return hashlib.sha256(path.read_bytes()).hexdigest()[:12]
+    return hashlib.sha256(_versioned_panel_bytes()).hexdigest()[:12]
 
 
 def _panel_js_cache_name() -> str:
@@ -83,7 +102,7 @@ def _sync_versioned_panel_js() -> None:
     if not src.is_file():
         return
     dest = WWW_DIR / _panel_js_cache_name()
-    data = src.read_bytes()
+    data = _versioned_panel_bytes()
     if not dest.is_file() or dest.read_bytes() != data:
         dest.write_bytes(data)
     for old in WWW_DIR.glob("foxess-plant-panel.v*.js"):

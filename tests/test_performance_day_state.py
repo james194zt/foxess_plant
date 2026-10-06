@@ -33,6 +33,33 @@ def _acc() -> dict:
     }
 
 
+@pytest.mark.asyncio
+async def test_store_starts_in_the_config_folder(tmp_path) -> None:
+    # HA's config.path returns a str; building the path with "/" crashed every start, so Performance never ran
+    import os
+
+    from custom_components.foxess_plant.performance.tick import async_init_performance_store, performance_db_path
+
+    hass = SimpleNamespace(config=SimpleNamespace(path=lambda *p: os.path.join(str(tmp_path), *p)))
+    assert performance_db_path(hass, "abc") == os.path.join(str(tmp_path), "foxess_plant", "performance_abc.db")
+    coordinator = SimpleNamespace(
+        hass=hass,
+        config_entry=SimpleNamespace(entry_id="abc"),
+        plant=SimpleNamespace(
+            performance=SimpleNamespace(
+                enabled=True, system_install_cost_gbp=9327.0, system_rte=0.85, inverter_ac_limit_kw=5.0
+            ),
+            solcast=SimpleNamespace(installation_date=None),
+        ),
+        _performance_store=None,
+        _performance_day="",
+        _performance_daily={},
+    )
+    await async_init_performance_store(coordinator)  # the recorder backfill fails on this fake hass: logged only
+    assert coordinator._performance_store is not None
+    assert (tmp_path / "foxess_plant" / "performance_abc.db").exists()
+
+
 def test_hourly_backfilled_days_are_refilled_at_five_minutes() -> None:
     start = dt_util.start_of_local_day() - timedelta(days=2)
     assert _needs_backfill(24, start, dt_util.now())  # a whole past day with only hourly rows

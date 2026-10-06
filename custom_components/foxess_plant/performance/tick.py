@@ -25,7 +25,8 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def performance_db_path(hass: Any, entry_id: str) -> str:
-    return str(hass.config.path("foxess_plant") / f"performance_{entry_id}.db")
+    # hass.config.path returns a str (not a Path): "/" on it raised TypeError, so Performance never started
+    return hass.config.path("foxess_plant", f"performance_{entry_id}.db")
 
 
 def new_daily_accumulator() -> dict[str, Any]:

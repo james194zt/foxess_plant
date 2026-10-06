@@ -97,11 +97,24 @@ def cache_from_storage(data: dict[str, Any] | None) -> dict[str, Any]:
     return {}
 
 
+class _SolcastStore(Store):
+    """Store with the v1 -> v2 upgrade.
+
+    Version 2 only added ``daily_intraday``, which async_load fills in. Without this, HA raised
+    NotImplementedError on a v1 file, so every load failed and nothing was ever saved over it.
+    """
+
+    async def _async_migrate_func(self, old_major_version, old_minor_version, old_data):
+        if old_major_version == 1 and isinstance(old_data, dict):
+            return {**old_data, "daily_intraday": old_data.get("daily_intraday") or {}}
+        raise NotImplementedError
+
+
 class SolcastForecastStore:
     """JSON store under HA config/.storage for current forecast + poll history."""
 
     def __init__(self, hass: HomeAssistant, entry_id: str) -> None:
-        self._store = Store(hass, STORAGE_VERSION, _storage_key(entry_id))
+        self._store = _SolcastStore(hass, STORAGE_VERSION, _storage_key(entry_id))
 
     async def async_load(self) -> dict[str, Any]:
         data = await self._store.async_load()
