@@ -524,7 +524,7 @@ function bmsGuideEntry(alarmName) {
   const description =
     FOX_BMS_FAULT_DESCRIPTIONS[faultName] || `${faultName} reported by the battery BMS (${bs}).`;
   return {
-    manualName: `${alarmName} — EVO manual §10.1 BMS State (${bs})`,
+    manualName: `${alarmName} — EVO manual section 10.1, BMS State (${bs})`,
     description,
     solutions: [
       "This is a BMS protection trip. If a recovery time is shown above, the battery cleared it automatically once the condition passed — usually no action is needed.",
@@ -553,7 +553,7 @@ export function foxAlarmGuideEntry(alarmName) {
   if (bms) return bms;
   return {
     manualName: alarmName,
-    description: "This fault isn't listed individually in the EVO manual's §10.1 Alarm List.",
+    description: "This fault isn't listed individually in the EVO manual's section 10.1 Alarm List.",
     solutions: FOX_MANUAL_GENERIC_SOLUTIONS,
     bmsRelated: /bms|battery|energy storage/i.test(alarmName),
   };
@@ -625,7 +625,7 @@ ${batStatus ? `<div><dt>Battery status</dt><dd>${esc(batStatus.state)}</dd></div
 <h3 class="fox-alarm-detail-subtitle">Suggested actions</h3>
 <ul class="fox-alarm-detail-solutions">${solutions}</ul>
 ${bmsHtml}
-<p class="fox-alarm-detail-source">Source: EN-EVO User Manual §10.1–10.2</p>
+<p class="fox-alarm-detail-source">Source: EN-EVO User Manual, sections 10.1–10.2</p>
 </div>`;
 }
 
