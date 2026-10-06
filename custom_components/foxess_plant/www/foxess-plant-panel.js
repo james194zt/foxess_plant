@@ -3110,14 +3110,18 @@ function renderSmartChargePlannedTable(slots) {
         ? formatSmartChargeKwh(row.planned_export_kwh)
         : formatSmartChargeKwh(row.planned_import_kwh);
       const when = `${esc(formatSmartChargeDateTimeMs(row.start_ms))} → ${esc(formatSmartChargeTimeMs(row.end_ms))}`;
+      const used = row.actual_kwh != null && Number(row.actual_kwh) > 0.1;
+      const usedTxt = used
+        ? `<span style="color:#52c41a;font-weight:600">Used ${esc(formatSmartChargeKwh(row.actual_kwh))}</span>`
+        : `<span style="color:var(--secondary-text-color)">Not used — predicted only</span>`;
       return `<li class="fox-sc-howused-row">
 <div class="fox-sc-howused-main"><span class="fox-sc-howused-status" style="background:${pill.color}">${esc(pill.label)}</span><span class="fox-sc-howused-day">${when}</span></div>
-<div class="fox-sc-howused-detail"><div>${esc(row.reason || "—")}</div></div>
-<div class="fox-sc-howused-saved">${esc(planned)}</div>
+<div class="fox-sc-howused-detail"><div>${esc(row.reason || "—")}</div><div class="fox-sc-howused-reason">${usedTxt}</div></div>
+<div class="fox-sc-howused-saved">${esc(planned)}<div class="fox-sc-howused-sub">predicted</div></div>
 </li>`;
     })
     .join("");
-  return `<ul class="fox-sc-howused-list">${items}</ul>`;
+  return `<p class="field-hint">Charge/export windows SmartCharge planned — the kWh is predicted. “Used” shows whether the battery actually charged (or exported) in that window.</p><ul class="fox-sc-howused-list">${items}</ul>`;
 }
 
 const SC_CHARGE_ACTIONS = ["charge", "spread_charge", "winter_fill", "solar_gap_fill", "charge_candidate", "arbitrage"];
@@ -13911,6 +13915,12 @@ details.fox-report-details[open] > summary.fox-report-details-title {
   font-weight: 700;
   color: var(--primary-text-color);
   white-space: nowrap;
+  text-align: right;
+}
+.fox-sc-howused-sub {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--secondary-text-color);
 }
 @media (max-width: 560px) {
   .fox-sc-howused-row {

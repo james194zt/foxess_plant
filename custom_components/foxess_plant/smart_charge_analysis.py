@@ -616,6 +616,15 @@ def build_smart_charge_analysis_payload(
         key = f"{slot['start_ms']}:{slot.get('action')}"
         deduped[key] = slot
     planned_slots = sorted(deduped.values(), key=lambda row: row["start_ms"])
+    # Mark whether each planned window was actually used: battery charging (grid charge) or grid export
+    # during the slot. Lets the UI show predicted vs actual instead of looking like it definitely ran.
+    for slot in planned_slots:
+        if slot.get("action") in CHARGE_PLAN_ACTIONS:
+            slot["actual_kwh"] = integrate_power_kwh(battery_charge_pts, slot["start_ms"], slot["end_ms"])
+        elif slot.get("action") in EXPORT_PLAN_ACTIONS:
+            slot["actual_kwh"] = integrate_power_kwh(grid_export_pts, slot["start_ms"], slot["end_ms"])
+        else:
+            slot["actual_kwh"] = None
 
     sessions: list[dict[str, Any]] = []
     for period_row in armed_periods:
