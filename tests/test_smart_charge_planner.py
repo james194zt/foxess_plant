@@ -318,6 +318,21 @@ class PlannerScenarioTests(unittest.TestCase):
             self.assertEqual(entry["export_p_per_kwh"], 30.0)
             self.assertGreaterEqual(entry["soc_end_pct"], 40.0 - 0.01)
 
+    def test_no_forced_export_when_it_cannot_beat_refilling(self) -> None:
+        # The user's rates: import 18.05p 02-05, 45.25p 16-19, 24.65p otherwise; export a flat 13p; measured
+        # round trip 80 %. 13 x 0.8 = 10.4p never beats 18.05p, so even with export allowed and a full
+        # battery the planner must never force-export.
+        now = local(2026, 3, 10, 15, 0)
+
+        def users_import(t: datetime) -> float:
+            return 18.05 if 2 <= t.hour < 5 else 45.25 if 16 <= t.hour < 19 else 24.65
+
+        imports = agile_rows(now, 32, users_import)
+        exports = agile_rows(now, 32, lambda t: 13.0)
+        p = params(export_allowed=True, min_export_p=12.0, export_floor_kwh=4.0, round_trip_efficiency=0.8)
+        _slots, plan, _ = run(now, imports, [], soc_kwh=10.0, export_rows=exports, p=p)
+        self.assertEqual([e for e in plan if e["action"] == "export"], [])
+
     def test_agile_outgoing_exports_top_slots_with_a_budget_per_day(self) -> None:
         now = local(2026, 3, 10, 15, 0)
         imports = agile_rows(now, 32, overnight_cheap)

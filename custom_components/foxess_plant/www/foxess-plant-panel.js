@@ -23905,7 +23905,7 @@ ${profitHint}`;
     if (profile && profile.has_export && !profile.forced_export_useful) {
       const eff = Number(profile.round_trip_efficiency);
       const effText = Number.isFinite(eff) ? `${(eff * 100).toFixed(0)}%` : "battery";
-      return `<p class="field-hint">Export pays at most ${esc(fmtP(profile.export_max_p))}. Only ${esc(effText)} of a stored kWh comes back out, so that&rsquo;s never more than refilling it at your cheapest import (${esc(fmtP(profile.import_min_p))}): force-exporting the battery can&rsquo;t save money. Export settings are hidden; surplus solar still exports as normal.</p>`;
+      return `<p class="field-hint">Export pays at most ${esc(fmtP(profile.export_max_p))}. Only ${esc(effText)} of a stored kWh comes back out, so that&rsquo;s never more than refilling it at your cheapest import (${esc(fmtP(profile.import_min_p))}): force-exporting the battery can&rsquo;t save money, so SmartCharge never does it on these rates. Surplus solar still exports as normal.</p>`;
     }
     const keys = {
       max_profit: { minP: "min_export_p_profit", minDef: 12, frac: "exportable_fraction_profit", fracDef: 1, allow: null },
@@ -23913,7 +23913,8 @@ ${profitHint}`;
       max_safety: { minP: "min_export_p_safety", minDef: 20, frac: "exportable_fraction_safety", fracDef: 0.35, allow: "export_enabled_safety" },
     }[mode] || null;
     if (!keys) return "";
-    const allowLabel = mode === "max_green" ? "Allow export in green mode" : "Allow export in safety mode";
+    const allowLabel =
+      mode === "max_green" ? "Allow forced export in green mode" : "Allow forced export in safety mode";
     const allowRow = keys.allow
       ? `<div class="toggle-row"><span><strong>${allowLabel}</strong></span>
 <input type="checkbox" data-field="smart-charge:${keys.allow}" ${draft[keys.allow] ? "checked" : ""} ${busy}></div>`
@@ -23923,8 +23924,9 @@ ${profitHint}`;
       ? `<p class="field-hint">Export is a fixed ${esc(fmtP(profile.export_max_p))}. SmartCharge only force-exports when that beats refilling the battery later from cheaper import.</p>`
       : `<div class="field"><label>Min export rate (p/kWh)</label>
 <input type="number" min="0" max="100" step="0.5" data-field="smart-charge:${keys.minP}" value="${esc(String(draft[keys.minP] ?? keys.minDef))}" ${busy}></div>`;
-    return `<div class="toggle-row"><span><strong>Enable grid export</strong></span>
+    return `<div class="toggle-row"><span><strong>Allow forced battery export</strong></span>
 <input type="checkbox" data-field="smart-charge:export_enabled" ${draft.export_enabled ? "checked" : ""} ${busy}></div>
+<p class="field-hint">SmartCharge may empty the battery to the grid when export pays more than refilling it later. Surplus solar is still exported as normal either way.</p>
 ${allowRow}
 ${minRateRow}
 <div class="field"><label>Max exportable fraction</label>

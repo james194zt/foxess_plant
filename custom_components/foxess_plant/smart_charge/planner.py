@@ -711,6 +711,12 @@ def optimise(
         return charge, discharge, result
 
     max_import = max(s.import_p for s in slots)
+    # Forced export only when it can pay: a stored kWh gives back round_trip_efficiency of itself, so its best
+    # export price has to beat refilling it at the cheapest import (the same rule tariff_profile shows the user)
+    known = [s for s in slots if s.price_known]
+    export_can_pay = bool(known) and (
+        max(s.export_p for s in known) * params.round_trip_efficiency > min(s.import_p for s in known)
+    )
     # Greedy moves are never undone, so a move that later moves make pointless (a daytime
     # top-up once the next night's charge is planned) would stay. Alternate adding moves
     # with a pruning pass that drops or halves any move whose removal lowers the cost.
@@ -748,6 +754,7 @@ def optimise(
                 # Export move.
                 if (
                     params.export_allowed
+                    and export_can_pay
                     and charge[i] == 0
                     and slot.export_p >= params.min_export_p
                 ):
