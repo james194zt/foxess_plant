@@ -422,6 +422,151 @@ def build_daily_chart(
     ]
 
 
+def collect_daily_economics(
+    decision_states: list[Any],
+    *,
+    range_start_ms: float,
+    range_end_ms: float,
+) -> dict[str, dict[str, Any]]:
+    """Per local day, the latest plan SmartCharge built that day — its own cost/saving figures.
+
+    Reads ``decision.plan_summary`` (cost_p, baseline_cost_p, saving_p, planned grid charge/export,
+    PV/load forecast) so the report can show what SmartCharge decided and why, even on days it chose
+    to do nothing (idle/self-use), which carry no plan slots.
+    """
+    by_day: dict[str, dict[str, Any]] = {}
+    for state in decision_states:
+        attrs = _state_attrs(state)
+        decision = attrs.get("decision")
+        summary = decision.get("plan_summary") if isinstance(decision, dict) else None
+        if not isinstance(summary, dict):
+            continue
+        built = dt_util.parse_datetime(str(summary.get("built_at") or ""))
+        t_ms = dt_util.as_utc(built).timestamp() * 1000 if built is not None else _state_timestamp_ms(state)
+        if t_ms is None or t_ms < range_start_ms - 86_400_000 or t_ms > range_end_ms:
+            continue
+        day = dt_util.as_local(datetime.fromtimestamp(t_ms / 1000, tz=dt_util.UTC)).strftime("%Y-%m-%d")
+        reason = attrs.get("reason") or (decision.get("reason") if isinstance(decision, dict) else None)
+        mode = summary.get("operating_mode") or (
+            decision.get("operating_mode") if isinstance(decision, dict) else None
+        )
+        row = {
+            "built_ms": float(t_ms),
+            "reason": reason,
+            "operating_mode": mode,
+            "saving_p": summary.get("saving_p"),
+            "cost_p": summary.get("cost_p"),
+            "baseline_cost_p": summary.get("baseline_cost_p"),
+            "planned_grid_charge_kwh": summary.get("grid_charge_kwh"),
+            "planned_export_kwh": summary.get("export_kwh"),
+            "pv_kwh": summary.get("pv_kwh"),
+            "load_kwh": summary.get("load_kwh"),
+            "tomorrow_pv_kwh": summary.get("tomorrow_pv_kwh"),
+        }
+        prev = by_day.get(day)
+        if prev is None or row["built_ms"] >= prev["built_ms"]:
+            by_day[day] = row
+    return by_day
+
+
+def _local_day_key(ms: float) -> str:
+    return dt_util.as_local(datetime.fromtimestamp(ms / 1000, tz=dt_util.UTC)).strftime("%Y-%m-%d")
+
+
+def build_how_used(
+    *,
+    daily_economics: dict[str, dict[str, Any]],
+    planned_slots: list[dict[str, Any]],
+    grid_import_pts: list[dict[str, float]],
+    grid_export_pts: list[dict[str, float]],
+    range_start_ms: float,
+    range_end_ms: float,
+) -> list[dict[str, Any]]:
+    """Per-day 'what SmartCharge did': planned vs actual, the reason, and its own saving figure.
+
+    Actual grid import/export is integrated over the *planned* windows (so it's meaningful even when the
+    armed-session sensor didn't record), giving a clear ran / skipped (solar covered) / self-use status.
+    """
+    days: dict[str, dict[str, Any]] = {}
+    cursor = dt_util.as_local(datetime.fromtimestamp(range_start_ms / 1000, tz=dt_util.UTC)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    end_local = dt_util.as_local(datetime.fromtimestamp(range_end_ms / 1000, tz=dt_util.UTC))
+    while cursor <= end_local:
+        days[cursor.strftime("%Y-%m-%d")] = {
+            "planned_charge_kwh": 0.0,
+            "actual_charge_kwh": 0.0,
+            "planned_export_kwh": 0.0,
+            "actual_export_kwh": 0.0,
+            "charge_rate_p": None,
+        }
+        cursor += timedelta(days=1)
+
+    for slot in planned_slots:
+        key = _local_day_key(slot["start_ms"])
+        day = days.get(key)
+        if day is None:
+            continue
+        if slot.get("action") in CHARGE_PLAN_ACTIONS:
+            day["planned_charge_kwh"] += float(slot.get("planned_import_kwh") or 0)
+            day["actual_charge_kwh"] += integrate_power_kwh(grid_import_pts, slot["start_ms"], slot["end_ms"])
+            rate = slot.get("import_p_per_kwh")
+            if rate is not None:
+                day["charge_rate_p"] = rate if day["charge_rate_p"] is None else min(day["charge_rate_p"], rate)
+        elif slot.get("action") in EXPORT_PLAN_ACTIONS:
+            day["planned_export_kwh"] += float(slot.get("planned_export_kwh") or 0)
+            day["actual_export_kwh"] += integrate_power_kwh(grid_export_pts, slot["start_ms"], slot["end_ms"])
+
+    rows: list[dict[str, Any]] = []
+    for date, d in sorted(days.items()):
+        econ = daily_economics.get(date) or {}
+        planned_c = round(d["planned_charge_kwh"], 3)
+        actual_c = round(d["actual_charge_kwh"], 3)
+        planned_e = round(d["planned_export_kwh"], 3)
+        actual_e = round(d["actual_export_kwh"], 3)
+        if planned_c > 0.05 and actual_c > 0.1:
+            status = "charged"
+        elif planned_c > 0.05:
+            status = "skipped"  # planned a grid charge but didn't need it (solar forecast covered it)
+        elif planned_e > 0.05 or actual_e > 0.1:
+            status = "exported"
+        elif econ:
+            status = "self_use"
+        else:
+            status = "no_data"
+        rows.append(
+            {
+                "date": date,
+                "status": status,
+                "reason": econ.get("reason"),
+                "operating_mode": econ.get("operating_mode"),
+                "planned_charge_kwh": planned_c,
+                "actual_charge_kwh": actual_c,
+                "planned_export_kwh": planned_e,
+                "actual_export_kwh": actual_e,
+                "charge_rate_p": d["charge_rate_p"],
+                "saving_p": econ.get("saving_p"),
+                "cost_p": econ.get("cost_p"),
+                "baseline_cost_p": econ.get("baseline_cost_p"),
+                "pv_kwh": econ.get("pv_kwh"),
+                "load_kwh": econ.get("load_kwh"),
+            }
+        )
+    return rows
+
+
+def _how_used_summary(how_used: list[dict[str, Any]]) -> dict[str, Any]:
+    savings = [float(r["saving_p"]) for r in how_used if r.get("saving_p") is not None]
+    return {
+        "estimated_saving_p": round(sum(savings), 2) if savings else None,
+        "planned_grid_charge_kwh": round(sum(float(r["planned_charge_kwh"]) for r in how_used), 3),
+        "actual_grid_charge_kwh": round(sum(float(r["actual_charge_kwh"]) for r in how_used), 3),
+        "nights_charged": sum(1 for r in how_used if r["status"] == "charged"),
+        "nights_skipped_solar": sum(1 for r in how_used if r["status"] == "skipped"),
+        "days_exported": sum(1 for r in how_used if r["status"] == "exported"),
+    }
+
+
 def build_smart_charge_analysis_payload(
     *,
     period: str,
@@ -517,6 +662,19 @@ def build_smart_charge_analysis_payload(
         range_end_ms=range_end_ms,
     )
 
+    daily_economics = collect_daily_economics(
+        decision_states, range_start_ms=range_start_ms, range_end_ms=range_end_ms
+    )
+    how_used = build_how_used(
+        daily_economics=daily_economics,
+        planned_slots=planned_slots,
+        grid_import_pts=grid_import_pts,
+        grid_export_pts=grid_export_pts,
+        range_start_ms=range_start_ms,
+        range_end_ms=range_end_ms,
+    )
+    how_used_summary = _how_used_summary(how_used)
+
     return {
         "period": period,
         "offset": offset,
@@ -537,7 +695,9 @@ def build_smart_charge_analysis_payload(
             "theoretical_spread_profit_p": spread_profit,
             "operating_mode": operating_mode,
             "plan_revisions": len(plan_snapshots),
+            **how_used_summary,
         },
+        "how_used": how_used,
         "sessions": sessions,
         "planned_slots": planned_slots,
         "plan_snapshots": [
@@ -777,17 +937,23 @@ def _build_analysis_sync(
     if store is not None:
         from .performance.hems_audit import build_hems_audit_report
 
-        payload["hems_audit"] = build_hems_audit_report(
-            store,
-            start_date=dt_util.as_local(start_local).date().isoformat(),
-            end_date=dt_util.as_local(end_local).date().isoformat(),
-        )
+        start_date = dt_util.as_local(start_local).date().isoformat()
+        end_date = dt_util.as_local(end_local).date().isoformat()
+        payload["hems_audit"] = build_hems_audit_report(store, start_date=start_date, end_date=end_date)
+        # Whole-system saving vs having no PV/battery (buy everything from the grid): avoided import +
+        # export earnings, straight from the performance ledger. The headline the report leads with.
+        try:
+            payload["system_savings"] = store.period_aggregate(start_date, end_date)
+        except Exception as err:  # noqa: BLE001 — report still renders without it
+            _LOGGER.debug("SmartCharge analysis system savings aggregate failed: %s", err)
     return payload
 
 
 __all__ = [
     "async_build_smart_charge_analysis",
+    "build_how_used",
     "build_smart_charge_analysis_payload",
+    "collect_daily_economics",
     "integrate_power_kwh",
     "merge_power_series",
     "pair_binary_on_periods",

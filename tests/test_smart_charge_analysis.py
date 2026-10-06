@@ -120,5 +120,43 @@ class TestPowerSeries(unittest.TestCase):
         self.assertEqual([p["v"] for p in merged], [1.0, 2.0, 3.0, 3.0])
 
 
+class TestHowUsed(unittest.TestCase):
+    @staticmethod
+    def _ms(y, mo, d, h) -> float:
+        return datetime(y, mo, d, h, tzinfo=timezone.utc).timestamp() * 1000
+
+    def test_charged_vs_skipped_status(self):
+        s_a, e_a = self._ms(2026, 10, 5, 2), self._ms(2026, 10, 5, 3)
+        s_b, e_b = self._ms(2026, 10, 6, 2), self._ms(2026, 10, 6, 3)
+        planned = [
+            {"start_ms": s_a, "end_ms": e_a, "action": "charge", "planned_import_kwh": 1.8, "import_p_per_kwh": 8.0},
+            {"start_ms": s_b, "end_ms": e_b, "action": "charge", "planned_import_kwh": 1.8, "import_p_per_kwh": 8.0},
+        ]
+        # grid import ran during slot A (1.8 kW for the hour), nothing during slot B
+        grid_import = [{"t": s_a, "v": 1.8}, {"t": e_a, "v": 1.8}, {"t": s_b, "v": 0.0}, {"t": e_b, "v": 0.0}]
+        econ = {
+            "2026-10-05": {"reason": "Off-peak charge", "saving_p": 12.0, "operating_mode": "price_arbitrage"},
+            "2026-10-06": {"reason": "Self use — no grid charge needed", "saving_p": 0.0, "operating_mode": "max_safety"},
+        }
+        rows = sca.build_how_used(
+            daily_economics=econ,
+            planned_slots=planned,
+            grid_import_pts=grid_import,
+            grid_export_pts=[],
+            range_start_ms=self._ms(2026, 10, 5, 0),
+            range_end_ms=self._ms(2026, 10, 6, 23),
+        )
+        by_date = {r["date"]: r for r in rows}
+        self.assertEqual(by_date["2026-10-05"]["status"], "charged")
+        self.assertAlmostEqual(by_date["2026-10-05"]["actual_charge_kwh"], 1.8, places=1)
+        self.assertEqual(by_date["2026-10-05"]["saving_p"], 12.0)
+        self.assertEqual(by_date["2026-10-06"]["status"], "skipped")
+        self.assertAlmostEqual(by_date["2026-10-06"]["actual_charge_kwh"], 0.0, places=2)
+        summary = sca._how_used_summary(rows)
+        self.assertEqual(summary["nights_charged"], 1)
+        self.assertEqual(summary["nights_skipped_solar"], 1)
+        self.assertEqual(summary["estimated_saving_p"], 12.0)
+
+
 if __name__ == "__main__":
     unittest.main()

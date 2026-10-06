@@ -2928,32 +2928,52 @@ function formatSmartChargeDateTimeMs(ms) {
   });
 }
 
-function renderSmartChargeSummaryCards(summary) {
-  const s = summary || {};
+function formatGbp2(value) {
+  if (value == null || !Number.isFinite(Number(value))) return "—";
+  return `£${Number(value).toFixed(2)}`;
+}
+
+function formatPenceSaving(p) {
+  if (p == null || !Number.isFinite(Number(p))) return "—";
+  const n = Number(p);
+  if (Math.abs(n) < 0.5) return "—";
+  return `${n > 0 ? "+" : ""}${n.toFixed(0)}p`;
+}
+
+function renderSmartChargeSummaryCards(report) {
+  const s = (report && report.summary) || {};
+  const sys = (report && report.system_savings) || null;
   const cards = [
     {
-      label: "Grid import (actual)",
-      value: formatSmartChargeKwh(s.grid_import_kwh_actual),
-      sub: s.grid_import_kwh_planned != null ? `Planned ${formatSmartChargeKwh(s.grid_import_kwh_planned)}` : "",
+      label: "System saved",
+      value: sys ? formatGbp2(sys.net_daily_savings_gbp) : "—",
+      sub: sys
+        ? `vs no solar/battery · £${Number(sys.avoided_grid_cost_gbp || 0).toFixed(2)} avoided + £${Number(sys.export_earnings_gbp || 0).toFixed(2)} export`
+        : "needs performance history",
+      tone: "savings",
+    },
+    {
+      label: "SmartCharge added",
+      value: s.estimated_saving_p != null ? formatGbp2(Number(s.estimated_saving_p) / 100) : "—",
+      sub:
+        s.estimated_saving_p != null
+          ? `smart scheduling vs plain self-use`
+          : `in ${formatSmartChargeMode(s.operating_mode)} — no price saving to make`,
+      tone: "profit",
+    },
+    {
+      label: "Grid charged",
+      value: formatSmartChargeKwh(s.actual_grid_charge_kwh),
+      sub: `${s.nights_charged ?? 0} night(s) ran · ${s.nights_skipped_solar ?? 0} skipped (solar covered)`,
       tone: "import",
     },
     {
-      label: "Grid export (actual)",
-      value: formatSmartChargeKwh(s.grid_export_kwh_actual),
-      sub: s.grid_export_kwh_planned != null ? `Planned ${formatSmartChargeKwh(s.grid_export_kwh_planned)}` : "",
+      label: "Solar generated",
+      value: sys && sys.pv_kwh != null ? `${Number(sys.pv_kwh).toFixed(1)} kWh` : "—",
+      sub: sys
+        ? `imported ${Number(sys.import_kwh || 0).toFixed(1)} · exported ${Number(sys.export_kwh || 0).toFixed(1)} kWh`
+        : "",
       tone: "export",
-    },
-    {
-      label: "Armed sessions",
-      value: String(s.armed_sessions ?? 0),
-      sub: `${s.import_sessions ?? 0} import · ${s.export_sessions ?? 0} export`,
-      tone: "sessions",
-    },
-    {
-      label: "Spread profit (theoretical)",
-      value: s.theoretical_spread_profit_p != null ? `${Number(s.theoretical_spread_profit_p).toFixed(2)}p` : "—",
-      sub: formatSmartChargeMode(s.operating_mode),
-      tone: "profit",
     },
   ];
   return `<div class="fox-sc-analysis-summary">${cards
@@ -3111,6 +3131,56 @@ function renderSmartChargeHemsAuditTable(audit) {
 </table></div>`;
 }
 
+const SC_HOWUSED_STATUS = {
+  charged: { label: "Charged", color: "#2F6BFF" },
+  skipped: { label: "Skipped — solar covered", color: "#52c41a" },
+  exported: { label: "Exported", color: "#FF6FAF" },
+  self_use: { label: "Self-use", color: "#6b7280" },
+  no_data: { label: "No plan", color: "#6b7280" },
+};
+
+function renderSmartChargeHowUsed(howUsed) {
+  const rows = (Array.isArray(howUsed) ? howUsed : []).filter((r) => r && r.date);
+  if (!rows.length) {
+    return `<p class="placeholder">No SmartCharge plan history recorded for this period yet.</p>`;
+  }
+  const body = rows
+    .slice()
+    .sort((a, b) => (a.date < b.date ? 1 : -1))
+    .map((r) => {
+      const meta = SC_HOWUSED_STATUS[r.status] || SC_HOWUSED_STATUS.no_data;
+      const d = new Date(`${r.date}T12:00:00`);
+      const dayLabel = Number.isNaN(d.getTime())
+        ? r.date
+        : d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+      let detail = "—";
+      if (r.status === "charged") {
+        const rate = r.charge_rate_p != null ? ` @ ${Number(r.charge_rate_p).toFixed(1)}p/kWh` : "";
+        detail = `charged ${formatSmartChargeKwh(r.actual_charge_kwh)} of ${formatSmartChargeKwh(r.planned_charge_kwh)} planned${rate}`;
+      } else if (r.status === "skipped") {
+        detail = `planned ${formatSmartChargeKwh(r.planned_charge_kwh)} — not needed, solar covered it`;
+      } else if (r.status === "exported") {
+        detail = `exported ${formatSmartChargeKwh(r.actual_export_kwh)}`;
+      } else if (r.status === "self_use") {
+        detail = "ran on solar + battery, no grid action";
+      }
+      const pill = `<span class="fox-sc-howused-status" style="background:${meta.color}">${esc(meta.label)}</span>`;
+      return `<tr>
+<td>${esc(dayLabel)}</td>
+<td>${pill}</td>
+<td>${esc(detail)}</td>
+<td>${esc(r.reason || "—")}</td>
+<td>${esc(formatPenceSaving(r.saving_p))}</td>
+</tr>`;
+    })
+    .join("");
+  return `<div class="table-wrap"><table class="data-table fox-sc-analysis-table">
+<thead><tr><th>Day</th><th>SmartCharge</th><th>What happened</th><th>Reason</th><th>Saved</th></tr></thead>
+<tbody>${body}</tbody>
+</table></div>
+<p class="field-hint">“Saved” is SmartCharge’s own estimate of what its scheduling added on top of plain self-use. The headline “System saved” above is the whole solar + battery system vs buying everything from the grid.</p>`;
+}
+
 function renderSmartChargeAnalysisPage(report, { loading = false } = {}) {
   if (loading && !report) {
     return `<div data-smart-charge-analysis-main="1"><header class="header"><h1>SmartCharge Analysis</h1></header><p class="chart-loading">Loading SmartCharge analysis…</p></div>`;
@@ -3125,23 +3195,23 @@ function renderSmartChargeAnalysisPage(report, { loading = false } = {}) {
   return `<div data-smart-charge-analysis-main="1">
 <header class="header"><h1>SmartCharge Analysis</h1><p>${esc(report.period_label || "")}</p></header>
 ${hint}
-${renderSmartChargeSummaryCards(report.summary)}
-<div class="card fox-report-chart-card fox-analysis-chart-card">
-<h3 class="fox-analysis-summary-title fox-analysis-chart-title">Daily import &amp; export</h3>
-${renderSmartChargeDailyChartSvg(report.daily_chart)}
-</div>
+${renderSmartChargeSummaryCards(report)}
 <div class="card fox-report-details">
-<h3 class="fox-report-details-title">Armed sessions</h3>
-${renderSmartChargeSessionsTable(report.sessions)}
+<h3 class="fox-report-details-title">How SmartCharge was used</h3>
+${renderSmartChargeHowUsed(report.how_used)}
 </div>
-<div class="card fox-report-details">
-<h3 class="fox-report-details-title">Planned slots (from daily plan history)</h3>
+<details class="card fox-report-details">
+<summary class="fox-report-details-title">Planned slots (from daily plan history)</summary>
 ${renderSmartChargePlannedTable(report.planned_slots)}
-</div>
-<div class="card fox-report-details">
-<h3 class="fox-report-details-title">HEMS audit trail</h3>
+</details>
+<details class="card fox-report-details">
+<summary class="fox-report-details-title">Armed sessions</summary>
+${renderSmartChargeSessionsTable(report.sessions)}
+</details>
+<details class="card fox-report-details">
+<summary class="fox-report-details-title">HEMS audit trail</summary>
 ${renderSmartChargeHemsAuditTable(report.hems_audit)}
-</div>
+</details>
 </div>`;
 }
 
@@ -13684,6 +13754,23 @@ const STYLES = `
   font-size: 15px;
   font-weight: 700;
   color: var(--primary-text-color);
+}
+details.fox-report-details > summary.fox-report-details-title {
+  cursor: pointer;
+  margin-bottom: 0;
+  user-select: none;
+}
+details.fox-report-details[open] > summary.fox-report-details-title {
+  margin-bottom: 12px;
+}
+.fox-sc-howused-status {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;
 }
 .fox-report-details-table-wrap {
   overflow-x: auto;
