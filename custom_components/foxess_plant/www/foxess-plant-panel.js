@@ -3331,6 +3331,19 @@ function performanceChartAxesSvg({ padL, padT, w, h, xDomain, xScale, yScale, yT
   return `${grid}${yLabels}${xLabels}`;
 }
 
+/**
+ * Key for keeping a <details> open across a redraw (FoxessPlantPanel._captureUiState): its data-keep-open, else its
+ * summary text. null for ones the panel opens / closes itself (SmartCharge sections, summaries with a data-action).
+ */
+function panelDetailsKey(d) {
+  if (d.matches?.("[data-sc-section]")) return null;
+  const summary = d.querySelector?.(":scope > summary");
+  if (summary?.dataset?.action) return null;
+  if (d.dataset?.keepOpen) return `k:${d.dataset.keepOpen}`;
+  const text = summary?.textContent?.trim();
+  return text ? `s:${text}` : null;
+}
+
 // Dots mark individual samples only while there are few; at 5-minute detail they turned lines into bead strings
 const PERF_DOTS_MAX_POINTS = 24;
 
@@ -11576,6 +11589,7 @@ const DEVICE_EVO_IMAGE_STATIC = "/foxess_plant_panel/evo10.png?v=15";
 const HERO_BANNER_ASSET_VER = 6;
 const STORM_HERO_IMAGE_STATIC = `/foxess_plant_panel/bg_storm_safe_charging.png?v=${HERO_BANNER_ASSET_VER}`;
 const SMART_CHARGE_HERO_IMAGE_STATIC = `/foxess_plant_panel/bg_smart_charge.png?v=${HERO_BANNER_ASSET_VER}`;
+const WARMUP_HERO_IMAGE_STATIC = `/foxess_plant_panel/bg_battery_warmup.png?v=${HERO_BANNER_ASSET_VER}`;
 const SMART_CHARGE_MODE_ICON_VER = 3;
 const SMART_CHARGE_MODE_ICONS = {
   max_safety: `/foxess_plant_panel/smart-charge-max-safety.png?v=${SMART_CHARGE_MODE_ICON_VER}`,
@@ -15456,7 +15470,21 @@ class FoxessPlantPanel extends HTMLElement {
     this._octopusGreenerHoverPlot = null;
   }
 
+  /** ` open` if a `<details data-keep-open="key">` was left open (the panel redraws on every state update). */
+  _keepOpenAttr(key) {
+    return this._detailsOpen?.[key] ? " open" : "";
+  }
+
   connectedCallback() {
+    // `toggle` doesn't bubble, so catch it on the way down: remember which <details data-keep-open> are open,
+    // otherwise the next redraw (every few seconds) closes them again
+    this._onDetailsToggle ??= (ev) => {
+      const key = ev.target?.dataset?.keepOpen;
+      if (!key) return;
+      if (!this._detailsOpen) this._detailsOpen = {};
+      this._detailsOpen[key] = ev.target.open;
+    };
+    this._root.addEventListener("toggle", this._onDetailsToggle, true);
     this._root.addEventListener("click", this._onClick);
     this._root.addEventListener("input", this._onInput);
     this._root.addEventListener("change", this._onChange);
@@ -15490,6 +15518,7 @@ class FoxessPlantPanel extends HTMLElement {
   }
 
   disconnectedCallback() {
+    if (this._onDetailsToggle) this._root.removeEventListener("toggle", this._onDetailsToggle, true);
     this._root.removeEventListener("click", this._onClick);
     this._root.removeEventListener("input", this._onInput);
     this._root.removeEventListener("change", this._onChange);
@@ -15876,8 +15905,10 @@ Reloading panel registration…
   }
 
   _settingsFieldBlocksRender() {
-    if (this._view !== "settings" && !this._isDeviceFormView()) return false;
-    if (this._settingsFieldFocused || this._pointerHeld) return true;
+    const formView = this._view === "settings" || this._isDeviceFormView();
+    if (formView && (this._settingsFieldFocused || this._pointerHeld)) return true;
+    // On any page, a full redraw replaces a field that's in use (an open dropdown closes, a date being typed is
+    // lost), so wait until it loses focus; live values are still patched in place meanwhile
     const el = this.shadowRoot?.activeElement || document.activeElement;
     if (!el || !this._root.contains(el)) return false;
     if (el.tagName === "HA-ENTITY-PICKER" || el.closest?.("ha-entity-picker")) return true;
@@ -15922,13 +15953,14 @@ Reloading panel registration…
       return;
     }
     if (this._view !== "settings" && !this._isDeviceFormView()) {
-      if (this._settingsFieldFocused) {
-        this._settingsFieldFocused = false;
-        if (this._renderPending) {
+      this._settingsFieldFocused = false;
+      // A redraw held while a field was in use (see _settingsFieldBlocksRender) runs once it's left
+      window.requestAnimationFrame(() => {
+        if (this._renderPending && !this._settingsFieldBlocksRender()) {
           this._renderPending = false;
           this._scheduleRender();
         }
-      }
+      });
       return;
     }
     window.requestAnimationFrame(() => {
@@ -20668,6 +20700,12 @@ ${this._renderImpactPanel()}`;
 </div>`;
   }
 
+  _renderWarmupHero() {
+    return `<div class="fp-banner-hero fp-banner-hero--wide">
+<img src="${esc(WARMUP_HERO_IMAGE_STATIC)}" width="${BANNER_HERO_WIDE_WIDTH}" height="${BANNER_HERO_WIDE_HEIGHT}" alt="Battery WarmUp: keeping the home battery warm on a winter night" loading="eager" decoding="async" />
+</div>`;
+  }
+
   _renderSmartChargeHero() {
     return `<div class="fp-banner-hero fp-banner-hero--wide">
 <img src="${esc(SMART_CHARGE_HERO_IMAGE_STATIC)}" width="${SMART_CHARGE_HERO_WIDTH}" height="${SMART_CHARGE_HERO_HEIGHT}" alt="SmartCharge: Fox home battery charging from solar and off-peak grid" loading="eager" decoding="async" />
@@ -24243,7 +24281,7 @@ ${(() => {
 <div class="field"><label>Daily plan time (UK local)</label>
 <input type="time" data-field="smart-charge:daily_plan_time" value="${esc(String(draft.daily_plan_time ?? "16:00"))}" ${busy}>
 <p class="field-hint">${this._plantState?.smart_charge?.tariff_profile?.import_varies === false ? "Forces a fresh rate fetch and replan." : "Forces a fresh Octopus fetch and replan (Agile publishes tomorrow&rsquo;s rates around 16:00). Slots whose price isn&rsquo;t published yet are estimated and never scheduled."} The plan always runs to the end of tomorrow and is also rebuilt when rates, the Solcast forecast or battery SOC change materially, and at least hourly.</p></div>
-<div class="toggle-row"><span><strong>Charge and export from the inverter's own schedule (EVO)</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Put each planned grid charge (Force Charge) and planned export (Force Discharge) on the inverter as a slot 30 minutes before it starts, and remove it afterwards. The inverter then starts and stops it itself. Off: Fox Plant holds Remote Control on for the whole charge or export.</span></span>
+<div class="toggle-row"><span><strong>Charge and export from the inverter's own schedule (EVO)</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Put each planned grid charge (Force Charge) on the inverter as a slot 30 minutes before it starts, and each planned export (Force Discharge) when it starts, as a 20-minute slot that Fox Plant keeps extending; both come off when done. The inverter then starts and stops them itself. Off: Fox Plant holds Remote Control on for the whole charge or export.</span></span>
 <input type="checkbox" data-field="smart-charge:charge_on_inverter" ${draft.charge_on_inverter !== false ? "checked" : ""} ${busy}></div>
 <div class="toggle-row"><span><strong>Glow / smart-meter rate check</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Double-check live meter import rate against Octopus API before force-charging</span></span>
 <input type="checkbox" data-field="smart-charge:meter_rate_verify_enabled" ${draft.meter_rate_verify_enabled !== false ? "checked" : ""} ${busy}></div>
@@ -24393,7 +24431,7 @@ ${effHint}
 </div>
 ${this._renderPvTiltAzimuthFields(which)}
 <p class="field-hint" style="margin-top:4px">Nameplate ${esc(nameplateKw)} kW DC · Effective ${esc(effectiveKw)} kW (after efficiency)</p>
-<details class="pv-datasheet">
+<details class="pv-datasheet" data-keep-open="pv-datasheet-${esc(String(which))}"${this._keepOpenAttr(`pv-datasheet-${which}`)}>
 <summary>Panel datasheet &amp; mounting (for panel temperature)</summary>
 <div class="field"><label>NOCT (°C)</label>
 <input type="number" class="pv-eff-input" min="35" max="60" step="0.5" data-field="pv:${which}:noct_c" value="${esc(String(cfg.noct_c ?? 45))}" ${disabled ? "disabled" : ""}>
@@ -24758,7 +24796,8 @@ ${detailBlock}
     const warmupBlocked = live.api_available === false;
     const warmupError = live.last_error || this._plantState?.fox_cloud?.last_error || "";
     if (!ready) {
-      return `<header class="header"><h1>Battery Warmup</h1><p>Pre-heat the battery pack in cold weather using grid power during cheap-rate windows — matches the Fox app <strong>Battery warmup</strong> screen.</p></header>
+      return `${this._renderWarmupHero()}
+<header class="header"><h1>Battery Warmup</h1><p>Pre-heat the battery pack in cold weather using grid power during cheap-rate windows — matches the Fox app <strong>Battery warmup</strong> screen.</p></header>
 <div class="card"><p class="field-hint" style="margin:0">Enable the <strong>Fox Cloud API</strong> under <strong>Settings → Fox API</strong> and save your API key first. Warmup is controlled via Fox Cloud (not Modbus).</p></div>`;
     }
     const ranges = draft.ranges || { start_min: 1, start_max: 9, end_min: 5, end_max: 15 };
@@ -24785,7 +24824,8 @@ ${detailBlock}
     const blockedBanner = warmupBlocked
       ? `<div class="banner err" style="margin-bottom:14px"><strong>Battery warmup not reachable via Fox Cloud API</strong><br>${esc(warmupError || "Fox returned an error when reading batteryHeating settings.")} Open the Fox portal device list and confirm the <strong>inverter deviceSN</strong> under Settings → Fox API — it is often different from the Modbus PCS serial (${esc(String(live.device_sn || "—"))}).</div>`
       : "";
-    return `<header class="header"><h1>Battery Warmup</h1><p>Grid-assisted battery heating during low-price periods. Settings sync with your inverter via Fox Cloud.</p></header>
+    return `${this._renderWarmupHero()}
+<header class="header"><h1>Battery Warmup</h1><p>Grid-assisted battery heating during low-price periods. Settings sync with your inverter via Fox Cloud.</p></header>
 ${blockedBanner}
 <div class="warmup-hero${draft.enabled ? " is-on" : ""}">
 <div class="warmup-hero-badge">${esc(statusLabel)}</div>
@@ -25048,7 +25088,7 @@ ${detailBlock}
 </ol>
 <p class="field-hint">Fox Plant renews the token itself and survives restarts. If E.ON ever rejects it, the error below will ask for a fresh one.</p>
 </div>
-<details class="field"><summary class="field-hint">Older accounts: email and password</summary>
+<details class="field" data-keep-open="octopus-email-login"${this._keepOpenAttr("octopus-email-login")}><summary class="field-hint">Older accounts: email and password</summary>
 <div class="field"><label>Email</label>
 <input type="email" autocomplete="off" data-field="octopus:email" value="${esc(String(draft.email || ""))}" placeholder="you@example.com" ${busy}>
 </div>
@@ -25386,6 +25426,7 @@ ${weatherOptions
   }
 
   _render() {
+    const ui = this._captureUiState();
     try {
       this._renderPanel();
     } catch (err) {
@@ -25393,6 +25434,70 @@ ${weatherOptions
       const ver = panelVersionFromModuleUrl() || PANEL_VERSION;
       this._root.innerHTML = `<div class="shell"><main class="main"><div class="main-inner"><p class="placeholder">Fox Plant panel error: ${esc(err?.message || String(err))}</p><p class="placeholder" style="margin-top:8px;font-size:12px;opacity:0.75">Panel JS ${esc(ver)} — update FoxESS Plant in HACS, restart Home Assistant, then call <code>foxess_plant.reload_panel</code> or hard-refresh the browser.</p></div></main></div>`;
     }
+    this._restoreUiState(ui);
+  }
+
+  /** Which page is showing: UI state is only carried across a redraw of the same page. */
+  _uiPageKey() {
+    return [this._selectedPlantId, this._view, this._settingsView, this._deviceNewSub, this._deviceNewScreen].join("|");
+  }
+
+  /**
+   * A full redraw replaces the panel's HTML (it runs on Home Assistant state changes, every few seconds), which
+   * closed open <details>, lost the cursor and could jump the scroll. Note them before the redraw so
+   * _restoreUiState can put them back. <details> whose open state the panel sets itself
+   * (SmartCharge sections, or a summary with a data-action) are left to their own logic.
+   */
+  _captureUiState() {
+    const root = this._root;
+    const details = {};
+    root?.querySelectorAll?.("details").forEach((d) => {
+      const key = panelDetailsKey(d);
+      if (key) details[key] = d.open;
+    });
+    const active = root?.activeElement;
+    let field = null;
+    if (active?.dataset?.field) {
+      field = { name: active.dataset.field, start: null, end: null };
+      try {
+        field.start = active.selectionStart;
+        field.end = active.selectionEnd;
+      } catch {
+        /* not a text field */
+      }
+    }
+    return { page: this._uiPageKey(), scroll: this.scrollTop || 0, details, field };
+  }
+
+  _restoreUiState(ui) {
+    if (!ui || ui.page !== this._uiPageKey()) return;
+    const root = this._root;
+    root?.querySelectorAll?.("details").forEach((d) => {
+      const key = panelDetailsKey(d);
+      if (key && key in ui.details && d.open !== ui.details[key]) d.open = ui.details[key];
+    });
+    if (ui.field && root?.activeElement?.dataset?.field !== ui.field.name) {
+      const el = root?.querySelector?.(`[data-field="${CSS.escape(ui.field.name)}"]`);
+      if (el && !el.disabled) {
+        el.focus({ preventScroll: true });
+        if (ui.field.start != null) {
+          try {
+            el.setSelectionRange(ui.field.start, ui.field.end);
+          } catch {
+            /* not a text field */
+          }
+        }
+      }
+    }
+    // Charts can draw shorter for a moment while they load, which clamps the scroll upwards: put it back, now and
+    // once laid out. Only ever downwards to where it was, so a scroll the user makes meanwhile isn't undone.
+    const unclamp = () => {
+      if (this._uiPageKey() === ui.page && ui.scroll && (this.scrollTop || 0) < ui.scroll - 1) {
+        this.scrollTop = ui.scroll;
+      }
+    };
+    unclamp();
+    requestAnimationFrame(unclamp);
   }
 
   _renderPanel() {
