@@ -12,6 +12,7 @@ from homeassistant.const import PERCENTAGE, UnitOfEnergy, UnitOfLength, UnitOfPo
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
@@ -191,6 +192,7 @@ GLOW_SENSORS: tuple[tuple[str, str, str, str, SensorDeviceClass | None, SensorSt
     ("import_today", UnitOfEnergy.KILO_WATT_HOUR, "Glow grid import today", "mdi:home-import-outline", SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
     ("import_cumulative", UnitOfEnergy.KILO_WATT_HOUR, "Glow grid import total", "mdi:counter", SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
     ("export_cumulative", UnitOfEnergy.KILO_WATT_HOUR, "Glow grid export total", "mdi:transmission-tower-export", SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
+    ("export_today", UnitOfEnergy.KILO_WATT_HOUR, "Glow grid export today", "mdi:transmission-tower-export", SensorDeviceClass.ENERGY, SensorStateClass.TOTAL_INCREASING),
 )
 
 PERFORMANCE_SENSORS: tuple[tuple[str, str, str, str, SensorDeviceClass | None, SensorStateClass | None], ...] = (
@@ -226,11 +228,8 @@ async def async_setup_entry(
             )
         )
     for kind, unit, name, icon, device_class, state_class in GLOW_SENSORS:
-        entities.append(
-            FoxessPlantGlowSensor(
-                coordinator, entry, kind, unit, name, icon, device_class, state_class
-            )
-        )
+        cls = FoxessPlantGlowExportTodaySensor if kind == "export_today" else FoxessPlantGlowSensor
+        entities.append(cls(coordinator, entry, kind, unit, name, icon, device_class, state_class))
     entities.append(FoxessPlantSmartChargeDecisionSensor(coordinator, entry))
     for kind, unit, name, icon, device_class, state_class in PERFORMANCE_SENSORS:
         entities.append(
@@ -688,4 +687,64 @@ class FoxessPlantGlowSensor(CoordinatorEntity[FoxessPlantCoordinator], SensorEnt
 
     async def async_publish(self) -> None:
         self.async_write_ha_state()
+
+
+class FoxessPlantGlowExportTodaySensor(FoxessPlantGlowSensor, RestoreEntity):
+    """Daily grid export, derived from the cumulative export counter.
+
+    The Glow IHD publishes export only as a lifetime cumulative (no per-day figure), so today's total is
+    the cumulative minus the reading at the local-midnight start of the day. Baseline is restored across
+    restarts so a restart doesn't zero today's figure.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._baseline: float | None = None
+        self._baseline_day: str | None = None
+        self._last_cumulative: float | None = None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last = await self.async_get_last_state()
+        if last is None:
+            return
+        attrs = last.attributes or {}
+
+        def _f(raw: Any) -> float | None:
+            try:
+                return float(raw)
+            except (TypeError, ValueError):
+                return None
+
+        self._baseline = _f(attrs.get("baseline_kwh"))
+        self._baseline_day = attrs.get("baseline_day")
+        self._last_cumulative = _f(attrs.get("last_cumulative_kwh"))
+        restored = _f(last.state)
+        if restored is not None:
+            self._value = restored
+
+    def set_value(self, cumulative: float | None) -> None:
+        """Receive the cumulative export reading and derive today's total (resets at local midnight)."""
+        if cumulative is None:
+            return
+        day = dt_util.now().date().isoformat()
+        if self._baseline is None:
+            self._baseline = cumulative
+            self._baseline_day = day
+        elif day != self._baseline_day:
+            # New day: count from the last reading of the previous day.
+            self._baseline = self._last_cumulative if self._last_cumulative is not None else cumulative
+            self._baseline_day = day
+        if cumulative < self._baseline:  # meter rollover / reset
+            self._baseline = cumulative
+        self._last_cumulative = cumulative
+        self._value = round(cumulative - self._baseline, 3)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        attrs = dict(super().extra_state_attributes)
+        attrs["baseline_kwh"] = self._baseline
+        attrs["baseline_day"] = self._baseline_day
+        attrs["last_cumulative_kwh"] = self._last_cumulative
+        return attrs
 

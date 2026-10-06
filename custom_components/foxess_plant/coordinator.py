@@ -3323,6 +3323,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "import_today": live.get("import_kwh_today"),
             "import_cumulative": live.get("import_kwh_cumulative"),
             "export_cumulative": live.get("export_kwh_cumulative"),
+            # The export-today sensor receives the cumulative and derives the daily total itself
+            # (the Glow IHD has no per-day export figure).
+            "export_today": live.get("export_kwh_cumulative"),
         }
         for kind, value in values.items():
             sensor = self._glow_sensors.get(kind)
