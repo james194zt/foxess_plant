@@ -481,6 +481,60 @@ export function bmsFaultLabel(index, bit) {
 }
 
 /**
+ * EVO manual §10.2 troubleshooting procedure, used as the solutions for faults the §10.1 Alarm
+ * List doesn't give a specific fix for (the BMS State bits, and any unrecognised alarm). This is
+ * the manual's real guidance — so we show it inline instead of telling the user to find the PDF.
+ */
+const FOX_MANUAL_GENERIC_SOLUTIONS = [
+  "Record the fault and the time it occurred (shown above) before doing anything further.",
+  "Check the inverter is in a clean, dry, well-ventilated place within its temperature range, and that cabling and connections are undamaged and secure.",
+  "Contact FoxESS customer service — with your model and serial number — if the condition persists.",
+];
+
+/**
+ * Plain-language descriptions for the BMS State fault bits. The EVO manual (§10.1, p.58–59) names
+ * these bits but gives no per-bit solution, so we describe the condition and apply §10.2. Keyed by
+ * the manual's exact fault phrase (as produced by {@link bmsFaultLabel}).
+ */
+export const FOX_BMS_FAULT_DESCRIPTIONS = {
+  "Over voltage fault (OV)": "A battery voltage rose above the safe limit; the BMS tripped to protect the cells.",
+  "Under voltage fault (UV)": "A battery voltage fell below the safe limit; the BMS tripped to protect the cells.",
+  "Charge over current (OCC)":
+    "The BMS detected a charge current above its safe limit and limited or stopped charging to protect the battery.",
+  "Discharge over current (OCD)":
+    "The BMS detected a discharge current above its safe limit and limited or stopped discharging to protect the battery.",
+  "Over temperature fault (OT)":
+    "A battery temperature rose above the safe operating range; the BMS paused charging/discharging until it cools.",
+  "Under temperature (UT)":
+    "A battery temperature fell below the safe operating range; the BMS paused charging (and possibly discharging) until it warms.",
+};
+
+const FOX_BMS_LABEL_RE = /^Battery (BS[1-6])\s*(?:E[0-9A-Fa-f]{2}:)?\s*(.*)$/;
+
+/**
+ * Guide entry for a decoded BMS State alarm (e.g. "Battery BS1 E10: Charge over current (OCC)" or
+ * an unnamed "Battery BS1 bit 11 (0x0800)"). Returns null if the name isn't a BMS fault label.
+ * @param {string} alarmName
+ * @returns {FoxAlarmGuideEntry | null}
+ */
+function bmsGuideEntry(alarmName) {
+  const m = FOX_BMS_LABEL_RE.exec(alarmName);
+  if (!m) return null;
+  const [, bs, faultName] = m;
+  const description =
+    FOX_BMS_FAULT_DESCRIPTIONS[faultName] || `${faultName} reported by the battery BMS (${bs}).`;
+  return {
+    manualName: `${alarmName} — EVO manual §10.1 BMS State (${bs})`,
+    description,
+    solutions: [
+      "This is a BMS protection trip. If a recovery time is shown above, the battery cleared it automatically once the condition passed — usually no action is needed.",
+      ...FOX_MANUAL_GENERIC_SOLUTIONS,
+    ],
+    bmsRelated: true,
+  };
+}
+
+/**
  * @param {string} alarmName
  * @returns {FoxAlarmGuideEntry}
  */
@@ -495,14 +549,12 @@ export function foxAlarmGuideEntry(alarmName) {
       bmsRelated: Boolean(manual.bmsRelated),
     };
   }
+  const bms = bmsGuideEntry(alarmName);
+  if (bms) return bms;
   return {
     manualName: alarmName,
-    description: "See EVO user manual §10.1 Alarm List for troubleshooting guidance.",
-    solutions: [
-      "Record the alarm message and time.",
-      "Attempt the solutions in the user manual for similar faults.",
-      "Contact FoxESS support if the condition persists.",
-    ],
+    description: "This fault isn't listed individually in the EVO manual's §10.1 Alarm List.",
+    solutions: FOX_MANUAL_GENERIC_SOLUTIONS,
     bmsRelated: /bms|battery|energy storage/i.test(alarmName),
   };
 }
