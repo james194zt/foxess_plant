@@ -8393,14 +8393,16 @@ function overviewSystemStatusFaultIcon() {
 }
 
 function renderOverviewSystemStatusCard({ loading = false, faultCount = null, error = null } = {}) {
-  const detailsBtn = `<button type="button" class="overview-system-status-details" data-action="nav" data-view="device_new" data-device-sub="alarms">Details <span aria-hidden="true">›</span></button>`;
+  const navAttrs = `data-action="nav" data-view="device_new" data-device-sub="alarms"`;
+  const detailsBtn = `<button type="button" class="overview-system-status-details" ${navAttrs}>Details <span aria-hidden="true">›</span></button>`;
   let body;
   if (loading) {
     body = `<div class="overview-system-status-body overview-system-status-body--loading"><span>Checking system status…</span></div>`;
   } else if (faultCount == null && error) {
-    body = `<div class="overview-system-status-body"><span class="overview-system-status-text">${esc(error)}</span></div>`;
+    // Anything other than "working normally" is clickable too, to reach the Alerts page.
+    body = `<button type="button" class="overview-system-status-body overview-system-status-body--link" ${navAttrs}><span class="overview-system-status-text">${esc(error)}</span></button>`;
   } else if ((faultCount ?? 0) > 0) {
-    body = `<div class="overview-system-status-body">${overviewSystemStatusFaultIcon()}<span class="overview-system-status-text overview-system-status-text--fault">${esc(formatOverviewFaultDetectedText(faultCount))}</span></div>`;
+    body = `<button type="button" class="overview-system-status-body overview-system-status-body--link" ${navAttrs} aria-label="${esc(formatOverviewFaultDetectedText(faultCount))} — open Alerts">${overviewSystemStatusFaultIcon()}<span class="overview-system-status-text overview-system-status-text--fault">${esc(formatOverviewFaultDetectedText(faultCount))}</span></button>`;
   } else {
     body = `<div class="overview-system-status-body">${overviewSystemStatusOkIcon()}<span class="overview-system-status-text">System working normally.</span></div>`;
   }
@@ -12545,6 +12547,14 @@ const STYLES = `
   font-size: 13px; line-height: 1.35; color: var(--secondary-text-color);
 }
 .overview-system-status-body--loading { color: var(--secondary-text-color); opacity: 0.85; }
+.overview-system-status-body--link {
+  width: 100%; margin: 0; padding: 0; border: 0; background: transparent;
+  font: inherit; text-align: left; cursor: pointer; border-radius: 6px;
+}
+.overview-system-status-body--link:hover .overview-system-status-text { text-decoration: underline; }
+.overview-system-status-body--link:focus-visible {
+  outline: 2px solid var(--primary-color, #894bfc); outline-offset: 2px;
+}
 .overview-system-status-glyph { width: 16px; height: 16px; flex-shrink: 0; display: block; }
 .overview-system-status-text--fault { color: var(--primary-text-color); font-weight: 500; }
 .overview-daily-card {
