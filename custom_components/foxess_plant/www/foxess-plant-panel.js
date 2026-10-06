@@ -3848,7 +3848,7 @@ function renderOverviewPanelTempPill(plantState) {
     live.wind_speed_ms != null && Number.isFinite(Number(live.wind_speed_ms))
       ? ` · ${Number(live.wind_speed_ms).toFixed(1)} m/s wind`
       : "";
-  return `<span class="overview-panel-temp-pill" title="Estimated from string voltage near MPP — only shown when irradiance and calibration look valid">Panel ${Number(temp).toFixed(0)}°C${wind}</span>`;
+  return `<span class="overview-panel-temp-pill" title="Modelled from the panels' output, the air temperature and wind (PV Configuration datasheet values); shown while the panels are producing">Panel ${Number(temp).toFixed(0)}°C${wind}</span>`;
 }
 
 function listWeatherEntityOptions(hass) {
@@ -12237,8 +12237,9 @@ const STYLES = `
 }
 .panel-stale-banner { margin-bottom: 14px; }
 .overview-status-block { margin-top: 12px; }
+/* Bottom-aligned so the status pills sit directly above the cards however tall the weather block is */
 .overview-status-topline {
-  display: flex; align-items: flex-start; justify-content: space-between;
+  display: flex; align-items: flex-end; justify-content: space-between;
   flex-wrap: wrap; gap: 8px 16px;
 }
 .overview-status-row {
@@ -12269,15 +12270,12 @@ const STYLES = `
 .overview-weather-block { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
 .overview-weather-block .overview-weather { margin-top: 0; }
 .overview-status-topline .overview-weather-block { margin-top: 0; }
+/* Plain text line under sunrise / sunset (no background pill) */
 .overview-panel-temp-pill {
   display: inline-flex;
   align-items: center;
-  font-size: 12px;
+  font-size: 12px; font-weight: 500;
   color: var(--secondary-text-color);
-  margin-top: 2px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: rgba(8, 151, 156, 0.12);
 }
 .overview-status-topline .overview-status-row { padding-top: 1px; }
 .overview-sun-times {
@@ -20439,7 +20437,7 @@ ${note}
             : ""
         }</div>`
       : "";
-    return `<div class="overview-weather-block"><div class="overview-weather" role="img" aria-label="${esc(aria || "Weather")}">${icon}${temp}${label}</div>${renderOverviewPanelTempPill(this._plantState)}${sunRow}</div>`;
+    return `<div class="overview-weather-block"><div class="overview-weather" role="img" aria-label="${esc(aria || "Weather")}">${icon}${temp}${label}</div>${sunRow}${renderOverviewPanelTempPill(this._plantState)}</div>`;
   }
 
   _resolveOverviewWeatherEntity() {
