@@ -92,6 +92,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     try:
+        from .stale_entities import async_remove_stale_entities
+
+        async_remove_stale_entities(hass, entry)
+    except Exception:
+        _LOGGER.exception("Removing leftover Fox Plant entities failed")
+    try:
         await coordinator.async_update_tariff_sensors(record_history=False)
     except Exception:
         _LOGGER.exception("FoxESS Plant tariff sensor sync failed during setup")
