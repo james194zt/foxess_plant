@@ -186,6 +186,15 @@ def _split_hm(value: str) -> tuple[int, int]:
     return max(0, min(23, hour)), max(0, min(59, minute))
 
 
+def warmup_state_is_warming(state: Any) -> bool:
+    """Fox Cloud's state text says the battery is being warmed now (same reading as the panel's status label:
+    "warm up state" but not stopped / ready, or "self warm"). Standby, ready and stopped are not warming."""
+    text = str(state or "").lower()
+    if "self warm" in text:
+        return True
+    return "warm up state" in text and "stopped" not in text and "ready" not in text
+
+
 def _warmup_settings_key(config: dict[str, Any]) -> tuple:
     """The parts of a warm-up config that a save sets, normalised for comparing (times as h, m)."""
     slots = list(config.get("slots") or [])[:3]

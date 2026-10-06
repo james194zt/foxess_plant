@@ -14410,6 +14410,10 @@ const STYLES = `
   color: #ff7875; border-color: rgba(255, 120, 117, 0.45);
   background: rgba(255, 120, 117, 0.1);
 }
+.fox-overview-pill--warmup {
+  color: #ff9a4d; border-color: rgba(255, 122, 46, 0.55);
+  background: rgba(255, 122, 46, 0.12);
+}
 .fox-overview-pill--checking {
   color: #8c8c8c; border-color: rgba(140, 140, 140, 0.45);
   background: rgba(140, 140, 140, 0.1);
@@ -20508,10 +20512,19 @@ ${note}
             "Open Work Mode in Quick Settings"
           )
         : "";
+    // Only while the battery is actually being warmed (Fox Cloud, read while warming is possible); not in standby
+    const warmupPart = st.battery_warmup?.warming_now
+      ? wrapFoxOverviewPillNav(
+          formatFoxTonePill("Warming up", "fox-overview-pill--warmup"),
+          `data-action="nav" data-view="device_new" data-device-sub="warmup"`,
+          "Open Battery WarmUp"
+        )
+      : "";
     return `<div class="overview-status-block">
 <div class="overview-status-topline">
 ${this._renderOverviewWeather()}
 <div class="overview-status-row">
+${warmupPart}
 ${statusPart}
 ${workPart}
 ${wrapFoxOverviewPillNav(

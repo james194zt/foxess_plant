@@ -85,6 +85,9 @@ UPDATE_INTERVAL = timedelta(seconds=30)
 # seconds, and give up waiting after WARMUP_CONFIRM_WINDOW (the last check falls after it)
 WARMUP_CONFIRM_CHECKS = (20, 60, 210)
 WARMUP_CONFIRM_WINDOW = timedelta(minutes=3)  # must end before the last check, so that check settles it
+# While warming is possible the warm-up state is re-read this often; the Overview pill trusts a report this long
+WARMUP_WATCH_INTERVAL = timedelta(minutes=5)
+WARMUP_STATE_FRESH = timedelta(minutes=15)
 
 
 class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -189,6 +192,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # the message when it never did
         self._battery_warmup_pending: dict[str, Any] | None = None
         self._unsub_warmup_confirm: Any = None
+        self._battery_warmup_checked_at: datetime | None = None  # when Fox Cloud's warm-up state was last read
+        self._unsub_warmup_watch: Any = None
         self._battery_warmup_confirm_warning: str | None = None
         self._battery_warmup_api_available: bool | None = None
         self._battery_warmup_last_error: str | None = None
@@ -1244,6 +1249,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._setup_smart_charge_daily_plan_timer()
         self._setup_smart_charge_entity_listener()
         self._setup_pv_efficiency_timer()
+        self._setup_warmup_watch()
         try:
             await self._async_setup_alert_log()
         except Exception as err:
@@ -3507,7 +3513,56 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         merged["last_error"] = self._battery_warmup_last_error
         merged["pending_confirmation"] = bool(getattr(self, "_battery_warmup_pending", None))
         merged["confirm_warning"] = getattr(self, "_battery_warmup_confirm_warning", None)
+        merged["warming_now"] = self._battery_warmup_warming_now(merged)
         return merged
+
+    def _battery_warmup_warming_now(self, warmup: dict[str, Any]) -> bool:
+        """Fox Cloud reported warming in the last WARMUP_STATE_FRESH and the battery is still cold enough for it.
+
+        For the Overview pill: never shown on an old report (state is only read while warming is possible, see
+        _async_warmup_watch_tick).
+        """
+        from homeassistant.util import dt as dt_util
+
+        from .battery_warmup import warmup_state_is_warming
+
+        checked = getattr(self, "_battery_warmup_checked_at", None)
+        if not checked or dt_util.utcnow() - checked > WARMUP_STATE_FRESH:
+            return False
+        temp = warmup.get("battery_temperature_c")
+        end = warmup.get("end_temperature")
+        if temp is not None and end is not None and float(temp) > float(end) + 1:
+            return False
+        return warmup_state_is_warming(warmup.get("state"))
+
+    def _setup_warmup_watch(self) -> None:
+        if getattr(self, "_unsub_warmup_watch", None):
+            self._unsub_warmup_watch()
+        self._unsub_warmup_watch = async_track_time_interval(
+            self.hass, self._warmup_watch_callback, WARMUP_WATCH_INTERVAL
+        )
+
+    @callback
+    def _warmup_watch_callback(self, _now) -> None:
+        self.hass.async_create_task(self._async_warmup_watch_tick())
+
+    async def _async_warmup_watch_tick(self) -> None:
+        """Read the warm-up state from Fox Cloud only while warming is possible: warm-up enabled (or not known
+        yet) and the battery at or below its end temperature + 1 °C. Otherwise no API call is made."""
+        live = self._battery_warmup_live if isinstance(self._battery_warmup_live, dict) else {}
+        if live and not live.get("enabled"):
+            return
+        if not (self.plant.fox_cloud.enabled and self.plant.fox_cloud.api_key_configured()):
+            return
+        temp = self._entity_float("bms_temp_low")
+        if temp is None:
+            temp = self._entity_float("battery_temp")
+        if temp is None or temp > float(live.get("end_temperature") or 10) + 1:
+            return
+        try:
+            await self.async_fetch_battery_warmup()
+        except Exception as err:  # noqa: BLE001 — try again next interval
+            _LOGGER.debug("Battery warm-up state check failed: %s", err)
 
     def _set_warmup_reported(self, reported: dict[str, Any]) -> dict[str, Any]:
         """Take Fox Cloud's warm-up read-back, allowing for a save it hasn't caught up with yet.
@@ -3526,6 +3581,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._battery_warmup_confirm_warning = None
             elif dt_util.utcnow() - pending["since"] < WARMUP_CONFIRM_WINDOW:
                 self._battery_warmup_live = warmup_with_saved(reported, pending["saved"])
+                self._battery_warmup_checked_at = dt_util.utcnow()
                 return self._battery_warmup_live
             else:
                 self._battery_warmup_pending = None
@@ -3535,6 +3591,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     "and save again if needed."
                 )
         self._battery_warmup_live = reported
+        self._battery_warmup_checked_at = dt_util.utcnow()
         return reported
 
     def _schedule_warmup_confirm(self, delays: list[float]) -> None:
@@ -5519,6 +5576,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if getattr(self, "_unsub_warmup_confirm", None):
             self._unsub_warmup_confirm()
             self._unsub_warmup_confirm = None
+        if getattr(self, "_unsub_warmup_watch", None):
+            self._unsub_warmup_watch()
+            self._unsub_warmup_watch = None
         self._clear_smart_charge_meter_recheck()
         if getattr(self, "_unsub_smart_charge_daily_plan", None):
             self._unsub_smart_charge_daily_plan()
