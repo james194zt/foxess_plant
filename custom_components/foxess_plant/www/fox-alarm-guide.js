@@ -497,16 +497,18 @@ const FOX_MANUAL_GENERIC_SOLUTIONS = [
  * the manual's exact fault phrase (as produced by {@link bmsFaultLabel}).
  */
 export const FOX_BMS_FAULT_DESCRIPTIONS = {
-  "Over voltage fault (OV)": "A battery voltage rose above the safe limit; the BMS tripped to protect the cells.",
-  "Under voltage fault (UV)": "A battery voltage fell below the safe limit; the BMS tripped to protect the cells.",
+  "Over voltage fault (OV)":
+    "A battery voltage rose above the safe limit, so the battery protected itself by pausing.",
+  "Under voltage fault (UV)":
+    "A battery voltage dropped below the safe limit, so the battery protected itself by pausing.",
   "Charge over current (OCC)":
-    "The BMS detected a charge current above its safe limit and limited or stopped charging to protect the battery.",
+    "The battery was being charged faster than is safe, so it slowed or stopped charging to protect itself.",
   "Discharge over current (OCD)":
-    "The BMS detected a discharge current above its safe limit and limited or stopped discharging to protect the battery.",
+    "The battery was being drained faster than is safe, so it slowed or stopped discharging to protect itself.",
   "Over temperature fault (OT)":
-    "A battery temperature rose above the safe operating range; the BMS paused charging/discharging until it cools.",
+    "The battery got too warm, so it paused charging and discharging until it cools back into its safe range.",
   "Under temperature (UT)":
-    "A battery temperature fell below the safe operating range; the BMS paused charging (and possibly discharging) until it warms.",
+    "The battery got too cold, so it paused charging (and possibly discharging) until it warms into its safe range.",
 };
 
 const FOX_BMS_LABEL_RE = /^Battery (BS[1-6])\s*(?:E[0-9A-Fa-f]{2}:)?\s*(.*)$/;
@@ -522,12 +524,13 @@ function bmsGuideEntry(alarmName) {
   if (!m) return null;
   const [, bs, faultName] = m;
   const description =
-    FOX_BMS_FAULT_DESCRIPTIONS[faultName] || `${faultName} reported by the battery BMS (${bs}).`;
+    FOX_BMS_FAULT_DESCRIPTIONS[faultName] ||
+    `The battery reported a protection fault (${faultName}).`;
   return {
-    manualName: `${alarmName} — EVO manual section 10.1, BMS State (${bs})`,
+    manualName: `${faultName || alarmName} — battery ${bs}`,
     description,
     solutions: [
-      "This is a BMS protection trip. If a recovery time is shown above, the battery cleared it automatically once the condition passed — usually no action is needed.",
+      "This is a safety cut-out from the battery itself. If a recovery time is shown above, it cleared on its own once things returned to normal — usually nothing to do.",
       ...FOX_MANUAL_GENERIC_SOLUTIONS,
     ],
     bmsRelated: true,
@@ -553,7 +556,7 @@ export function foxAlarmGuideEntry(alarmName) {
   if (bms) return bms;
   return {
     manualName: alarmName,
-    description: "This fault isn't listed individually in the EVO manual's section 10.1 Alarm List.",
+    description: "This warning doesn't have a specific entry in the inverter's fault guide.",
     solutions: FOX_MANUAL_GENERIC_SOLUTIONS,
     bmsRelated: /bms|battery|energy storage/i.test(alarmName),
   };
@@ -620,12 +623,12 @@ ${batStatus ? `<div><dt>Battery status</dt><dd>${esc(batStatus.state)}</dd></div
   }
 
   return `<div class="fox-alarm-detail-body">
-<p class="fox-alarm-detail-manual"><span class="fox-alarm-detail-label">Manual reference</span> ${esc(guide.manualName)}</p>
+<p class="fox-alarm-detail-manual"><span class="fox-alarm-detail-label">Reported as</span> ${esc(guide.manualName)}</p>
 <p class="fox-alarm-detail-desc">${esc(guide.description)}</p>
 <h3 class="fox-alarm-detail-subtitle">Suggested actions</h3>
 <ul class="fox-alarm-detail-solutions">${solutions}</ul>
 ${bmsHtml}
-<p class="fox-alarm-detail-source">Source: EN-EVO User Manual, sections 10.1–10.2</p>
+<p class="fox-alarm-detail-source">Guidance based on the FoxESS EVO user manual.</p>
 </div>`;
 }
 
