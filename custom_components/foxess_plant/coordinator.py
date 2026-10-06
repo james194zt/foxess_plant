@@ -111,6 +111,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # Just-in-time SmartCharge slots currently on the inverter's scheduler (InverterSlot list)
         self._jit_slots: list[Any] = []
         self._unsub_jit_recheck: Any = None
+        # A planned export that has reached its cut-off (its window's start_utc), and the SoC watch while one runs
+        self._export_done_window: str | None = None
+        self._unsub_export_watch: Any = None
         # StormSafe's rolling hold slots on the inverter, and when they end (local time)
         self._storm_slots: list[Any] = []
         self._storm_slots_until: datetime | None = None
@@ -1584,6 +1587,46 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._unsub_jit_recheck = None
         self.hass.async_create_task(self._async_smart_charge_meter_recheck())
 
+    def _export_cut_off_reached(self, cut_off: int) -> bool:
+        """The battery is below an export slot's cut-off, where the inverter stops exporting and holds it."""
+        soc = self._entity_float("battery_soc") if hasattr(self, "_entity_float") else None
+        return soc is not None and soc < cut_off
+
+    def _watch_export_cut_off(self, cut_off: int | None, window_key: str | None) -> None:
+        """While an export slot is on the inverter, take it off as soon as the battery passes its cut-off."""
+        from .discovery import resolve_entity_id
+
+        if self._unsub_export_watch:
+            self._unsub_export_watch()
+            self._unsub_export_watch = None
+        if cut_off is None or not window_key:
+            return
+        entity_id = resolve_entity_id(self.hass, self.plant.entity_map, "battery_soc", device_id=self.plant.device_id)
+        if not entity_id:
+            return
+
+        @callback
+        def _soc_changed(_event) -> None:
+            if self._export_cut_off_reached(cut_off):
+                self.hass.async_create_task(self._async_finish_export(window_key, cut_off))
+
+        self._unsub_export_watch = async_track_state_change_event(self.hass, [entity_id], _soc_changed)
+
+    async def _async_finish_export(self, window_key: str, cut_off: int) -> None:
+        """The export reached its cut-off: remove its slot so the battery runs the house again."""
+        if self._export_done_window == window_key:
+            return
+        self._export_done_window = window_key
+        if self._unsub_export_watch:
+            self._unsub_export_watch()
+            self._unsub_export_watch = None
+        await self._set_jit_slots([slot for slot in self._jit_slots if slot.work_mode != "force_discharge"])
+        _LOGGER.info("SmartCharge export reached its cut-off (%s%%): export slot removed", cut_off)
+        if isinstance(self._smart_charge_decision, dict):
+            self._smart_charge_decision["reason"] = "Export finished at its planned level — back to self use"
+            self._smart_charge_decision["inverter_slots"] = [slot.to_service() for slot in self._jit_slots]
+        self.async_update_listeners()
+
     async def _sync_smart_charge_on_inverter(self, decision: Any) -> None:
         """Put the current or next planned grid charge / export on the inverter shortly before it starts."""
         import math
@@ -1636,6 +1679,16 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.warning("SmartCharge export window can't be scheduled on the inverter: %s", err)
             export_slots = []
 
+        # After its cut-off a Force Discharge slot holds the battery and the house runs on the grid until the slot
+        # ends (hardware-tested), so an export that has reached its cut-off comes off the inverter and stays off
+        export_key = (export_window or {}).get("start_utc")
+        if export_slots and export_key:
+            if export_key == getattr(self, "_export_done_window", None):
+                export_slots = []
+            elif self._export_cut_off_reached(export_slots[0].fd_soc):
+                self._export_done_window = export_key
+                export_slots = []
+
         if slots and charging:
             # Inside the window: check the meter agrees the rate is cheap; take the slot off if not
             self._sync_octopus_current_rates_from_cache()
@@ -1651,6 +1704,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         await self._set_jit_slots([*slots, *export_slots])
         self._schedule_jit_recheck([(window, bool(slots)), (export_window, bool(export_slots))])
+        self._watch_export_cut_off(export_slots[0].fd_soc if export_slots else None, export_key)
         if slots and not charging and window:
             decision.reason = f"Charge {window.get('start')}-{window.get('end')} is set on the inverter — {decision.reason}"
         if export_slots and not exporting and export_window:
@@ -5353,6 +5407,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if getattr(self, "_unsub_alert_log", None):
             self._unsub_alert_log()
             self._unsub_alert_log = None
+        if getattr(self, "_unsub_export_watch", None):
+            self._unsub_export_watch()
+            self._unsub_export_watch = None
         self._clear_smart_charge_meter_recheck()
         if getattr(self, "_unsub_smart_charge_daily_plan", None):
             self._unsub_smart_charge_daily_plan()

@@ -212,11 +212,20 @@ def export_window_slots(
     the battery making up what solar doesn't. If it's lower than the house load, the house imports from the
     grid. So pass the inverter's rating (e.g. 5 kW on an EVO 10-5-H) as ``power_w``: the house is always covered first, and the
     cut-off still stops the export at the planned level.
+
+    The inverter only stops once SoC drops BELOW the slot's cut-off (tested: cut-off 76 %, stopped at 75 %), so
+    the cut-off is set one above the level the export should end at.
     """
     if end_soc is None:
         return []
-    cut_off = max(math.ceil(float(floor_soc)), math.floor(float(end_soc)))
-    return window_slots(window, now=now, work_mode="force_discharge", cut_off_soc=cut_off, power_w=power_w, lead=lead)
+    stop_at = max(math.ceil(float(floor_soc)), math.floor(float(end_soc)))
+    return window_slots(
+        window, now=now, work_mode="force_discharge", cut_off_soc=stop_at + EXPORT_STOP_MARGIN, power_w=power_w, lead=lead
+    )
+
+
+# A Force Discharge slot keeps going until SoC is below its cut-off, so the cut-off sits this far above the stop level
+EXPORT_STOP_MARGIN = 1
 
 
 # StormSafe holds the battery with a rolling slot: long enough to cover HA being down for a while, short
