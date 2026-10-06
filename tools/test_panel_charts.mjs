@@ -24,7 +24,8 @@ const code =
 ;globalThis.__fp = { setChartPanelWidth, isNarrowChart, chartRenderWidth, statisticsChartLayout,
   batterySocChartLayout, renderStatisticsChartHtml, renderBatterySocChartHtml,
   renderMirroredEnergyBarChart, renderBarChartSvg, emptyEnergyBucket, FOX_SUPPLY_SERIES, FOX_USAGE_SERIES,
-  renderPerformancePowerChartSvg, renderPerformancePhysicsChartSvg, renderPerformanceMicroclimateChartSvg };`;
+  renderPerformancePowerChartSvg, renderPerformancePhysicsChartSvg, renderPerformanceMicroclimateChartSvg,
+  renderSmartChargeDailyChartSvg, renderPerformancePeriodDailyChartSvg, renderOctopusRateChartSvg };`;
 
 class Stub { constructor() {} }
 const el = () => ({ style: {}, classList: { toggle() {}, add() {}, remove() {} }, append() {}, appendChild() {},
@@ -175,6 +176,20 @@ for (const [label, panelW] of [["phone 390px", 390], ["desktop 1400px", 1400]]) 
   const phone = fp.renderPerformancePowerChartSvg(perfChart({ pv_power_kw: dense((i) => i * 0.01) }));
   const phoneW = Number((phone.match(/viewBox="0 0 ([\d.]+) /) || [])[1]);
   check("phone: drawn at the screen's width", phoneW >= 280 && phoneW <= 390, String(phoneW));
+  // The older bar charts use the same width (were 640 / 680 and stretched)
+  fp.setChartPanelWidth(1400);
+  const daysRows = ["2026-10-01", "2026-10-02", "2026-10-03"];
+  const scDaily = fp.renderSmartChargeDailyChartSvg(
+    daysRows.map((date) => ({ date, import_actual_kwh: 3, export_actual_kwh: 1, import_planned_kwh: 3.2, export_planned_kwh: 0.8 }))
+  );
+  const perfPeriod = fp.renderPerformancePeriodDailyChartSvg(daysRows.map((date) => ({ date, pv_kwh: 12, net_savings_gbp: 1.2 })));
+  const rate = fp.renderOctopusRateChartSvg(
+    Array.from({ length: 24 }, (_, i) => ({ start_ms: tMin + i * 1800000, end_ms: tMin + (i + 1) * 1800000, p_per_kwh: 20 + (i % 5) })),
+    { kind: "import" }
+  );
+  for (const [name, html] of [["SmartCharge daily", scDaily], ["Performance period", perfPeriod], ["Octopus rate", rate]]) {
+    check(`${name}: 1000 wide, renders`, /viewBox="0 0 1000 /.test(html) && noNaN(html));
+  }
   // Hover tooltips instead of dots
   for (const [name, html] of [["power", low], ["physics", cooling], ["microclimate", micro]]) {
     check(`${name}: hover plot, no dots`, html.includes(`data-perf-hover="${name}"`) && !/<circle/.test(html));

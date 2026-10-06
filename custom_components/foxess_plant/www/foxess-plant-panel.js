@@ -2365,8 +2365,8 @@ ${errHtml}
 }
 
 function renderOctopusGreenerWeekChartSvg(greenerNights, periodOffset = 0) {
-  const W = 680;
-  const H = 190;
+  const W = chartRenderWidth(PERF_CHART_W);
+  const H = 240;
   const padL = 54;
   const padR = 12;
   const padT = 16;
@@ -2530,8 +2530,8 @@ function renderOctopusGreenerTimelineItem(row) {
 }
 
 function renderOctopusGreenerChartSvg(periods, threshold) {
-  const W = 680;
-  const H = 190;
+  const W = chartRenderWidth(PERF_CHART_W);
+  const H = 240;
   const padL = 54;
   const padR = 12;
   const padT = 16;
@@ -2987,8 +2987,8 @@ function renderSmartChargeDailyChartSvg(dailyChart) {
     ...mapped.flatMap((r) => [r.import_actual, r.export_actual, r.import_planned, r.export_planned]),
     0.1
   );
-  const W = 640;
-  const H = 168;
+  const W = chartRenderWidth(PERF_CHART_W);
+  const H = 220;
   const padL = 28;
   const padR = 12;
   const padT = 12;
@@ -3942,8 +3942,8 @@ function renderPerformancePeriodDailyChartSvg(dailyChart) {
     };
   });
   const maxVal = Math.max(...mapped.flatMap((r) => [r.pv_kwh, Math.abs(r.net_savings_gbp)]), 0.1);
-  const W = 640;
-  const H = 168;
+  const W = chartRenderWidth(PERF_CHART_W);
+  const H = 220;
   const padL = 28;
   const padR = 12;
   const padT = 12;
@@ -4071,8 +4071,8 @@ function renderOctopusGenericBarChartSvg(rows, {
 } = {}) {
   const data = (Array.isArray(rows) ? rows : []).filter((r) => r?.start_ms != null);
   if (!data.length) return `<p class="octopus-greener-empty">${esc(emptyHint)}</p>`;
-  const W = 640;
-  const H = 168;
+  const W = chartRenderWidth(PERF_CHART_W);
+  const H = 220;
   const padL = 28;
   const padR = 12;
   const padT = 12;
@@ -4240,8 +4240,8 @@ function renderOctopusDualChartSvg(dualPeriods, carbonPeriods = null, importRate
   const rateSpan = Math.max(rateMax - rateMin, 0.01);
   const yMin = rateMin - rateSpan * 0.06;
   const yMax = rateMax + rateSpan * 0.06;
-  const W = 640;
-  const H = 168;
+  const W = chartRenderWidth(PERF_CHART_W);
+  const H = 220;
   const padL = 28;
   const padR = 12;
   const padT = 12;
@@ -4376,8 +4376,8 @@ function renderOctopusMeterCostChartSvg(meterCosts) {
       export_kwh: d.export_kwh,
     };
   });
-  const W = 640;
-  const H = 168;
+  const W = chartRenderWidth(PERF_CHART_W);
+  const H = 220;
   const padL = 28;
   const padR = 12;
   const padT = 12;
@@ -12799,7 +12799,7 @@ const STYLES = `
 }
 .octopus-greener-y-arrow { stroke: var(--secondary-text-color); stroke-width: 1.5; opacity: 0.65; }
 .octopus-greener-y-arrow-head { fill: var(--secondary-text-color); opacity: 0.65; }
-.octopus-greener-axis { fill: var(--secondary-text-color); font-size: 10px; }
+.octopus-greener-axis { fill: var(--secondary-text-color); font-size: 12px; }
 .octopus-greener-green-line { stroke: var(--secondary-text-color); stroke-width: 1; opacity: 0.55; }
 .octopus-greener-legend {
   display: flex; flex-wrap: wrap; gap: 10px 16px; padding: 8px 10px;
