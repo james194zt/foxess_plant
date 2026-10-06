@@ -14712,28 +14712,17 @@ const STYLES = `
 }
 .field-link { color: var(--fp-accent); text-decoration: none; }
 .field-link:hover { text-decoration: underline; }
-.warmup-hero {
-  position: relative; margin-bottom: 16px; padding: 28px 20px 24px; border-radius: 16px; text-align: center;
-  background: linear-gradient(180deg, rgba(255, 152, 80, 0.28) 0%, rgba(255, 120, 60, 0.08) 55%, rgba(0,0,0,0) 100%);
-  border: 1px solid rgba(255, 152, 80, 0.22);
+/* Battery Warmup live status: the SmartCharge status card, orange while warmup is enabled, grey when off */
+.sc-status-card.warmup-status-card--on {
+  border-color: rgba(255, 152, 80, 0.35);
+  background: linear-gradient(145deg, color-mix(in srgb, #ff7a2e 18%, var(--card-background-color)), var(--card-background-color));
 }
-.warmup-hero.is-on { background: linear-gradient(180deg, rgba(255, 120, 40, 0.35) 0%, rgba(255, 90, 30, 0.12) 55%, rgba(0,0,0,0) 100%); }
-.warmup-hero-badge {
-  display: inline-block; margin-bottom: 12px; padding: 4px 12px; border-radius: 999px;
-  background: rgba(255, 120, 40, 0.85); color: #fff; font-size: 12px; font-weight: 600; text-transform: lowercase;
+.sc-status-card.warmup-status-card--off {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--secondary-text-color) 8%, var(--card-background-color)), var(--card-background-color));
 }
-.warmup-hero-temp {
-  font-size: 48px; font-weight: 700; line-height: 1; margin: 8px 0 18px;
-  color: var(--primary-text-color); text-shadow: 0 0 32px rgba(255, 100, 60, 0.35);
-}
-.warmup-power-btn {
-  width: 64px; height: 64px; border-radius: 50%; border: none; cursor: pointer;
-  background: rgba(255,255,255,0.12); color: var(--secondary-text-color);
-  display: inline-flex; align-items: center; justify-content: center;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.25);
-}
-.warmup-power-btn.is-on { background: linear-gradient(180deg, #ff9a4d 0%, #ff6a1a 100%); color: #fff; }
-.warmup-power-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.sc-status-pill--warmup { background: rgba(255, 122, 46, 0.22); color: #ff9a4d; }
+.warmup-status-card .sc-stat-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 0; }
+.shell.narrow .warmup-status-card .sc-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .warmup-slot-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
 .warmup-slot-card {
   border: 1px solid rgba(80, 140, 255, 0.35); border-radius: 12px; padding: 12px 14px;
@@ -18785,12 +18774,6 @@ Reloading panel registration…
     }
     if (action === "fetch-battery-warmup") {
       await this._fetchBatteryWarmup(true);
-      return;
-    }
-    if (action === "warmup-toggle-enabled") {
-      if (!this._warmupDraft) return;
-      this._warmupDraft.enabled = !this._warmupDraft.enabled;
-      this._scheduleRender();
       return;
     }
     if (action === "warmup-fill-from-tariff") {
@@ -24848,29 +24831,24 @@ ${detailBlock}
     return `${this._renderWarmupHero()}
 <header class="header"><h1>Battery Warmup</h1><p>Grid-assisted battery heating during low-price periods. Settings sync with your inverter via Fox Cloud.</p></header>
 ${blockedBanner}
-<div class="warmup-hero${draft.enabled ? " is-on" : ""}">
-<div class="warmup-hero-badge">${esc(statusLabel)}</div>
-<div class="warmup-hero-temp">${esc(tempDisplay)}</div>
-<button type="button" class="warmup-power-btn${draft.enabled ? " is-on" : ""}" data-action="warmup-toggle-enabled" aria-label="${draft.enabled ? "Disable battery warmup" : "Enable battery warmup"}" ${this._busy ? "disabled" : ""}>
-<svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true"><path fill="currentColor" d="M16.56 5.44l-1.45 1.45A5.97 5.97 0 0 1 18 12a6 6 0 0 1-12 0c0-2.17 1.16-4.06 2.88-5.12L7.44 5.44A7.96 7.96 0 0 0 4 12a8 8 0 0 0 16 0c0-2.72-1.36-5.12-3.44-6.56zM13 3h-2v10h2z"/></svg>
-</button>
-<input type="checkbox" data-field="warmup:enabled" ${draft.enabled ? "checked" : ""} hidden>
-</div>
+${this._renderWarmupStatusCard(draft, statusLabel, tempDisplay)}
 <div class="card">
-<p class="card-title">Start temperature</p>
+<p class="card-title">Warmup</p>
+<div class="toggle-row"><span><strong>Enable battery warmup</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Heats the pack in cold weather, using grid power in the low-price slots below</span></span>
+<input type="checkbox" data-field="warmup:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+<p class="field-hint">Tip (Fox app): as the battery SOC is &lt;40%, only PV and grid energy (if enabled) will be used. Battery energy will not be used for self-warming.</p>
+<div class="field"><label>Start temperature</label>
 <div class="pv-range-row">
 <input type="range" min="${esc(String(ranges.start_min))}" max="${esc(String(ranges.start_max))}" step="1" data-field="warmup:start_temperature" value="${esc(String(draft.start_temperature))}" ${this._busy ? "disabled" : ""}>
 <span class="pv-range-value" data-warmup-live="start">${esc(String(draft.start_temperature))}°C</span>
 </div>
-<p class="field-hint">Warmup starts when battery temperature falls below this value (${esc(String(ranges.start_min))}–${esc(String(ranges.start_max))}°C).</p>
-</div>
-<div class="card">
-<p class="card-title">End temperature</p>
+<p class="field-hint">Warmup starts when the battery falls below this (${esc(String(ranges.start_min))}–${esc(String(ranges.start_max))}°C).</p></div>
+<div class="field"><label>End temperature</label>
 <div class="pv-range-row">
 <input type="range" min="${esc(String(ranges.end_min))}" max="${esc(String(ranges.end_max))}" step="1" data-field="warmup:end_temperature" value="${esc(String(draft.end_temperature))}" ${this._busy ? "disabled" : ""}>
 <span class="pv-range-value" data-warmup-live="end">${esc(String(draft.end_temperature))}°C</span>
 </div>
-<p class="field-hint">Warmup stops once the pack reaches this target (${esc(String(ranges.end_min))}–${esc(String(ranges.end_max))}°C).</p>
+<p class="field-hint">Warmup stops once the pack reaches this (${esc(String(ranges.end_min))}–${esc(String(ranges.end_max))}°C).</p></div>
 </div>
 <div class="card">
 <p class="card-title">Warmup slots in low price</p>
@@ -24883,6 +24861,32 @@ ${this._renderWarmupTariffStrip(draft)}
 <button type="button" class="btn btn-secondary" data-action="fetch-battery-warmup" ${this._busy ? "disabled" : ""}>${loading ? "Refreshing…" : "Refresh from inverter"}</button>
 </div>
 <p class="field-hint" style="margin-top:8px">Device: ${esc(String(live.device_sn || "—"))}${live.state ? ` · ${esc(String(live.state))}` : ""}</p>`;
+  }
+
+  /** Live status in the SmartCharge card style: orange while warmup is enabled, grey when it's off. */
+  _renderWarmupStatusCard(draft, statusLabel, tempDisplay) {
+    const on = Boolean(draft.enabled);
+    const slots = (draft.slots || []).filter((s) => s?.enabled);
+    const reason = on
+      ? `Heats the battery when it falls below ${draft.start_temperature}°C, up to ${draft.end_temperature}°C${
+          slots.length ? `, using grid power in ${slots.map((s) => `${s.start}–${s.end}`).join(", ")}` : ""
+        }.`
+      : "Warmup is off: the battery won't be heated, however cold it gets.";
+    const tile = (label, value) =>
+      `<div class="sc-stat-tile"><span class="sc-stat-label">${esc(label)}</span><span class="sc-stat-value">${esc(value)}</span></div>`;
+    const pill = on ? statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1) : "Off";
+    return `<div class="sc-status-card warmup-status-card warmup-status-card--${on ? "on" : "off"}">
+<div class="sc-status-head">
+<div><p class="sc-status-title">Live status</p><p class="sc-status-reason">${esc(reason)}</p></div>
+<span class="sc-status-pill ${on ? "sc-status-pill--warmup" : ""}">${esc(pill)}</span>
+</div>
+<div class="sc-stat-grid">
+${tile("Battery temperature", tempDisplay)}
+${tile("Starts below", `${draft.start_temperature}°C`)}
+${tile("Warms to", `${draft.end_temperature}°C`)}
+${tile("Low-price slots", slots.length ? String(slots.length) : "None")}
+</div>
+</div>`;
   }
 
   _renderSolcastApiCredentialsCard() {
