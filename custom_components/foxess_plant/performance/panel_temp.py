@@ -20,7 +20,12 @@ from dataclasses import dataclass
 FAIMAN_U1 = 6.84
 MOUNTING_FACTORS = {"open_rack": 1.0, "roof_gap": 20.0 / 29.0, "in_roof": 15.0 / 29.0}
 NOCT_WIND_MS = 1.0
-MAX_IRRADIANCE = 1400.0  # W/m²: above this the output figures are wrong, not the sun
+MAX_IRRADIANCE = 1400.0  # W/m²: a raw figure above this means the output data is wrong, so drop the sample
+# Cap the sunlight used for *heating* at 1 sun. The array routinely reports more than this once we back it
+# out of the DC output — it beats its STC rating when new/cool, and cloud-edge "lensing" spikes the output
+# briefly — but that surplus isn't extra heat on the glass, so without this clamp the inferred panel
+# temperature runs away (e.g. 80 °C on an 18 °C day).
+IRRADIANCE_CEILING = 1000.0
 
 
 @dataclass(frozen=True)
@@ -52,12 +57,15 @@ def irradiance_and_temp(
         return None
     gamma = array.power_temp_coeff_pct / 100.0
     temp = air_c
+    raw_irradiance = 0.0
     irradiance = 0.0
     for _ in range(4):  # converges in 2-3 steps
         derate = max(0.5, 1.0 + gamma * (temp - 25.0))
-        irradiance = 1000.0 * dc_kw / (array.stc_kw * derate)
+        raw_irradiance = 1000.0 * dc_kw / (array.stc_kw * derate)
+        # Heating can't exceed 1 sun; overperformance/lensing above that isn't extra heat.
+        irradiance = min(IRRADIANCE_CEILING, raw_irradiance)
         temp = cell_temp_c(array, air_c=air_c, irradiance_w_m2=irradiance, wind_ms=wind_ms)
-    if irradiance > MAX_IRRADIANCE:
+    if raw_irradiance > MAX_IRRADIANCE:  # genuinely bad output data, not just a sunny overperforming array
         return None
     return round(irradiance, 1), round(temp, 1)
 
