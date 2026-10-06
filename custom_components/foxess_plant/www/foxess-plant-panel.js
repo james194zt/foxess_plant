@@ -2928,6 +2928,29 @@ function formatSmartChargeDateTimeMs(ms) {
   });
 }
 
+function formatSmartChargeTimeMs(ms) {
+  if (!Number.isFinite(Number(ms))) return "";
+  return new Date(Number(ms)).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
+const SC_ACTION_PILL = {
+  charge: { label: "Charge", color: "#2F6BFF" },
+  spread_charge: { label: "Charge", color: "#2F6BFF" },
+  winter_fill: { label: "Winter fill", color: "#2F6BFF" },
+  solar_gap_fill: { label: "Solar gap", color: "#2F6BFF" },
+  export: { label: "Export", color: "#FF6FAF" },
+  spread_export: { label: "Export", color: "#FF6FAF" },
+};
+
+function smartChargeActionPill(action) {
+  return (
+    SC_ACTION_PILL[String(action || "")] || {
+      label: String(action || "—").replace(/_/g, " "),
+      color: "#6b7280",
+    }
+  );
+}
+
 function formatGbp2(value) {
   if (value == null || !Number.isFinite(Number(value))) return "—";
   return `£${Number(value).toFixed(2)}`;
@@ -3051,33 +3074,25 @@ function renderSmartChargeSessionsTable(sessions) {
   if (!rows.length) {
     return `<p class="placeholder">No armed SmartCharge sessions recorded in this period.</p>`;
   }
-  const body = rows
+  const items = rows
     .slice()
     .sort((a, b) => (b.start_ms || 0) - (a.start_ms || 0))
     .map((row) => {
-      const dir = row.direction === "export" ? "Export" : "Import";
-      const actual =
-        row.direction === "export"
-          ? formatSmartChargeKwh(row.actual_export_kwh)
-          : formatSmartChargeKwh(row.actual_import_kwh);
-      const planned =
-        row.direction === "export"
-          ? formatSmartChargeKwh(row.planned_export_kwh)
-          : formatSmartChargeKwh(row.planned_import_kwh);
-      return `<tr>
-<td>${esc(formatSmartChargeDateTimeMs(row.start_ms))}</td>
-<td>${esc(dir)}</td>
-<td>${esc(String(row.action || "—"))}</td>
-<td>${esc(formatSmartChargeDuration(row.duration_min))}</td>
-<td>${esc(actual)}</td>
-<td>${esc(planned)}</td>
-</tr>`;
+      const isExport = row.direction === "export";
+      const color = isExport ? "#FF6FAF" : "#2F6BFF";
+      const label = isExport ? "Export" : "Import";
+      const actual = isExport ? formatSmartChargeKwh(row.actual_export_kwh) : formatSmartChargeKwh(row.actual_import_kwh);
+      const planned = isExport ? formatSmartChargeKwh(row.planned_export_kwh) : formatSmartChargeKwh(row.planned_import_kwh);
+      const action = String(row.action || "").replace(/_/g, " ");
+      const actionBit = action && action !== "armed" ? `${esc(action)} · ` : "";
+      return `<li class="fox-sc-howused-row">
+<div class="fox-sc-howused-main"><span class="fox-sc-howused-status" style="background:${color}">${label}</span><span class="fox-sc-howused-day">${esc(formatSmartChargeDateTimeMs(row.start_ms))}</span></div>
+<div class="fox-sc-howused-detail"><div>${actionBit}${esc(formatSmartChargeDuration(row.duration_min))} · actual ${esc(actual)} of ${esc(planned)} planned</div></div>
+<div class="fox-sc-howused-saved">${esc(actual)}</div>
+</li>`;
     })
     .join("");
-  return `<div class="table-wrap"><table class="data-table fox-sc-analysis-table">
-<thead><tr><th>Started</th><th>Direction</th><th>Action</th><th>Duration</th><th>Actual</th><th>Planned</th></tr></thead>
-<tbody>${body}</tbody>
-</table></div>`;
+  return `<ul class="fox-sc-howused-list">${items}</ul>`;
 }
 
 function renderSmartChargePlannedTable(slots) {
@@ -3085,25 +3100,24 @@ function renderSmartChargePlannedTable(slots) {
   if (!rows.length) {
     return `<p class="placeholder">No daily plan slots in recorder history for this period.</p>`;
   }
-  const body = rows
+  const items = rows
+    .slice()
+    .sort((a, b) => (b.start_ms || 0) - (a.start_ms || 0))
     .map((row) => {
       const isExport = String(row.action || "").includes("export");
+      const pill = smartChargeActionPill(row.action);
       const planned = isExport
         ? formatSmartChargeKwh(row.planned_export_kwh)
         : formatSmartChargeKwh(row.planned_import_kwh);
-      return `<tr>
-<td>${esc(formatSmartChargeDateTimeMs(row.start_ms))}</td>
-<td>${esc(formatSmartChargeDateTimeMs(row.end_ms))}</td>
-<td>${esc(String(row.action || "—"))}</td>
-<td>${esc(String(row.reason || "—"))}</td>
-<td>${esc(planned)}</td>
-</tr>`;
+      const when = `${esc(formatSmartChargeDateTimeMs(row.start_ms))} → ${esc(formatSmartChargeTimeMs(row.end_ms))}`;
+      return `<li class="fox-sc-howused-row">
+<div class="fox-sc-howused-main"><span class="fox-sc-howused-status" style="background:${pill.color}">${esc(pill.label)}</span><span class="fox-sc-howused-day">${when}</span></div>
+<div class="fox-sc-howused-detail"><div>${esc(row.reason || "—")}</div></div>
+<div class="fox-sc-howused-saved">${esc(planned)}</div>
+</li>`;
     })
     .join("");
-  return `<div class="table-wrap"><table class="data-table fox-sc-analysis-table">
-<thead><tr><th>Start</th><th>End</th><th>Action</th><th>Reason</th><th>Planned kWh</th></tr></thead>
-<tbody>${body}</tbody>
-</table></div>`;
+  return `<ul class="fox-sc-howused-list">${items}</ul>`;
 }
 
 function renderSmartChargeHemsAuditTable(audit) {
@@ -3111,24 +3125,24 @@ function renderSmartChargeHemsAuditTable(audit) {
   if (!events.length) {
     return `<p class="octopus-greener-empty">No HEMS audit events logged for this period yet. Events are recorded when SmartCharge rebuilds its daily plan, arms export, detects a plunge price, or pairs spread slots.</p>`;
   }
-  const rows = events
-    .map(
-      (ev) => `<tr>
-<td>${esc(ev.local_label || ev.ts || "—")}</td>
-<td>${esc(ev.event_label || ev.event_type || "—")}</td>
-<td>${esc(ev.summary || "")}</td>
-</tr>`
-    )
+  const items = events
+    .map((ev) => {
+      const label =
+        ev.event_label ||
+        (ev.event_type ? String(ev.event_type).replace("smart_charge_", "").replace(/_/g, " ") : "Event");
+      const when = ev.local_label || ev.ts || "—";
+      return `<li class="fox-sc-howused-row">
+<div class="fox-sc-howused-main"><span class="fox-sc-howused-status" style="background:#894bfc">${esc(label)}</span><span class="fox-sc-howused-day">${esc(when)}</span></div>
+<div class="fox-sc-howused-detail"><div>${esc(ev.summary || "")}</div></div>
+<div class="fox-sc-howused-saved"></div>
+</li>`;
+    })
     .join("");
   const counts = audit?.by_type || {};
   const countBits = Object.entries(counts)
     .map(([k, n]) => `${n} ${k.replace("smart_charge_", "").replace(/_/g, " ")}`)
     .join(" · ");
-  return `<p class="field-hint">${esc(countBits || `${events.length} events`)}</p>
-<div class="fox-sc-analysis-table-wrap"><table class="fox-sc-analysis-table">
-<thead><tr><th>When</th><th>Event</th><th>Summary</th></tr></thead>
-<tbody>${rows}</tbody>
-</table></div>`;
+  return `<p class="field-hint">${esc(countBits || `${events.length} events`)}</p><ul class="fox-sc-howused-list">${items}</ul>`;
 }
 
 const SC_HOWUSED_STATUS = {
@@ -3209,8 +3223,10 @@ function renderSmartChargeSavingsChart(systemDaily) {
       const yE = yA - hE;
       const total = m.avoided + m.exportg;
       let out = "";
-      if (hA > 0.5) out += `<rect x="${x.toFixed(1)}" y="${yA.toFixed(1)}" width="${barW.toFixed(1)}" height="${hA.toFixed(1)}" fill="#52c41a" rx="2"/>`;
-      if (hE > 0.5) out += `<rect x="${x.toFixed(1)}" y="${yE.toFixed(1)}" width="${barW.toFixed(1)}" height="${hE.toFixed(1)}" fill="#8DB6FF" rx="2"/>`;
+      if (hA > 0.5)
+        out += `<rect x="${x.toFixed(1)}" y="${yA.toFixed(1)}" width="${barW.toFixed(1)}" height="${hA.toFixed(1)}" fill="#52c41a" rx="2"><title>${esc(m.label)} · Avoided import £${m.avoided.toFixed(2)}</title></rect>`;
+      if (hE > 0.5)
+        out += `<rect x="${x.toFixed(1)}" y="${yE.toFixed(1)}" width="${barW.toFixed(1)}" height="${hE.toFixed(1)}" fill="#8DB6FF" rx="2"><title>${esc(m.label)} · Export earnings £${m.exportg.toFixed(2)}</title></rect>`;
       if (total > maxVal * 0.03) out += `<text x="${cx.toFixed(1)}" y="${(yE - 5).toFixed(1)}" text-anchor="middle" class="chart-axis" style="font-weight:600">£${total.toFixed(2)}</text>`;
       out += `<text x="${cx.toFixed(1)}" y="${H - 8}" text-anchor="middle" class="chart-axis">${esc(m.label)}</text>`;
       return out;
