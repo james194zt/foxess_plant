@@ -103,7 +103,7 @@ The day's running totals are saved in the database each tick, so a restart carri
 
 ### Solar output & clipping chart (recorder)
 
-Solar output, net grid, Solcast's "could produce" (dashed), the inverter AC limit, and clipping. The AC limit is
+Solar output, net grid, the Solcast forecast (dashed), the inverter AC limit, and clipping. The AC limit is
 the inverter's own Max Active Power setting (foxess_modbus, e.g. 3.68 kW on a 5 kW EVO), else the model rating.
 Clipping (`performance/clipping.py`) = Solcast's potential above actual PV, only while the inverter's AC output is
 within 3 % of the limit and the battery isn't taking the surplus; PV above the limit while the battery charges is

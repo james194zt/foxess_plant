@@ -3579,7 +3579,7 @@ function renderPerformancePowerChartSvg(chart) {
   const limitText = hasLimit ? ` (${acLimit.toFixed(1)} kW${limitOnScale ? "" : ", above this scale"})` : "";
   const legend = `<div class="fox-perf-chart-legend">
 <span><i style="background:#19D4DE"></i> Solar output kW</span>
-${potential.length ? `<span><i style="background:#f5c542"></i> Solcast could produce</span>` : ""}
+${potential.length ? `<span><i style="background:#f5c542"></i> Solcast forecast</span>` : ""}
 <span><i style="background:#2F6BFF"></i> Net grid kW</span>
 ${hasLimit ? `<span><i style="background:#f59e0b"></i> Inverter AC limit${esc(limitText)}</span>` : ""}
 ${hasClipping ? `<span><i style="background:#ef4444"></i> Clipping kW</span>` : ""}
@@ -3608,7 +3608,7 @@ ${lines}
     tMax: xDomain.tMax,
     series: [
       { label: "Solar output", color: "#19D4DE", unit: " kW", points: pv },
-      ...(potential.length ? [{ label: "Solcast could produce", color: "#f5c542", unit: " kW", points: potential }] : []),
+      ...(potential.length ? [{ label: "Solcast forecast", color: "#f5c542", unit: " kW", points: potential }] : []),
       { label: "Net grid", color: "#2F6BFF", unit: " kW", points: grid },
       ...(hasClipping ? [{ label: "Clipping", color: "#ef4444", unit: " kW", points: clip }] : []),
     ],
@@ -15860,7 +15860,7 @@ Reloading panel registration…
 <img class="panel-brand-icon" src="${esc(this._brandIconSrc)}" data-fallback="${esc(this._brandIconFallback)}" data-static="${esc(this._brandIconStatic)}" width="40" height="40" alt="FoxESS">
 <div>
 <div class="panel-brand-title">Fox Plant</div>
-<div class="panel-brand-sub">FoxESS inverter control</div>
+<div class="panel-brand-sub">FoxESS Inverter Control</div>
 </div>
 </div>
 </div>`;
