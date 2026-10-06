@@ -3264,6 +3264,18 @@ function performanceDataTimeSpan(...seriesArrays) {
 }
 
 /** Zoom X when samples are sparse so 5-min points are not drawn as vertical spikes. */
+/** Hour before sunrise to hour after sunset (performance_chart._daylight_window), or null. */
+function performanceDaylightXDomain(chart) {
+  const win = chart?.daylight_window;
+  const tMin = Number(win?.start_ms);
+  const tMax = Number(win?.end_ms);
+  return Number.isFinite(tMin) && Number.isFinite(tMax) && tMax > tMin ? { tMin, tMax, zoomed: false } : null;
+}
+
+// Performance charts are drawn this wide (SVG units) so they come out about 1:1 on a desktop panel; at 640
+// they were stretched ~1.6x, with oversized text, lines and dots. Phones use their real width (chartRenderWidth).
+const PERF_CHART_W = 1000;
+
 function performanceZoomXDomain(range, ...seriesArrays) {
   const dayStart = range.tMin;
   const nowMs = range.nowMs;
@@ -3365,8 +3377,8 @@ function panelDetailsKey(d) {
   return text ? `s:${text}` : null;
 }
 
-// Dots mark individual samples only while there are few; at 5-minute detail they turned lines into bead strings
-const PERF_DOTS_MAX_POINTS = 24;
+// Dots only where a line can't be seen (a handful of samples); otherwise they turned lines into bead strings
+const PERF_DOTS_MAX_POINTS = 6;
 
 /** Unit labels down the right-hand side, for a chart's second series (its own scale). */
 function performanceRightAxisSvg({ x, ticks, scale, unit, color }) {
@@ -3388,7 +3400,7 @@ function performanceSeriesSvg(points, xDomain, xScale, yScale, stroke, { width =
       : "";
   const dots =
     pts.length <= PERF_DOTS_MAX_POINTS
-      ? pts.map((p) => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.5" fill="${stroke}" />`).join("")
+      ? pts.map((p) => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="2.5" fill="${stroke}" />`).join("")
       : "";
   const dashAttr = dash ? ` stroke-dasharray="${dash}"` : "";
   return `<g stroke="${stroke}" stroke-width="${width}"${dashAttr} fill="none">${line}${dots}</g>`;
@@ -3457,10 +3469,11 @@ function renderPerformancePowerChartSvg(chart) {
   if (!pv.length && !grid.length) {
     return `<p class="placeholder chart-empty">No performance recorder data yet. Sensors update every 5 minutes.</p>`;
   }
-  const xDomain = performanceZoomXDomain(range, pv, grid, clip);
+  // Solar output only matters in daylight: hour before sunrise to hour after sunset
+  const xDomain = performanceDaylightXDomain(chart) || performanceZoomXDomain(range, pv, grid, clip);
   const primaryCount = performanceClipPoints(pv, xDomain.tMin, xDomain.tMax).length;
-  const W = 640;
-  const H = 200;
+  const W = chartRenderWidth(PERF_CHART_W);
+  const H = 260;
   const padL = 42;
   const padR = 12;
   const padT = 12;
@@ -3474,10 +3487,13 @@ function renderPerformancePowerChartSvg(chart) {
   const powerVals = performanceClipPoints([...pv, ...grid, ...clip, ...potential], xDomain.tMin, xDomain.tMax).map(
     (p) => p.v
   );
-  // Always show the inverter limit so it's clear how much headroom the array had
-  if (hasLimit) powerVals.push(acLimit * 1.05);
+  // The AC limit only joins the scale once output gets within reach of it; forcing it in squashed a low day
+  // onto the floor. Off the scale, the legend says where it is.
+  const dataMax = powerVals.length ? Math.max(...powerVals) : 0;
+  const limitOnScale = hasLimit && dataMax >= acLimit * 0.6;
+  if (limitOnScale) powerVals.push(acLimit * 1.05);
   const pMin = Math.min(0, ...(powerVals.length ? powerVals : [0]));
-  const pMax = Math.max(0.5, ...(powerVals.length ? powerVals : [1]));
+  const pMax = Math.max(0.5, ...(powerVals.length ? powerVals : [1])) * (limitOnScale ? 1 : 1.1);
   const yScaleP = (v) => padT + h - ((v - pMin) / Math.max(pMax - pMin, 0.1)) * h;
   const yTicks = performanceYTicks(pMin, pMax);
   const axes = performanceChartAxesSvg({
@@ -3491,7 +3507,7 @@ function renderPerformancePowerChartSvg(chart) {
     yTicks,
   });
   let limitLine = "";
-  if (hasLimit) {
+  if (limitOnScale) {
     const y = yScaleP(acLimit);
     limitLine = `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + w}" y2="${y.toFixed(1)}" stroke="#f59e0b" stroke-dasharray="4 3" stroke-width="1" />`;
   }
@@ -3505,7 +3521,7 @@ function renderPerformancePowerChartSvg(chart) {
   ]
     .map((s) => performanceSeriesSvg(s.pts, xDomain, xScale, yScaleP, s.color, { width: s.width, dash: s.dash }))
     .join("");
-  const limitText = hasLimit ? ` (${acLimit.toFixed(1)} kW)` : "";
+  const limitText = hasLimit ? ` (${acLimit.toFixed(1)} kW${limitOnScale ? "" : ", above this scale"})` : "";
   const legend = `<div class="fox-perf-chart-legend">
 <span><i style="background:#19D4DE"></i> Solar output kW</span>
 ${potential.length ? `<span><i style="background:#f5c542"></i> Solcast could produce</span>` : ""}
@@ -3546,12 +3562,13 @@ function renderPerformancePhysicsChartSvg(chart) {
     return `<p class="placeholder chart-empty">Map a wind speed sensor under Settings → Weather. Panel temperature appears while the panels are producing.</p>`;
   }
   const range = performanceChartRange(chart);
-  const xDomain = performanceZoomXDomain(range, temp, wind);
+  // Panel temperature only exists while the panels produce: hour before sunrise to hour after sunset
+  const xDomain = performanceDaylightXDomain(chart) || performanceZoomXDomain(range, temp, wind);
   const sampleCount =
     performanceClipPoints(temp, xDomain.tMin, xDomain.tMax).length +
     performanceClipPoints(wind, xDomain.tMin, xDomain.tMax).length;
-  const W = 640;
-  const H = 160;
+  const W = chartRenderWidth(PERF_CHART_W);
+  const H = 220;
   const padL = 42;
   const padR = 38;
   const padT = 10;
@@ -3631,8 +3648,8 @@ function renderPerformanceMicroclimateChartSvg(chart) {
   }
   const range = performanceChartRange(chart);
   const xDomain = performanceZoomXDomain(range, visibility, dew, precip);
-  const W = 640;
-  const H = 160;
+  const W = chartRenderWidth(PERF_CHART_W);
+  const H = 220;
   const padL = 42;
   const padR = 38;
   const padT = 10;

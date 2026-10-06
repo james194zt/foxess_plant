@@ -149,6 +149,32 @@ for (const [label, panelW] of [["phone 390px", 390], ["desktop 1400px", 1400]]) 
   );
   check("microclimate chart renders", noNaN(micro));
   check("  dew point has its own °C axis", /text-anchor="start"[^>]*fill="#597EF7"[^>]*>[\d.]+°</.test(micro));
+
+  // 2026-10-06 feedback: daylight window, AC limit off the scale on a low day, sensible size
+  fp.setChartPanelWidth(1400);
+  const dawn = tMin + 7 * 3600000, dusk = tMin + 19 * 3600000;
+  const low = fp.renderPerformancePowerChartSvg({
+    ...perfChart({ pv_power_kw: dense((i) => i * 0.003), net_grid_power_kw: dense(() => -0.02) }),
+    daylight_window: { start_ms: dawn, end_ms: dusk },
+  });
+  check("low day: AC limit not forced onto the scale", !/stroke="#f59e0b" stroke-dasharray/.test(low) && /above this scale/.test(low));
+  check("  drawn ~1:1 on desktop (1000 wide)", /viewBox="0 0 1000 /.test(low));
+  const firstTick = (low.match(/class="statistics-axis-x">([^<]+)</) || [])[1];
+  check("  x axis starts at the daylight window, not midnight", firstTick && firstTick !== "00:00", firstTick);
+  const high = fp.renderPerformancePowerChartSvg(perfChart({ pv_power_kw: dense((i) => i * 0.05) }));
+  check("high day: AC limit line drawn", /stroke="#f59e0b" stroke-dasharray/.test(high));
+  const cooling = fp.renderPerformancePhysicsChartSvg({
+    ...perfChart({ virtual_panel_temp_c: dense((i) => 10 + i / 10), wind_speed_ms: dense((i) => (i % 9) / 10) }),
+    daylight_window: { start_ms: dawn, end_ms: dusk },
+  });
+  const coolTick = (cooling.match(/class="statistics-axis-x">([^<]+)</) || [])[1];
+  check("panel cooling uses the daylight window", coolTick && coolTick !== "00:00", coolTick);
+  check("  no dots on dense lines", !/<circle/.test(cooling));
+  // On a phone the canvas is the real width, so 12-unit text stays ~12 px instead of shrinking to ~4 px
+  fp.setChartPanelWidth(390);
+  const phone = fp.renderPerformancePowerChartSvg(perfChart({ pv_power_kw: dense((i) => i * 0.01) }));
+  const phoneW = Number((phone.match(/viewBox="0 0 ([\d.]+) /) || [])[1]);
+  check("phone: drawn at the screen's width", phoneW >= 280 && phoneW <= 390, String(phoneW));
 }
 
 console.log(failures ? `\n${failures} FAILURE(S)` : "\nALL CHECKS PASSED");

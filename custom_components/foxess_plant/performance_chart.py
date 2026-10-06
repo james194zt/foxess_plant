@@ -208,6 +208,17 @@ def _recorder_series(
     return series
 
 
+def _daylight_window(hass: HomeAssistant, target_day: date) -> dict[str, float] | None:
+    """Same window as the Forecast Accuracy chart (solcast_forecast_accuracy._chart_window_for_day)."""
+    try:
+        from .solcast_forecast_accuracy import _chart_window_for_day
+
+        win = _chart_window_for_day(hass, target_day)
+        return {"start_ms": float(win["t_min_ms"]), "end_ms": float(win["t_max_ms"])}
+    except Exception:  # noqa: BLE001 — the charts fall back to the whole day
+        return None
+
+
 def _effective_ac_limit_kw(coordinator: Any) -> float:
     from .performance.sample import effective_ac_limit_kw
 
@@ -662,4 +673,6 @@ async def async_build_performance_day_chart(
             "end_ms": day_end.timestamp() * 1000,
             "now_ms": min(dt_util.now().timestamp() * 1000, day_end.timestamp() * 1000),
         },
+        # Hour before sunrise to hour after sunset: solar output and panel temperature mean nothing at night
+        "daylight_window": _daylight_window(hass, target_day),
     }
