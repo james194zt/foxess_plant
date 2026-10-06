@@ -608,6 +608,13 @@ class FoxessPlantPerformanceSensor(CoordinatorEntity[FoxessPlantCoordinator], Se
         self._value: float | None = None
         coordinator.register_performance_sensor(kind, self)
 
+    async def async_added_to_hass(self) -> None:
+        # Seed from the last tick so a restart doesn't show "unknown" until the next 5-minute tick.
+        cached = self.coordinator._performance_values.get(self._kind)
+        if cached is not None:
+            self._value = cached
+        await super().async_added_to_hass()
+
     @property
     def available(self) -> bool:
         return bool(self.coordinator.plant.performance.enabled)

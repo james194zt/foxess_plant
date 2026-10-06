@@ -257,7 +257,7 @@ def discover_entity_map_extended(hass: HomeAssistant, device_id: str) -> dict[st
     if not host:
         return entity_map
 
-    for entry in device_reg.devices.values():
+    for entry in device_reg.devices:  # iterating yields entries; .values() is deprecated (HA 2027.9)
         if entry.id == device_id or not is_foxess_modbus_device(entry):
             continue
         if _foxess_modbus_host(entry) != host:

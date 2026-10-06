@@ -18,8 +18,11 @@ def plant_device_info(entry: ConfigEntry) -> DeviceInfo:
     )
 
 
-def inverter_via_device(inverter_device) -> tuple[str, ...] | None:
-    """Return via_device identifier tuple for a foxess_modbus inverter device."""
-    if inverter_device is None or not inverter_device.identifiers:
+def inverter_via_device_id(inverter_device) -> str | None:
+    """Return the inverter device's id, to link the plant device under it via `via_device_id`.
+
+    (HA deprecated passing `via_device` identifier tuples; `via_device_id` takes the device id.)
+    """
+    if inverter_device is None:
         return None
-    return next(iter(inverter_device.identifiers))
+    return inverter_device.id

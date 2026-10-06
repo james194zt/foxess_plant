@@ -183,6 +183,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._glow_unsub_mqtt: callable | None = None
         self._glow_sensors: dict[str, Any] = {}
         self._performance_sensors: dict[str, Any] = {}
+        self._performance_values: dict[str, float | None] = {}  # last tick's values, to seed sensors added later
         self._performance_store = None
         self._performance_day: str = ""
         self._performance_daily: dict[str, Any] = {}
@@ -3260,13 +3261,17 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "solcast_forecast_kw": sample.solcast_forecast_kw,
         }
         for kind, value in mapping.items():
+            if value is None and kind in always_numeric:
+                resolved: float | None = 0.0
+            else:
+                resolved = float(value) if value is not None else None
+            # Cache so a sensor that registers after this tick (startup race) can seed itself on add,
+            # instead of reading "unknown" until the next 5-minute tick.
+            self._performance_values[kind] = resolved
             sensor = self._performance_sensors.get(kind)
             if sensor is None:
                 continue
-            if value is None and kind in always_numeric:
-                sensor.set_value(0.0)
-            else:
-                sensor.set_value(float(value) if value is not None else None)
+            sensor.set_value(resolved)
             await sensor.async_publish()
 
     async def _async_init_performance(self) -> None:

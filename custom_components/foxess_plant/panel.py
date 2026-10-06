@@ -141,15 +141,17 @@ def _compute_panel_disk_info() -> dict[str, str]:
 
 
 def get_panel_disk_info(hass: HomeAssistant | None = None) -> dict[str, str]:
-    """Return panel build info, refreshing when manifest on disk changes."""
-    live_manifest = _panel_js_version()
+    """Return panel build info from the cache populated (in the executor) at panel registration.
+
+    Callers run in the event loop, so this must not touch disk. The cache is refreshed by
+    async_register_panel on every setup/reload — which is also when a HACS update takes effect — so it
+    stays current without a per-call manifest read (that read was the event-loop blocking warning).
+    """
     if hass is not None:
         cached = hass.data.get(_PANEL_DISK_INFO_KEY)
-        if (
-            isinstance(cached, dict)
-            and cached.get("manifest_version") == live_manifest
-        ):
+        if isinstance(cached, dict):
             return dict(cached)
+    # Fallback only if asked before registration (rare); computes from disk once and caches it.
     info = _compute_panel_disk_info()
     if hass is not None:
         hass.data[_PANEL_DISK_INFO_KEY] = info

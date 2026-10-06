@@ -17,6 +17,7 @@ _LOGGER = logging.getLogger(__name__)
 
 _FLOW_SCENE_CARD_FILE = "fox-flow-scene-card.js"
 _LOVELACE_REGISTER_KEY = "_foxess_plant_lovelace_cards_registered"
+_VERSION_CACHE_KEY = "_foxess_plant_integration_version"
 _MAX_LOVELACE_RETRIES = 24
 
 
@@ -26,8 +27,18 @@ def _integration_version() -> str:
         return json.load(handle).get("version", "0")
 
 
-def flow_scene_card_resource_url() -> str:
-    return f"{PANEL_STATIC_URL}/{_FLOW_SCENE_CARD_FILE}?v={_integration_version()}"
+async def _async_integration_version(hass: HomeAssistant) -> str:
+    """Manifest version, read from disk once (in the executor) then cached — never blocks the event loop."""
+    cached = hass.data.get(_VERSION_CACHE_KEY)
+    if isinstance(cached, str):
+        return cached
+    version = await hass.async_add_executor_job(_integration_version)
+    hass.data[_VERSION_CACHE_KEY] = version
+    return version
+
+
+def flow_scene_card_resource_url(version: str) -> str:
+    return f"{PANEL_STATIC_URL}/{_FLOW_SCENE_CARD_FILE}?v={version}"
 
 
 def _resource_path(url: str) -> str:
@@ -74,8 +85,8 @@ def _get_storage_resources(hass: HomeAssistant) -> Any | None:
 
 async def async_register_lovelace_cards(hass: HomeAssistant, *, _retry: int = 0) -> None:
     """Add or update the Fox Flow Scene card module in Lovelace resources."""
-    version = _integration_version()
-    url = flow_scene_card_resource_url()
+    version = await _async_integration_version(hass)
+    url = flow_scene_card_resource_url(version)
 
     _register_frontend_module(hass, url)
 

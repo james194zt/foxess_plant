@@ -45,7 +45,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .coordinator import FoxessPlantCoordinator
     from .discovery import discover_entity_map
-    from .entity import inverter_via_device
+    from .entity import inverter_via_device_id
     from .lovelace_cards import async_register_lovelace_cards
     from .panel import async_register_panel
     from .services import register_services
@@ -59,7 +59,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     device_reg = dr.async_get(hass)
     inverter_device = device_reg.async_get(entry.data["device_id"])
-    via = inverter_via_device(inverter_device)
+    via_id = inverter_via_device_id(inverter_device)
     try:
         device_reg.async_get_or_create(
             config_entry_id=entry.entry_id,
@@ -67,7 +67,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             name=entry.title,
             manufacturer="FoxESS Plant",
             model="Plant Controller",
-            via_device=via,
+            via_device_id=via_id,
         )
     except Exception:
         _LOGGER.exception("Could not link plant device to inverter; continuing without via_device")
