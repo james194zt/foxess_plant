@@ -141,20 +141,57 @@ async def test_meter_check_failure_removes_the_slot() -> None:
 
 
 @pytest.mark.asyncio
-async def test_upcoming_export_is_a_force_discharge_slot_at_full_inverter_power() -> None:
+async def test_export_is_not_on_the_inverter_before_its_window() -> None:
+    # Not exporting is the safe failure, so there's no lead: nothing is written before the window starts
     fake = _FakeCoordinator(model="EVO 10-5-H")
-    [slot] = await _sync(fake, _export_decision("idle", _window(timedelta(minutes=20), soc_end=52.7)))
+    assert await _sync(fake, _export_decision("idle", _window(timedelta(minutes=20), soc_end=52.7))) == []
+    [wake] = fake.rechecks[-1]  # but SmartCharge wakes at the start to place it
+    assert abs((wake - datetime.fromisoformat(_window(timedelta(minutes=20))["start_utc"])).total_seconds()) < 5
+
+
+@pytest.mark.asyncio
+async def test_export_is_a_rolling_force_discharge_slot_at_full_inverter_power() -> None:
+    fake = _FakeCoordinator(model="EVO 10-5-H")
+    window = _window(timedelta(minutes=-1), length=timedelta(hours=2), soc_end=52.7)
+    [slot] = await _sync(fake, _export_decision("export_discharge", window))
     # Ends at the plan's end SoC (rounded down, 52): the inverter only stops below its cut-off, so the cut-off
     # is 53. The slot power caps total output, so use the full rating.
     assert (slot.work_mode, slot.fd_soc, slot.fd_pwr) == ("force_discharge", 53, 5000)
-    assert "Export" in fake._smart_charge_decision["reason"]
     assert fake.watching[-1][0] == 53  # watched so it comes off at the cut-off
+    # Only ~20 minutes, not the 2-hour window: if HA stops, it runs out soon after
+    until = fake._export_slot_until
+    assert timedelta(minutes=19) < until - datetime.now(timezone.utc) <= timedelta(minutes=21)
+    # SmartCharge wakes 10 minutes before it runs out to extend it
+    [wake] = fake.rechecks[-1]
+    assert wake == until - timedelta(minutes=10)
+
+
+@pytest.mark.asyncio
+async def test_rolling_export_slot_is_kept_then_extended() -> None:
+    fake = _FakeCoordinator()
+    window = _window(timedelta(minutes=-1), length=timedelta(hours=2), soc_end=52.7)
+    decision = _export_decision("export_discharge", window)
+    await _sync(fake, decision)
+    first = fake._export_slot_until
+    await _sync(fake, decision)  # a replan with plenty left: same end, so no inverter write
+    assert fake._export_slot_until == first
+    fake._export_slot_until = datetime.now(timezone.utc) + timedelta(minutes=5)  # nearly run out
+    await _sync(fake, decision)
+    assert fake._export_slot_until - datetime.now(timezone.utc) > timedelta(minutes=19)
+
+
+@pytest.mark.asyncio
+async def test_rolling_export_slot_never_runs_past_the_window() -> None:
+    fake = _FakeCoordinator()
+    window = _window(timedelta(minutes=-50), length=timedelta(hours=1), soc_end=52.7)
+    await _sync(fake, _export_decision("export_discharge", window))
+    assert fake._export_slot_until == datetime.fromisoformat(window["end_utc"])
 
 
 @pytest.mark.asyncio
 async def test_export_power_falls_back_without_a_model() -> None:
     fake = _FakeCoordinator()
-    [slot] = await _sync(fake, _export_decision("idle", _window(timedelta(minutes=20), soc_end=52.7)))
+    [slot] = await _sync(fake, _export_decision("export_discharge", _window(timedelta(minutes=-1), soc_end=52.7)))
     assert slot.fd_pwr == 3000  # max charge power, as no discharge power is set
 
 

@@ -114,6 +114,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # A planned export that has reached its cut-off (its window's start_utc), and the SoC watch while one runs
         self._export_done_window: str | None = None
         self._unsub_export_watch: Any = None
+        # The rolling export slot's end (UTC) and the window it belongs to (its start_utc)
+        self._export_slot_until: datetime | None = None
+        self._export_slot_key: str | None = None
         # StormSafe's rolling hold slots on the inverter, and when they end (local time)
         self._storm_slots: list[Any] = []
         self._storm_slots_until: datetime | None = None
@@ -1553,34 +1556,49 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "%s prep holding the battery from the inverter's scheduler until %s", self.plant.override.mode, until
             )
 
-    def _schedule_jit_recheck(self, windows: list[tuple[dict[str, Any] | None, bool]]) -> None:
-        """Re-evaluate when the next slot is due (or a window with a slot ends), whatever the poll interval.
+    @staticmethod
+    def _jit_wake_times(
+        charge_window: dict[str, Any] | None,
+        charge_on: bool,
+        export_window: dict[str, Any] | None,
+        export_until: datetime | None,
+    ) -> list[datetime]:
+        """When SmartCharge must look again, whatever the poll interval: a charge slot is written JIT_LEAD before
+        its window and removed at its end; an export slot is placed at its window's start and extended
+        EXPORT_EXTEND_BELOW before the rolling slot runs out (or removed at the window's end)."""
+        from .inverter_schedule import EXPORT_EXTEND_BELOW, JIT_LEAD
 
-        ``windows``: (plan window, whether its slot is on the inverter now) for each kind of JIT slot.
-        """
+        def at(window: dict[str, Any] | None, key: str) -> datetime | None:
+            try:
+                return datetime.fromisoformat(str((window or {})[key]))
+            except (KeyError, TypeError, ValueError):
+                return None
+
+        times: list[datetime | None] = []
+        if charge_window:
+            start = at(charge_window, "start_utc")
+            times.append(at(charge_window, "end_utc") if charge_on else (start - JIT_LEAD if start else None))
+        if export_window:
+            end = at(export_window, "end_utc")
+            if export_until is None:
+                times.append(at(export_window, "start_utc"))
+            elif end is not None and export_until < end:
+                times.append(export_until - EXPORT_EXTEND_BELOW)
+            else:
+                times.append(end)
+        return [t for t in times if t is not None]
+
+    def _schedule_jit_recheck(self, times: list[datetime]) -> None:
+        """Re-evaluate SmartCharge at the earliest of ``times`` still ahead (see _jit_wake_times)."""
         from homeassistant.util import dt as dt_util
-
-        from .inverter_schedule import JIT_LEAD
 
         if self._unsub_jit_recheck:
             self._unsub_jit_recheck()
             self._unsub_jit_recheck = None
         now = dt_util.utcnow()
-        times = []
-        for window, has_slots in windows:
-            if not window:
-                continue
-            try:
-                when = datetime.fromisoformat(str(window["end_utc" if has_slots else "start_utc"]))
-            except (KeyError, TypeError, ValueError):
-                continue
-            if not has_slots:
-                when -= JIT_LEAD
-            when += timedelta(seconds=5)
-            if when > now:
-                times.append(when)
-        if times:
-            self._unsub_jit_recheck = async_track_point_in_time(self.hass, self._jit_recheck_callback, min(times))
+        ahead = [t + timedelta(seconds=5) for t in times if t + timedelta(seconds=5) > now]
+        if ahead:
+            self._unsub_jit_recheck = async_track_point_in_time(self.hass, self._jit_recheck_callback, min(ahead))
 
     @callback
     def _jit_recheck_callback(self, _now) -> None:
@@ -1617,6 +1635,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if self._export_done_window == window_key:
             return
         self._export_done_window = window_key
+        self._export_slot_until = self._export_slot_key = None
         if self._unsub_export_watch:
             self._unsub_export_watch()
             self._unsub_export_watch = None
@@ -1637,6 +1656,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             InverterScheduleError,
             charge_window_slots,
             evo_rated_power_w,
+            export_slot_until,
             export_window_slots,
         )
 
@@ -1667,6 +1687,12 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         export_power_w = evo_rated_power_w(self._entity_state("pcs_model_name")) or int(
             round((cfg.max_discharge_kw or cfg.max_charge_kw) * 1000)
         )
+        # A rolling slot from the window's start, extended while HA runs (see export_slot_until)
+        export_key = (export_window or {}).get("start_utc")
+        same_window = export_key is not None and export_key == getattr(self, "_export_slot_key", None)
+        export_until = export_slot_until(
+            export_window, now=now, previous_until=getattr(self, "_export_slot_until", None) if same_window else None
+        )
         try:
             export_slots = export_window_slots(
                 export_window,
@@ -1674,6 +1700,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 end_soc=(export_window or {}).get("soc_end_pct"),
                 floor_soc=float(cfg.export_min_soc or 0),
                 power_w=export_power_w,
+                until_local=dt_util.as_local(export_until) if export_until else None,
             )
         except InverterScheduleError as err:
             _LOGGER.warning("SmartCharge export window can't be scheduled on the inverter: %s", err)
@@ -1681,13 +1708,16 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         # After its cut-off a Force Discharge slot holds the battery and the house runs on the grid until the slot
         # ends (hardware-tested), so an export that has reached its cut-off comes off the inverter and stays off
-        export_key = (export_window or {}).get("start_utc")
         if export_slots and export_key:
             if export_key == getattr(self, "_export_done_window", None):
                 export_slots = []
             elif self._export_cut_off_reached(export_slots[0].fd_soc):
                 self._export_done_window = export_key
                 export_slots = []
+        if export_slots:
+            self._export_slot_until, self._export_slot_key = export_until, export_key
+        else:
+            self._export_slot_until, self._export_slot_key, export_until = None, None, None
 
         if slots and charging:
             # Inside the window: check the meter agrees the rate is cheap; take the slot off if not
@@ -1703,7 +1733,13 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._clear_smart_charge_meter_recheck()
 
         await self._set_jit_slots([*slots, *export_slots])
-        self._schedule_jit_recheck([(window, bool(slots)), (export_window, bool(export_slots))])
+        # A finished export (cut-off reached) needs no wake-up for its window
+        done = bool(export_key) and export_key == getattr(self, "_export_done_window", None)
+        self._schedule_jit_recheck(
+            FoxessPlantCoordinator._jit_wake_times(
+                window, bool(slots), None if done else export_window, export_until
+            )
+        )
         self._watch_export_cut_off(export_slots[0].fd_soc if export_slots else None, export_key)
         if slots and not charging and window:
             decision.reason = f"Charge {window.get('start')}-{window.get('end')} is set on the inverter — {decision.reason}"

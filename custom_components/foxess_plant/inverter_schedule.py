@@ -196,6 +196,35 @@ def evo_rated_power_w(model_name: str | None) -> int | None:
     return min(MAX_SLOT_POWER_W, int(float(match.group(1)) * 1000))
 
 
+# Exports go on the inverter as a rolling slot, not the whole window: if HA stops, the slot runs out within
+# EXPORT_SLOT_LENGTH. Past its cut-off a Force Discharge slot holds the battery and the house runs on the grid,
+# so a short slot limits how long that can last without HA to take it off. HA extends it while it runs.
+EXPORT_SLOT_LENGTH = timedelta(minutes=20)
+EXPORT_EXTEND_BELOW = timedelta(minutes=10)
+
+
+def export_slot_until(
+    window: dict[str, Any] | None, *, now: datetime, previous_until: datetime | None = None
+) -> datetime | None:
+    """When the rolling export slot should end: the current end while it has more than EXPORT_EXTEND_BELOW
+    left, else now + EXPORT_SLOT_LENGTH (to the next whole minute), never past the window's end. None
+    outside the window: exports start at the window's start, with no lead (not exporting is the safe failure).
+    """
+    try:
+        start_utc = datetime.fromisoformat(str((window or {})["start_utc"]))
+        end_utc = datetime.fromisoformat(str((window or {})["end_utc"]))
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not start_utc <= now < end_utc:
+        return None
+    if previous_until is not None and previous_until - now > EXPORT_EXTEND_BELOW:
+        return min(previous_until, end_utc)
+    until = now + EXPORT_SLOT_LENGTH
+    if until.second or until.microsecond:
+        until = until.replace(second=0, microsecond=0) + timedelta(minutes=1)
+    return min(until, end_utc)
+
+
 def export_window_slots(
     window: dict[str, Any] | None,
     *,
@@ -203,7 +232,8 @@ def export_window_slots(
     end_soc: float | None,
     floor_soc: float,
     power_w: int,
-    lead: timedelta = JIT_LEAD,
+    until_local: datetime | None = None,
+    lead: timedelta = timedelta(0),
 ) -> list[InverterSlot]:
     """Force Discharge slots for a planned export window: stop at the plan's end SoC (rounded down), never
     below ``floor_soc`` (SmartCharge's export floor).
@@ -215,9 +245,13 @@ def export_window_slots(
 
     The inverter only stops once SoC drops BELOW the slot's cut-off (tested: cut-off 76 %, stopped at 75 %), so
     the cut-off is set one above the level the export should end at.
+
+    ``until_local``: end the slot there instead of at the window's end (the rolling slot, see export_slot_until).
     """
     if end_soc is None:
         return []
+    if window and until_local is not None:
+        window = {**window, "end": until_local.strftime("%H:%M")}
     stop_at = max(math.ceil(float(floor_soc)), math.floor(float(end_soc)))
     return window_slots(
         window, now=now, work_mode="force_discharge", cut_off_soc=stop_at + EXPORT_STOP_MARGIN, power_w=power_w, lead=lead
