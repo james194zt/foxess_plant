@@ -81,6 +81,10 @@ from .models import (
 _LOGGER = logging.getLogger(__name__)
 
 UPDATE_INTERVAL = timedelta(seconds=30)
+# Fox Cloud reports a warm-up save once the inverter has it (a minute or two): re-check after these many
+# seconds, and give up waiting after WARMUP_CONFIRM_WINDOW (the last check falls after it)
+WARMUP_CONFIRM_CHECKS = (20, 60, 210)
+WARMUP_CONFIRM_WINDOW = timedelta(minutes=3)  # must end before the last check, so that check settles it
 
 
 class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
@@ -181,6 +185,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._performance_daily: dict[str, Any] = {}
         self._unsub_performance: callable | None = None
         self._battery_warmup_live: dict[str, Any] = {}
+        # A warm-up save Fox Cloud hasn't confirmed yet ({"saved": settings, "since": UTC}), a re-check timer, and
+        # the message when it never did
+        self._battery_warmup_pending: dict[str, Any] | None = None
+        self._unsub_warmup_confirm: Any = None
+        self._battery_warmup_confirm_warning: str | None = None
         self._battery_warmup_api_available: bool | None = None
         self._battery_warmup_last_error: str | None = None
         self._unsub_schedule: callable | None = None
@@ -3496,7 +3505,65 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         merged["api_available"] = self._battery_warmup_api_available
         merged["last_error"] = self._battery_warmup_last_error
+        merged["pending_confirmation"] = bool(getattr(self, "_battery_warmup_pending", None))
+        merged["confirm_warning"] = getattr(self, "_battery_warmup_confirm_warning", None)
         return merged
+
+    def _set_warmup_reported(self, reported: dict[str, Any]) -> dict[str, Any]:
+        """Take Fox Cloud's warm-up read-back, allowing for a save it hasn't caught up with yet.
+
+        Until it reports the saved settings (or WARMUP_CONFIRM_WINDOW has passed) the saved settings are shown.
+        After the window its read-back is shown as it is, with a warning that the save wasn't confirmed.
+        """
+        from homeassistant.util import dt as dt_util
+
+        from .battery_warmup import warmup_settings_match, warmup_with_saved
+
+        pending = self._battery_warmup_pending
+        if pending:
+            if warmup_settings_match(pending["saved"], reported):
+                self._battery_warmup_pending = None
+                self._battery_warmup_confirm_warning = None
+            elif dt_util.utcnow() - pending["since"] < WARMUP_CONFIRM_WINDOW:
+                self._battery_warmup_live = warmup_with_saved(reported, pending["saved"])
+                return self._battery_warmup_live
+            else:
+                self._battery_warmup_pending = None
+                self._battery_warmup_confirm_warning = (
+                    "Fox Cloud still reports the previous warm-up settings a few minutes after saving, so the "
+                    "inverter may not have taken the change. Press Refresh from inverter to see what it has, "
+                    "and save again if needed."
+                )
+        self._battery_warmup_live = reported
+        return reported
+
+    def _schedule_warmup_confirm(self, delays: list[float]) -> None:
+        """Re-read the warm-up settings after each delay (seconds) until Fox Cloud confirms the save."""
+        from homeassistant.helpers.event import async_call_later
+
+        if self._unsub_warmup_confirm:
+            self._unsub_warmup_confirm()
+            self._unsub_warmup_confirm = None
+        if not delays or not self._battery_warmup_pending:
+            return
+        first, rest = delays[0], delays[1:]
+
+        @callback
+        def _due(_now) -> None:
+            self._unsub_warmup_confirm = None
+            self.hass.async_create_task(self._async_confirm_warmup(rest))
+
+        self._unsub_warmup_confirm = async_call_later(self.hass, first, _due)
+
+    async def _async_confirm_warmup(self, remaining: list[float]) -> None:
+        if not self._battery_warmup_pending:
+            return
+        try:
+            await self.async_fetch_battery_warmup()
+        except Exception as err:  # noqa: BLE001 — a failed check just tries again
+            _LOGGER.debug("Battery warm-up confirmation check failed: %s", err)
+        if self._battery_warmup_pending:
+            self._schedule_warmup_confirm(remaining)
 
     def _note_battery_warmup_success(self) -> None:
         self._battery_warmup_api_available = True
@@ -3675,8 +3742,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if product:
                     out["device_product"] = product
                 heating = await client.get_battery_heating(warmup_sn, alt_sns=warmup_alts)
-                parsed = parse_battery_heating_result(heating)
-                self._battery_warmup_live = parsed
+                parsed = self._set_warmup_reported(parse_battery_heating_result(heating))
                 self._note_battery_warmup_success()
                 out["warmup"] = parsed
                 out["warmup_available"] = True
@@ -3722,8 +3788,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             sn, devices = await self._fox_cloud_device_sn(client)
             warmup_sn, warmup_alts, _row = self._fox_cloud_warmup_sns(devices, primary_sn=sn)
             result = await client.get_battery_heating(warmup_sn, alt_sns=warmup_alts)
-            parsed = parse_battery_heating_result(result)
-            self._battery_warmup_live = parsed
+            parsed = self._set_warmup_reported(parse_battery_heating_result(result))
             self._note_battery_warmup_success()
             fox.last_error = None
             fox.last_fetch_at = dt_util.utcnow().isoformat()
@@ -3762,9 +3827,14 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             sn, devices = await self._fox_cloud_device_sn(client)
             warmup_sn, warmup_alts, _row = self._fox_cloud_warmup_sns(devices, primary_sn=sn)
             await client.set_battery_heating(warmup_sn, payload, alt_sns=warmup_alts)
+            # Fox Cloud usually still reports the old settings for a minute or two: show what was saved meanwhile
+            # and confirm it in the background (_schedule_warmup_confirm)
+            self._battery_warmup_pending = {"saved": dict(warmup), "since": dt_util.utcnow()}
+            self._battery_warmup_confirm_warning = None
             result = await client.get_battery_heating(warmup_sn, alt_sns=warmup_alts)
-            parsed = parse_battery_heating_result(result)
-            self._battery_warmup_live = parsed
+            parsed = self._set_warmup_reported(parse_battery_heating_result(result))
+            if self._battery_warmup_pending:
+                self._schedule_warmup_confirm(list(WARMUP_CONFIRM_CHECKS))
             self._note_battery_warmup_success()
             fox.last_error = None
             fox.last_fetch_at = dt_util.utcnow().isoformat()
@@ -5446,6 +5516,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if getattr(self, "_unsub_export_watch", None):
             self._unsub_export_watch()
             self._unsub_export_watch = None
+        if getattr(self, "_unsub_warmup_confirm", None):
+            self._unsub_warmup_confirm()
+            self._unsub_warmup_confirm = None
         self._clear_smart_charge_meter_recheck()
         if getattr(self, "_unsub_smart_charge_daily_plan", None):
             self._unsub_smart_charge_daily_plan()

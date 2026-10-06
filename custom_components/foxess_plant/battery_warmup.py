@@ -186,6 +186,39 @@ def _split_hm(value: str) -> tuple[int, int]:
     return max(0, min(23, hour)), max(0, min(59, minute))
 
 
+def _warmup_settings_key(config: dict[str, Any]) -> tuple:
+    """The parts of a warm-up config that a save sets, normalised for comparing (times as h, m)."""
+    slots = list(config.get("slots") or [])[:3]
+    while len(slots) < 3:
+        slots.append({})
+    return (
+        bool(config.get("enabled")),
+        int(config.get("start_temperature") or 0),
+        int(config.get("end_temperature") or 0),
+        tuple(
+            (bool(s.get("enabled")), _split_hm(s.get("start", "00:00")), _split_hm(s.get("end", "00:00")))
+            for s in (slot if isinstance(slot, dict) else {} for slot in slots)
+        ),
+    )
+
+
+def warmup_settings_match(saved: dict[str, Any], reported: dict[str, Any]) -> bool:
+    """Fox Cloud reports what was saved. Straight after a save it often still reports the old settings until
+    the inverter has picked the change up (a minute or two)."""
+    return _warmup_settings_key(saved) == _warmup_settings_key(reported)
+
+
+def warmup_with_saved(reported: dict[str, Any], saved: dict[str, Any]) -> dict[str, Any]:
+    """Fox Cloud's read-back (state, ranges) with the saved settings on top, while it hasn't caught up."""
+    return {
+        **reported,
+        "enabled": bool(saved.get("enabled")),
+        "start_temperature": int(saved.get("start_temperature")),
+        "end_temperature": int(saved.get("end_temperature")),
+        "slots": [dict(s) for s in (saved.get("slots") or [])],
+    }
+
+
 def build_battery_heating_set_payload(config: dict[str, Any]) -> dict[str, str]:
     """Build body fields for batteryHeating/set (sn added by caller)."""
     slots = config.get("slots") or DEFAULT_WARMUP_SLOTS

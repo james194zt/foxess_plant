@@ -24865,8 +24865,16 @@ ${this._renderWarmupTariffStrip(draft)}
 
   /** Live status in the SmartCharge card style: orange while warmup is enabled, grey when it's off. */
   _renderWarmupStatusCard(draft, statusLabel, tempDisplay) {
+    const live = this._plantState?.battery_warmup ?? {};
     const on = Boolean(draft.enabled);
     const slots = (draft.slots || []).filter((s) => s?.enabled);
+    // Fox Cloud takes a minute or two to report a save; the backend shows the saved settings meanwhile
+    const pending = live.pending_confirmation
+      ? `<p class="field-hint" style="margin:4px 0 0">Saved. Waiting for the inverter to confirm via Fox Cloud (usually a minute or two).</p>`
+      : "";
+    const warning = live.confirm_warning
+      ? `<p class="field-hint" style="margin:4px 0 0;color:var(--error-color,#db4437)">${esc(live.confirm_warning)}</p>`
+      : "";
     const reason = on
       ? `Heats the battery when it falls below ${draft.start_temperature}°C, up to ${draft.end_temperature}°C${
           slots.length ? `, using grid power in ${slots.map((s) => `${s.start}–${s.end}`).join(", ")}` : ""
@@ -24877,7 +24885,7 @@ ${this._renderWarmupTariffStrip(draft)}
     const pill = on ? statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1) : "Off";
     return `<div class="sc-status-card warmup-status-card warmup-status-card--${on ? "on" : "off"}">
 <div class="sc-status-head">
-<div><p class="sc-status-title">Live status</p><p class="sc-status-reason">${esc(reason)}</p></div>
+<div><p class="sc-status-title">Live status</p><p class="sc-status-reason">${esc(reason)}</p>${pending}${warning}</div>
 <span class="sc-status-pill ${on ? "sc-status-pill--warmup" : ""}">${esc(pill)}</span>
 </div>
 <div class="sc-stat-grid">
