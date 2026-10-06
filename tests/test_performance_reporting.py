@@ -154,6 +154,26 @@ class FinancialTests(unittest.TestCase):
         )
         self.assertAlmostEqual(deltas["import"], 0.1)
 
+    def test_composite_load_telescopes_not_over_counts(self) -> None:
+        # load_consumption rises and falls as the battery cycles; summed deltas must equal the NET change,
+        # not the sum of only the up-moves (the bug that inflated avoided-cost / savings several-fold).
+        seq = [6.0, 7.0, 6.2, 7.5, 7.1, 8.0]  # net +2.0 from the first reading
+        last = None
+        total = 0.0
+        for v in seq:
+            deltas, last = financial.counter_deltas(
+                last,
+                {"load_from_grid_kwh_today": 0.0, "pv_to_grid_kwh_today": 0.0, "load_consumption_kwh_today": v},
+            )
+            total += deltas["load"]
+        self.assertAlmostEqual(total, seq[-1] - seq[0], places=4)
+
+    def test_large_drop_still_treated_as_reset(self) -> None:
+        start = {"load_from_grid_kwh_today": 0.0, "pv_to_grid_kwh_today": 0.0, "load_consumption_kwh_today": 5.0}
+        _, last = financial.counter_deltas(None, start)
+        deltas, _ = financial.counter_deltas(last, {**start, "load_consumption_kwh_today": 0.3})
+        self.assertEqual(deltas["load"], 0.0)
+
 
 class PerformanceStoreTests(unittest.TestCase):
     def test_partial_sample_insert_and_update_keeps_stored_values(self) -> None:

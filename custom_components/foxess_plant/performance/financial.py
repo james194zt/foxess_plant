@@ -30,9 +30,11 @@ def bucket_financials_gbp(
     export_p_per_kwh: float,
 ) -> dict[str, float]:
     """Export earnings, import spend, avoided cost, and net saving for one bucket."""
-    imp_kwh = max(0.0, float(import_kwh))
-    exp_kwh = max(0.0, float(export_kwh))
-    load = max(0.0, float(load_kwh))
+    # Not clamped to >=0: a tick's delta can be negative when a counter dips (see counter_deltas), and the
+    # daily sum must telescope to the true net rather than only counting up-moves.
+    imp_kwh = float(import_kwh)
+    exp_kwh = float(export_kwh)
+    load = float(load_kwh)
     imp_p = float(import_p_per_kwh)
     exp_p = float(export_p_per_kwh)
     export_earnings = exp_kwh * exp_p / 100.0
@@ -64,7 +66,16 @@ def counter_deltas(
             deltas[key] = 0.0
             continue
         prev = (last or {}).get(key)
-        deltas[key] = max(0.0, value - float(prev)) if prev is not None else 0.0
+        if prev is None:
+            deltas[key] = 0.0
+        else:
+            delta = value - float(prev)
+            # A large drop is a midnight reset or source change, not negative energy — don't price it.
+            # A small decrease is kept (negative) so a counter that legitimately rises and falls across a
+            # day telescopes to its true net. load_consumption = base_load - discharge + charge + grid
+            # swings as the battery cycles; clamping every tick to >=0 counted the up-moves and ignored
+            # the down-moves, inflating priced load (and avoided-cost / savings) several-fold.
+            deltas[key] = 0.0 if (delta < 0 and value < float(prev) * 0.5) else delta
         readings[key] = value
     return deltas, readings
 
