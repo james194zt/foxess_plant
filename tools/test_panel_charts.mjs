@@ -175,6 +175,10 @@ for (const [label, panelW] of [["phone 390px", 390], ["desktop 1400px", 1400]]) 
   const phone = fp.renderPerformancePowerChartSvg(perfChart({ pv_power_kw: dense((i) => i * 0.01) }));
   const phoneW = Number((phone.match(/viewBox="0 0 ([\d.]+) /) || [])[1]);
   check("phone: drawn at the screen's width", phoneW >= 280 && phoneW <= 390, String(phoneW));
+  // Hover tooltips instead of dots
+  for (const [name, html] of [["power", low], ["physics", cooling], ["microclimate", micro]]) {
+    check(`${name}: hover plot, no dots`, html.includes(`data-perf-hover="${name}"`) && !/<circle/.test(html));
+  }
 }
 
 console.log(failures ? `\n${failures} FAILURE(S)` : "\nALL CHECKS PASSED");

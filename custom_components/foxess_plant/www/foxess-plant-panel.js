@@ -3377,8 +3377,65 @@ function panelDetailsKey(d) {
   return text ? `s:${text}` : null;
 }
 
-// Dots only where a line can't be seen (a handful of samples); otherwise they turned lines into bead strings
-const PERF_DOTS_MAX_POINTS = 6;
+/**
+ * Hover crosshair + tooltip for the Performance charts, like the Statistics and Forecast Accuracy charts.
+ * Each chart registers its geometry and series here when drawn; one delegated handler on the panel
+ * (performanceHoverMove) shows the values under the pointer, so it keeps working across redraws.
+ */
+const PERF_HOVER = new Map();
+
+function performanceHoverPlot(id, svgHtml, meta) {
+  PERF_HOVER.set(id, meta);
+  return `<div class="fox-perf-plot" data-perf-hover="${esc(id)}">${svgHtml}<div class="statistics-crosshair" hidden><div class="statistics-spike"></div></div><div class="statistics-tooltip" hidden role="tooltip"></div></div>`;
+}
+
+function performanceHoverHide(plot) {
+  plot.querySelector(".statistics-crosshair")?.setAttribute("hidden", "");
+  plot.querySelector(".statistics-tooltip")?.setAttribute("hidden", "");
+}
+
+function performanceHoverMove(root, ev) {
+  const plot = ev.target?.closest?.("[data-perf-hover]") || null;
+  root.querySelectorAll?.("[data-perf-hover]").forEach((p) => {
+    if (p !== plot) performanceHoverHide(p);
+  });
+  const meta = plot ? PERF_HOVER.get(plot.dataset.perfHover) : null;
+  const svg = plot?.querySelector("svg");
+  if (!meta || !svg) return;
+  const svgRect = svg.getBoundingClientRect();
+  const plotRect = plot.getBoundingClientRect();
+  const scale = svgRect.width / meta.W;
+  const ux = (ev.clientX - svgRect.left) / scale;
+  if (!(scale > 0) || ux < meta.padL || ux > meta.padL + meta.w) {
+    performanceHoverHide(plot);
+    return;
+  }
+  const t = meta.tMin + ((ux - meta.padL) / meta.w) * (meta.tMax - meta.tMin);
+  const rows = meta.series
+    .map((s) => {
+      const v = performanceNearestValue(s.points || [], t, 6 * 60000);
+      if (v == null) return "";
+      return `<div class="statistics-tooltip-row"><span class="statistics-tooltip-label"><i class="statistics-tooltip-swatch" style="background:${esc(s.color)}"></i>${esc(s.label)}</span><strong>${esc(Number(v).toFixed(s.digits ?? 2))}${esc(s.unit || "")}</strong></div>`;
+    })
+    .join("");
+  if (!rows) {
+    performanceHoverHide(plot);
+    return;
+  }
+  const x = svgRect.left - plotRect.left + ux * scale;
+  const crosshair = plot.querySelector(".statistics-crosshair");
+  const tooltip = plot.querySelector(".statistics-tooltip");
+  crosshair.removeAttribute("hidden");
+  crosshair.style.left = `${x}px`;
+  crosshair.style.top = `${svgRect.top - plotRect.top + meta.padT * scale}px`;
+  crosshair.style.bottom = "auto";
+  crosshair.style.height = `${(meta.H - meta.padT - meta.padB) * scale}px`;
+  tooltip.innerHTML = `<div class="statistics-tooltip-time">${esc(formatChartTimeLabel(t))}</div>${rows}`;
+  tooltip.removeAttribute("hidden");
+  const width = tooltip.offsetWidth || 200;
+  tooltip.style.left = `${Math.max(4, x + 12 + width > plotRect.width ? x - 12 - width : x + 12)}px`;
+  tooltip.style.top = "8px";
+}
 
 /** Unit labels down the right-hand side, for a chart's second series (its own scale). */
 function performanceRightAxisSvg({ x, ticks, scale, unit, color }) {
@@ -3398,10 +3455,8 @@ function performanceSeriesSvg(points, xDomain, xScale, yScale, stroke, { width =
     pts.length >= 2
       ? `<polyline fill="none" stroke-linejoin="round" points="${pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}" />`
       : "";
-  const dots =
-    pts.length <= PERF_DOTS_MAX_POINTS
-      ? pts.map((p) => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="2.5" fill="${stroke}" />`).join("")
-      : "";
+  // No sample dots: values are read from the hover tooltip (performanceHoverPlot)
+  const dots = "";
   const dashAttr = dash ? ` stroke-dasharray="${dash}"` : "";
   return `<g stroke="${stroke}" stroke-width="${width}"${dashAttr} fill="none">${line}${dots}</g>`;
 }
@@ -3475,7 +3530,7 @@ function renderPerformancePowerChartSvg(chart) {
   const W = chartRenderWidth(PERF_CHART_W);
   const H = 260;
   const padL = 42;
-  const padR = 12;
+  const padR = 24; // room for the last time label (was cut off at 12)
   const padT = 12;
   const padB = 28;
   const w = W - padL - padR;
@@ -3536,12 +3591,28 @@ ${hasClipping ? `<span><i style="background:#ef4444"></i> Clipping kW</span>` : 
       : "";
   // Count what's drawn (recorder samples and statistics alike), not just the recorder's own samples
   const hint = performanceSparseHint(primaryCount, xDomain);
-  return `${legend}${hint}${clipNote}<svg class="fox-perf-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Solar output and clipping chart">
+  const svg = `<svg class="fox-perf-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Solar output and clipping chart">
 ${axes}
 ${clipHatch}
 ${limitLine}
 ${lines}
 </svg>`;
+  return `${legend}${hint}${clipNote}${performanceHoverPlot("power", svg, {
+    W,
+    H,
+    padL,
+    padT,
+    padB,
+    w,
+    tMin: xDomain.tMin,
+    tMax: xDomain.tMax,
+    series: [
+      { label: "Solar output", color: "#19D4DE", unit: " kW", points: pv },
+      ...(potential.length ? [{ label: "Solcast could produce", color: "#f5c542", unit: " kW", points: potential }] : []),
+      { label: "Net grid", color: "#2F6BFF", unit: " kW", points: grid },
+      ...(hasClipping ? [{ label: "Clipping", color: "#ef4444", unit: " kW", points: clip }] : []),
+    ],
+  })}`;
 }
 
 function renderPerformancePhysicsChartSvg(chart) {
@@ -3624,12 +3695,29 @@ function renderPerformancePhysicsChartSvg(chart) {
 <span><i style="background:#52C41A"></i> Wind m/s${!axisIsWind && wVals.length ? " (right)" : ""}</span>
 </div>
 ${hint}${tempMissing}
-<svg class="fox-perf-chart-svg fox-perf-chart-svg--physics" viewBox="0 0 ${W} ${H}" role="img" aria-label="Panel temperature and wind chart">
+${performanceHoverPlot(
+  "physics",
+  `<svg class="fox-perf-chart-svg fox-perf-chart-svg--physics" viewBox="0 0 ${W} ${H}" role="img" aria-label="Panel temperature and wind chart">
 ${axes}
 ${windAxis}
 ${tempLine}
 ${windLine}
-</svg>`;
+</svg>`,
+  {
+    W,
+    H,
+    padL,
+    padT,
+    padB,
+    w,
+    tMin: xDomain.tMin,
+    tMax: xDomain.tMax,
+    series: [
+      { label: "Panel (modelled)", color: "#08979C", unit: " °C", digits: 1, points: temp },
+      { label: "Wind", color: "#52C41A", unit: " m/s", digits: 1, points: wind },
+    ],
+  }
+)}`;
 }
 
 function renderPerformanceMicroclimateChartSvg(chart) {
@@ -3724,13 +3812,31 @@ function renderPerformanceMicroclimateChartSvg(chart) {
 <span><i style="background:#69C0FF"></i> Precip mm</span>
 </div>
 ${hint}${visSteady}
-<svg class="fox-perf-chart-svg fox-perf-chart-svg--microclimate" viewBox="0 0 ${W} ${H}" role="img" aria-label="Visibility dew and precipitation chart">
+${performanceHoverPlot(
+  "microclimate",
+  `<svg class="fox-perf-chart-svg fox-perf-chart-svg--microclimate" viewBox="0 0 ${W} ${H}" role="img" aria-label="Visibility dew and precipitation chart">
 ${axes}
 ${dewAxis}
 ${precipBars}
 ${visLine}
 ${dewLine}
-</svg>`;
+</svg>`,
+  {
+    W,
+    H,
+    padL,
+    padT,
+    padB,
+    w,
+    tMin: xDomain.tMin,
+    tMax: xDomain.tMax,
+    series: [
+      ...(visibility.length ? [{ label: "Visibility", color: "#FA8C16", unit: " km", digits: 1, points: visibility }] : []),
+      ...(dew.length ? [{ label: "Dew point", color: "#597EF7", unit: " °C", digits: 1, points: dew }] : []),
+      ...(precip.length ? [{ label: "Precipitation", color: "#69C0FF", unit: " mm", digits: 1, points: precip }] : []),
+    ],
+  }
+)}`;
 }
 
 function renderOverviewPanelTempPill(plantState) {
@@ -13453,6 +13559,7 @@ const STYLES = `
 .fox-perf-card-sub { font-size: 12px; opacity: 0.7; margin-top: 6px; }
 .fox-perf-chart-card { margin-bottom: 14px; }
 .fox-perf-chart-svg { width: 100%; height: auto; display: block; }
+.fox-perf-plot { position: relative; cursor: crosshair; }
 .fox-perf-chart-legend {
   display: flex; flex-wrap: wrap; gap: 10px 14px; font-size: 12px; margin-bottom: 8px; opacity: 0.85;
 }
@@ -15512,6 +15619,11 @@ class FoxessPlantPanel extends HTMLElement {
       this._detailsOpen[key] = ev.target.open;
     };
     this._root.addEventListener("toggle", this._onDetailsToggle, true);
+    // Hover tooltips on the Performance charts (performanceHoverMove); pointer events cover mouse and touch
+    this._onPerfHover ??= (ev) => performanceHoverMove(this._root, ev);
+    this._onPerfHoverEnd ??= () => this._root.querySelectorAll?.("[data-perf-hover]").forEach(performanceHoverHide);
+    this._root.addEventListener("pointermove", this._onPerfHover);
+    this.addEventListener("pointerleave", this._onPerfHoverEnd);
     this._root.addEventListener("click", this._onClick);
     this._root.addEventListener("input", this._onInput);
     this._root.addEventListener("change", this._onChange);
@@ -15546,6 +15658,8 @@ class FoxessPlantPanel extends HTMLElement {
 
   disconnectedCallback() {
     if (this._onDetailsToggle) this._root.removeEventListener("toggle", this._onDetailsToggle, true);
+    if (this._onPerfHover) this._root.removeEventListener("pointermove", this._onPerfHover);
+    if (this._onPerfHoverEnd) this.removeEventListener("pointerleave", this._onPerfHoverEnd);
     this._root.removeEventListener("click", this._onClick);
     this._root.removeEventListener("input", this._onInput);
     this._root.removeEventListener("change", this._onChange);
