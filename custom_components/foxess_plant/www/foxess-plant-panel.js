@@ -22185,27 +22185,27 @@ ${this._renderInstallerSettings()}
     const meterTotal = num(live.export_kwh_cumulative);
     if (meterToday == null && meterTotal == null) return "";
     const kwh = (v) => (v == null ? "—" : `${v.toFixed(2)} kWh`);
-    const row = (label, fox, meter) => {
+    const periodRows = (fox, meter) => {
       const delta = fox != null && meter != null ? meter - fox : null;
       const deltaTxt =
         delta == null ? "—" : `${delta >= 0 ? "+" : ""}${delta.toFixed(2)} kWh`;
       const deltaColor =
-        delta == null
+        delta == null || Math.abs(delta) < 0.05
           ? "var(--secondary-text-color)"
-          : Math.abs(delta) < 0.05
-            ? "var(--secondary-text-color)"
-            : delta < 0
-              ? "#ff9f43"
-              : "#52c41a";
-      return `<tr><td>${esc(label)}</td><td>${esc(kwh(fox))}</td><td>${esc(kwh(meter))}</td><td style="color:${deltaColor};font-weight:600">${esc(deltaTxt)}</td></tr>`;
+          : delta < 0
+            ? "#ff9f43"
+            : "#52c41a";
+      return [
+        { label: "Inverter (Fox)", value: kwh(fox) },
+        { label: "Meter (Glow)", value: kwh(meter) },
+        { label: "Δ meter − fox", html: `<span style="color:${deltaColor};font-weight:600">${esc(deltaTxt)}</span>` },
+      ];
     };
     return `<section class="fox-device-new-section">
 <h3 class="fox-device-new-section-title">Export: inverter vs meter</h3>
 <p class="field-hint">What the FoxESS inverter believes it exported vs what your Glow smart meter actually recorded (meter − inverter).</p>
-<div class="table-wrap"><table class="data-table fox-sc-analysis-table">
-<thead><tr><th></th><th>Inverter (Fox)</th><th>Meter (Glow)</th><th>Δ meter − fox</th></tr></thead>
-<tbody>${row("Today", foxToday, meterToday)}${row("Total", foxTotal, meterTotal)}</tbody>
-</table></div>
+<div class="fox-device-new-subsection"><h4 class="fox-device-new-subsection-title">Today</h4>${renderDeviceNewMetricGrid(this._hass, periodRows(foxToday, meterToday))}</div>
+<div class="fox-device-new-subsection"><h4 class="fox-device-new-subsection-title">Total</h4>${renderDeviceNewMetricGrid(this._hass, periodRows(foxTotal, meterTotal))}</div>
 </section>`;
   }
 
