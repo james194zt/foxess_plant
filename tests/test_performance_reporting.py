@@ -142,10 +142,10 @@ class FinancialTests(unittest.TestCase):
         self.assertAlmostEqual(deltas["import"], 0.1)
         self.assertAlmostEqual(deltas["export"], 0.5)
         self.assertAlmostEqual(deltas["load"], 0.3)
-        # A counter going down (reset or source change) is re-read without counting
-        deltas, last = financial.counter_deltas(last, {**later, "load_from_grid_kwh_today": 0.2})
+        # A counter collapsing to ~zero (midnight reset / source change) is re-read without counting
+        deltas, last = financial.counter_deltas(last, {**later, "load_from_grid_kwh_today": 0.0})
         self.assertEqual(deltas["import"], 0.0)
-        self.assertEqual(last["import"], 0.2)
+        self.assertEqual(last["import"], 0.0)
 
     def test_after_midnight_counters_start_from_zero(self) -> None:
         zero = {"import": 0.0, "export": 0.0, "load": 0.0}
@@ -168,11 +168,24 @@ class FinancialTests(unittest.TestCase):
             total += deltas["load"]
         self.assertAlmostEqual(total, seq[-1] - seq[0], places=4)
 
-    def test_large_drop_still_treated_as_reset(self) -> None:
+    def test_collapse_to_zero_is_a_reset(self) -> None:
         start = {"load_from_grid_kwh_today": 0.0, "pv_to_grid_kwh_today": 0.0, "load_consumption_kwh_today": 5.0}
         _, last = financial.counter_deltas(None, start)
-        deltas, _ = financial.counter_deltas(last, {**start, "load_consumption_kwh_today": 0.3})
+        deltas, _ = financial.counter_deltas(last, {**start, "load_consumption_kwh_today": 0.0})
         self.assertEqual(deltas["load"], 0.0)
+
+    def test_big_intraday_swing_is_not_a_reset(self) -> None:
+        # Battery discharge legitimately halves the composite load counter; it must telescope, not reset.
+        seq = [10.0, 4.0, 11.0]  # net +1.0; the 10->4 dip must NOT be dropped
+        last = None
+        total = 0.0
+        for v in seq:
+            deltas, last = financial.counter_deltas(
+                last,
+                {"load_from_grid_kwh_today": 0.0, "pv_to_grid_kwh_today": 0.0, "load_consumption_kwh_today": v},
+            )
+            total += deltas["load"]
+        self.assertAlmostEqual(total, seq[-1] - seq[0], places=4)
 
 
 class PerformanceStoreTests(unittest.TestCase):

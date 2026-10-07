@@ -69,13 +69,14 @@ def counter_deltas(
         if prev is None:
             deltas[key] = 0.0
         else:
-            delta = value - float(prev)
-            # A large drop is a midnight reset or source change, not negative energy — don't price it.
-            # A small decrease is kept (negative) so a counter that legitimately rises and falls across a
-            # day telescopes to its true net. load_consumption = base_load - discharge + charge + grid
-            # swings as the battery cycles; clamping every tick to >=0 counted the up-moves and ignored
-            # the down-moves, inflating priced load (and avoided-cost / savings) several-fold.
-            deltas[key] = 0.0 if (delta < 0 and value < float(prev) * 0.5) else delta
+            prev_f = float(prev)
+            delta = value - prev_f
+            # Treat ONLY a collapse to ~zero as a reset (midnight rollover / source change) — not a normal
+            # intraday dip. load_consumption = base_load - discharge + charge + grid is a composite that
+            # legitimately swings down a lot when the battery discharges; keeping those negative deltas lets
+            # a day telescope to its true net. A ratio guard (value < prev/2) mis-fired on those swings and
+            # re-inflated priced load → avoided-cost → savings several-fold (true 10.5 kWh counted as ~29).
+            deltas[key] = 0.0 if (prev_f > 0.5 and value <= 0.05) else delta
         readings[key] = value
     return deltas, readings
 
