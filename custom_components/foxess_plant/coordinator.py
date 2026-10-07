@@ -3314,6 +3314,18 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except Exception as err:
             _LOGGER.warning("Performance tick failed: %s", err)
 
+    async def async_clear_performance_ledger(self, start_date: str, end_date: str) -> int:
+        """Delete finalised daily-ledger rows in a date range (e.g. days mis-priced before a fix)."""
+        store = getattr(self, "_performance_store", None)
+        if store is None:
+            return 0
+        removed = store.delete_ledger_between(start_date, end_date)
+        _LOGGER.warning(
+            "Cleared %s performance ledger day(s) between %s and %s", removed, start_date, end_date
+        )
+        await self.async_request_refresh()
+        return removed
+
     async def async_update_glow_sensors(self) -> None:
         if not self._glow_enabled():
             return

@@ -131,6 +131,13 @@ def register_services(hass: HomeAssistant) -> None:
     async def get_plant_state(call: ServiceCall) -> dict[str, Any]:
         return _get_coordinator(hass, call).get_plant_state()
 
+    async def clear_performance_ledger(call: ServiceCall) -> dict[str, Any]:
+        coord = _get_coordinator(hass, call)
+        start = str(call.data.get("start_date") or "1970-01-01")
+        end = str(call.data.get("end_date") or "2999-12-31")
+        removed = await coord.async_clear_performance_ledger(start, end)
+        return {"removed_days": removed, "start_date": start, "end_date": end}
+
     async def set_tariff_mode(call: ServiceCall) -> None:
         await _get_coordinator(hass, call).async_set_tariff_mode(call.data["mode"])
 
@@ -156,6 +163,19 @@ def register_services(hass: HomeAssistant) -> None:
         "apply_desired",
         apply_desired,
         schema=vol.Schema({plant_id: cv.string}),
+    )
+    hass.services.async_register(
+        DOMAIN,
+        "clear_performance_ledger",
+        clear_performance_ledger,
+        schema=vol.Schema(
+            {
+                plant_id: cv.string,
+                vol.Optional("start_date"): cv.string,
+                vol.Optional("end_date"): cv.string,
+            }
+        ),
+        supports_response=True,
     )
     hass.services.async_register(
         DOMAIN,

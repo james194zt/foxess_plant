@@ -19,6 +19,34 @@ apply_desired:
       selector:
         text:
 
+clear_performance_ledger:
+  name: Clear performance ledger days
+  description: >-
+    Delete finalised daily savings/energy rows in a date range (inclusive). Use it to drop days whose
+    savings were mis-priced by an earlier bug — they cannot be re-priced, so they are removed. Does not
+    touch today's live figures. Leave the dates blank to clear the whole ledger.
+  fields:
+    plant_id:
+      name: Plant
+      description: Config entry ID (optional if only one plant).
+      required: false
+      selector:
+        text:
+    start_date:
+      name: Start date
+      description: First day to remove (YYYY-MM-DD). Blank = from the beginning.
+      required: false
+      example: "2026-10-05"
+      selector:
+        text:
+    end_date:
+      name: End date
+      description: Last day to remove (YYYY-MM-DD, inclusive). Blank = to the end.
+      required: false
+      example: "2026-10-06"
+      selector:
+        text:
+
 sync_schedule_from_inverter:
   name: Sync schedule from inverter
   description: >-

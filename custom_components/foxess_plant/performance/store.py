@@ -188,6 +188,19 @@ class PerformanceStore:
         ).fetchall()
         return [dict(row) for row in rows]
 
+    def delete_ledger_between(self, start_date: str, end_date: str) -> int:
+        """Delete daily-ledger rows in [start_date, end_date] inclusive; returns the number removed.
+
+        Used to drop days whose savings were mis-priced by an earlier bug (they can't be re-priced —
+        the raw per-tick energy isn't retained).
+        """
+        conn = self.connect()
+        cur = conn.execute(
+            "DELETE FROM daily_ledger WHERE date >= ? AND date <= ?", (start_date, end_date)
+        )
+        conn.commit()
+        return cur.rowcount
+
     def period_aggregate(self, start_date: str, end_date: str) -> dict[str, Any]:
         conn = self.connect()
         row = conn.execute(
