@@ -3345,47 +3345,24 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 continue
             sensor.set_value(float(value) if value is not None else None)
             await sensor.async_publish()
+        # Mirror the export-today sensor's restore-safe daily figure back into _glow_live, so the card,
+        # status and grid overlay survive a mid-day restart (the sensor restores its baseline; an
+        # in-memory coordinator baseline would reset to ~0).
+        export_today_sensor = self._glow_sensors.get("export_today")
+        if export_today_sensor is not None and export_today_sensor.native_value is not None:
+            self._glow_live["export_kwh_today"] = export_today_sensor.native_value
 
     @callback
     def _on_glow_mqtt_electricity(self, payload: dict[str, Any], device_mac: str) -> None:
         from homeassistant.util import dt as dt_util
 
         self._glow_live = {**payload, "device_mac": device_mac}
-        self._glow_derive_export_today()
         glow = self.plant.glow
         glow.last_mqtt_at = payload.get("timestamp") or dt_util.utcnow().isoformat()
         glow.mqtt_connected = True
         glow.device_mac = device_mac
         glow.last_error = None
         self.hass.async_create_task(self._async_glow_live_updated())
-
-    def _glow_derive_export_today(self) -> None:
-        """Fill _glow_live['export_kwh_today'] from the cumulative export (the IHD has no daily figure).
-
-        Live/ephemeral baseline for the status screen + grid overlay; the glow export-today sensor keeps
-        its own restore-safe copy for history.
-        """
-        from homeassistant.util import dt as dt_util
-
-        raw = self._glow_live.get("export_kwh_cumulative")
-        try:
-            cumulative = float(raw)
-        except (TypeError, ValueError):
-            return
-        day = dt_util.now().date().isoformat()
-        baseline = getattr(self, "_glow_export_baseline", None)
-        if baseline is None:
-            baseline = cumulative
-            self._glow_export_day = day
-        elif getattr(self, "_glow_export_day", None) != day:
-            last = getattr(self, "_glow_export_last", None)
-            baseline = last if last is not None else cumulative
-            self._glow_export_day = day
-        if cumulative < baseline:  # meter rollover / reset
-            baseline = cumulative
-        self._glow_export_baseline = baseline
-        self._glow_export_last = cumulative
-        self._glow_live["export_kwh_today"] = round(cumulative - baseline, 3)
 
     async def _async_glow_live_updated(self) -> None:
         await self.async_update_glow_sensors()
@@ -3462,7 +3439,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 parsed = parse_glow_electricity_payload(current, source="glow_api")
                 if parsed:
                     self._glow_live = {**self._glow_live, **parsed}
-                    self._glow_derive_export_today()
             glow.last_api_at = dt_util.utcnow().isoformat()
             glow.last_error = None
         except GlowApiError as err:
