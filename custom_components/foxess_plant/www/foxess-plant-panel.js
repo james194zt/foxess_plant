@@ -24202,21 +24202,23 @@ ${note}${via}${forecastHint}${activeBadge}
     const lastMqtt = live.last_mqtt_at ? esc(formatSolcastTimestamp(live.last_mqtt_at)) : "—";
     const lastApi = live.last_api_at ? esc(formatSolcastTimestamp(live.last_api_at)) : "—";
     const lastErr = live.last_error ? esc(String(live.last_error)) : "None";
+    const kwh = (v) => (v != null ? `${Number(v).toFixed(2)} kWh` : "—");
     const importKw =
       liveData.import_kw != null ? `${Number(liveData.import_kw).toFixed(3)} kW` : "—";
-    const importToday =
-      liveData.import_kwh_today != null ? `${Number(liveData.import_kwh_today).toFixed(2)} kWh` : "—";
     return `<div class="entity-list">
 <div class="entity-row"><span class="entity-name">MQTT</span><span class="entity-value">${live.mqtt_connected ? "Connected" : "Not connected"}</span></div>
 <div class="entity-row"><span class="entity-name">Live import power</span><span class="entity-value">${esc(importKw)}</span></div>
-<div class="entity-row"><span class="entity-name">Import today (meter)</span><span class="entity-value">${esc(importToday)}</span></div>
+<div class="entity-row"><span class="entity-name">Import today (meter)</span><span class="entity-value">${esc(kwh(liveData.import_kwh_today))}</span></div>
+<div class="entity-row"><span class="entity-name">Import total (meter)</span><span class="entity-value">${esc(kwh(liveData.import_kwh_cumulative))}</span></div>
+<div class="entity-row"><span class="entity-name">Export today (meter)</span><span class="entity-value">${esc(kwh(liveData.export_kwh_today))}</span></div>
+<div class="entity-row"><span class="entity-name">Export total (meter)</span><span class="entity-value">${esc(kwh(liveData.export_kwh_cumulative))}</span></div>
 <div class="entity-row"><span class="entity-name">Last MQTT</span><span class="entity-value">${lastMqtt}</span></div>
 <div class="entity-row"><span class="entity-name">Last API</span><span class="entity-value">${lastApi}</span></div>
 <div class="entity-row"><span class="entity-name">Device MAC</span><span class="entity-value">${esc(String(live.device_mac || "—"))}</span></div>
 <div class="entity-row"><span class="entity-name">MPAN</span><span class="entity-value">${esc(String(liveData.mpan || "—"))}</span></div>
 <div class="entity-row"><span class="entity-name">Last error</span><span class="entity-value">${lastErr}</span></div>
 </div>
-<p class="field-hint" style="margin-top:8px">When enabled, analytics <strong>From grid</strong> uses the smart meter. Solar production and battery flows stay on FoxESS plant sensors.</p>`;
+<p class="field-hint" style="margin-top:8px">When enabled, analytics <strong>grid import and export</strong> use the smart meter. The IHD reports export only as a lifetime total, so <strong>Export today</strong> is derived from it (resets at midnight). Solar production and battery flows stay on FoxESS plant sensors.</p>`;
   }
 
   _patchGlowSettingsLiveIfNeeded() {
@@ -25708,13 +25710,15 @@ ${this._renderPvTiltAzimuthFields("pv2", { allowWhenDisabled: true })}
 <div class="field"><label>Bright password</label>
 <input type="password" autocomplete="current-password" data-field="glow:password" value="${esc(String(draft.password || ""))}" placeholder="${esc(pwPlaceholder)}" ${this._busy ? "disabled" : ""}></div>
 <div class="field"><label>Import resource ID</label>
-<input type="text" data-field="glow:import_resource_id" value="${esc(String(draft.import_resource_id || ""))}" placeholder="Auto-discovered on test" ${this._busy ? "disabled" : ""}></div>`
+<input type="text" data-field="glow:import_resource_id" value="${esc(String(draft.import_resource_id || ""))}" placeholder="Auto-discovered on test" ${this._busy ? "disabled" : ""}></div>
+<div class="field"><label>Export resource ID</label>
+<input type="text" data-field="glow:export_resource_id" value="${esc(String(draft.export_resource_id || ""))}" placeholder="Auto-discovered on test" ${this._busy ? "disabled" : ""}></div>`
       : "";
-    return `<header class="header"><h1>Glow smart meter</h1><p>Optional Hildebrand Glow IHD for <strong>live grid import</strong> from your SMETS2 meter. PV production always comes from the Fox plant — Glow replaces only grid-side readings.</p></header>
+    return `<header class="header"><h1>Glow smart meter</h1><p>Optional Hildebrand Glow IHD for <strong>live grid import and export</strong> from your SMETS2 meter. PV production always comes from the Fox plant — Glow replaces only the grid-side readings.</p></header>
 <div class="card">
 <p class="card-title">Enable</p>
 <p class="field-hint">Requires a Glow IHD/CAD on your network with MQTT enabled by Hildebrand, or Bright API credentials. See the <a class="field-link" href="${esc(GLOW_DOCS_URL)}" target="_blank" rel="noopener noreferrer">Glowmarkt Bright API docs</a> and <a class="field-link" href="${esc(GLOW_MQTT_INTEGRATION_URL)}" target="_blank" rel="noopener noreferrer">MQTT topic reference</a>.</p>
-<div class="toggle-row"><span><strong>Enable Glow smart meter</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Uses utility-meter data for grid import (more accurate than inverter CTs)</span></span>
+<div class="toggle-row"><span><strong>Enable Glow smart meter</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Uses utility-meter data for grid import and export (more accurate than inverter CTs)</span></span>
 <input type="checkbox" data-field="glow:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 </div>
 <div class="card">

@@ -101,6 +101,7 @@ def glow_status_dict(config: Any, live: dict[str, Any] | None) -> dict[str, Any]
             "import_kw": live.get("import_kw"),
             "import_kwh_today": live.get("import_kwh_today"),
             "import_kwh_cumulative": live.get("import_kwh_cumulative"),
+            "export_kwh_today": live.get("export_kwh_today"),
             "export_kwh_cumulative": live.get("export_kwh_cumulative"),
             "timestamp": live.get("timestamp"),
             "source": live.get("source"),
