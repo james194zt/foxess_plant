@@ -22162,10 +22162,51 @@ ${sidebar}
 <div class="fox-device-new-content">
 ${summary}
 ${body}
+${this._renderExportReconciliation(plant)}
 ${this._renderInstallerSettings()}
 </div>
 </div>
 </div>`;
+  }
+
+  /** Export reconciliation: what the Fox inverter believes it exported vs the Glow smart meter. */
+  _renderExportReconciliation(plant) {
+    const glow = this._plantState?.glow ?? {};
+    if (!glow.enabled) return "";
+    const live = glow.live || {};
+    const map = resolveEntityMap(this._hass, plant, this._plantState);
+    const num = (v) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    const foxToday = num(stateString(this._hass, map.feed_in_energy_today));
+    const foxTotal = num(stateString(this._hass, map.feed_in_energy_total));
+    const meterToday = num(live.export_kwh_today);
+    const meterTotal = num(live.export_kwh_cumulative);
+    if (meterToday == null && meterTotal == null) return "";
+    const kwh = (v) => (v == null ? "—" : `${v.toFixed(2)} kWh`);
+    const row = (label, fox, meter) => {
+      const delta = fox != null && meter != null ? meter - fox : null;
+      const deltaTxt =
+        delta == null ? "—" : `${delta >= 0 ? "+" : ""}${delta.toFixed(2)} kWh`;
+      const deltaColor =
+        delta == null
+          ? "var(--secondary-text-color)"
+          : Math.abs(delta) < 0.05
+            ? "var(--secondary-text-color)"
+            : delta < 0
+              ? "#ff9f43"
+              : "#52c41a";
+      return `<tr><td>${esc(label)}</td><td>${esc(kwh(fox))}</td><td>${esc(kwh(meter))}</td><td style="color:${deltaColor};font-weight:600">${esc(deltaTxt)}</td></tr>`;
+    };
+    return `<section class="fox-device-new-section">
+<h3 class="fox-device-new-section-title">Export: inverter vs meter</h3>
+<p class="field-hint">What the FoxESS inverter believes it exported vs what your Glow smart meter actually recorded (meter − inverter).</p>
+<div class="table-wrap"><table class="data-table fox-sc-analysis-table">
+<thead><tr><th></th><th>Inverter (Fox)</th><th>Meter (Glow)</th><th>Δ meter − fox</th></tr></thead>
+<tbody>${row("Today", foxToday, meterToday)}${row("Total", foxTotal, meterTotal)}</tbody>
+</table></div>
+</section>`;
   }
 
   _patchDeviceNewLiveIfNeeded() {
