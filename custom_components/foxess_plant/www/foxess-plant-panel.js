@@ -491,7 +491,7 @@ const FLOW_COMET = {
 const FLOW_SCENE_PV_THRESHOLD_W = 40;
 const FLOW_SCENE_CANVAS_BG_DARK = "#000000";
 const FLOW_SCENE_CANVAS_BG_LIGHT = "#ffffff";
-const FLOW_SCENE_ASSET_VER = 48;
+const FLOW_SCENE_ASSET_VER = 49;
 
 const FLOW_SCENE_BG_THEMES = new Set([
   "day_light",
@@ -11861,10 +11861,10 @@ function flowSceneOverlayTheme(bgTheme) {
 /** Baked sky+house at 1024×1017 — PV/AIO scene layers unchanged (tuned paths). */
 function flowSceneLayerUrl(layer, bgTheme, overlayTheme = flowSceneOverlayTheme(bgTheme)) {
   if (layer === "backdrop") {
-    return `/foxess_plant_panel/flow_home_bg_scene_${bgTheme}.png?v=${FLOW_SCENE_ASSET_VER}`;
+    return `/foxess_plant_panel/flow_home_bg_scene_${bgTheme}.webp?v=${FLOW_SCENE_ASSET_VER}`;
   }
   const theme = overlayTheme;
-  return `/foxess_plant_panel/flow_${layer}_scene_${theme}.png?v=${FLOW_SCENE_ASSET_VER}`;
+  return `/foxess_plant_panel/flow_${layer}_scene_${theme}.webp?v=${FLOW_SCENE_ASSET_VER}`;
 }
 
 function inferBatteryFlowDirection(flows, threshold = FLOW_SCENE_PV_THRESHOLD_W) {
@@ -20851,8 +20851,8 @@ ${this._modeBannerExtra()}
 <div class="fox-flow-scene ${ctx.isNight ? "fox-flow-scene--night" : "fox-flow-scene--day"} ${haClass}${skyClass}" role="img" aria-label="Live energy flow" data-panel-build="${esc(this._panelBuild())}">
 <div class="fox-flow-stage">
 ${this._renderFlowBackdropMarkup(ctx)}
-<img class="fox-flow-layer fox-flow-layer-pv" src="${esc(flowSceneLayerUrl("pv", ctx.bgTheme, ctx.overlayTheme))}" alt="" loading="lazy" decoding="async" />
-<img class="fox-flow-layer fox-flow-layer-aio" src="${esc(flowSceneLayerUrl("aio", ctx.bgTheme, ctx.overlayTheme))}" alt="" loading="lazy" decoding="async" />
+<img class="fox-flow-layer fox-flow-layer-pv" src="${esc(flowSceneLayerUrl("pv", ctx.bgTheme, ctx.overlayTheme))}" alt="" loading="eager" decoding="async" />
+<img class="fox-flow-layer fox-flow-layer-aio" src="${esc(flowSceneLayerUrl("aio", ctx.bgTheme, ctx.overlayTheme))}" alt="" loading="eager" decoding="async" />
 <svg class="fox-flow-svg" viewBox="0 0 1024 1017" preserveAspectRatio="xMidYMid meet" aria-hidden="true" data-flow-paths-ver="${esc(this._panel?.config?.flow_paths_ver || FLOW_PATHS_VER)}" data-flow-pipe-day="${FLOW_PIPE_STROKE.day}" data-flow-stroke-base="${FLOW_STROKE.base}" data-flow-stroke-active="${FLOW_STROKE.hubActive}" data-hub-r="${FLOW_STROKE.hubR}" data-hub-home="${esc(FOX_FLOW_PATHS["hub-home"])}" data-aio-hub="${esc(FOX_FLOW_PATHS["aio-hub"])}">
 ${pathsHtml}
 <circle class="flow-hub-dot ${ctx.hubActive ? "active" : ""}" cx="${FOX_FLOW_HUB.x}" cy="${FOX_FLOW_HUB.y}" r="${FLOW_STROKE.hubR}" fill="${ctx.hubActive ? FLOW_ACTIVE_STROKE.battery : flowPipeStroke(ctx.isNight)}"/>

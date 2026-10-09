@@ -147,7 +147,7 @@ if (!window.customCards.some((card) => card.type === "fox-flow-scene-card")) {
   });
 }
 
-const FLOW_SCENE_ASSET_VER = 48;
+const FLOW_SCENE_ASSET_VER = 49;
 const STATIC_BASE = "/foxess_plant_panel";
 const FLOW_PATHS_VER = "flow-comet-v3";
 const FOX_FLOW_HUB = { x: 536, y: 766 };
@@ -431,9 +431,9 @@ function resolveFlowSceneBgTheme(hass, plantState) {
 
 function flowSceneLayerUrl(layer, bgTheme) {
   if (layer === "backdrop") {
-    return `${STATIC_BASE}/flow_home_bg_scene_${bgTheme}.png?v=${FLOW_SCENE_ASSET_VER}`;
+    return `${STATIC_BASE}/flow_home_bg_scene_${bgTheme}.webp?v=${FLOW_SCENE_ASSET_VER}`;
   }
-  return `${STATIC_BASE}/flow_${layer}_scene_${bgTheme}.png?v=${FLOW_SCENE_ASSET_VER}`;
+  return `${STATIC_BASE}/flow_${layer}_scene_${bgTheme}.webp?v=${FLOW_SCENE_ASSET_VER}`;
 }
 
 function weatherOverlayHtml(hass, plantState, weatherEntity) {
@@ -629,8 +629,8 @@ FoxFlowScene.renderSceneHtml = function renderSceneHtml(el, ctx) {
 <div class="fox-flow-scene ${ctx.isNight ? "fox-flow-scene--night" : "fox-flow-scene--day"} ${haClass}">
 <div class="fox-flow-stage">
 <img class="fox-flow-layer fox-flow-layer-backdrop" src="${flowSceneLayerUrl("backdrop", ctx.bgTheme)}" alt="" loading="eager" decoding="async" />
-<img class="fox-flow-layer fox-flow-layer-pv" src="${flowSceneLayerUrl("pv", ctx.bgTheme)}" alt="" loading="lazy" decoding="async" />
-<img class="fox-flow-layer fox-flow-layer-aio" src="${flowSceneLayerUrl("aio", ctx.bgTheme)}" alt="" loading="lazy" decoding="async" />
+<img class="fox-flow-layer fox-flow-layer-pv" src="${flowSceneLayerUrl("pv", ctx.bgTheme)}" alt="" loading="eager" decoding="async" />
+<img class="fox-flow-layer fox-flow-layer-aio" src="${flowSceneLayerUrl("aio", ctx.bgTheme)}" alt="" loading="eager" decoding="async" />
 <svg class="fox-flow-svg" viewBox="0 0 1024 1017" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
 ${pathsHtml}
 <circle class="flow-hub-dot ${ctx.hubActive ? "active" : ""}" cx="${FOX_FLOW_HUB.x}" cy="${FOX_FLOW_HUB.y}" r="${FLOW_STROKE.hubR}" fill="${hubFill}"/>
