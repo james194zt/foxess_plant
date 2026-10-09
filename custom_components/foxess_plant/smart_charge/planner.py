@@ -682,6 +682,13 @@ def _chunk_sizes(room: float) -> list[float]:
     return sorted(sizes, reverse=True)
 
 
+# Moves scoring within this many pence of the best so far count as a tie, and the earliest
+# slot wins. Without it the plan drifts later on every rebuild: a rebuild a moment after a
+# slot boundary makes "now" a fraction of a slot, so it scores a hair below the next equal-
+# price slot and the charge keeps sliding until the cheap window runs out.
+TIE_P = 0.05
+
+
 def _adjacent(amounts: list[float], i: int) -> bool:
     return (i > 0 and amounts[i - 1] > 0) or (i + 1 < len(amounts) and amounts[i + 1] > 0)
 
@@ -749,7 +756,7 @@ def optimise(
                             continue
                         # Tie-break towards slots next to existing charge: fewer, longer windows.
                         score = saving + (0.25 if _adjacent(charge, i) else 0.0)
-                        if best is None or score > best[0]:
+                        if best is None or score > best[0] + TIE_P:
                             best = (score, "c", i, size)
                 # Export move.
                 if (
@@ -772,7 +779,7 @@ def optimise(
                         if saving < params.min_saving_p_per_kwh * moved:
                             continue
                         score = saving + (0.25 if _adjacent(discharge, i) else 0.0)
-                        if best is None or score > best[0]:
+                        if best is None or score > best[0] + TIE_P:
                             best = (score, "d", i, size)
             if best is None:
                 break

@@ -374,8 +374,9 @@ EVENING_PROFILE = {"all": [(1.5 if 34 <= i < 38 else 0.6 if 38 <= i < 44 else 0.
 
 
 def run_tou(now, soc_kwh, pv_kwh, *, peak_min_pct):
-    rates = agile_rows(now, 40, three_band)
-    exports = agile_rows(now, 40, lambda t: 13.0)
+    start = planner.floor_half_hour(now.astimezone(UTC))
+    rates = agile_rows(start, 40, three_band)
+    exports = agile_rows(start, 40, lambda t: 13.0)
     slots = planner.build_timeline(
         now=now,
         tz=TZ,
@@ -427,6 +428,17 @@ class TimeOfUseTests(unittest.TestCase):
             self.assertTrue(12 <= hour < 16, e)
         self.assertEqual(charge_slots(on_day(plan, 29, 45.25)), [])
         self.assertEqual(sum(e["grid_import_kwh"] for e in on_day(plan, 29, 45.25)), 0.0)
+
+    def test_rebuild_just_after_a_boundary_charges_now(self) -> None:
+        # Rebuilds land a moment after each half-hour, so "now" is a fraction of a slot. It must
+        # still win ties with later equal-price slots, or the charge slides later on every
+        # rebuild and never runs (09 Oct 2026: planned 02:00, actually charged at 04:00).
+        for minute in (0, 30):
+            for hour in (2, 3):
+                now = local(2026, 9, 29, hour, minute) + timedelta(seconds=1)
+                plan = run_tou(now, 3.0, 4.0, peak_min_pct=20)
+                self.assertTrue(charge_slots(plan), now)
+                self.assertEqual(plan[0]["action"], "charge", now)
 
     def test_agile_is_not_restricted_to_one_band(self) -> None:
         now = local(2026, 3, 10, 16, 0)
