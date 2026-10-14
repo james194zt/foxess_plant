@@ -5103,6 +5103,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_save_pv_config(self, *, pv_config: dict[str, Any]) -> None:
         """Persist PV1/PV2 physical configuration from the panel."""
+        from .solcast_pv import build_rooftop_pv_requests
+
         cfg = PvSystemConfig.from_dict(pv_config)
         if self.plant.solcast.installation_date:
             from .pv_efficiency import sync_pv_efficiency_from_install
@@ -5110,11 +5112,15 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             cfg, _changed = sync_pv_efficiency_from_install(
                 cfg, self.plant.solcast.installation_date
             )
+        asked_before = build_rooftop_pv_requests(self.plant.pv_config)
         data = dict(self.config_entry.data)
         data[CONF_PV_CONFIG] = cfg.to_dict()
         self.hass.config_entries.async_update_entry(self.config_entry, data=data)
         self.update_plant_config(PlantConfig.from_entry_data(data))
-        if self._solcast_pv_active():
+        # Only a change to what Solcast is asked for needs a new forecast. The Solar Forecast page's Save sends
+        # the PV config straight after the Solcast settings (which fetch already): that spent a second request
+        # of the 10-a-day quota on every save.
+        if self._solcast_pv_active() and build_rooftop_pv_requests(self.plant.pv_config) != asked_before:
             await self._async_refresh_solcast_pv(force=True)
         await self.async_request_refresh()
 
