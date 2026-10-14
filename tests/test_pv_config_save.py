@@ -41,6 +41,46 @@ class _Fake:
         pass
 
 
+class _SolcastFake:
+    """Just what the Solcast save's 'is a forecast needed?' check reads."""
+
+    def __init__(self, *, fresh=True, covers=True):
+        self.plant = SimpleNamespace(
+            pv_config=PvSystemConfig.from_dict(PV),
+            solcast=SimpleNamespace(api_key="key-a", rooftop_site_bindings={"pv1": "site-1"}),
+        )
+        self.fresh, self.covers = fresh, covers
+
+    def _solcast_fresh(self):
+        return self.fresh
+
+    def _solcast_forecast_covers_now(self):
+        return self.covers
+
+    def _solcast_forecast_inputs(self):
+        return FoxessPlantCoordinator._solcast_forecast_inputs(self)
+
+
+def _needs(fake, before) -> bool:
+    return FoxessPlantCoordinator._solcast_save_needs_forecast(fake, before)
+
+
+def test_a_solcast_save_only_fetches_when_a_forecast_is_missing_or_its_inputs_changed() -> None:
+    fake = _SolcastFake()
+    before = fake._solcast_forecast_inputs()
+    assert not _needs(fake, before)  # save + free site check only; the schedule carries on
+    fake.plant.solcast.api_key = "key-b"
+    assert _needs(fake, before)  # another account
+    fake.plant.solcast.api_key = "key-a"
+    fake.plant.solcast.rooftop_site_bindings = {"pv1": "site-2"}
+    assert _needs(fake, before)  # matched to a different site
+    fake.plant.solcast.rooftop_site_bindings = {"pv1": "site-1"}
+    fake.plant.pv_config = PvSystemConfig.from_dict({**PV, "pv1": {**PV["pv1"], "tilt": 30}})
+    assert _needs(fake, before)  # the rooftop request changed
+    assert _needs(_SolcastFake(fresh=False), before)  # last good forecast over a day old (e.g. re-enabled)
+    assert _needs(_SolcastFake(covers=False), before)  # forecast ran out
+
+
 @pytest.mark.asyncio
 async def test_unchanged_pv_config_costs_no_request(monkeypatch) -> None:
     monkeypatch.setattr(PlantConfig, "from_entry_data", staticmethod(lambda data: SimpleNamespace(pv_config=PvSystemConfig.from_dict(data["pv_config"]))))

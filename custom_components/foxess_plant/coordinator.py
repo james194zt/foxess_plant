@@ -6731,6 +6731,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         from .solcast_weather import parse_solcast_coordinates, parse_solcast_installation_date
 
         fetch_now = bool(solcast.pop("fetch_now", fetch_now))
+        asked_before = self._solcast_forecast_inputs()
         current = self.plant.solcast.to_dict()
         merged = {**current, **solcast}
         if "installation_date" in solcast:
@@ -6786,9 +6787,27 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._async_apply_pv_efficiency_age_derating(refresh_solcast=False)
         except Exception as err:
             _LOGGER.warning("PV efficiency age sync after Solcast save failed: %s", err)
-        if fetch_now and self._solcast_pv_active():
+        if fetch_now and self._solcast_pv_active() and self._solcast_save_needs_forecast(asked_before):
             await self._async_refresh_solcast_pv(force=True)
         await self.async_request_refresh()
+
+    def _solcast_forecast_inputs(self) -> tuple[Any, ...]:
+        """What a Solcast forecast depends on: the account (key), the matched sites and the rooftop requests."""
+        from .solcast_pv import build_rooftop_pv_requests
+
+        sc = self.plant.solcast
+        bindings = tuple(sorted((sc.rooftop_site_bindings or {}).items()))
+        return (sc.api_key or "", bindings, tuple(build_rooftop_pv_requests(self.plant.pv_config)))
+
+    def _solcast_save_needs_forecast(self, asked_before: tuple[Any, ...]) -> bool:
+        """A settings save spends a forecast request only when one is missing or the forecast's inputs changed.
+
+        Saving and the site check (a free site list) are enough otherwise; the schedule fetches as usual. Every
+        save used to fetch, on a 10-a-day hobbyist quota.
+        """
+        if self._solcast_forecast_inputs() != asked_before:
+            return True
+        return not self._solcast_fresh() or not self._solcast_forecast_covers_now()
 
     async def async_test_solcast(self) -> dict[str, Any]:
         """Verify Solcast hobbyist API key by listing Home PV sites (no quota use)."""
