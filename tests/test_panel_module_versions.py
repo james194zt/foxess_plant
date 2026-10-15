@@ -20,6 +20,15 @@ def test_element_tag_changes_with_every_build_and_matches_the_panel_js() -> None
     assert m[4] == panel._panel_js_fingerprint()
 
 
+def test_panel_fingerprint_follows_the_labels(monkeypatch, tmp_path) -> None:
+    before = panel._panel_js_fingerprint()
+    labels = tmp_path / "i18n"
+    labels.mkdir()
+    (labels / "en.json").write_text('{"panel.overview": "Overview!"}', encoding="utf-8")
+    monkeypatch.setattr(panel, "I18N_DIR", labels)
+    assert panel._panel_js_fingerprint() != before
+
+
 def test_panel_fingerprint_follows_the_imported_module(monkeypatch) -> None:
     before = panel._panel_js_fingerprint()
     monkeypatch.setattr(panel, "_module_hash", lambda name: "changed00000")

@@ -4,28 +4,29 @@
  * @version 0.9.267
  */
 
-import { bmsFaultLabel, renderFoxAlarmDetailModal } from "./fox-alarm-guide.js";
+import { alarmDisplayName, bmsFaultLabel, renderFoxAlarmDetailModal } from "./fox-alarm-guide.js";
+import { stateWord, tl, tln } from "./fox-i18n.js";
 
 /** @deprecated Legacy device UI — not in nav (replaced by device_new). */
 const PANEL_VIEW_DEVICE_LEGACY = "device_legacy";
 
 const NAV = [
-  { id: "overview", label: "Overview" },
-  { id: "device_new", label: "Device" },
-  { id: "energy_analysis", label: "Energy Analysis" },
-  { id: "reports", label: "Reports" },
-  { id: "settings", label: "Settings" },
+  { id: "overview", label: tl("panel.overview") },
+  { id: "device_new", label: tl("common.device") },
+  { id: "energy_analysis", label: tl("common.energy_analysis") },
+  { id: "reports", label: tl("panel.reports") },
+  { id: "settings", label: tl("common.settings") },
 ];
 
 const DEVICE_NEW_NAV = [
-  { id: "analysis", label: "Analysis" },
-  { id: "realtime", label: "Realtime" },
-  { id: "pv-config", label: "PV Configuration" },
-  { id: "quick-settings", label: "Quick Settings" },
+  { id: "analysis", label: tl("common.analysis") },
+  { id: "realtime", label: tl("device.realtime") },
+  { id: "pv-config", label: tl("common.pv_configuration") },
+  { id: "quick-settings", label: tl("common.quick_settings") },
   { id: "storm", label: "StormSafe" },
   { id: "smart", label: "SmartCharge" },
-  { id: "warmup", label: "Battery WarmUp" },
-  { id: "alarms", label: "Alerts" },
+  { id: "warmup", label: tl("common.battery_warmup") },
+  { id: "alarms", label: tl("common.alerts") },
 ];
 
 function isQuickSettingsDeviceSub(sub) {
@@ -88,7 +89,7 @@ const DEVICE_SUMMARY_CARD_THEMES = {
 const DEVICE_REALTIME_CHART_SERIES = [
   {
     key: "pv_power",
-    label: "PV Power",
+    label: tl("device.pv_power"),
     legendGroup: "pv",
     color: "#19D4DE",
     toKw: true,
@@ -97,7 +98,7 @@ const DEVICE_REALTIME_CHART_SERIES = [
   },
   {
     key: "eps_power_R",
-    label: "EPS Power",
+    label: tl("device.eps_power"),
     legendGroup: "eps",
     color: "#FF6FAF",
     toKw: true,
@@ -108,7 +109,7 @@ const DEVICE_REALTIME_CHART_SERIES = [
   },
   {
     key: "inv_power",
-    label: "Output AC Power",
+    label: tl("device.output_ac_power"),
     legendGroup: "ac",
     color: "#2F6BFF",
     toKw: true,
@@ -117,7 +118,7 @@ const DEVICE_REALTIME_CHART_SERIES = [
   },
   {
     key: "battery_power",
-    label: "Battery Power",
+    label: tl("device.battery_power"),
     legendGroup: "battery",
     color: "#F5C542",
     toKw: true,
@@ -133,62 +134,62 @@ function normalizePanelView(view) {
 }
 
 const SETTINGS_NAV = [
-  { id: "main", label: "All" },
-  { id: "fox-api", label: "Fox API" },
-  { id: "solcast", label: "Solar Forecast" },
-  { id: "glow", label: "Glow meter" },
-  { id: "tariff", label: "Tariff" },
-  { id: "weather", label: "Weather" },
-  { id: "performance", label: "Performance" },
+  { id: "main", label: tl("settings.all") },
+  { id: "fox-api", label: tl("settings.fox_api") },
+  { id: "solcast", label: tl("common.solar_forecast") },
+  { id: "glow", label: tl("settings.glow_meter") },
+  { id: "tariff", label: tl("common.tariff") },
+  { id: "weather", label: tl("common.weather") },
+  { id: "performance", label: tl("common.performance") },
 ];
 
 const PERFORMANCE_WEATHER_ROLE_FIELDS = [
   {
     key: "wind_speed_entity_id",
-    label: "Wind speed",
-    hint: "Primary cooling / microclimate signal. Ecowitt: Wind Speed.",
+    label: tl("weather.wind_speed"),
+    hint: tl("weather.primary_cooling_microclimate_signal_ecowitt_wind"),
     required: true,
   },
   {
     key: "precipitation_entity_id",
-    label: "Precipitation rate",
-    hint: "Use rain rate (not daily/weekly totals). Ecowitt: Rain Rate Piezo.",
+    label: tl("weather.precipitation_rate"),
+    hint: tl("weather.use_rain_rate_not_daily_weekly"),
     required: true,
   },
   {
     key: "dew_point_entity_id",
-    label: "Dew point",
-    hint: "Outdoor dewpoint. Ecowitt: Dewpoint (not Indoor Dewpoint).",
+    label: tl("common.dew_point"),
+    hint: tl("weather.outdoor_dewpoint_ecowitt_dewpoint_not_indoor"),
     required: false,
   },
   {
     key: "visibility_entity_id",
-    label: "Visibility",
-    hint: "Usually not on Ecowitt — leave blank or map another sensor if you have one.",
+    label: tl("common.visibility"),
+    hint: tl("weather.usually_not_on_ecowitt_leave_blank"),
     required: false,
   },
   {
     key: "wind_gust_entity_id",
-    label: "Wind gust",
-    hint: "Optional. Ecowitt: Wind Gust.",
+    label: tl("weather.wind_gust"),
+    hint: tl("weather.optional_ecowitt_wind_gust"),
     required: false,
   },
   {
     key: "outdoor_temp_entity_id",
-    label: "Outdoor temperature",
-    hint: "Optional ambient air temp. Ecowitt: Outdoor Temperature.",
+    label: tl("weather.outdoor_temperature"),
+    hint: tl("weather.optional_ambient_air_temp_ecowitt_outdoor"),
     required: false,
   },
   {
     key: "humidity_entity_id",
-    label: "Humidity",
-    hint: "Optional outdoor humidity. Ecowitt: Humidity (not Indoor).",
+    label: tl("weather.humidity"),
+    hint: tl("weather.optional_outdoor_humidity_ecowitt_humidity_not"),
     required: false,
   },
   {
     key: "solar_radiation_entity_id",
-    label: "Solar radiation",
-    hint: "Optional irradiance. Ecowitt: Solar Radiation.",
+    label: tl("weather.solar_radiation"),
+    hint: tl("weather.optional_irradiance_ecowitt_solar_radiation"),
     required: false,
   },
 ];
@@ -265,8 +266,8 @@ const TARIFF_SUPPLIERS = ["octopus", "eon_next", "fuse"];
 
 /** Import / Export provider pickers on the Tariff page. */
 const TARIFF_IMPORT_PROVIDERS = [
-  { id: "manual", label: "Manual Rates" },
-  { id: "entity", label: "Home Assistant Sensor" },
+  { id: "manual", label: tl("tariff.manual_rates") },
+  { id: "entity", label: tl("tariff.home_assistant_sensor") },
   { id: "octopus", label: "Octopus" },
   { id: "eon_next", label: "E.ON Next" },
   { id: "fuse", label: "Fuse" },
@@ -283,8 +284,8 @@ function tariffImportProviderId(tariffOrDraft) {
 function tariffExportProviderOptions(importProvider) {
   const supplier = TARIFF_SUPPLIERS.includes(importProvider) ? importProvider : "";
   const opts = [];
-  if (supplier) opts.push({ id: "same", label: `Same As Import (${energyProviderLabel(supplier)})` });
-  opts.push({ id: "manual", label: "Manual Rates" }, { id: "entity", label: "Home Assistant Sensor" });
+  if (supplier) opts.push({ id: "same", label: tl("tariff.same_as_import_energyproviderlabel", { energyProviderLabel: energyProviderLabel(supplier) }) });
+  opts.push({ id: "manual", label: tl("tariff.manual_rates") }, { id: "entity", label: tl("tariff.home_assistant_sensor") });
   for (const id of TARIFF_SUPPLIERS) {
     if (id !== supplier) opts.push({ id, label: energyProviderLabel(id) });
   }
@@ -294,8 +295,8 @@ function tariffExportProviderOptions(importProvider) {
 /** Why the schedule has no Export column: export is priced on the Export card instead. */
 function exportElsewhereHint(exportProvider) {
   const from =
-    exportProvider === "entity" ? "a Home Assistant sensor" : TARIFF_SUPPLIERS.includes(exportProvider) ? energyProviderLabel(exportProvider) : "the Export card";
-  return `Export rates come from ${from} (Export card below) and are shown read-only here. To type them in again, choose Manual Rates on the Export card and press Save Export.`;
+    exportProvider === "entity" ? tl("panel.a_home_assistant_sensor") : TARIFF_SUPPLIERS.includes(exportProvider) ? energyProviderLabel(exportProvider) : tl("panel.the_export_card");
+  return tl("panel.export_rates_come_from_from_export", { from });
 }
 
 /** Keep the export choice valid for the import provider (mirrors tariff_export.normalize_export_provider). */
@@ -309,11 +310,11 @@ function normalizeTariffExportProvider(value, importProvider, exportSource) {
 
 /** Four schedule band colours (00:00–24:00 editor). */
 const TARIFF_BAND_COLORS = ["#43A047", "#1E88E5", "#FB8C00", "#E53935"];
-const TARIFF_BAND_LABELS = ["Band A", "Band B", "Band C", "Band D"];
+const TARIFF_BAND_LABELS = [tl("tariff.band_a"), tl("tariff.band_b"), tl("tariff.band_c"), tl("tariff.band_d")];
 
 /** Energy supplier integrations on the Tariff page (extend when adding providers). */
 const ENERGY_TARIFF_PROVIDERS = [
-  { id: "", label: "None" },
+  { id: "", label: tl("common.none") },
   { id: "octopus", label: "Octopus" },
   { id: "eon_next", label: "E.ON Next" },
   { id: "fuse", label: "Fuse" },
@@ -387,32 +388,32 @@ function formatUkDate(iso) {
 
 /** ISO 4217 codes for tariff settings (must match const.py TARIFF_CURRENCIES). */
 const TARIFF_CURRENCIES = {
-  AUD: { name: "Australian dollar", decimals: 2 },
-  BGN: { name: "Bulgarian lev", decimals: 2 },
-  BRL: { name: "Brazilian real", decimals: 2 },
-  CAD: { name: "Canadian dollar", decimals: 2 },
-  CHF: { name: "Swiss franc", decimals: 2 },
-  CNY: { name: "Chinese yuan", decimals: 2 },
-  CZK: { name: "Czech koruna", decimals: 2 },
-  DKK: { name: "Danish krone", decimals: 2 },
-  EUR: { name: "Euro", decimals: 2 },
-  GBP: { name: "British pound", decimals: 2 },
-  HKD: { name: "Hong Kong dollar", decimals: 2 },
-  HUF: { name: "Hungarian forint", decimals: 2 },
-  ILS: { name: "Israeli new shekel", decimals: 2 },
-  INR: { name: "Indian rupee", decimals: 2 },
-  JPY: { name: "Japanese yen", decimals: 0 },
-  KRW: { name: "South Korean won", decimals: 0 },
-  MXN: { name: "Mexican peso", decimals: 2 },
-  NOK: { name: "Norwegian krone", decimals: 2 },
-  NZD: { name: "New Zealand dollar", decimals: 2 },
-  PLN: { name: "Polish zloty", decimals: 2 },
-  RON: { name: "Romanian leu", decimals: 2 },
-  SEK: { name: "Swedish krona", decimals: 2 },
-  SGD: { name: "Singapore dollar", decimals: 2 },
-  TRY: { name: "Turkish lira", decimals: 2 },
-  USD: { name: "US dollar", decimals: 2 },
-  ZAR: { name: "South African rand", decimals: 2 },
+  AUD: { name: tl("tariff.australian_dollar"), decimals: 2 },
+  BGN: { name: tl("tariff.bulgarian_lev"), decimals: 2 },
+  BRL: { name: tl("tariff.brazilian_real"), decimals: 2 },
+  CAD: { name: tl("tariff.canadian_dollar"), decimals: 2 },
+  CHF: { name: tl("tariff.swiss_franc"), decimals: 2 },
+  CNY: { name: tl("tariff.chinese_yuan"), decimals: 2 },
+  CZK: { name: tl("tariff.czech_koruna"), decimals: 2 },
+  DKK: { name: tl("tariff.danish_krone"), decimals: 2 },
+  EUR: { name: tl("tariff.euro"), decimals: 2 },
+  GBP: { name: tl("tariff.british_pound"), decimals: 2 },
+  HKD: { name: tl("tariff.hong_kong_dollar"), decimals: 2 },
+  HUF: { name: tl("tariff.hungarian_forint"), decimals: 2 },
+  ILS: { name: tl("tariff.israeli_new_shekel"), decimals: 2 },
+  INR: { name: tl("tariff.indian_rupee"), decimals: 2 },
+  JPY: { name: tl("tariff.japanese_yen"), decimals: 0 },
+  KRW: { name: tl("tariff.south_korean_won"), decimals: 0 },
+  MXN: { name: tl("tariff.mexican_peso"), decimals: 2 },
+  NOK: { name: tl("tariff.norwegian_krone"), decimals: 2 },
+  NZD: { name: tl("tariff.new_zealand_dollar"), decimals: 2 },
+  PLN: { name: tl("tariff.polish_zloty"), decimals: 2 },
+  RON: { name: tl("tariff.romanian_leu"), decimals: 2 },
+  SEK: { name: tl("tariff.swedish_krona"), decimals: 2 },
+  SGD: { name: tl("tariff.singapore_dollar"), decimals: 2 },
+  TRY: { name: tl("tariff.turkish_lira"), decimals: 2 },
+  USD: { name: tl("tariff.us_dollar"), decimals: 2 },
+  ZAR: { name: tl("tariff.south_african_rand"), decimals: 2 },
 };
 
 function normalizeTariffCurrency(code) {
@@ -471,7 +472,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.523";
+const PANEL_VERSION = "0.9.524";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -724,40 +725,40 @@ const MAX_SCHEDULE_SEGMENTS = 95;
 /** Display title + hint per FoxESS work_mode select option (key = entity option string). */
 const WORK_MODE_META = {
   "Self Use": {
-    title: "Self Use",
-    hint: "Optimised for self consumption, reduce reliance on grid electricity.",
+    title: tl("quick_settings.self_use"),
+    hint: tl("quick_settings.optimised_for_self_consumption_reduce_reliance"),
   },
   "Feed-in First": {
-    title: "Feed-in Priority",
-    hint: "Prioritises electricity sales to generate income.",
+    title: tl("quick_settings.feed_in_priority"),
+    hint: tl("quick_settings.prioritises_electricity_sales_to_generate_income"),
   },
   "Feed-in Priority": {
-    title: "Feed-in Priority",
-    hint: "Prioritises electricity sales to generate income.",
+    title: tl("quick_settings.feed_in_priority"),
+    hint: tl("quick_settings.prioritises_electricity_sales_to_generate_income"),
   },
   "Back-up": {
-    title: "Back-up",
-    hint: "Tailored for areas with unstable power grids. Reserves SOC to prevent power outages.",
+    title: tl("quick_settings.back_up"),
+    hint: tl("quick_settings.tailored_for_areas_with_unstable_power"),
   },
   "Back Up": {
-    title: "Back-up",
-    hint: "Tailored for areas with unstable power grids. Reserves SOC to prevent power outages.",
+    title: tl("quick_settings.back_up"),
+    hint: tl("quick_settings.tailored_for_areas_with_unstable_power"),
   },
   "Peak Shaving": {
-    title: "Peak Shaving",
-    hint: "Implements energy management strategies by setting battery SOC and import limits according to production schedules, reducing overall energy consumption during peak periods.",
+    title: tl("quick_settings.peak_shaving"),
+    hint: tl("quick_settings.implements_energy_management_strategies_by_setti"),
   },
   "Force Charge": {
-    title: "Force Charge",
-    hint: "Active remote force-charge session.",
+    title: tl("common.force_charge"),
+    hint: tl("quick_settings.active_remote_force_charge_session"),
   },
   "Force Discharge": {
-    title: "Force Discharge",
-    hint: "Active remote force-discharge session.",
+    title: tl("quick_settings.force_discharge"),
+    hint: tl("quick_settings.active_remote_force_discharge_session"),
   },
   "Remote Control": {
-    title: "Remote Control",
-    hint: "Inverter is under external remote control (read-only status on EVO).",
+    title: tl("quick_settings.remote_control"),
+    hint: tl("quick_settings.inverter_is_under_external_remote_control"),
   },
 };
 
@@ -831,7 +832,7 @@ function renderListButton(attrs, title, subtitle, locked = false) {
   for (const [key, value] of Object.entries(attrs || {})) {
     if (value != null && value !== "") parts.push(`data-${esc(key)}="${esc(String(value))}"`);
   }
-  const lockHint = locked ? `<span class="list-btn-lock">Managed by SmartCharge</span>` : "";
+  const lockHint = locked ? `<span class="list-btn-lock">${tl("panel.managed_by_smartcharge")}</span>` : "";
   return `<button ${parts.join(" ")}>
 <span class="list-btn-body"><span class="list-btn-title">${esc(title)}</span><span class="list-btn-sub">${esc(subtitle)}</span>${lockHint}</span>
 <span class="chev" aria-hidden="true">›</span></button>`;
@@ -976,14 +977,14 @@ function foxWorkModeDisplay(label) {
   const s = String(label || "").trim();
   const meta = WORK_MODE_META[s];
   if (meta?.title) return meta.title;
-  if (s.toLowerCase() === "self use") return "Self Use";
+  if (s.toLowerCase() === "self use") return tl("quick_settings.self_use");
   return s;
 }
 
 const PV_MOUNTINGS = {
-  open_rack: "Open rack / ground mount (free air behind)",
-  roof_gap: "On the roof, a few cm above the tiles",
-  in_roof: "In-roof (integrated, little air behind)",
+  open_rack: tl("pv.open_rack_ground_mount_free_air"),
+  roof_gap: tl("pv.on_the_roof_a_few_cm"),
+  in_roof: tl("pv.in_roof_integrated_little_air_behind"),
 };
 
 function normalizePvString(raw, defaults) {
@@ -1091,15 +1092,15 @@ function formatPvEfficiencyAgeHint(installDateStr, annualDegradationPct) {
   const years = Math.floor(months / 12);
   const remMonths = months % 12;
   const ageParts = [];
-  if (years) ageParts.push(`${years} year${years === 1 ? "" : "s"}`);
-  if (remMonths) ageParts.push(`${remMonths} month${remMonths === 1 ? "" : "s"}`);
-  const ageLabel = ageParts.length ? ageParts.join(" ") : "0 months";
+  if (years) ageParts.push(tln("pv.age_years", years));
+  if (remMonths) ageParts.push(tln("pv.age_months", remMonths));
+  const ageLabel = ageParts.length ? ageParts.join(" ") : tl("pv.x_0_months");
   const rate = Number(annualDegradationPct) || 0;
-  return `Auto-calculated from installation date ${installDateStr} (${ageLabel} · ${months} months) at ${rate}% loss per year.`;
+  return tl("pv.auto_calculated_from_installation_date_installda", { installDateStr, ageLabel, months, rate });
 }
 
 function pvStringSummary(cfg) {
-  if (!cfg?.enabled) return "Off";
+  if (!cfg?.enabled) return tl("common.off");
   const kw = (cfg.panel_count * cfg.watts_per_panel) / 1000;
   return `${cfg.panel_count} panels · ${cfg.watts_per_panel} W · ${kw.toFixed(2)} kW · ${cfg.tilt}°/${cfg.azimuth}°`;
 }
@@ -1114,8 +1115,8 @@ function pvStringEffectiveMaxKw(cfg) {
 function enabledPvStrings(pvConfig) {
   const cfg = normalizePvConfig(pvConfig);
   const out = [];
-  if (cfg.pv1?.enabled) out.push({ key: "pv1", label: "PV1 Power", cfg: cfg.pv1 });
-  if (cfg.pv2?.enabled) out.push({ key: "pv2", label: "PV2 Power", cfg: cfg.pv2 });
+  if (cfg.pv1?.enabled) out.push({ key: "pv1", label: tl("pv.pv1_power"), cfg: cfg.pv1 });
+  if (cfg.pv2?.enabled) out.push({ key: "pv2", label: tl("pv.pv2_power"), cfg: cfg.pv2 });
   return out;
 }
 
@@ -1158,19 +1159,19 @@ function validateSolcastDraft(draft) {
   const lat = normalizeSolcastCoordinateInput(draft.latitude);
   const lon = normalizeSolcastCoordinateInput(draft.longitude);
   if (lat == null || lon == null) {
-    return "Latitude and longitude are required. Copy them exactly from one of your two registered Solcast hobbyist locations (not Home Assistant coordinates).";
+    return tl("solar_forecast.latitude_and_longitude_are_required_copy");
   }
   if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
-    return "Latitude must be between -90 and 90; longitude between -180 and 180.";
+    return tl("solar_forecast.latitude_must_be_between_90_and");
   }
   const installRaw = String(draft.installation_date ?? "").trim();
   if (installRaw) {
     const install = normalizeSolcastInstallationDateInput(installRaw);
     if (!install) {
-      return "Installation date must be YYYY-MM-DD (match your Solcast Home PV system listing).";
+      return tl("solar_forecast.installation_date_must_be_yyyy_mm");
     }
     if (install > solcastInstallationDateMax()) {
-      return "Installation date cannot be in the future.";
+      return tl("solar_forecast.installation_date_cannot_be_in_the");
     }
   }
   return null;
@@ -1209,27 +1210,27 @@ function overviewSunTimes(hass) {
 
 function formatSolcastNextFetch(sc) {
   const status = sc?.next_fetch_status;
-  if (status === "disabled") return "Off";
+  if (status === "disabled") return tl("common.off");
   if (!sc?.next_fetch_at) {
-    if (status === "outside_window") return "Outside poll window";
+    if (status === "outside_window") return tl("solar_forecast.outside_poll_window");
     return "—";
   }
   const when = formatSolcastTimestamp(sc.next_fetch_at);
-  if (status === "due_now") return `${when} (due now)`;
-  if (status === "paused") return `Paused after a day of refusals · next try ${when}`;
+  if (status === "due_now") return tl("solar_forecast.when_due_now", { when });
+  if (status === "paused") return tl("solar_forecast.paused_after_a_day_of_refusals", { when });
   if (status === "quota_exhausted") {
     const resetWhen = formatSolcastTimestamp(sc.next_fetch_reset_at || sc.next_fetch_at);
     const pollAt = sc.next_fetch_poll_at;
     const schedule = sc.poll_schedule;
     const sunriseIso = pollAt || schedule?.sunrise;
     if (schedule?.mode === "all_day" || !sunriseIso) {
-      return `Quota resets ${resetWhen}`;
+      return tl("solar_forecast.quota_resets_resetwhen", { resetWhen });
     }
     const sunriseWhen = formatSolcastTimeOnly(sunriseIso);
-    return `Quota resets ${resetWhen} · next poll at sunrise (${sunriseWhen})`;
+    return tl("solar_forecast.quota_resets_resetwhen_next_poll_at", { resetWhen, sunriseWhen });
   }
-  if (status === "before_sunrise") return `${when} (at sunrise)`;
-  if (status === "after_sunset") return `${when} (next sunrise)`;
+  if (status === "before_sunrise") return tl("solar_forecast.when_at_sunrise", { when });
+  if (status === "after_sunset") return tl("solar_forecast.when_next_sunrise", { when });
   return when;
 }
 
@@ -1626,7 +1627,7 @@ const FORECAST_ACCURACY_COLORS = {
   cloudFill: "rgba(168,178,198,0.24)",
 };
 
-function formatWebsocketError(err, fallback = "Request failed") {
+function formatWebsocketError(err, fallback = tl("quick_settings.request_failed")) {
   const bits = [
     err?.message,
     err?.code,
@@ -1667,7 +1668,7 @@ async function fetchForecastAccuracyReport(hass, plant, dayOffset = 0) {
       err?.body?.message,
       typeof err === "string" ? err : "",
     ].filter((b) => b && b !== "Unknown error");
-    const msg = bits[0] || "Failed to load forecast accuracy";
+    const msg = bits[0] || tl("solar_forecast.failed_to_load_forecast_accuracy");
     return { error: msg, solcast_enabled: true };
   }
 }
@@ -1712,18 +1713,18 @@ function buildForecastAccuracySeriesMeta(intraday, { compact = false } = {}) {
       points: [...points].sort((a, b) => a.t - b.t),
     });
   };
-  add("pv_actual", "PV generation", FORECAST_ACCURACY_COLORS.actual, intraday.actual_power_kw);
-  add("pv_forecast", "Solcast at the time", FORECAST_ACCURACY_COLORS.predicted, intraday.predicted_power_kw);
+  add("pv_actual", tl("solar_forecast.pv_generation"), FORECAST_ACCURACY_COLORS.actual, intraday.actual_power_kw);
+  add("pv_forecast", tl("solar_forecast.solcast_at_the_time"), FORECAST_ACCURACY_COLORS.predicted, intraday.predicted_power_kw);
   add("pv_open_meteo", "Open-Meteo", OPEN_METEO_CHART_COLOR, intraday.open_meteo_power_kw);
   if (!compact) {
     add(
       "pv_latest",
-      "Latest Solcast",
+      tl("solar_forecast.latest_solcast"),
       FORECAST_ACCURACY_COLORS.latestRevision,
       intraday.latest_revision_power_kw
     );
   }
-  add("cloud", "Cloud cover", FORECAST_ACCURACY_COLORS.cloud, intraday.cloud_coverage_pct, "pct");
+  add("cloud", tl("solar_forecast.cloud_cover"), FORECAST_ACCURACY_COLORS.cloud, intraday.cloud_coverage_pct, "pct");
   return meta;
 }
 
@@ -1870,7 +1871,7 @@ function forecastAccuracyPlotSvg(series, range, options = {}) {
     pad = { l: 46, r: 8, t: 8, b: 28 },
     yUnit = "kWh",
     yMinZero = true,
-    ariaLabel = "Forecast chart",
+    ariaLabel = tl("solar_forecast.forecast_chart"),
     showLegend = true,
     secondarySeries = null,
   } = options;
@@ -1973,7 +1974,7 @@ function forecastAccuracyPlotSvg(series, range, options = {}) {
   const legendItems = [...visible];
   if (hasCloud) {
     legendItems.push({
-      label: secondarySeries.label || "Cloud cover",
+      label: secondarySeries.label || tl("solar_forecast.cloud_cover"),
       color: secondarySeries.color || FORECAST_ACCURACY_COLORS.cloud,
     });
   }
@@ -2009,7 +2010,7 @@ function renderForecastAccuracyChartHtml(intraday, range, { compact = false } = 
   const powerSeries = [
     {
       id: "pv_actual",
-      label: "PV generation",
+      label: tl("solar_forecast.pv_generation"),
       color: FORECAST_ACCURACY_COLORS.actual,
       points: intraday?.actual_power_kw,
       clipToNow: true,
@@ -2017,7 +2018,7 @@ function renderForecastAccuracyChartHtml(intraday, range, { compact = false } = 
     {
       id: "pv_forecast",
       // Each moment shows the forecast Solcast had then, so it steps when a new forecast arrives
-      label: "Solcast at the time",
+      label: tl("solar_forecast.solcast_at_the_time"),
       color: FORECAST_ACCURACY_COLORS.predicted,
       points: intraday?.predicted_power_kw,
     },
@@ -2036,7 +2037,7 @@ function renderForecastAccuracyChartHtml(intraday, range, { compact = false } = 
   if (!compact && hasForecastValues(intraday?.latest_revision_power_kw)) {
     powerSeries.push({
       id: "pv_latest",
-      label: "Latest Solcast",
+      label: tl("solar_forecast.latest_solcast"),
       color: FORECAST_ACCURACY_COLORS.latestRevision,
       dash: "5 4",
       lineWidth: 1.6,
@@ -2045,7 +2046,7 @@ function renderForecastAccuracyChartHtml(intraday, range, { compact = false } = 
   }
   const hasPower = powerSeries.some((s) => s.points?.length >= 2);
   if (!hasPower) {
-    return `<p class="placeholder chart-empty">No intraday forecast comparison yet.</p>`;
+    return `<p class="placeholder chart-empty">${tl("solar_forecast.no_intraday_forecast_comparison_yet")}</p>`;
   }
   const pad = compact
     ? { l: 44, r: 6, t: 4, b: 20 }
@@ -2055,7 +2056,7 @@ function renderForecastAccuracyChartHtml(intraday, range, { compact = false } = 
     cloudPoints?.length >= 2
       ? {
           points: cloudPoints,
-          label: "Cloud cover",
+          label: tl("solar_forecast.cloud_cover"),
           color: FORECAST_ACCURACY_COLORS.cloud,
           fillColor: FORECAST_ACCURACY_COLORS.cloudFill,
         }
@@ -2074,7 +2075,7 @@ function renderForecastAccuracyChartHtml(intraday, range, { compact = false } = 
     yMinZero: true,
     showLegend: true,
     secondarySeries,
-    ariaLabel: "PV generation vs forecast power and cloud cover",
+    ariaLabel: tl("solar_forecast.pv_generation_vs_forecast_power_and"),
   })}</div>`;
 }
 
@@ -2113,7 +2114,7 @@ function renderForecastAccuracyRevisionsTable(revisions) {
     .join("");
   return `<div class="forecast-accuracy-revisions-wrap">
 <table class="forecast-accuracy-revisions">
-<thead><tr><th>Updated</th><th>Day total</th><th>Change</th><th>Remaining</th></tr></thead>
+<thead><tr><th>${tl("common.updated")}</th><th>${tl("solar_forecast.day_total")}</th><th>${tl("solar_forecast.change")}</th><th>${tl("solar_forecast.remaining")}</th></tr></thead>
 <tbody>${body}</tbody>
 </table>
 </div>`;
@@ -2121,7 +2122,7 @@ function renderForecastAccuracyRevisionsTable(revisions) {
 
 function renderForecastAccuracyCard(report, { compact = false, loading = false, period = "day" } = {}) {
   if (period !== "day") return "";
-  const title = compact ? "Forecast vs Production" : "Solar Forecast Accuracy";
+  const title = compact ? tl("solar_forecast.forecast_vs_production") : tl("solar_forecast.solar_forecast_accuracy");
   const titleHtml = compact
     ? `<p class="card-title">${esc(title)}</p>`
     : `<h3 class="fox-analysis-summary-title fox-analysis-chart-title">${esc(title)}</h3>`;
@@ -2129,7 +2130,7 @@ function renderForecastAccuracyCard(report, { compact = false, loading = false, 
   if (loading || !report) {
     return `<div class="card forecast-accuracy-card${compact ? " forecast-accuracy-card--compact" : ""}" style="${margin}">
 ${titleHtml}
-<p class="forecast-accuracy-empty chart-loading forecast-accuracy-loading">Loading forecast data…</p>
+<p class="forecast-accuracy-empty chart-loading forecast-accuracy-loading">${tl("solar_forecast.loading_forecast_data")}</p>
 </div>`;
   }
   if (report.error) {
@@ -2137,7 +2138,7 @@ ${titleHtml}
     return `<div class="card forecast-accuracy-card${compact ? " forecast-accuracy-card--compact" : ""}" style="${margin}">
 ${titleHtml}
 <p class="forecast-accuracy-empty">${esc(errText)}</p>
-<p class="forecast-accuracy-hint">Check FoxESS Plant is loaded, then refresh the page.</p>
+<p class="forecast-accuracy-hint">${tl("solar_forecast.check_foxess_plant_is_loaded_then")}</p>
 </div>`;
   }
   if (
@@ -2147,7 +2148,7 @@ ${titleHtml}
   ) {
     return `<div class="card forecast-accuracy-card${compact ? " forecast-accuracy-card--compact" : ""}" style="${margin}">
 ${titleHtml}
-<p class="forecast-accuracy-empty">No forecast comparison data for this day yet.</p>
+<p class="forecast-accuracy-empty">${tl("solar_forecast.no_forecast_comparison_data_for_this")}</p>
 </div>`;
   }
   const actual = formatDailyKwh(report.actual_kwh);
@@ -2162,14 +2163,14 @@ ${titleHtml}
     errKwh == null ? "" : errKwh >= 0 ? "forecast-accuracy-stat--high" : "forecast-accuracy-stat--low";
   const revisionHint =
     compact && report.revision_count
-      ? `<p class="forecast-accuracy-hint">${report.revision_count} forecast update${report.revision_count === 1 ? "" : "s"} · latest ${esc(formatRevisionClock(report.revisions?.[report.revisions.length - 1]?.fetched_at))}</p>`
+      ? `<p class="forecast-accuracy-hint">${tln("solar_forecast.forecast_updates", report.revision_count, { fetched_at: esc(formatRevisionClock(report.revisions?.[report.revisions.length - 1]?.fetched_at)) })}</p>`
       : "";
   const revisionShift =
     !compact &&
     report.first_predicted_kwh != null &&
     report.latest_predicted_kwh != null &&
     Math.abs(report.latest_predicted_kwh - report.first_predicted_kwh) >= 0.05
-      ? `<p class="forecast-accuracy-hint">Day total revised from ${esc(formatDailyKwh(report.first_predicted_kwh))} to ${esc(formatDailyKwh(report.latest_predicted_kwh))}</p>`
+      ? `<p class="forecast-accuracy-hint">${tl("solar_forecast.day_total_revised_from_first_predicted", { first_predicted_kwh: esc(formatDailyKwh(report.first_predicted_kwh)), latest_predicted_kwh: esc(formatDailyKwh(report.latest_predicted_kwh)) })}</p>`
       : "";
   const range = forecastAccuracyRangeFromReport(report, report.intraday);
   const chart = renderForecastAccuracyChartHtml(report.intraday, range, { compact });
@@ -2186,18 +2187,18 @@ ${titleHtml}
     ? `<div class="forecast-accuracy-stat"><label>Open-Meteo</label><strong>${esc(formatDailyKwh(omKwh))}</strong></div>`
     : "";
   const omErrStat = omErr != null
-    ? `<div class="forecast-accuracy-stat ${omErr >= 0 ? "forecast-accuracy-stat--high" : "forecast-accuracy-stat--low"}"><label>Open-Meteo Variance</label><strong>${esc(formatForecastSignedKwh(omErr))}</strong></div>`
+    ? `<div class="forecast-accuracy-stat ${omErr >= 0 ? "forecast-accuracy-stat--high" : "forecast-accuracy-stat--low"}"><label>${tl("solar_forecast.open_meteo_variance")}</label><strong>${esc(formatForecastSignedKwh(omErr))}</strong></div>`
     : "";
   // Solcast with no forecast for the day (e.g. refused by its API): show a dash, not "0 kWh" and a false variance
   const solcastHas = hasForecastValues(report.intraday?.predicted_power_kw);
   return `<div class="card forecast-accuracy-card${compact ? " forecast-accuracy-card--compact" : ""}" style="${margin}" data-forecast-accuracy="1">
 ${titleHtml}
-<p class="forecast-accuracy-sub">${compact ? "Forecasts compared with measured solar output" : "Measured production vs Solcast and Open-Meteo forecasts, with Solcast's intraday revisions"}</p>
+<p class="forecast-accuracy-sub">${compact ? tl("solar_forecast.forecasts_compared_with_measured_solar_output") : tl("solar_forecast.measured_production_vs_solcast_and_open")}</p>
 <div class="forecast-accuracy-stats">
-<div class="forecast-accuracy-stat"><label>Actual</label><strong>${esc(actual)}</strong></div>
+<div class="forecast-accuracy-stat"><label>${tl("solar_forecast.actual")}</label><strong>${esc(actual)}</strong></div>
 <div class="forecast-accuracy-stat"><label>Solcast</label><strong>${esc(solcastHas ? predicted : "—")}</strong></div>
 ${omStat}
-${solcastHas ? `<div class="forecast-accuracy-stat ${errCls}"><label>Solcast Variance</label><strong>${esc(errText)}</strong></div>` : ""}
+${solcastHas ? `<div class="forecast-accuracy-stat ${errCls}"><label>${tl("solar_forecast.solcast_variance")}</label><strong>${esc(errText)}</strong></div>` : ""}
 ${omErrStat}
 </div>
 ${revisionShift}${revisionHint}
@@ -2226,10 +2227,10 @@ function octopusApiActive(plantState) {
 function reportsNavForState(plantState) {
   const items = REPORTS_NAV.filter((item) => item.id !== "octopus" || octopusApiActive(plantState));
   if (performanceEnabled(plantState)) {
-    items.push({ id: "performance", label: "Performance" });
+    items.push({ id: "performance", label: tl("common.performance") });
   }
   if (smartChargeEnabled(plantState)) {
-    items.push({ id: "smart_charge", label: "SmartCharge Analysis" });
+    items.push({ id: "smart_charge", label: tl("common.smartcharge_analysis") });
   }
   return items;
 }
@@ -2295,16 +2296,16 @@ function octopusChartTooltipHtml(chartMode, bar) {
   const timeRow = `<div class="octopus-greener-tooltip-time">${esc(time)}</div>`;
   if (chartMode === "import-rate") {
     const rate = bar.p_per_kwh ?? bar.value;
-    return `${timeRow}<div class="octopus-greener-tooltip-score">Import price: <strong>${esc(formatOctopusRate(rate))}</strong></div>`;
+    return `${timeRow}<div class="octopus-greener-tooltip-score">${tl("octopus.import_price_rate", { rate: esc(formatOctopusRate(rate)) })}</div>`;
   }
   if (chartMode === "export-rate") {
     const rate = bar.p_per_kwh ?? bar.value;
-    return `${timeRow}<div class="octopus-greener-tooltip-score">Export price: <strong>${esc(formatOctopusRate(rate))}</strong></div>`;
+    return `${timeRow}<div class="octopus-greener-tooltip-score">${tl("octopus.export_price_rate", { rate: esc(formatOctopusRate(rate)) })}</div>`;
   }
   if (chartMode === "consumption" || chartMode === "consumption-export") {
     const kwh = bar.kwh ?? bar.value;
     const kwhText = kwh != null && Number.isFinite(Number(kwh)) ? `${Number(kwh).toFixed(1)} kWh` : "—";
-    const label = chartMode === "consumption-export" ? "Smart-meter export" : "Smart-meter import";
+    const label = chartMode === "consumption-export" ? tl("octopus.smart_meter_export") : tl("octopus.smart_meter_import");
     return `${timeRow}<div class="octopus-greener-tooltip-score">${esc(label)}: <strong>${esc(kwhText)}</strong></div>`;
   }
   if (chartMode === "meter-cost") {
@@ -2317,18 +2318,18 @@ function octopusChartTooltipHtml(chartMode, bar) {
     const importKwh = bar.import_kwh != null ? `${Number(bar.import_kwh).toFixed(1)} kWh` : "—";
     const exportKwh = bar.export_kwh != null ? `${Number(bar.export_kwh).toFixed(1)} kWh` : "—";
     return `${timeRow}
-<div class="octopus-greener-tooltip-score">Import spend: <strong>${esc(spendText)}</strong> <span class="octopus-greener-tooltip-gco2">(${esc(importKwh)})</span></div>
-<div class="octopus-greener-tooltip-gco2">Export earned: <strong>${esc(earnText)}</strong> (${esc(exportKwh)}) · Net <strong>${esc(netText)}</strong></div>`;
+<div class="octopus-greener-tooltip-score">${tl("octopus.import_spend_spendtext", { spendText: esc(spendText) })} <span class="octopus-greener-tooltip-gco2">(${esc(importKwh)})</span></div>
+<div class="octopus-greener-tooltip-gco2">${tl("octopus.export_earned_earntext_exportkwh_net_nettext", { earnText: esc(earnText), exportKwh: esc(exportKwh), netText: esc(netText) })}</div>`;
   }
   if (chartMode === "dual") {
     const scoreText = bar.low_carbon_score != null ? `${bar.low_carbon_score}/10` : "—";
-    const carbonLabel = octopusCarbonPeriodIsGreen(bar) ? "Low carbon" : "Higher carbon";
+    const carbonLabel = octopusCarbonPeriodIsGreen(bar) ? tl("octopus.low_carbon") : tl("octopus.higher_carbon");
     const importPrice = bar.p_per_kwh != null ? formatOctopusRate(bar.p_per_kwh) : "—";
     const exportPrice = bar.export_p_per_kwh != null ? formatOctopusRate(bar.export_p_per_kwh) : "—";
     const gco2Text = bar.gco2 != null ? `${bar.gco2} gCO₂/kWh` : "";
     return `${timeRow}
-<div class="octopus-greener-tooltip-score">${esc(carbonLabel)} score: <strong>${esc(scoreText)}</strong></div>
-<div class="octopus-greener-tooltip-gco2">Import price: <strong>${esc(importPrice)}</strong> · Export price: <strong>${esc(exportPrice)}</strong>${gco2Text ? ` · ${esc(gco2Text)}` : ""}</div>`;
+<div class="octopus-greener-tooltip-score">${tl("octopus.carbonlabel_score_scoretext", { carbonLabel: esc(carbonLabel), scoreText: esc(scoreText) })}</div>
+<div class="octopus-greener-tooltip-gco2">${tl("octopus.import_price_importprice_export_price_exportpric", { importPrice: esc(importPrice), exportPrice: esc(exportPrice), value: gco2Text ? ` · ${esc(gco2Text)}` : "" })}</div>`;
   }
   return `${timeRow}<div class="octopus-greener-tooltip-gco2">${esc(String(bar.value ?? "—"))}</div>`;
 }
@@ -2401,11 +2402,11 @@ function octopusGreenerWeekRows(greenerNights, periodOffset = 0, now = new Date(
 
 function octopusGreenerWeekHeadline(rows) {
   const withData = rows.filter((r) => r.hasData);
-  if (!withData.length) return "Greener nights forecast";
+  if (!withData.length) return tl("octopus.greener_nights_forecast");
   const greener = withData.filter((r) => r.is_greener_night);
-  if (!greener.length) return "No greener nights forecast this week";
-  if (greener.length === 1) return "1 greener night this week";
-  return `${greener.length} greener nights this week`;
+  if (!greener.length) return tl("octopus.no_greener_nights_forecast_this_week");
+  if (greener.length === 1) return tl("octopus.x_1_greener_night_this_week");
+  return tl("octopus.n_greener_nights_this_week", { count: greener.length });
 }
 
 function startOfWeekSunday(d) {
@@ -2474,14 +2475,14 @@ function octopusAnalysisCardTitle(title, { compact = false } = {}) {
 }
 
 function renderOctopusGreenerDailyIntroHtml() {
-  return `<p class="octopus-greener-intro octopus-greener-intro--daily">${esc(OCTOPUS_GREENER_DAILY_INTRO)}<span class="octopus-greener-help-wrap"><button type="button" class="octopus-greener-help-btn fox-analysis-help-btn" aria-describedby="octopus-greener-help-tip" aria-label="Low carbon score information"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.2"/><text x="8" y="11.5" text-anchor="middle" font-size="10" font-weight="600" fill="currentColor">?</text></svg></button><span id="octopus-greener-help-tip" class="octopus-greener-help-bubble" role="tooltip">${esc(OCTOPUS_GREENER_DAILY_HELP)}</span></span></p>`;
+  return `<p class="octopus-greener-intro octopus-greener-intro--daily">${esc(OCTOPUS_GREENER_DAILY_INTRO)}<span class="octopus-greener-help-wrap"><button type="button" class="octopus-greener-help-btn fox-analysis-help-btn" aria-describedby="octopus-greener-help-tip" aria-label="${tl("octopus.low_carbon_score_information")}"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.2"/><text x="8" y="11.5" text-anchor="middle" font-size="10" font-weight="600" fill="currentColor">?</text></svg></button><span id="octopus-greener-help-tip" class="octopus-greener-help-bubble" role="tooltip">${esc(OCTOPUS_GREENER_DAILY_HELP)}</span></span></p>`;
 }
 
 function renderOctopusUpcomingWeekCard(payload) {
   if (!payload) {
     return `<div class="card octopus-upcoming-week-card" data-octopus-upcoming-week-card="1">
 ${octopusAnalysisCardTitle(OCTOPUS_UPCOMING_WEEK_CARD_TITLE)}
-<p class="octopus-greener-empty chart-loading">Loading upcoming week…</p>
+<p class="octopus-greener-empty chart-loading">${tl("octopus.loading_upcoming_week")}</p>
 </div>`;
   }
   const rows = octopusUpcomingWeekRows(payload.greener_nights);
@@ -2499,8 +2500,8 @@ ${octopusAnalysisCardTitle(OCTOPUS_UPCOMING_WEEK_CARD_TITLE)}
       ]
         .filter(Boolean)
         .join(" ");
-      const badge = row.featured ? `<span class="octopus-upcoming-week-badge">Green</span>` : "";
-      return `<div class="${classes}" title="${esc(row.label)} ${esc(row.tileDate)}${active ? " · Greener night" : ""}${row.greenness_score != null ? ` · Score ${row.greenness_score}/100` : ""}">
+      const badge = row.featured ? `<span class="octopus-upcoming-week-badge">${tl("octopus.green")}</span>` : "";
+      return `<div class="${classes}" title="${esc(row.label)} ${esc(row.tileDate)}${active ? tl("octopus.greener_night") : ""}${row.greenness_score != null ? ` ${tl("octopus.score_greenness_score_100", { greenness_score: row.greenness_score })}` : ""}">
 ${badge}
 <span class="octopus-upcoming-week-dayname">${esc(row.label)}</span>
 <span class="octopus-upcoming-week-date">${esc(row.tileDate)}</span>
@@ -2510,10 +2511,10 @@ ${octopusGreenerPlantSvg(active)}
     .join("");
   return `<div class="card octopus-upcoming-week-card" data-octopus-upcoming-week-card="1">
 ${octopusAnalysisCardTitle(OCTOPUS_UPCOMING_WEEK_CARD_TITLE)}
-<p class="octopus-greener-headline">Greener Nights start at 11PM and end at 6AM the following morning.</p>
-<p class="octopus-upcoming-week-note">Spot an upcoming Greener Night that&apos;s now disappeared? Don&apos;t worry, this will still count even if it&apos;s no longer showing.</p>
+<p class="octopus-greener-headline">${tl("octopus.greener_nights_start_at_11pm_and")}</p>
+<p class="octopus-upcoming-week-note">${tl("octopus.spot_an_upcoming_greener_night_that")}</p>
 ${errHtml}
-<div class="octopus-upcoming-week-grid" role="list" aria-label="Greener nights upcoming week">${tiles}</div>
+<div class="octopus-upcoming-week-grid" role="list" aria-label="${tl("octopus.greener_nights_upcoming_week")}">${tiles}</div>
 </div>`;
 }
 
@@ -2529,7 +2530,7 @@ function renderOctopusGreenerWeekChartSvg(greenerNights, periodOffset = 0) {
   const scoreMax = 100;
   const rows = octopusGreenerWeekRows(greenerNights, periodOffset);
   if (!rows.some((r) => r.hasData)) {
-    return `<p class="octopus-greener-empty">Greener nights forecast unavailable for this week. Octopus publishes the next seven overnight windows only.</p>`;
+    return `<p class="octopus-greener-empty">${tl("octopus.greener_nights_forecast_unavailable_for_this")}</p>`;
   }
   const slotW = chartW / rows.length;
   const barW = Math.max(10, Math.min(36, slotW * 0.72));
@@ -2570,10 +2571,10 @@ function renderOctopusGreenerWeekChartSvg(greenerNights, periodOffset = 0) {
   const hitLeftPct = ((padL / W) * 100).toFixed(3);
   return `<div class="octopus-greener-chart-wrap">
 <div class="octopus-greener-chart-plot" data-octopus-greener-plot="1" data-chart-mode="week" data-chart-w="${W}" data-pad-l="${padL}" data-pad-t="${padT}" data-pad-b="${padB}" data-chart-inner-w="${chartW}" data-slot-w="${slotW}" data-bars="${barsJson}" style="--octopus-hit-left:${hitLeftPct}%">
-<svg class="octopus-greener-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Greener nights weekly forecast chart">
+<svg class="octopus-greener-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${tl("octopus.greener_nights_weekly_forecast_chart")}">
 <polygon points="24,${yArrowTip} 20,${yArrowBase} 28,${yArrowBase}" class="octopus-greener-y-arrow-head" />
 <line x1="24" y1="${yArrowBase}" x2="24" y2="${(padT + chartH).toFixed(1)}" class="octopus-greener-y-arrow" />
-<text x="14" y="${yMid.toFixed(1)}" transform="rotate(-90 14 ${yMid.toFixed(1)})" text-anchor="middle" class="octopus-greener-y-label">Greenness score</text>
+<text x="14" y="${yMid.toFixed(1)}" transform="rotate(-90 14 ${yMid.toFixed(1)})" text-anchor="middle" class="octopus-greener-y-label">${tl("octopus.greenness_score")}</text>
 ${bars}
 ${xLabels}
 </svg>
@@ -2581,8 +2582,8 @@ ${xLabels}
 <div class="octopus-greener-tooltip" hidden role="tooltip"></div>
 </div>
 <div class="octopus-greener-legend">
-<span><i class="octopus-greener-swatch octopus-greener-swatch--green"></i>Greener night</span>
-<span><i class="octopus-greener-swatch octopus-greener-swatch--purple"></i>Not a greener night</span>
+<span>${tl("octopus.greener_night_2")}</span>
+<span>${tl("octopus.not_a_greener_night")}</span>
 </div>
 </div>`;
 }
@@ -2590,18 +2591,18 @@ ${xLabels}
 function renderOctopusGreenerWeekTable(greenerNights, periodOffset = 0) {
   const rows = octopusGreenerWeekRows(greenerNights, periodOffset);
   if (!rows.some((r) => r.hasData)) {
-    return `<p class="octopus-greener-empty">Greener nights forecast unavailable for this week. Octopus publishes the next seven overnight windows only.</p>`;
+    return `<p class="octopus-greener-empty">${tl("octopus.greener_nights_forecast_unavailable_for_this")}</p>`;
   }
   const body = rows
     .map((r) => {
       const score = r.greenness_score != null ? `${r.greenness_score}/100` : "—";
-      const night = !r.hasData ? "—" : r.is_greener_night ? "Yes" : "No";
+      const night = !r.hasData ? "—" : r.is_greener_night ? tl("octopus.yes") : tl("octopus.no");
       const index = r.greenness_index ? String(r.greenness_index) : "—";
       return `<tr><td>${esc(r.shortDate)}</td><td>${esc(r.label)}</td><td>${esc(score)}</td><td>${esc(index)}</td><td>${esc(night)}</td></tr>`;
     })
     .join("");
   return `<div class="octopus-greener-table-wrap"><table class="octopus-greener-table">
-<thead><tr><th>Date</th><th>Day</th><th>Greenness score</th><th>Index</th><th>Greener night</th></tr></thead>
+<thead><tr><th>${tl("common.date")}</th><th>${tl("common.day")}</th><th>${tl("octopus.greenness_score")}</th><th>${tl("octopus.index")}</th><th>${tl("octopus.greener_night_3")}</th></tr></thead>
 <tbody>${body}</tbody>
 </table></div>`;
 }
@@ -2613,8 +2614,8 @@ function renderOctopusGreenerWeekTimeline(rows) {
     if (!any) return "";
     return `<ul class="octopus-greener-timeline">${renderOctopusGreenerTimelineItem({
       tone: "warn",
-      title: "No greener nights flagged in this week\u2019s forecast",
-      detail: "Shift EV charging to nights with higher greenness scores if you can.",
+      title: tl("octopus.no_greener_nights_flagged_in_this"),
+      detail: tl("octopus.shift_ev_charging_to_nights_with"),
     })}</ul>`;
   }
   const items = upcoming
@@ -2622,8 +2623,8 @@ function renderOctopusGreenerWeekTimeline(rows) {
       const score = r.greenness_score != null ? `${r.greenness_score}/100` : "—";
       return renderOctopusGreenerTimelineItem({
         tone: "good",
-        title: `${r.label} ${r.shortDate}: greener night (${score})`,
-        detail: "Good window for overnight EV charging (23:00–06:00).",
+        title: tl("octopus.label_shortdate_greener_night_score", { label: r.label, shortDate: r.shortDate, score }),
+        detail: tl("octopus.good_window_for_overnight_ev_charging"),
       });
     })
     .join("");
@@ -2632,9 +2633,9 @@ function renderOctopusGreenerWeekTimeline(rows) {
 
 function renderOctopusGreenerCarbonLegend(threshold) {
   return `<div class="octopus-greener-legend octopus-greener-legend--top">
-<span><i class="octopus-greener-swatch octopus-greener-swatch--green"></i>≤${Math.round(threshold)}gCO₂/kWh Green</span>
-<span><i class="octopus-greener-swatch octopus-greener-swatch--purple"></i>&gt;${Math.round(threshold)}gCO₂/kWh Not-so-green</span>
-<span><i class="octopus-greener-swatch-line" aria-hidden="true"></i>National green line</span>
+<span>${tl("octopus.threshold_gco2_kwh_green", { threshold: Math.round(threshold) })}</span>
+<span>${tl("octopus.threshold_gco2_kwh_not_so_green", { threshold: Math.round(threshold) })}</span>
+<span>${tl("octopus.national_green_line")}</span>
 </div>`;
 }
 
@@ -2695,7 +2696,7 @@ function renderOctopusGreenerChartSvg(periods, threshold) {
   const now = Date.now();
   const rows = octopusCarbonPeriodsForChart(periods, now);
   if (!rows.length) {
-    return `<p class="octopus-greener-empty">Half-hourly carbon forecast unavailable. Save a valid Octopus API key and account number with a UK postcode on your account.</p>`;
+    return `<p class="octopus-greener-empty">${tl("octopus.half_hourly_carbon_forecast_unavailable_save")}</p>`;
   }
   const greenScoreLine = octopusLowCarbonScoreGreenMin(threshold);
   const greenY = padT + chartH - (greenScoreLine / scoreMax) * chartH;
@@ -2728,7 +2729,7 @@ function renderOctopusGreenerChartSvg(periods, threshold) {
     const x = padL + idx * slotW + slotW / 2;
     const label =
       row.start_ms <= now && row.end_ms > now
-        ? "Now"
+        ? tl("common.now")
         : formatOctopusChartTimeMs(row.start_ms);
     xLabels.push(
       `<text x="${x.toFixed(1)}" y="${H - 8}" text-anchor="middle" class="octopus-greener-axis">${esc(label)}</text>`
@@ -2742,10 +2743,10 @@ function renderOctopusGreenerChartSvg(periods, threshold) {
   return `<div class="octopus-greener-chart-wrap">
 ${renderOctopusGreenerCarbonLegend(threshold)}
 <div class="octopus-greener-chart-plot" data-octopus-greener-plot="1" data-chart-mode="carbon-day" data-chart-w="${W}" data-pad-l="${padL}" data-pad-t="${padT}" data-pad-b="${padB}" data-chart-inner-w="${chartW}" data-slot-w="${slotW}" data-bars="${barsJson}" style="--octopus-hit-left:${hitLeftPct}%">
-<svg class="octopus-greener-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Carbon intensity forecast chart">
+<svg class="octopus-greener-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${tl("octopus.carbon_intensity_forecast_chart")}">
 <polygon points="24,${yArrowTip} 20,${yArrowBase} 28,${yArrowBase}" class="octopus-greener-y-arrow-head" />
 <line x1="24" y1="${yArrowBase}" x2="24" y2="${(padT + chartH).toFixed(1)}" class="octopus-greener-y-arrow" />
-<text x="14" y="${yMid.toFixed(1)}" transform="rotate(-90 14 ${yMid.toFixed(1)})" text-anchor="middle" class="octopus-greener-y-label">Low carbon score</text>
+<text x="14" y="${yMid.toFixed(1)}" transform="rotate(-90 14 ${yMid.toFixed(1)})" text-anchor="middle" class="octopus-greener-y-label">${tl("octopus.low_carbon_score")}</text>
 <line x1="${padL}" y1="${greenY.toFixed(1)}" x2="${W - padR}" y2="${greenY.toFixed(1)}" class="octopus-greener-green-line" stroke-dasharray="4 4" />
 ${bars}
 ${xLabels.join("")}
@@ -2753,7 +2754,7 @@ ${xLabels.join("")}
 <div class="octopus-greener-hit" aria-hidden="true"></div>
 <div class="octopus-greener-tooltip" hidden role="tooltip"></div>
 </div>
-<p class="octopus-analysis-chart-hint">Hover bars for time, carbon score, and intensity</p>
+<p class="octopus-analysis-chart-hint">${tl("octopus.hover_bars_for_time_carbon_score")}</p>
 </div>`;
 }
 
@@ -2761,9 +2762,9 @@ function octopusCarbonDayTooltipHtml(bar) {
   const time = formatOctopusTooltipSlotRange(bar.start_ms, bar.end_ms);
   const scoreText = bar.score != null ? `${bar.score}/10` : "—";
   const gco2Text = bar.gco2 != null ? `${bar.gco2} gCO₂/kWh` : "—";
-  const bandText = bar.green ? "Green" : "Not-so-green";
+  const bandText = bar.green ? tl("octopus.green") : tl("octopus.not_so_green");
   return `<div class="octopus-greener-tooltip-time">${esc(time)}</div>
-<div class="octopus-greener-tooltip-score">${esc(bandText)} · Low carbon score: <strong>${esc(scoreText)}</strong></div>
+<div class="octopus-greener-tooltip-score">${tl("octopus.bandtext_low_carbon_score_scoretext", { bandText: esc(bandText), scoreText: esc(scoreText) })}</div>
 <div class="octopus-greener-tooltip-gco2">${esc(gco2Text)}</div>`;
 }
 
@@ -2813,10 +2814,10 @@ function updateOctopusGreenerChartHover(plot, clientX) {
   tooltip.hidden = false;
   if (chartMode === "week") {
     const scoreText = bar.greenness_score != null ? `${bar.greenness_score}/100` : "—";
-    const nightText = !bar.hasData ? "No forecast" : bar.is_greener_night ? "Greener night" : "Not a greener night";
+    const nightText = !bar.hasData ? tl("octopus.no_forecast") : bar.is_greener_night ? tl("octopus.greener_night_3") : tl("octopus.not_a_greener_night_2");
     const indexText = bar.greenness_index ? String(bar.greenness_index) : "—";
     tooltip.innerHTML = `<div class="octopus-greener-tooltip-time">${esc(bar.shortDate || bar.label || bar.date || "—")}</div>
-<div class="octopus-greener-tooltip-score">Greenness score: <strong>${esc(scoreText)}</strong></div>
+<div class="octopus-greener-tooltip-score">${tl("octopus.greenness_score_scoretext", { scoreText: esc(scoreText) })}</div>
 <div class="octopus-greener-tooltip-gco2">${esc(nightText)}${bar.hasData && bar.greenness_index ? ` · ${esc(indexText)}` : ""}</div>`;
   } else if (
     chartMode === "import-rate" ||
@@ -2922,7 +2923,7 @@ function bindTouchChartScrub(el, onScrub, onEnd) {
 function renderOctopusGreenerTable(periods) {
   const rows = octopusCarbonPeriodsForChart(periods);
   if (!rows.length) {
-    return `<p class="octopus-greener-empty">Half-hourly carbon forecast unavailable. Save a valid Octopus API key and account number with a UK postcode on your account.</p>`;
+    return `<p class="octopus-greener-empty">${tl("octopus.half_hourly_carbon_forecast_unavailable_save")}</p>`;
   }
   const body = rows
     .map((p) => {
@@ -2932,7 +2933,7 @@ function renderOctopusGreenerTable(periods) {
     })
     .join("");
   return `<div class="octopus-greener-table-wrap"><table class="octopus-greener-table">
-<thead><tr><th>Time</th><th>Low carbon score</th><th>Carbon intensity (gCO₂/kWh)</th></tr></thead>
+<thead><tr><th>${tl("common.time")}</th><th>${tl("octopus.low_carbon_score")}</th><th>${tl("octopus.carbon_intensity_gco2_kwh")}</th></tr></thead>
 <tbody>${body}</tbody>
 </table></div>`;
 }
@@ -2951,7 +2952,7 @@ function renderOctopusGreenerNightsCard(
   if (!payload) {
     return `<div class="card octopus-greener-card${compact ? " octopus-greener-card--compact" : ""}" style="margin-top:14px">
 ${octopusAnalysisCardTitle(OCTOPUS_GREENER_CARD_TITLE, { compact })}
-<p class="octopus-greener-empty chart-loading">Loading greener forecast…</p>
+<p class="octopus-greener-empty chart-loading">${tl("octopus.loading_greener_forecast")}</p>
 </div>`;
   }
   const isWeek = energyPeriod === "week";
@@ -2968,22 +2969,22 @@ ${octopusAnalysisCardTitle(OCTOPUS_GREENER_CARD_TITLE, { compact })}
       ? `${renderOctopusGreenerWeekChartSvg(payload.greener_nights, energyPeriodOffset)}${renderOctopusGreenerWeekTimeline(weekRows)}`
       : renderOctopusGreenerWeekTable(payload.greener_nights, energyPeriodOffset);
     const weekIntro = standardActive
-      ? "Weekly greener nights forecast (23:00–06:00). Taller bars mean cleaner overnight energy."
-      : "Daily greenness scores for the selected week from Octopus.";
+      ? tl("octopus.weekly_greener_nights_forecast_23_00")
+      : tl("octopus.daily_greenness_scores_for_the_selected");
     introHtml = `<p class="octopus-greener-intro">${esc(weekIntro)}</p>`;
     const weekLabel = energyPeriodNavLabel("week", energyPeriodOffset);
-    nightsHint = `<p class="octopus-greener-hint">${esc(weekLabel)} · Octopus publishes up to seven nights ahead</p>`;
+    nightsHint = `<p class="octopus-greener-hint">${tl("octopus.weeklabel_octopus_publishes_up_to_seven", { weekLabel: esc(weekLabel) })}</p>`;
   } else {
-    headline = payload.title || "Clean energy forecast";
+    headline = payload.title || tl("octopus.clean_energy_forecast");
     body = standardActive
       ? `${renderOctopusGreenerChartSvg(payload.carbon_periods, threshold)}${renderOctopusGreenerTimeline(payload.timeline)}`
       : renderOctopusGreenerTable(payload.carbon_periods);
     introHtml = standardActive
       ? renderOctopusGreenerDailyIntroHtml()
-      : `<p class="octopus-greener-intro">Half-hourly low carbon score and regional carbon intensity from Octopus.</p>`;
+      : `<p class="octopus-greener-intro">${tl("octopus.half_hourly_low_carbon_score_and")}</p>`;
     nightsHint =
       Array.isArray(payload.greener_nights) && payload.greener_nights.length
-        ? `<p class="octopus-greener-hint">${payload.greener_nights.filter((n) => n.is_greener_night).length} greener night(s) in the next ${payload.greener_nights.length} days · ${payload.history_count || 0} snapshots stored</p>`
+        ? `<p class="octopus-greener-hint">${tl("octopus.length_greener_night_s_in_the", { length: payload.greener_nights.filter((n) => n.is_greener_night).length, length2: payload.greener_nights.length, value: payload.history_count || 0 })}</p>`
         : "";
   }
   const err = payload.errors?.greener_nights || payload.errors?.carbon || payload.errors?.account;
@@ -2991,9 +2992,9 @@ ${octopusAnalysisCardTitle(OCTOPUS_GREENER_CARD_TITLE, { compact })}
   return `<div class="card octopus-greener-card${compact ? " octopus-greener-card--compact" : ""}" style="margin-top:14px" data-octopus-greener-card="1">
 <div class="octopus-greener-head">
 ${octopusAnalysisCardTitle(OCTOPUS_GREENER_CARD_TITLE, { compact })}
-<div class="octopus-greener-view-toggle" role="group" aria-label="Greener forecast view">
-<button type="button" class="octopus-greener-view-btn${standardActive ? " active" : ""}" data-action="octopus-greener-view" data-view="standard" aria-pressed="${standardActive}">Graph</button>
-<button type="button" class="octopus-greener-view-btn${!standardActive ? " active" : ""}" data-action="octopus-greener-view" data-view="detailed" aria-pressed="${!standardActive}">List</button>
+<div class="octopus-greener-view-toggle" role="group" aria-label="${tl("octopus.greener_forecast_view")}">
+<button type="button" class="octopus-greener-view-btn${standardActive ? " active" : ""}" data-action="octopus-greener-view" data-view="standard" aria-pressed="${standardActive}">${tl("octopus.graph")}</button>
+<button type="button" class="octopus-greener-view-btn${!standardActive ? " active" : ""}" data-action="octopus-greener-view" data-view="detailed" aria-pressed="${!standardActive}">${tl("octopus.list")}</button>
 </div>
 </div>
 <p class="octopus-greener-headline">${esc(headline)}</p>
@@ -3016,25 +3017,25 @@ function renderOctopusRewardsCard(payload, { compact = false } = {}) {
   const hasExport = exportRate != null && Number.isFinite(Number(exportRate));
   const hasCost = hasImport || hasExport || balance != null;
   if (!hasPoints && !hasCost) return "";
-  const pointsVal = hasPoints ? `${Number(points).toLocaleString()} Octopoints` : "—";
+  const pointsVal = hasPoints ? tl("octopus.points_octopoints", { points: Number(points).toLocaleString() }) : "—";
   const moneyVal = formatOctopusPointsValue(points, money);
   // Prefer a 3-pane row when we have rates: Octopoints | Import | Export
   const useThree = hasImport || hasExport;
   const importPane = `<div class="octopus-rewards-pane">
-<label>Current import rate</label>
+<label>${tl("octopus.current_import_rate")}</label>
 <strong>${esc(formatOctopusRate(importRate))}</strong>
-<span class="octopus-rewards-sub">Account balance ${esc(formatOctopusMoneyPence(balance))}</span>
+<span class="octopus-rewards-sub">${tl("octopus.account_balance_balance", { balance: esc(formatOctopusMoneyPence(balance)) })}</span>
 </div>`;
   const exportPane = `<div class="octopus-rewards-pane">
-<label>Current export rate</label>
+<label>${tl("octopus.current_export_rate")}</label>
 <strong>${esc(formatOctopusRate(exportRate))}</strong>
-<span class="octopus-rewards-sub">${hasExport ? "What Outgoing pays now" : "No export tariff linked"}</span>
+<span class="octopus-rewards-sub">${hasExport ? tl("octopus.what_outgoing_pays_now") : tl("octopus.no_export_tariff_linked")}</span>
 </div>`;
   return `<div class="card octopus-rewards-card${compact ? " octopus-rewards-card--compact" : ""}" style="margin-top:14px" data-octopus-rewards-card="1">
-<p class="card-title">Octopus account</p>
+<p class="card-title">${tl("octopus.octopus_account")}</p>
 <div class="octopus-rewards-split${useThree ? " octopus-rewards-split--three" : ""}">
 <div class="octopus-rewards-pane">
-<label>Octopoints</label>
+<label>${tl("octopus.octopoints")}</label>
 <strong>${esc(pointsVal)}</strong>
 ${moneyVal ? `<span class="octopus-rewards-sub">${esc(moneyVal)}</span>` : ""}
 </div>
@@ -3051,9 +3052,9 @@ function octopusAnalysisPayload(plantState) {
 
 function formatSmartChargeMode(mode) {
   const m = String(mode || "").toLowerCase();
-  if (m === "max_safety") return "Max Safety";
-  if (m === "max_profit") return "Max Profit";
-  if (m === "max_green") return "Max Green";
+  if (m === "max_safety") return tl("smart_charge.max_safety");
+  if (m === "max_profit") return tl("smart_charge.max_profit");
+  if (m === "max_green") return tl("smart_charge.max_green");
   return mode ? String(mode) : "—";
 }
 
@@ -3087,12 +3088,12 @@ function formatSmartChargeTimeMs(ms) {
 }
 
 const SC_ACTION_PILL = {
-  charge: { label: "Charge", color: "#2F6BFF" },
-  spread_charge: { label: "Charge", color: "#2F6BFF" },
-  winter_fill: { label: "Winter fill", color: "#2F6BFF" },
-  solar_gap_fill: { label: "Solar gap", color: "#2F6BFF" },
-  export: { label: "Export", color: "#FF6FAF" },
-  spread_export: { label: "Export", color: "#FF6FAF" },
+  charge: { label: tl("common.charge"), color: "#2F6BFF" },
+  spread_charge: { label: tl("common.charge"), color: "#2F6BFF" },
+  winter_fill: { label: tl("panel.winter_fill"), color: "#2F6BFF" },
+  solar_gap_fill: { label: tl("panel.solar_gap"), color: "#2F6BFF" },
+  export: { label: tl("common.export"), color: "#FF6FAF" },
+  spread_export: { label: tl("common.export"), color: "#FF6FAF" },
 };
 
 function smartChargeActionPill(action) {
@@ -3121,33 +3122,33 @@ function renderSmartChargeSummaryCards(report) {
   const sys = (report && report.system_savings) || null;
   const cards = [
     {
-      label: "System saved",
+      label: tl("smart_charge.system_saved"),
       value: sys ? formatGbp2(sys.net_daily_savings_gbp) : "—",
       sub: sys
-        ? `vs no solar/battery · £${Number(sys.avoided_grid_cost_gbp || 0).toFixed(2)} avoided + £${Number(sys.export_earnings_gbp || 0).toFixed(2)} export`
-        : "needs performance history",
+        ? tl("smart_charge.vs_no_solar_battery_value_avoided", { value: Number(sys.avoided_grid_cost_gbp || 0).toFixed(2), value2: Number(sys.export_earnings_gbp || 0).toFixed(2) })
+        : tl("smart_charge.needs_performance_history"),
       tone: "savings",
     },
     {
-      label: "SmartCharge added",
+      label: tl("smart_charge.smartcharge_added"),
       value: s.estimated_saving_p != null ? formatGbp2(Number(s.estimated_saving_p) / 100) : "—",
       sub:
         s.estimated_saving_p != null
-          ? `smart scheduling vs plain self-use`
-          : `in ${formatSmartChargeMode(s.operating_mode)} — no price saving to make`,
+          ? tl("smart_charge.smart_scheduling_vs_plain_self_use")
+          : tl("smart_charge.in_operating_mode_no_price_saving", { operating_mode: formatSmartChargeMode(s.operating_mode) }),
       tone: "profit",
     },
     {
-      label: "Grid charged",
+      label: tl("smart_charge.grid_charged"),
       value: formatSmartChargeKwh(s.actual_grid_charge_kwh),
-      sub: `${s.nights_charged ?? 0} night(s) ran · ${s.nights_skipped_solar ?? 0} skipped (solar covered)`,
+      sub: tl("smart_charge.value_night_s_ran_value2_skipped", { value: s.nights_charged ?? 0, value2: s.nights_skipped_solar ?? 0 }),
       tone: "import",
     },
     {
-      label: "Solar generated",
+      label: tl("smart_charge.solar_generated"),
       value: sys && sys.pv_kwh != null ? `${Number(sys.pv_kwh).toFixed(1)} kWh` : "—",
       sub: sys
-        ? `imported ${Number(sys.import_kwh || 0).toFixed(1)} · exported ${Number(sys.export_kwh || 0).toFixed(1)} kWh`
+        ? tl("smart_charge.imported_value_exported_value2_kwh", { value: Number(sys.import_kwh || 0).toFixed(1), value2: Number(sys.export_kwh || 0).toFixed(1) })
         : "",
       tone: "export",
     },
@@ -3166,7 +3167,7 @@ ${c.sub ? `<div class="fox-sc-analysis-card-sub">${esc(c.sub)}</div>` : ""}
 function renderSmartChargeDailyChartSvg(dailyChart) {
   const rows = (Array.isArray(dailyChart) ? dailyChart : []).filter((r) => r?.date);
   if (!rows.length) {
-    return `<p class="octopus-greener-empty">No daily SmartCharge activity for this period.</p>`;
+    return `<p class="octopus-greener-empty">${tl("smart_charge.no_daily_smartcharge_activity_for_this")}</p>`;
   }
   const mapped = rows.map((row) => {
     const d = new Date(`${row.date}T12:00:00`);
@@ -3214,18 +3215,18 @@ function renderSmartChargeDailyChartSvg(dailyChart) {
     })
     .join("");
   const legend = `<div class="fox-sc-analysis-chart-legend">
-<span><i style="background:#2F6BFF"></i> Import actual</span>
-<span><i style="background:#8DB6FF"></i> Import planned</span>
-<span><i style="background:#FF6FAF"></i> Export actual</span>
-<span><i style="background:#ffc2dd"></i> Export planned</span>
+<span>${tl("smart_charge.import_actual")}</span>
+<span>${tl("smart_charge.import_planned")}</span>
+<span>${tl("smart_charge.export_actual")}</span>
+<span>${tl("smart_charge.export_planned")}</span>
 </div>`;
-  return `${legend}<svg class="fox-sc-analysis-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="SmartCharge daily import and export"><rect x="${padL}" y="${padT}" width="${chartW}" height="${chartH}" fill="none" stroke="var(--divider-color,#333)" stroke-opacity="0.25"/>${bars}</svg>`;
+  return `${legend}<svg class="fox-sc-analysis-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${tl("smart_charge.smartcharge_daily_import_and_export")}"><rect x="${padL}" y="${padT}" width="${chartW}" height="${chartH}" fill="none" stroke="var(--divider-color,#333)" stroke-opacity="0.25"/>${bars}</svg>`;
 }
 
 function renderSmartChargeSessionsTable(sessions) {
   const rows = Array.isArray(sessions) ? sessions : [];
   if (!rows.length) {
-    return `<p class="placeholder">No armed SmartCharge sessions recorded in this period.</p>`;
+    return `<p class="placeholder">${tl("smart_charge.no_armed_smartcharge_sessions_recorded_in")}</p>`;
   }
   const items = rows
     .slice()
@@ -3233,14 +3234,14 @@ function renderSmartChargeSessionsTable(sessions) {
     .map((row) => {
       const isExport = row.direction === "export";
       const color = isExport ? "#FF6FAF" : "#2F6BFF";
-      const label = isExport ? "Export" : "Import";
+      const label = isExport ? tl("common.export") : tl("common.import");
       const actual = isExport ? formatSmartChargeKwh(row.actual_export_kwh) : formatSmartChargeKwh(row.actual_import_kwh);
       const planned = isExport ? formatSmartChargeKwh(row.planned_export_kwh) : formatSmartChargeKwh(row.planned_import_kwh);
       const action = String(row.action || "").replace(/_/g, " ");
       const actionBit = action && action !== "armed" ? `${esc(action)} · ` : "";
       return `<li class="fox-sc-howused-row">
 <div class="fox-sc-howused-main"><span class="fox-sc-howused-status" style="background:${color}">${label}</span><span class="fox-sc-howused-day">${esc(formatSmartChargeDateTimeMs(row.start_ms))}</span></div>
-<div class="fox-sc-howused-detail"><div>${actionBit}${esc(formatSmartChargeDuration(row.duration_min))} · actual ${esc(actual)} of ${esc(planned)} planned</div></div>
+<div class="fox-sc-howused-detail"><div>${tl("smart_charge.actionbit_duration_min_actual_actual_of", { actionBit, duration_min: esc(formatSmartChargeDuration(row.duration_min)), actual: esc(actual), planned: esc(planned) })}</div></div>
 <div class="fox-sc-howused-saved">${esc(actual)}</div>
 </li>`;
     })
@@ -3251,7 +3252,7 @@ function renderSmartChargeSessionsTable(sessions) {
 function renderSmartChargePlannedTable(slots) {
   const rows = Array.isArray(slots) ? slots : [];
   if (!rows.length) {
-    return `<p class="placeholder">No daily plan slots in recorder history for this period.</p>`;
+    return `<p class="placeholder">${tl("smart_charge.no_daily_plan_slots_in_recorder")}</p>`;
   }
   const items = rows
     .filter((row) => row.reason !== "hold") // holding at target after a charge — no energy planned
@@ -3265,16 +3266,16 @@ function renderSmartChargePlannedTable(slots) {
       const when = `${esc(formatSmartChargeDateTimeMs(row.start_ms))} → ${esc(formatSmartChargeTimeMs(row.end_ms))}`;
       const used = row.actual_kwh != null && Number(row.actual_kwh) > 0.1;
       const usedTxt = used
-        ? `<span style="color:#52c41a;font-weight:600">Used ${esc(formatSmartChargeKwh(row.actual_kwh))}</span>`
-        : `<span style="color:var(--secondary-text-color)">Not used — predicted only</span>`;
+        ? `<span style="color:#52c41a;font-weight:600">${tl("smart_charge.used_actual_kwh", { actual_kwh: esc(formatSmartChargeKwh(row.actual_kwh)) })}</span>`
+        : `<span style="color:var(--secondary-text-color)">${tl("smart_charge.not_used_predicted_only")}</span>`;
       return `<li class="fox-sc-howused-row">
 <div class="fox-sc-howused-main"><span class="fox-sc-howused-status" style="background:${pill.color}">${esc(pill.label)}</span><span class="fox-sc-howused-day">${when}</span></div>
 <div class="fox-sc-howused-detail"><div>${esc(row.reason || "—")}</div><div class="fox-sc-howused-reason">${usedTxt}</div></div>
-<div class="fox-sc-howused-saved">${esc(planned)}<div class="fox-sc-howused-sub">predicted</div></div>
+<div class="fox-sc-howused-saved">${esc(planned)}<div class="fox-sc-howused-sub">${tl("common.predicted")}</div></div>
 </li>`;
     })
     .join("");
-  return `<p class="field-hint">Charge/export windows SmartCharge planned — the kWh is predicted. “Used” shows whether the battery actually charged (or exported) in that window.</p><ul class="fox-sc-howused-list">${items}</ul>`;
+  return `<p class="field-hint">${tl("smart_charge.charge_export_windows_smartcharge_planned_the")}</p><ul class="fox-sc-howused-list">${items}</ul>`;
 }
 
 const SC_CHARGE_ACTIONS = ["charge", "spread_charge", "winter_fill", "solar_gap_fill", "charge_candidate", "arbitrage"];
@@ -3300,21 +3301,21 @@ function renderHemsEventSlots(ev) {
     const end = hemsSlotTime(s.end, null);
     const when = start ? (end ? `${start}–${end}` : start) : "slot";
     if (s.reason === "hold") {
-      return `<div class="fox-sc-hems-slot">${esc(when)} · <span style="color:var(--secondary-text-color)">hold (house on grid)</span></div>`;
+      return `<div class="fox-sc-hems-slot">${esc(when)} · <span style="color:var(--secondary-text-color)">${tl("quick_settings.hold_house_on_grid")}</span></div>`;
     }
     const kwh = s[kwhKey] != null ? ` · ${formatSmartChargeKwh(s[kwhKey])}` : "";
     const used = s.actual_kwh != null && Number(s.actual_kwh) > 0.1;
     const tag = used
-      ? `<span style="color:#52c41a">used ${esc(formatSmartChargeKwh(s.actual_kwh))}</span>`
-      : `<span style="color:var(--secondary-text-color)">predicted</span>`;
+      ? `<span style="color:#52c41a">${tl("quick_settings.used_actual_kwh", { actual_kwh: esc(formatSmartChargeKwh(s.actual_kwh)) })}</span>`
+      : `<span style="color:var(--secondary-text-color)">${tl("common.predicted")}</span>`;
     return `<div class="fox-sc-hems-slot">${esc(when)}${esc(kwh)} · ${tag}</div>`;
   };
   let out = "";
   if (charge.length) {
-    out += `<div class="fox-sc-hems-group">Import</div>${charge.map((s) => line(s, "planned_import_kwh")).join("")}`;
+    out += `<div class="fox-sc-hems-group">${tl("common.import")}</div>${charge.map((s) => line(s, "planned_import_kwh")).join("")}`;
   }
   if (exportS.length) {
-    out += `<div class="fox-sc-hems-group">Export</div>${exportS.map((s) => line(s, "planned_export_kwh")).join("")}`;
+    out += `<div class="fox-sc-hems-group">${tl("common.export")}</div>${exportS.map((s) => line(s, "planned_export_kwh")).join("")}`;
   }
   return `<div class="fox-sc-hems-slots">${out}</div>`;
 }
@@ -3322,13 +3323,13 @@ function renderHemsEventSlots(ev) {
 function renderSmartChargeHemsAuditTable(audit) {
   const events = Array.isArray(audit?.events) ? audit.events : [];
   if (!events.length) {
-    return `<p class="octopus-greener-empty">No HEMS audit events logged for this period yet. Events are recorded when SmartCharge rebuilds its daily plan, arms export, detects a plunge price, or pairs spread slots.</p>`;
+    return `<p class="octopus-greener-empty">${tl("smart_charge.no_hems_audit_events_logged_for")}</p>`;
   }
   const items = events
     .map((ev) => {
       const label =
         ev.event_label ||
-        (ev.event_type ? String(ev.event_type).replace("smart_charge_", "").replace(/_/g, " ") : "Event");
+        (ev.event_type ? String(ev.event_type).replace("smart_charge_", "").replace(/_/g, " ") : tl("smart_charge.event"));
       const when = ev.local_label || ev.ts || "—";
       return `<li class="fox-sc-hems-item">
 <div class="fox-sc-howused-row">
@@ -3348,17 +3349,17 @@ ${renderHemsEventSlots(ev)}
 }
 
 const SC_HOWUSED_STATUS = {
-  charged: { label: "Charged", color: "#2F6BFF" },
-  skipped: { label: "Skipped — solar covered", color: "#52c41a" },
-  exported: { label: "Exported", color: "#FF6FAF" },
-  self_use: { label: "Self-use", color: "#6b7280" },
-  no_data: { label: "No plan", color: "#6b7280" },
+  charged: { label: tl("panel.charged"), color: "#2F6BFF" },
+  skipped: { label: tl("panel.skipped_solar_covered"), color: "#52c41a" },
+  exported: { label: tl("panel.exported"), color: "#FF6FAF" },
+  self_use: { label: tl("panel.self_use"), color: "#6b7280" },
+  no_data: { label: tl("panel.no_plan"), color: "#6b7280" },
 };
 
 function renderSmartChargeHowUsed(howUsed) {
   const rows = (Array.isArray(howUsed) ? howUsed : []).filter((r) => r && r.date);
   if (!rows.length) {
-    return `<p class="placeholder">No SmartCharge plan history recorded for this period yet.</p>`;
+    return `<p class="placeholder">${tl("smart_charge.no_smartcharge_plan_history_recorded_for")}</p>`;
   }
   const items = rows
     .slice()
@@ -3369,16 +3370,16 @@ function renderSmartChargeHowUsed(howUsed) {
       const dayLabel = Number.isNaN(d.getTime())
         ? r.date
         : d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
-      let detail = "Ran on solar + battery — no grid action needed";
+      let detail = tl("smart_charge.ran_on_solar_battery_no_grid");
       if (r.status === "charged") {
         const rate = r.charge_rate_p != null ? ` at ${Number(r.charge_rate_p).toFixed(1)}p/kWh` : "";
-        detail = `Charged ${formatSmartChargeKwh(r.actual_charge_kwh)} of ${formatSmartChargeKwh(r.planned_charge_kwh)} planned${rate}`;
+        detail = tl("smart_charge.charged_actual_charge_kwh_of_planned", { actual_charge_kwh: formatSmartChargeKwh(r.actual_charge_kwh), planned_charge_kwh: formatSmartChargeKwh(r.planned_charge_kwh), rate });
       } else if (r.status === "skipped") {
-        detail = `Planned ${formatSmartChargeKwh(r.planned_charge_kwh)} grid charge — skipped, solar forecast covered it`;
+        detail = tl("smart_charge.planned_planned_charge_kwh_grid_charge", { planned_charge_kwh: formatSmartChargeKwh(r.planned_charge_kwh) });
       } else if (r.status === "exported") {
-        detail = `Exported ${formatSmartChargeKwh(r.actual_export_kwh)} at premium`;
+        detail = tl("smart_charge.exported_actual_export_kwh_at_premium", { actual_export_kwh: formatSmartChargeKwh(r.actual_export_kwh) });
       } else if (r.status === "no_data") {
-        detail = "No plan recorded";
+        detail = tl("smart_charge.no_plan_recorded");
       }
       const saved = formatPenceSaving(r.saving_p);
       return `<li class="fox-sc-howused-row">
@@ -3389,7 +3390,7 @@ function renderSmartChargeHowUsed(howUsed) {
     })
     .join("");
   return `<ul class="fox-sc-howused-list">${items}</ul>
-<p class="field-hint">“Saved” is SmartCharge’s own estimate of what its scheduling added vs plain self-use. The “System saved” headline is the whole solar + battery system vs buying everything from the grid.</p>`;
+<p class="field-hint">${tl("smart_charge.saved_is_smartcharge_s_own_estimate")}</p>`;
 }
 
 function renderSmartChargeSavingsChart(systemDaily) {
@@ -3426,53 +3427,53 @@ function renderSmartChargeSavingsChart(systemDaily) {
       const total = m.avoided + m.exportg;
       let out = "";
       if (hA > 0.5)
-        out += `<rect x="${x.toFixed(1)}" y="${yA.toFixed(1)}" width="${barW.toFixed(1)}" height="${hA.toFixed(1)}" fill="#52c41a" rx="2"><title>${esc(m.label)} · Avoided import £${m.avoided.toFixed(2)}</title></rect>`;
+        out += `<rect x="${x.toFixed(1)}" y="${yA.toFixed(1)}" width="${barW.toFixed(1)}" height="${hA.toFixed(1)}" fill="#52c41a" rx="2"><title>${tl("smart_charge.label_avoided_import_avoided", { label: esc(m.label), avoided: m.avoided.toFixed(2) })}</title></rect>`;
       if (hE > 0.5)
-        out += `<rect x="${x.toFixed(1)}" y="${yE.toFixed(1)}" width="${barW.toFixed(1)}" height="${hE.toFixed(1)}" fill="#8DB6FF" rx="2"><title>${esc(m.label)} · Export earnings £${m.exportg.toFixed(2)}</title></rect>`;
+        out += `<rect x="${x.toFixed(1)}" y="${yE.toFixed(1)}" width="${barW.toFixed(1)}" height="${hE.toFixed(1)}" fill="#8DB6FF" rx="2"><title>${tl("smart_charge.label_export_earnings_exportg", { label: esc(m.label), exportg: m.exportg.toFixed(2) })}</title></rect>`;
       if (total > maxVal * 0.03) out += `<text x="${cx.toFixed(1)}" y="${(yE - 5).toFixed(1)}" text-anchor="middle" class="chart-axis" style="font-weight:600">£${total.toFixed(2)}</text>`;
       out += `<text x="${cx.toFixed(1)}" y="${H - 8}" text-anchor="middle" class="chart-axis">${esc(m.label)}</text>`;
       return out;
     })
     .join("");
-  const legend = `<div class="fox-sc-analysis-chart-legend"><span><i style="background:#52c41a"></i> Avoided import</span><span><i style="background:#8DB6FF"></i> Export earnings</span></div>`;
-  return `${legend}<svg class="fox-sc-analysis-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Daily savings from solar and battery"><line x1="${padL}" y1="${(padT + chartH).toFixed(1)}" x2="${W - padR}" y2="${(padT + chartH).toFixed(1)}" stroke="var(--divider-color,#333)" stroke-opacity="0.3"/>${parts}</svg>`;
+  const legend = `<div class="fox-sc-analysis-chart-legend"><span>${tl("smart_charge.avoided_import")}</span><span>${tl("smart_charge.export_earnings")}</span></div>`;
+  return `${legend}<svg class="fox-sc-analysis-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${tl("smart_charge.daily_savings_from_solar_and_battery")}"><line x1="${padL}" y1="${(padT + chartH).toFixed(1)}" x2="${W - padR}" y2="${(padT + chartH).toFixed(1)}" stroke="var(--divider-color,#333)" stroke-opacity="0.3"/>${parts}</svg>`;
 }
 
 function renderSmartChargeAnalysisPage(report, { loading = false } = {}) {
   if (loading && !report) {
-    return `<div data-smart-charge-analysis-main="1"><header class="header"><h1>SmartCharge Analysis</h1></header><p class="chart-loading">Loading SmartCharge analysis…</p></div>`;
+    return `<div data-smart-charge-analysis-main="1"><header class="header"><h1>${tl("common.smartcharge_analysis")}</h1></header><p class="chart-loading">${tl("smart_charge.loading_smartcharge_analysis")}</p></div>`;
   }
   if (!report || report.enabled === false) {
-    return `<div data-smart-charge-analysis-main="1"><header class="header"><h1>SmartCharge Analysis</h1></header><p class="placeholder">Enable SmartCharge in Device → SmartCharge to use this report.</p></div>`;
+    return `<div data-smart-charge-analysis-main="1"><header class="header"><h1>${tl("common.smartcharge_analysis")}</h1></header><p class="placeholder">${tl("smart_charge.enable_smartcharge_in_device_smartcharge_to")}</p></div>`;
   }
   if (report.error) {
-    return `<div data-smart-charge-analysis-main="1"><header class="header"><h1>SmartCharge Analysis</h1><p class="placeholder">${esc(report.error)}</p></div>`;
+    return `<div data-smart-charge-analysis-main="1"><header class="header"><h1>${tl("common.smartcharge_analysis")}</h1><p class="placeholder">${esc(report.error)}</p></div>`;
   }
   const hint = report.hint ? `<p class="field-hint">${esc(report.hint)}</p>` : "";
   return `<div data-smart-charge-analysis-main="1">
-<header class="header"><h1>SmartCharge Analysis</h1><p>${esc(report.period_label || "")}</p></header>
+<header class="header"><h1>${tl("common.smartcharge_analysis")}</h1><p>${esc(report.period_label || "")}</p></header>
 ${hint}
 ${renderSmartChargeSummaryCards(report)}
 ${(() => {
   const chart = renderSmartChargeSavingsChart(report.system_daily);
   return chart
-    ? `<div class="card fox-report-chart-card fox-analysis-chart-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Daily savings (solar + battery)</h3>${chart}</div>`
+    ? `<div class="card fox-report-chart-card fox-analysis-chart-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">${tl("smart_charge.daily_savings_solar_battery")}</h3>${chart}</div>`
     : "";
 })()}
 <div class="card fox-report-details">
-<h3 class="fox-report-details-title">How SmartCharge was used</h3>
+<h3 class="fox-report-details-title">${tl("smart_charge.how_smartcharge_was_used")}</h3>
 ${renderSmartChargeHowUsed(report.how_used)}
 </div>
 <details class="card fox-report-details">
-<summary class="fox-report-details-title">Planned slots (from daily plan history)</summary>
+<summary class="fox-report-details-title">${tl("smart_charge.planned_slots_from_daily_plan_history")}</summary>
 ${renderSmartChargePlannedTable(report.planned_slots)}
 </details>
 <details class="card fox-report-details">
-<summary class="fox-report-details-title">Armed sessions</summary>
+<summary class="fox-report-details-title">${tl("smart_charge.armed_sessions")}</summary>
 ${renderSmartChargeSessionsTable(report.sessions)}
 </details>
 <details class="card fox-report-details">
-<summary class="fox-report-details-title">HEMS audit trail</summary>
+<summary class="fox-report-details-title">${tl("smart_charge.hems_audit_trail")}</summary>
 ${renderSmartChargeHemsAuditTable(report.hems_audit)}
 </details>
 </div>`;
@@ -3482,8 +3483,8 @@ function performanceDayLabel(offset = 0) {
   const d = new Date();
   d.setHours(12, 0, 0, 0);
   d.setDate(d.getDate() - Math.max(0, Number(offset) || 0));
-  if (offset === 0) return `Today · ${d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}`;
-  if (offset === 1) return `Yesterday · ${d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}`;
+  if (offset === 0) return tl("performance.today_d", { d: d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }) });
+  if (offset === 1) return tl("performance.yesterday_d", { d: d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }) });
   return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
 }
 
@@ -3495,7 +3496,7 @@ function performanceDayIso(offset = 0) {
 
 function formatPerformanceBreakEven(value) {
   if (value == null || value === "") return null;
-  if (value === "paid_off") return "Paid off";
+  if (value === "paid_off") return tl("performance.paid_off");
   const d = new Date(`${value}T12:00:00`);
   if (Number.isNaN(d.getTime())) return String(value);
   return d.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
@@ -3514,44 +3515,44 @@ function renderPerformanceSummaryCards(chart) {
   const today = summary.today || {};
   const accuracy =
     live.forecast_accuracy_pct != null
-      ? `${Number(live.forecast_accuracy_pct).toFixed(0)}% of Solcast`
-      : "Forecast pending";
+      ? tl("performance.forecast_accuracy_pct_of_solcast", { forecast_accuracy_pct: Number(live.forecast_accuracy_pct).toFixed(0) })
+      : tl("performance.forecast_pending");
   const tempIndex =
     live.temp_adjusted_index_pct != null
-      ? `Temp index ${Number(live.temp_adjusted_index_pct).toFixed(0)}%`
+      ? tl("performance.temp_index_temp_adjusted_index_pct", { temp_adjusted_index_pct: Number(live.temp_adjusted_index_pct).toFixed(0) })
       : null;
   const clipSub =
     live.clipping_kwh_today != null && Number(live.clipping_kwh_today) > 0
-      ? `Clipping ~${Number(live.clipping_kwh_today).toFixed(1)} kWh`
+      ? tl("performance.clipping_clipping_kwh_today_kwh", { clipping_kwh_today: Number(live.clipping_kwh_today).toFixed(1) })
       : tempIndex || accuracy;
   const breakEven = formatPerformanceBreakEven(summary.break_even_date);
   const paybackSub =
     breakEven != null
-      ? `Break-even ${breakEven}`
+      ? tl("performance.break_even_breakeven", { breakEven })
       : summary.payback_progress_pct != null
-        ? `${Number(summary.payback_progress_pct).toFixed(1)}% of install cost`
-        : "Set install cost in performance settings";
+        ? tl("performance.payback_progress_pct_of_install_cost", { payback_progress_pct: Number(summary.payback_progress_pct).toFixed(1) })
+        : tl("performance.set_install_cost_in_performance_settings");
   const cards = [
     {
-      label: "Solar yield",
+      label: tl("performance.solar_yield"),
       value: live.pv_kwh_today != null ? `${Number(live.pv_kwh_today).toFixed(1)} kWh` : "—",
       sub: clipSub,
       tone: "solar",
     },
     {
-      label: "Grid trade",
+      label: tl("performance.grid_trade"),
       value: `${formatPerformanceGbp(today.export_earnings_gbp)} export`,
       sub: `${formatPerformanceGbp(today.import_spend_gbp != null ? -Math.abs(Number(today.import_spend_gbp)) : null)} import`,
       tone: "grid",
     },
     {
-      label: "True savings today",
+      label: tl("performance.true_savings_today"),
       value: formatPerformanceGbp(today.net_daily_savings_gbp),
-      sub: today.avoided_grid_cost_gbp != null ? `Avoided ${formatPerformanceGbp(today.avoided_grid_cost_gbp)}` : "",
+      sub: today.avoided_grid_cost_gbp != null ? tl("performance.avoided_avoided_grid_cost_gbp", { avoided_grid_cost_gbp: formatPerformanceGbp(today.avoided_grid_cost_gbp) }) : "",
       tone: "savings",
     },
     {
-      label: "Lifetime payback",
+      label: tl("performance.lifetime_payback"),
       value: summary.lifetime_saved_gbp != null ? `£${Number(summary.lifetime_saved_gbp).toFixed(2)}` : "—",
       sub: paybackSub,
       tone: "payback",
@@ -3801,8 +3802,8 @@ function performanceSeriesSvg(points, xDomain, xScale, yScale, stroke, { width =
 
 function performanceSparseHint(pointCount, xDomain) {
   if (pointCount >= 12) return "";
-  const zoom = xDomain.zoomed ? " — chart zoomed to recent samples" : "";
-  return `<p class="field-hint fox-perf-chart-hint">${pointCount} sample${pointCount === 1 ? "" : "s"} so far${zoom}. New points every 5 minutes.</p>`;
+  const zoom = xDomain.zoomed ? tl("performance.chart_zoomed_to_recent_samples") : "";
+  return `<p class="field-hint fox-perf-chart-hint">${tln("performance.samples_so_far", pointCount, { zoom })}</p>`;
 }
 
 function performanceNearestValue(points, t, maxGapMs = 10 * 60000) {
@@ -3860,7 +3861,7 @@ function renderPerformancePowerChartSvg(chart) {
   const clip = series.clipping_loss_kw || [];
   const potential = series.solcast_forecast_kw || [];
   if (!pv.length && !grid.length) {
-    return `<p class="placeholder chart-empty">No performance recorder data yet. Sensors update every 5 minutes.</p>`;
+    return `<p class="placeholder chart-empty">${tl("performance.no_performance_recorder_data_yet_sensors")}</p>`;
   }
   // Solar output only matters in daylight: hour before sunrise to hour after sunset
   const xDomain = performanceDaylightXDomain(chart) || performanceZoomXDomain(range, pv, grid, clip);
@@ -3910,7 +3911,7 @@ function renderPerformancePowerChartSvg(chart) {
   const forecastSources = Array.isArray(chart?.pv_forecast_sources) ? chart.pv_forecast_sources : [];
   const forecastColor =
     forecastSources.length === 1 && forecastSources[0] === "Open-Meteo" ? OPEN_METEO_CHART_STYLE.color : "#f5c542";
-  const forecastLabel = forecastSources.length ? `PV Forecast (${forecastSources.join(", ")})` : "PV Forecast";
+  const forecastLabel = forecastSources.length ? tl("performance.pv_forecast_forecastsources", { forecastSources: forecastSources.join(", ") }) : tl("performance.pv_forecast");
   const lines = [
     { pts: potential, color: forecastColor, width: 1.4, dash: "4 3" },
     { pts: pv, color: "#19D4DE", width: 2 },
@@ -3919,22 +3920,22 @@ function renderPerformancePowerChartSvg(chart) {
   ]
     .map((s) => performanceSeriesSvg(s.pts, xDomain, xScale, yScaleP, s.color, { width: s.width, dash: s.dash }))
     .join("");
-  const limitText = hasLimit ? ` (${acLimit.toFixed(1)} kW${limitOnScale ? "" : ", above this scale"})` : "";
+  const limitText = hasLimit ? ` (${acLimit.toFixed(1)} kW${limitOnScale ? "" : tl("performance.above_this_scale")})` : "";
   const legend = `<div class="fox-perf-chart-legend">
-<span><i style="background:#19D4DE"></i> Solar output kW</span>
+<span>${tl("performance.solar_output_kw")}</span>
 ${potential.length ? `<span><i style="background:${forecastColor}"></i> ${esc(forecastLabel)}</span>` : ""}
-<span><i style="background:#2F6BFF"></i> Net grid kW</span>
-${hasLimit ? `<span><i style="background:#f59e0b"></i> Inverter AC limit${esc(limitText)}</span>` : ""}
-${hasClipping ? `<span><i style="background:#ef4444"></i> Clipping kW</span>` : ""}
-<span><i style="background:repeating-linear-gradient(45deg,#ef4444,#ef4444 2px,transparent 2px,transparent 4px)"></i> Clipped</span>
+<span>${tl("performance.net_grid_kw")}</span>
+${hasLimit ? `<span>${tl("performance.inverter_ac_limit_limittext", { limitText: esc(limitText) })}</span>` : ""}
+${hasClipping ? `<span>${tl("performance.clipping_kw")}</span>` : ""}
+<span>${tl("performance.clipped")}</span>
 </div>`;
   const clipNote =
     hasLimit && !hasClipping && primaryCount
-      ? `<p class="field-hint fox-perf-chart-hint">No clipping in this range. Solar above the AC limit line went into the battery; it's only lost when the inverter is at its limit and the battery is full.</p>`
+      ? `<p class="field-hint fox-perf-chart-hint">${tl("performance.no_clipping_in_this_range_solar")}</p>`
       : "";
   // Count what's drawn (recorder samples and statistics alike), not just the recorder's own samples
   const hint = performanceSparseHint(primaryCount, xDomain);
-  const svg = `<svg class="fox-perf-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Solar output and clipping chart">
+  const svg = `<svg class="fox-perf-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${tl("performance.solar_output_and_clipping_chart")}">
 ${axes}
 ${clipHatch}
 ${limitLine}
@@ -3950,10 +3951,10 @@ ${lines}
     tMin: xDomain.tMin,
     tMax: xDomain.tMax,
     series: [
-      { label: "Solar output", color: "#19D4DE", unit: " kW", points: pv },
-      ...(potential.length ? [{ label: "PV Forecast", color: forecastColor, unit: " kW", points: potential }] : []),
-      { label: "Net grid", color: "#2F6BFF", unit: " kW", points: grid },
-      ...(hasClipping ? [{ label: "Clipping", color: "#ef4444", unit: " kW", points: clip }] : []),
+      { label: tl("performance.solar_output"), color: "#19D4DE", unit: " kW", points: pv },
+      ...(potential.length ? [{ label: tl("performance.pv_forecast"), color: forecastColor, unit: " kW", points: potential }] : []),
+      { label: tl("performance.net_grid"), color: "#2F6BFF", unit: " kW", points: grid },
+      ...(hasClipping ? [{ label: tl("performance.clipping"), color: "#ef4444", unit: " kW", points: clip }] : []),
     ],
   })}`;
 }
@@ -3969,11 +3970,11 @@ function renderPerformancePhysicsChartSvg(chart) {
     if (windMapped) {
       const liveNote =
         liveWind != null && Number.isFinite(Number(liveWind))
-          ? ` Live wind ${Number(liveWind).toFixed(1)} m/s — chart points appear every 5 minutes.`
-          : " Mapped wind sensor has no readable history yet — check the entity is available.";
-      return `<p class="placeholder chart-empty">Waiting for panel-cooling samples.${liveNote}</p>`;
+          ? ` ${tl("performance.live_wind_livewind_m_s_chart", { liveWind: Number(liveWind).toFixed(1) })}`
+          : tl("performance.mapped_wind_sensor_has_no_readable");
+      return `<p class="placeholder chart-empty">${tl("performance.waiting_for_panel_cooling_samples_livenote", { liveNote })}</p>`;
     }
-    return `<p class="placeholder chart-empty">Map a wind speed sensor under Settings → Weather. Panel temperature appears while the panels are producing.</p>`;
+    return `<p class="placeholder chart-empty">${tl("performance.map_a_wind_speed_sensor_under")}</p>`;
   }
   const range = performanceChartRange(chart);
   // Panel temperature only exists while the panels produce: hour before sunrise to hour after sunset
@@ -4031,16 +4032,16 @@ function renderPerformancePhysicsChartSvg(chart) {
   const hint = performanceSparseHint(Math.max(tempPts.length, windPts.length), xDomain);
   const tempMissing =
     !tempPts.length && windPts.length
-      ? `<p class="field-hint fox-perf-chart-hint">Panel temperature is worked out from the panels' output, the air temperature and wind (PV Configuration datasheet values), so it only appears while they're producing.</p>`
+      ? `<p class="field-hint fox-perf-chart-hint">${tl("performance.panel_temperature_is_worked_out_from")}</p>`
       : "";
   return `<div class="fox-perf-chart-legend">
-<span><i style="background:#08979C"></i> Panel °C (modelled)</span>
-<span><i style="background:#52C41A"></i> Wind m/s${!axisIsWind && wVals.length ? " (right)" : ""}</span>
+<span>${tl("performance.panel_c_modelled")}</span>
+<span>${tl("performance.wind_m_s_value", { value: !axisIsWind && wVals.length ? tl("performance.right") : "" })}</span>
 </div>
 ${hint}${tempMissing}
 ${performanceHoverPlot(
   "physics",
-  `<svg class="fox-perf-chart-svg fox-perf-chart-svg--physics" viewBox="0 0 ${W} ${H}" role="img" aria-label="Panel temperature and wind chart">
+  `<svg class="fox-perf-chart-svg fox-perf-chart-svg--physics" viewBox="0 0 ${W} ${H}" role="img" aria-label="${tl("performance.panel_temperature_and_wind_chart")}">
 ${axes}
 ${windAxis}
 ${tempLine}
@@ -4056,8 +4057,8 @@ ${windLine}
     tMin: xDomain.tMin,
     tMax: xDomain.tMax,
     series: [
-      { label: "Panel (modelled)", color: "#08979C", unit: " °C", digits: 1, points: temp },
-      { label: "Wind", color: "#52C41A", unit: " m/s", digits: 1, points: wind },
+      { label: tl("performance.panel_modelled"), color: "#08979C", unit: " °C", digits: 1, points: temp },
+      { label: tl("performance.wind"), color: "#52C41A", unit: " m/s", digits: 1, points: wind },
     ],
   }
 )}`;
@@ -4074,8 +4075,8 @@ function renderPerformanceMicroclimateChartSvg(chart) {
       (key) => cfg[key]
     );
     return mapped
-      ? `<p class="placeholder chart-empty">Mapped microclimate sensors have no samples in this day yet — new points every 5 minutes, or check entity history in Home Assistant.</p>`
-      : `<p class="placeholder chart-empty">Map dew point and rain-rate sensors under Settings → Weather (visibility is optional on Ecowitt).</p>`;
+      ? `<p class="placeholder chart-empty">${tl("performance.mapped_microclimate_sensors_have_no_samples")}</p>`
+      : `<p class="placeholder chart-empty">${tl("performance.map_dew_point_and_rain_rate")}</p>`;
   }
   const range = performanceChartRange(chart);
   const xDomain = performanceZoomXDomain(range, visibility, dew, precip);
@@ -4131,7 +4132,7 @@ function renderPerformanceMicroclimateChartSvg(chart) {
       : "";
   const visSteady =
     visVals.length >= 2 && Math.max(...visVals) - Math.min(...visVals) < 0.05
-      ? `<p class="field-hint fox-perf-chart-hint">Visibility steady at ${Number(visVals[visVals.length - 1]).toFixed(1)} km</p>`
+      ? `<p class="field-hint fox-perf-chart-hint">${tl("performance.visibility_steady_at_value_km", { value: Number(visVals[visVals.length - 1]).toFixed(1) })}</p>`
       : "";
   const visLine = visibility.length
     ? performanceSeriesSvg(visibility, xDomain, xScale, yScaleVis, "#FA8C16", { width: 2 })
@@ -4150,14 +4151,14 @@ function renderPerformanceMicroclimateChartSvg(chart) {
     .join("");
   const hint = performanceSparseHint(Math.max(visPts.length, dewPts.length), xDomain);
   return `<div class="fox-perf-chart-legend">
-<span><i style="background:#FA8C16"></i> Visibility km</span>
-<span><i style="background:#597EF7"></i> Dew point °C${hasVis && dewVals.length ? " (right)" : ""}</span>
-<span><i style="background:#69C0FF"></i> Precip mm</span>
+<span>${tl("performance.visibility_km")}</span>
+<span>${tl("performance.dew_point_c_value", { value: hasVis && dewVals.length ? tl("performance.right") : "" })}</span>
+<span>${tl("performance.precip_mm")}</span>
 </div>
 ${hint}${visSteady}
 ${performanceHoverPlot(
   "microclimate",
-  `<svg class="fox-perf-chart-svg fox-perf-chart-svg--microclimate" viewBox="0 0 ${W} ${H}" role="img" aria-label="Visibility dew and precipitation chart">
+  `<svg class="fox-perf-chart-svg fox-perf-chart-svg--microclimate" viewBox="0 0 ${W} ${H}" role="img" aria-label="${tl("performance.visibility_dew_and_precipitation_chart")}">
 ${axes}
 ${dewAxis}
 ${precipBars}
@@ -4174,9 +4175,9 @@ ${dewLine}
     tMin: xDomain.tMin,
     tMax: xDomain.tMax,
     series: [
-      ...(visibility.length ? [{ label: "Visibility", color: "#FA8C16", unit: " km", digits: 1, points: visibility }] : []),
-      ...(dew.length ? [{ label: "Dew point", color: "#597EF7", unit: " °C", digits: 1, points: dew }] : []),
-      ...(precip.length ? [{ label: "Precipitation", color: "#69C0FF", unit: " mm", digits: 1, points: precip }] : []),
+      ...(visibility.length ? [{ label: tl("common.visibility"), color: "#FA8C16", unit: " km", digits: 1, points: visibility }] : []),
+      ...(dew.length ? [{ label: tl("common.dew_point"), color: "#597EF7", unit: " °C", digits: 1, points: dew }] : []),
+      ...(precip.length ? [{ label: tl("performance.precipitation"), color: "#69C0FF", unit: " mm", digits: 1, points: precip }] : []),
     ],
   }
 )}`;
@@ -4191,7 +4192,7 @@ function renderOverviewPanelTempPill(plantState) {
     live.wind_speed_ms != null && Number.isFinite(Number(live.wind_speed_ms))
       ? ` · ${Number(live.wind_speed_ms).toFixed(1)} m/s wind`
       : "";
-  return `<span class="overview-panel-temp-pill" title="Modelled from the panels' output, the air temperature and wind (PV Configuration datasheet values); shown while the panels are producing">Panel ${Number(temp).toFixed(0)}°C${wind}</span>`;
+  return `<span class="overview-panel-temp-pill" title="${tl("overview.modelled_from_the_panels_output_the")}">${tl("overview.panel_temp_c_wind", { temp: Number(temp).toFixed(0), wind })}</span>`;
 }
 
 function listWeatherEntityOptions(hass) {
@@ -4232,30 +4233,30 @@ function renderPerformancePeriodSummaryCards(report) {
   const s = report?.summary || {};
   const cards = [
     {
-      label: "Solar yield",
+      label: tl("performance.solar_yield"),
       value: s.pv_kwh != null ? `${Number(s.pv_kwh).toFixed(1)} kWh` : "—",
       sub:
         s.avg_forecast_accuracy_pct != null
-          ? `${Number(s.avg_forecast_accuracy_pct).toFixed(0)}% avg Solcast`
+          ? tl("performance.avg_forecast_accuracy_pct_avg_solcast", { avg_forecast_accuracy_pct: Number(s.avg_forecast_accuracy_pct).toFixed(0) })
           : `${s.days ?? 0} days`,
       tone: "solar",
     },
     {
-      label: "Grid trade",
+      label: tl("performance.grid_trade"),
       value: `${formatPerformanceGbp(s.export_earnings_gbp)} export`,
       sub: `${formatPerformanceGbp(s.import_spend_gbp != null ? -Math.abs(Number(s.import_spend_gbp)) : null)} import`,
       tone: "grid",
     },
     {
-      label: "True savings",
+      label: tl("performance.true_savings"),
       value: formatPerformanceGbp(s.net_daily_savings_gbp),
-      sub: s.avoided_grid_cost_gbp != null ? `Avoided ${formatPerformanceGbp(s.avoided_grid_cost_gbp)}` : "",
+      sub: s.avoided_grid_cost_gbp != null ? tl("performance.avoided_avoided_grid_cost_gbp", { avoided_grid_cost_gbp: formatPerformanceGbp(s.avoided_grid_cost_gbp) }) : "",
       tone: "savings",
     },
     {
-      label: "Lifetime payback",
+      label: tl("performance.lifetime_payback"),
       value: s.lifetime_saved_gbp != null ? `£${Number(s.lifetime_saved_gbp).toFixed(2)}` : "—",
-      sub: formatPerformanceBreakEven(s.break_even_date) || "Set install cost in settings",
+      sub: formatPerformanceBreakEven(s.break_even_date) || tl("performance.set_install_cost_in_settings"),
       tone: "payback",
     },
   ];
@@ -4273,7 +4274,7 @@ ${c.sub ? `<div class="fox-perf-card-sub">${esc(c.sub)}</div>` : ""}
 function renderPerformancePeriodDailyChartSvg(dailyChart) {
   const rows = (Array.isArray(dailyChart) ? dailyChart : []).filter((r) => r?.date);
   if (!rows.length) {
-    return `<p class="octopus-greener-empty">No daily ledger rows for this period yet.</p>`;
+    return `<p class="octopus-greener-empty">${tl("performance.no_daily_ledger_rows_for_this")}</p>`;
   }
   const mapped = rows.map((row) => {
     const d = new Date(`${row.date}T12:00:00`);
@@ -4313,21 +4314,21 @@ function renderPerformancePeriodDailyChartSvg(dailyChart) {
         .join("");
     })
     .join("");
-  return `<svg class="fox-perf-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Daily PV and savings chart">
+  return `<svg class="fox-perf-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${tl("performance.daily_pv_and_savings_chart")}">
 ${bars}
 </svg>
-<p class="field-hint" style="margin-top:8px">Cyan = PV kWh · Green = net daily savings (£ scale)</p>`;
+<p class="field-hint" style="margin-top:8px">${tl("performance.cyan_pv_kwh_green_net_daily")}</p>`;
 }
 
 function renderPerformancePeriodReportPage(report, { loading = false } = {}) {
   if (loading && !report) {
-    return `<div data-performance-report-main="1"><header class="header"><h1>Performance</h1></header><p class="chart-loading">Loading performance report…</p></div>`;
+    return `<div data-performance-report-main="1"><header class="header"><h1>${tl("common.performance")}</h1></header><p class="chart-loading">${tl("performance.loading_performance_report")}</p></div>`;
   }
   if (!report || report.enabled === false) {
-    return `<div data-performance-report-main="1"><header class="header"><h1>Performance</h1></header><p class="placeholder">Performance reporting is disabled for this plant.</p></div>`;
+    return `<div data-performance-report-main="1"><header class="header"><h1>${tl("common.performance")}</h1></header><p class="placeholder">${tl("performance.performance_reporting_is_disabled_for_this")}</p></div>`;
   }
   if (report.error) {
-    return `<div data-performance-report-main="1"><header class="header"><h1>Performance</h1></header><p class="placeholder">${esc(report.error)}</p></div>`;
+    return `<div data-performance-report-main="1"><header class="header"><h1>${tl("common.performance")}</h1></header><p class="placeholder">${esc(report.error)}</p></div>`;
   }
   const highlights = report.highlights || {};
   const bestDays = (highlights.best_forecast_days || [])
@@ -4338,26 +4339,26 @@ function renderPerformancePeriodReportPage(report, { loading = false } = {}) {
     .join("");
   const clipNote =
     highlights.total_clipping_kwh != null && Number(highlights.total_clipping_kwh) > 0
-      ? `<p class="field-hint">Clipping estimate: ${Number(highlights.total_clipping_kwh).toFixed(1)} kWh (${formatPerformanceGbp(highlights.total_clipping_gbp)} lost export value)</p>`
+      ? `<p class="field-hint">${tl("performance.clipping_estimate_total_clipping_kwh_kwh", { total_clipping_kwh: Number(highlights.total_clipping_kwh).toFixed(1), total_clipping_gbp: formatPerformanceGbp(highlights.total_clipping_gbp) })}</p>`
       : "";
   return `<div data-performance-report-main="1">
-<header class="header"><h1>Performance</h1><p>${esc(report.period_label || "")}</p></header>
+<header class="header"><h1>${tl("common.performance")}</h1><p>${esc(report.period_label || "")}</p></header>
 ${renderPerformancePeriodSummaryCards(report)}
 <div class="card fox-perf-chart-card">
-<h3 class="fox-analysis-summary-title fox-analysis-chart-title">Daily PV &amp; savings</h3>
+<h3 class="fox-analysis-summary-title fox-analysis-chart-title">${tl("performance.daily_pv_savings")}</h3>
 ${renderPerformancePeriodDailyChartSvg(report.daily_chart)}
 </div>
 ${clipNote}
-${bestDays ? `<div class="card fox-report-details"><h3 class="fox-report-details-title">Best forecast days</h3><ul class="fox-perf-highlights">${bestDays}</ul></div>` : ""}
+${bestDays ? `<div class="card fox-report-details"><h3 class="fox-report-details-title">${tl("performance.best_forecast_days")}</h3><ul class="fox-perf-highlights">${bestDays}</ul></div>` : ""}
 </div>`;
 }
 
 function renderPerformanceReportPage(chart, { loading = false, dayOffset = 0 } = {}) {
   if (loading) {
-    return `<div data-performance-report-main="1"><header class="header"><h1>Performance</h1></header><p class="chart-loading">Loading performance data…</p></div>`;
+    return `<div data-performance-report-main="1"><header class="header"><h1>${tl("common.performance")}</h1></header><p class="chart-loading">${tl("performance.loading_performance_data")}</p></div>`;
   }
   if (!chart?.enabled) {
-    return `<div data-performance-report-main="1"><header class="header"><h1>Performance</h1></header><p class="placeholder">Performance reporting is disabled for this plant.</p></div>`;
+    return `<div data-performance-report-main="1"><header class="header"><h1>${tl("common.performance")}</h1></header><p class="placeholder">${tl("performance.performance_reporting_is_disabled_for_this")}</p></div>`;
   }
   const dayLabel = performanceDayLabel(dayOffset);
   const live = chart?.live || {};
@@ -4368,20 +4369,20 @@ function renderPerformanceReportPage(chart, { loading = false, dayOffset = 0 } =
     ? `<p class="field-hint fox-perf-insight">${esc(live.insight_note)}</p>`
     : "";
   return `<div data-performance-report-main="1">
-<header class="header"><h1>Performance</h1><p>${esc(dayLabel)} ${insightBadge}</p></header>
+<header class="header"><h1>${tl("common.performance")}</h1><p>${esc(dayLabel)} ${insightBadge}</p></header>
 ${insightNote}
 ${renderPerformanceSummaryCards(chart)}
 <div class="card fox-perf-chart-card">
-<h3 class="fox-analysis-summary-title fox-analysis-chart-title">Solar output &amp; clipping</h3>
+<h3 class="fox-analysis-summary-title fox-analysis-chart-title">${tl("performance.solar_output_clipping")}</h3>
 ${renderPerformancePowerChartSvg(chart)}
 </div>
 <div class="card fox-perf-chart-card">
-<h3 class="fox-analysis-summary-title fox-analysis-chart-title">Panel cooling — virtual temperature vs wind</h3>
+<h3 class="fox-analysis-summary-title fox-analysis-chart-title">${tl("performance.panel_cooling_virtual_temperature_vs_wind")}</h3>
 ${renderPerformancePhysicsChartSvg(chart)}
 ${renderPerformancePhysicsInsights(chart)}
 </div>
 <div class="card fox-perf-chart-card">
-<h3 class="fox-analysis-summary-title fox-analysis-chart-title">Microclimate — visibility, dew &amp; rain</h3>
+<h3 class="fox-analysis-summary-title fox-analysis-chart-title">${tl("performance.microclimate_visibility_dew_rain")}</h3>
 ${renderPerformanceMicroclimateChartSvg(chart)}
 </div>
 </div>`;
@@ -4406,8 +4407,8 @@ function renderOctopusGenericBarChartSvg(rows, {
   maxValue = null,
   minValue = null,
   colorFn = () => "#4caf50",
-  emptyHint = "No data available.",
-  ariaLabel = "Chart",
+  emptyHint = tl("octopus.no_data_available"),
+  ariaLabel = tl("octopus.chart"),
   chartMode = "generic",
   overlaySvg = "",
   barsMetaFn = null,
@@ -4504,15 +4505,15 @@ function renderOctopusRateChartSvg(slots, { kind = "import" } = {}) {
     colorFn: () => color,
     emptyHint:
       kind === "export"
-        ? "Export unit rates unavailable. Connect Octopus with an export meter."
-        : "Import unit rates unavailable. Connect Octopus native tariff or refresh rates.",
-    ariaLabel: `${kind} unit rate chart`,
+        ? tl("octopus.export_unit_rates_unavailable_connect_octopus")
+        : tl("octopus.import_unit_rates_unavailable_connect_octopus"),
+    ariaLabel: tl("octopus.kind_unit_rate_chart", { kind }),
     chartMode,
     barsMetaFn: (row) => ({ p_per_kwh: row.p_per_kwh }),
   });
   if (!chart.includes("octopus-greener-chart-plot")) return chart;
-  const legendLabel = kind === "export" ? "Export unit rate" : "Import unit rate";
-  return `${chart}<p class="octopus-analysis-chart-hint"><i class="octopus-analysis-swatch" style="background:${color}"></i> ${esc(legendLabel)} — hover bars for time and price</p>`;
+  const legendLabel = kind === "export" ? tl("octopus.export_unit_rate") : tl("octopus.import_unit_rate");
+  return `${chart}<p class="octopus-analysis-chart-hint">${tl("octopus.legendlabel_hover_bars_for_time_and", { color, legendLabel: esc(legendLabel) })}</p>`;
 }
 
 function octopusDualPriceLinePoints(rows, rateKey, yMin, yMax, padL, padT, chartH, slotW) {
@@ -4572,7 +4573,7 @@ function renderOctopusDualChartSvg(dualPeriods, carbonPeriods = null, importRate
     );
   }
   if (!rows.length) {
-    return `<p class="octopus-greener-empty">Price and carbon overlay unavailable — waiting for live Octopus import rates. Open Settings → Tariff and re-test the Octopus connection if this persists.</p>`;
+    return `<p class="octopus-greener-empty">${tl("octopus.price_and_carbon_overlay_unavailable_waiting")}</p>`;
   }
   const rates = rows
     .flatMap((r) => [r.p_per_kwh, r.export_p_per_kwh])
@@ -4619,8 +4620,8 @@ function renderOctopusDualChartSvg(dualPeriods, carbonPeriods = null, importRate
     maxValue: 10,
     minValue: 0,
     colorFn: (row) => (octopusCarbonPeriodIsGreen(row) ? "#4caf50" : "#8b5cf6"),
-    emptyHint: "No carbon periods.",
-    ariaLabel: "Price and carbon overlay chart",
+    emptyHint: tl("octopus.no_carbon_periods"),
+    ariaLabel: tl("octopus.price_and_carbon_overlay_chart"),
     chartMode: "dual",
     overlaySvg: `${importLine}${exportLine}`,
     barsMetaFn: (row) => ({
@@ -4637,21 +4638,21 @@ function renderOctopusDualChartSvg(dualPeriods, carbonPeriods = null, importRate
   ).length;
   const coverageHint =
     chartRows.length && withScore < chartRows.length * 0.85
-      ? `<p class="octopus-greener-hint" style="margin-top:6px">Carbon forecast covers ${withScore}/${chartRows.length} price slots — NESO regional intensity fills in when Octopus truncates (refresh Analysis if this stays short).</p>`
+      ? `<p class="octopus-greener-hint" style="margin-top:6px">${tl("octopus.carbon_forecast_covers_withscore_length_price", { withScore, length: chartRows.length })}</p>`
       : "";
   const ratesHint =
     withImport > 0 && withImport < 46
-      ? `<p class="octopus-greener-hint" style="margin-top:4px">Agile unit rates usually publish until ~23:00; the next day-ahead block arrives mid-afternoon.</p>`
+      ? `<p class="octopus-greener-hint" style="margin-top:4px">${tl("octopus.agile_unit_rates_usually_publish_until")}</p>`
       : "";
   return `<div class="octopus-analysis-dual-wrap">
 <div class="octopus-analysis-dual-legend">
-<span><i class="octopus-analysis-swatch octopus-analysis-swatch--green"></i> Low carbon</span>
-<span><i class="octopus-analysis-swatch octopus-analysis-swatch--purple"></i> Higher carbon</span>
-<span><i class="octopus-analysis-swatch-line octopus-analysis-swatch-line--import"></i> Import price</span>
-<span><i class="octopus-analysis-swatch-line octopus-analysis-swatch-line--export"></i> Export price</span>
+<span>${tl("octopus.low_carbon_2")}</span>
+<span>${tl("octopus.higher_carbon_2")}</span>
+<span>${tl("octopus.import_price")}</span>
+<span>${tl("octopus.export_price")}</span>
 </div>
 ${chart}
-<p class="octopus-analysis-chart-hint">Hover bars for carbon score, import/export prices, and time</p>${coverageHint}${ratesHint}
+<p class="octopus-analysis-chart-hint">${tl("octopus.hover_bars_for_carbon_score_import")}</p>${coverageHint}${ratesHint}
 </div>`;
 }
 
@@ -4666,11 +4667,11 @@ function renderOctopusConsumptionChartSvg(consumption, { kind = "import", tariff
       return `<p class="octopus-greener-empty">${esc(String(hybridNote))}</p>`;
     }
     if (isExport && tariffCode) {
-      return `<p class="octopus-greener-empty">Export tariff ${esc(String(tariffCode))} is linked, but no half-hourly export readings yet. Re-test the Octopus connection (to refresh the export meter serial) or wait for the next 30-minute meter poll. Until Octopus publishes export half-hours, Fox Plant falls back to Glow cumulative export (then Fox feed-in).</p>`;
+      return `<p class="octopus-greener-empty">${tl("octopus.export_tariff_tariffcode_is_linked_but", { tariffCode: esc(String(tariffCode)) })}</p>`;
     }
     return isExport
-      ? `<p class="octopus-greener-empty">Smart-meter export unavailable. Needs an Outgoing/SEG meter on the Octopus account — export is polled with import every 30 minutes when connected.</p>`
-      : `<p class="octopus-greener-empty">Smart-meter import unavailable. Consumption is polled every 30 minutes when Octopus is connected — check back after the next poll.</p>`;
+      ? `<p class="octopus-greener-empty">${tl("octopus.smart_meter_export_unavailable_needs_an")}</p>`
+      : `<p class="octopus-greener-empty">${tl("octopus.smart_meter_import_unavailable_consumption_is")}</p>`;
   }
   const rows = daily.map((d) => ({
     start_ms: Date.parse(`${d.date}T12:00:00`),
@@ -4681,23 +4682,23 @@ function renderOctopusConsumptionChartSvg(consumption, { kind = "import", tariff
   const chart = renderOctopusGenericBarChartSvg(rows, {
     valueKey: "kwh",
     colorFn: () => barColor,
-    emptyHint: isExport ? "No export meter data." : "No consumption data.",
-    ariaLabel: isExport ? "Daily export generation" : "Daily import consumption",
+    emptyHint: isExport ? tl("octopus.no_export_meter_data") : tl("octopus.no_consumption_data"),
+    ariaLabel: isExport ? tl("octopus.daily_export_generation") : tl("octopus.daily_import_consumption"),
     chartMode: isExport ? "consumption-export" : "consumption",
     barsMetaFn: (row) => ({ kwh: row.kwh }),
   });
   if (!chart.includes("octopus-greener-chart-plot")) return chart;
   const sourceLabel =
     source === "glow"
-      ? "Glow cumulative (daily delta)"
+      ? tl("octopus.glow_cumulative_daily_delta")
       : source === "fox"
-        ? "Fox feed-in today"
+        ? tl("octopus.fox_feed_in_today")
         : source === "octopus"
-          ? "Octopus smart-meter half-hours"
+          ? tl("octopus.octopus_smart_meter_half_hours")
           : null;
-  const hint = isExport ? "Daily export — hover bars for kWh" : "Daily import — hover bars for kWh";
+  const hint = isExport ? tl("octopus.daily_export_hover_bars_for_kwh") : tl("octopus.daily_import_hover_bars_for_kwh");
   const sourceHtml = sourceLabel
-    ? `<p class="octopus-greener-hint" style="margin-top:6px">Source: ${esc(sourceLabel)}</p>`
+    ? `<p class="octopus-greener-hint" style="margin-top:6px">${tl("octopus.source_sourcelabel", { sourceLabel: esc(sourceLabel) })}</p>`
     : "";
   return `${chart}<p class="octopus-analysis-chart-hint"><i class="octopus-analysis-swatch" style="background:${barColor}"></i> ${esc(hint)}</p>${sourceHtml}`;
 }
@@ -4705,7 +4706,7 @@ function renderOctopusConsumptionChartSvg(consumption, { kind = "import", tariff
 function renderOctopusMeterCostChartSvg(meterCosts) {
   const days = Array.isArray(meterCosts?.days) ? meterCosts.days : [];
   if (!days.length) {
-    return `<p class="octopus-greener-empty">Import spend and export earnings appear once smart-meter readings are joined with Octopus unit rates for each half-hour (polled with consumption).</p>`;
+    return `<p class="octopus-greener-empty">${tl("octopus.import_spend_and_export_earnings_appear")}</p>`;
   }
   const rows = days.map((d) => {
     const startMs = Date.parse(`${d.date}T12:00:00`);
@@ -4779,47 +4780,47 @@ function renderOctopusMeterCostChartSvg(meterCosts) {
   const exportSource = meterCosts?.export_kwh_source;
   const exportSourceLabel =
     exportSource === "glow"
-      ? "Glow cumulative"
+      ? tl("octopus.glow_cumulative")
       : exportSource === "fox"
-        ? "Fox feed-in"
+        ? tl("octopus.fox_feed_in")
         : exportSource === "octopus"
-          ? "Octopus half-hours"
+          ? tl("octopus.octopus_half_hours")
           : null;
   const exportSourceHtml = exportSourceLabel
-    ? `<p class="octopus-greener-hint" style="margin-top:6px">Export kWh source: ${esc(exportSourceLabel)}</p>`
+    ? `<p class="octopus-greener-hint" style="margin-top:6px">${tl("octopus.export_kwh_source_exportsourcelabel", { exportSourceLabel: esc(exportSourceLabel) })}</p>`
     : "";
   return `<div class="octopus-analysis-metrics" style="margin-bottom:8px">
-<div class="octopus-analysis-metric"><label>Import spend</label><strong>${esc(spendTotal)}</strong></div>
-<div class="octopus-analysis-metric"><label>Export earned</label><strong>${esc(earnTotal)}</strong></div>
-<div class="octopus-analysis-metric"><label>Net</label><strong>${esc(netTotal)}</strong></div>
+<div class="octopus-analysis-metric"><label>${tl("octopus.import_spend")}</label><strong>${esc(spendTotal)}</strong></div>
+<div class="octopus-analysis-metric"><label>${tl("octopus.export_earned")}</label><strong>${esc(earnTotal)}</strong></div>
+<div class="octopus-analysis-metric"><label>${tl("octopus.net")}</label><strong>${esc(netTotal)}</strong></div>
 </div>
 <div class="octopus-greener-chart-plot" data-octopus-greener-plot="1" data-chart-mode="meter-cost" data-chart-w="${W}" data-pad-l="${padL}" data-pad-t="${padT}" data-pad-b="${padB}" data-chart-inner-w="${chartW}" data-slot-w="${slotW}" data-bars="${barsJson}" style="--octopus-hit-left:${hitLeftPct}%">
-<svg class="octopus-greener-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Daily import spend and export earnings">${bars}${labels.join("")}</svg>
+<svg class="octopus-greener-chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${tl("octopus.daily_import_spend_and_export_earnings")}">${bars}${labels.join("")}</svg>
 <div class="octopus-greener-hit" aria-hidden="true"></div>
 <div class="octopus-greener-tooltip" hidden role="tooltip"></div>
 </div>
-<p class="octopus-analysis-chart-hint"><i class="octopus-analysis-swatch" style="background:${importColor}"></i> Import spend <i class="octopus-analysis-swatch" style="background:${exportColor};margin-left:10px"></i> Export earned — half-hourly meter kWh × Octopus unit rate at the time</p>${exportSourceHtml}`;
+<p class="octopus-analysis-chart-hint">${tl("octopus.import_spend_export_earned_half_hourly", { importColor, exportColor })}</p>${exportSourceHtml}`;
 }
 
 function renderOctopusComplianceCard(compliance) {
   if (!compliance) {
-    return `<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Greener Nights alignment</h3><p class="octopus-greener-empty">Overnight alignment is calculated from polled smart-meter import (every 30 minutes).</p></div>`;
+    return `<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">${tl("octopus.greener_nights_alignment")}</h3><p class="octopus-greener-empty">${tl("octopus.overnight_alignment_is_calculated_from_polled")}</p></div>`;
   }
   const pct = compliance.alignment_pct;
   const pctText = pct != null ? `${pct}%` : "—";
   const tierHint =
     compliance.projected_octopoints
-      ? `On track for ~${compliance.projected_octopoints.toLocaleString()} Octopoints this month (IOG rewards use EV charging data from Octopus).`
+      ? tl("octopus.on_track_for_projected_octopoints_octopoints", { projected_octopoints: compliance.projected_octopoints.toLocaleString() })
       : compliance.next_tier
-        ? `Reach ${compliance.next_tier.label} overnight alignment for ~${compliance.next_tier.points.toLocaleString()} Octopoints.`
-        : "Charge or import more during greener nights (11pm–6am) to improve alignment.";
+        ? tl("octopus.reach_label_overnight_alignment_for_points", { label: compliance.next_tier.label, points: compliance.next_tier.points.toLocaleString() })
+        : tl("octopus.charge_or_import_more_during_greener");
   return `<div class="card octopus-analysis-card" data-octopus-compliance-card="1">
-<h3 class="fox-analysis-summary-title fox-analysis-chart-title">Greener Nights alignment</h3>
-<p class="octopus-greener-intro">Overnight import on greener nights this month (${esc(compliance.month || "")}).</p>
+<h3 class="fox-analysis-summary-title fox-analysis-chart-title">${tl("octopus.greener_nights_alignment")}</h3>
+<p class="octopus-greener-intro">${tl("octopus.overnight_import_on_greener_nights_this", { value: esc(compliance.month || "") })}</p>
 <div class="octopus-analysis-metrics">
-<div class="octopus-analysis-metric"><label>Alignment</label><strong>${esc(pctText)}</strong></div>
-<div class="octopus-analysis-metric"><label>Overnight import</label><strong>${esc(String(compliance.overnight_kwh ?? "—"))} kWh</strong></div>
-<div class="octopus-analysis-metric"><label>On greener nights</label><strong>${esc(String(compliance.greener_overnight_kwh ?? "—"))} kWh</strong></div>
+<div class="octopus-analysis-metric"><label>${tl("octopus.alignment")}</label><strong>${esc(pctText)}</strong></div>
+<div class="octopus-analysis-metric"><label>${tl("octopus.overnight_import")}</label><strong>${esc(String(compliance.overnight_kwh ?? "—"))} kWh</strong></div>
+<div class="octopus-analysis-metric"><label>${tl("octopus.on_greener_nights")}</label><strong>${esc(String(compliance.greener_overnight_kwh ?? "—"))} kWh</strong></div>
 </div>
 <p class="octopus-greener-hint">${esc(tierHint)}</p>
 <p class="octopus-greener-hint">${esc(compliance.note || "")}</p>
@@ -4833,10 +4834,10 @@ function renderOctopusCarbonInsightsCard(extremes) {
   const bestG = extremes.best_gco2 != null ? `${Math.round(extremes.best_gco2)}g` : "—";
   const worstG = extremes.worst_gco2 != null ? `${Math.round(extremes.worst_gco2)}g` : "—";
   return `<div class="card octopus-analysis-card">
-<h3 class="fox-analysis-summary-title fox-analysis-chart-title">Carbon insights (next 24h)</h3>
+<h3 class="fox-analysis-summary-title fox-analysis-chart-title">${tl("octopus.carbon_insights_next_24h")}</h3>
 <div class="octopus-analysis-metrics">
-<div class="octopus-analysis-metric"><label>Cleanest period</label><strong>${esc(best)}</strong><span class="octopus-greener-hint">${esc(bestG)} CO₂/kWh</span></div>
-<div class="octopus-analysis-metric"><label>Highest carbon</label><strong>${esc(worst)}</strong><span class="octopus-greener-hint">${esc(worstG)} CO₂/kWh</span></div>
+<div class="octopus-analysis-metric"><label>${tl("octopus.cleanest_period")}</label><strong>${esc(best)}</strong><span class="octopus-greener-hint">${tl("octopus.bestg_co2_kwh", { bestG: esc(bestG) })}</span></div>
+<div class="octopus-analysis-metric"><label>${tl("octopus.highest_carbon")}</label><strong>${esc(worst)}</strong><span class="octopus-greener-hint">${tl("octopus.worstg_co2_kwh", { worstG: esc(worstG) })}</span></div>
 </div>
 </div>`;
 }
@@ -4846,26 +4847,26 @@ function renderOctopusForecastHistoryCard(history, greenerNights) {
   const nights = Array.isArray(greenerNights) ? greenerNights : [];
   const changed = nights.filter((n) => n.forecast_changed);
   if (!flips.length && !changed.length && !(history?.snapshot_count > 1)) {
-    return `<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Forecast history</h3><p class="octopus-greener-hint">Daily greener-night snapshots will build here (${esc(String(history?.snapshot_count || 0))} stored).</p></div>`;
+    return `<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">${tl("solar_forecast.forecast_history")}</h3><p class="octopus-greener-hint">${tl("solar_forecast.daily_greener_night_snapshots_will_build", { value: esc(String(history?.snapshot_count || 0)) })}</p></div>`;
   }
   const flipRows = flips
     .slice(0, 6)
     .map(
       (f) =>
-        `<li><strong>${esc(f.date)}</strong> — changed from ${esc(f.from)} to ${esc(f.to)} (${esc(String(f.recorded_at || "").slice(0, 16))})</li>`
+        `<li>${tl("solar_forecast.date_changed_from_from_to_to", { date: esc(f.date), from: esc(f.from), to: esc(f.to), value: esc(String(f.recorded_at || "").slice(0, 16)) })}</li>`
     )
     .join("");
   const changedRows = changed
     .slice(0, 4)
     .map((n) => {
-      const was = n.was_greener_night ? "was greener" : "was not greener";
-      const now = n.is_greener_night ? "now greener" : "no longer greener";
+      const was = n.was_greener_night ? tl("solar_forecast.was_greener") : tl("solar_forecast.was_not_greener");
+      const now = n.is_greener_night ? tl("solar_forecast.now_greener") : tl("solar_forecast.no_longer_greener");
       return `<li><strong>${esc(n.date)}</strong> — ${was}, ${now}${n.greenness_index ? ` (${esc(String(n.greenness_index))})` : ""}</li>`;
     })
     .join("");
   return `<div class="card octopus-analysis-card">
-<h3 class="fox-analysis-summary-title fox-analysis-chart-title">Forecast history</h3>
-<p class="octopus-greener-intro">${esc(String(history?.snapshot_count || 0))} daily snapshots stored. Dates ever flagged greener stay recorded even if Octopus later changes the forecast.</p>
+<h3 class="fox-analysis-summary-title fox-analysis-chart-title">${tl("solar_forecast.forecast_history")}</h3>
+<p class="octopus-greener-intro">${tl("solar_forecast.value_daily_snapshots_stored_dates_ever", { value: esc(String(history?.snapshot_count || 0)) })}</p>
 ${flipRows ? `<ul class="octopus-analysis-list">${flipRows}</ul>` : ""}
 ${changedRows ? `<ul class="octopus-analysis-list">${changedRows}</ul>` : ""}
 </div>`;
@@ -4873,10 +4874,10 @@ ${changedRows ? `<ul class="octopus-analysis-list">${changedRows}</ul>` : ""}
 
 function renderOctopusEnergyAnalysisPage(payload, { loading = false, greenerView = "standard" } = {}) {
   if (loading) {
-    return `<div data-octopus-analysis-main="1"><header class="header"><h1>Octopus Energy Analysis</h1><p class="chart-loading">Loading Octopus data…</p></header></div>`;
+    return `<div data-octopus-analysis-main="1"><header class="header"><h1>${tl("common.octopus_energy_analysis")}</h1><p class="chart-loading">${tl("octopus.loading_octopus_data")}</p></header></div>`;
   }
   if (!payload) {
-    return `<div data-octopus-analysis-main="1"><header class="header"><h1>Octopus Energy Analysis</h1></header><p class="placeholder">Select Octopus as your energy provider under Settings → Tariff to use this report.</p></div>`;
+    return `<div data-octopus-analysis-main="1"><header class="header"><h1>${tl("common.octopus_energy_analysis")}</h1></header><p class="placeholder">${tl("octopus.select_octopus_as_your_energy_provider")}</p></div>`;
   }
   const err =
     payload.errors?.auth ||
@@ -4898,21 +4899,21 @@ function renderOctopusEnergyAnalysisPage(payload, { loading = false, greenerView
   const weekCard = renderOctopusUpcomingWeekCard(payload);
   const tariffLabel = payload.import_tariff_code
     ? `${payload.tariff_type || "tariff"} · ${payload.import_tariff_code}`
-    : "Octopus tariff not linked — use native Octopus connection for live rates";
+    : tl("octopus.octopus_tariff_not_linked_use_native");
   return `<div data-octopus-analysis-main="1">
-<header class="header"><h1>Octopus Energy Analysis</h1><p>${esc(tariffLabel)}${payload.fetched_at ? ` · updated ${esc(String(payload.fetched_at).slice(0, 16).replace("T", " "))}` : ""}</p></header>
+<header class="header"><h1>${tl("common.octopus_energy_analysis")}</h1><p>${esc(tariffLabel)}${payload.fetched_at ? ` · updated ${esc(String(payload.fetched_at).slice(0, 16).replace("T", " "))}` : ""}</p></header>
 ${errHtml}
 ${rewardsHtml}
 <div class="octopus-analysis-grid">
-<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Import price (48h)</h3>${renderOctopusRateChartSvg(payload.import_rate_slots, { kind: "import" })}</div>
-<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Export price (48h)</h3>${renderOctopusRateChartSvg(payload.export_rate_slots, { kind: "export" })}</div>
+<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">${tl("octopus.import_price_48h")}</h3>${renderOctopusRateChartSvg(payload.import_rate_slots, { kind: "import" })}</div>
+<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">${tl("octopus.export_price_48h")}</h3>${renderOctopusRateChartSvg(payload.export_rate_slots, { kind: "export" })}</div>
 </div>
-<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Price and carbon overlay</h3><p class="octopus-greener-intro">Bars show low carbon score; blue line is import price and amber is export price — look for cheap, green periods to run loads or charge the battery.</p>${renderOctopusDualChartSvg(payload.dual_periods, payload.carbon_periods, payload.import_rate_slots)}</div>
+<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">${tl("octopus.price_and_carbon_overlay")}</h3><p class="octopus-greener-intro">${tl("octopus.bars_show_low_carbon_score_blue")}</p>${renderOctopusDualChartSvg(payload.dual_periods, payload.carbon_periods, payload.import_rate_slots)}</div>
 ${renderOctopusCarbonInsightsCard(payload.carbon_extremes)}
 ${renderOctopusComplianceCard(payload.compliance)}
 <div class="octopus-analysis-grid">
-<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Smart-meter import (14 days)</h3>${renderOctopusConsumptionChartSvg(payload.consumption, { kind: "import" })}</div>
-<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Smart-meter export (14 days)</h3>${renderOctopusConsumptionChartSvg(payload.export_consumption, {
+<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">${tl("octopus.smart_meter_import_14_days")}</h3>${renderOctopusConsumptionChartSvg(payload.consumption, { kind: "import" })}</div>
+<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">${tl("octopus.smart_meter_export_14_days")}</h3>${renderOctopusConsumptionChartSvg(payload.export_consumption, {
   kind: "export",
   tariffCode: payload.export_tariff_code,
   error: payload.errors?.export_consumption,
@@ -4920,7 +4921,7 @@ ${renderOctopusComplianceCard(payload.compliance)}
   hybridNote: payload.export_hybrid_note,
 })}</div>
 </div>
-<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">Import spend &amp; export earnings (14 days)</h3><p class="octopus-greener-intro">Smart-meter half-hours priced at the Octopus unit rate that applied when the energy was used.</p>${renderOctopusMeterCostChartSvg(payload.daily_costs)}</div>
+<div class="card octopus-analysis-card"><h3 class="fox-analysis-summary-title fox-analysis-chart-title">${tl("octopus.import_spend_export_earnings_14_days")}</h3><p class="octopus-greener-intro">${tl("octopus.smart_meter_half_hours_priced_at")}</p>${renderOctopusMeterCostChartSvg(payload.daily_costs)}</div>
 ${renderOctopusForecastHistoryCard(payload.history, payload.greener_nights)}
 ${greenerCard}
 ${weekCard}
@@ -5280,10 +5281,10 @@ function buildTariffSavePayload(draft) {
 }
 
 function tariffSaveErrorMessage(err) {
-  if (!err) return "Save failed";
+  if (!err) return tl("common.save_failed");
   const bits = [err.message, err.code, err.error?.message, err.error?.code].filter(Boolean);
   const msg = bits.find((b) => b && b !== "Unknown error") || bits[0];
-  return msg || "Save failed";
+  return msg || tl("common.save_failed");
 }
 
 function tariffRatesAtTime(tariff, tMs) {
@@ -5361,12 +5362,12 @@ function suggestedTariffEntitiesForKind(hass, kind, limit = 5) {
 
 function tariffSuggestedEntitiesHint(hass, kind) {
   const rows = suggestedTariffEntitiesForKind(hass, kind);
-  if (!rows.length) return "Search by sensor name or entity id (e.g. sensor.octopus_energy_electricity_meter_rate).";
+  if (!rows.length) return tl("tariff.search_by_sensor_name_or_entity");
   const bits = rows.map((row) => {
     const unit = row.unit ? ` ${row.unit}` : "";
     return `${row.name} (${row.entity_id}${unit ? ` · ${String(row.state).trim()}${unit}` : ""})`;
   });
-  return `Suggested: ${bits.join(" · ")}`;
+  return tl("tariff.suggested_bits", { bits: bits.join(" · ") });
 }
 
 let _haEntityPickerLoadPromise = null;
@@ -5374,7 +5375,7 @@ let _haEntityPickerLoadPromise = null;
 async function ensureHaEntityPickerLoaded() {
   if (customElements.get("ha-entity-picker")) return;
   if (typeof window.loadCardHelpers !== "function") {
-    throw new Error("Home Assistant entity picker is not available");
+    throw new Error(tl("settings.home_assistant_entity_picker_is_not"));
   }
   if (!_haEntityPickerLoadPromise) {
     _haEntityPickerLoadPromise = (async () => {
@@ -5439,18 +5440,18 @@ function tariffSettingsSummary(tariff) {
   const currency = tariffCurrencyFromTariff(tariff);
   const entityBits = [];
   if (normalizeTariffImportSource(tariff?.import_source) === "entity" && tariff?.import_entity) {
-    entityBits.push("Import sensor");
+    entityBits.push(tl("tariff.import_sensor"));
   }
   if (normalizeTariffExportSource(tariff?.export_source) === "entity" && tariff?.export_entity) {
-    entityBits.push("Export sensor");
+    entityBits.push(tl("tariff.export_sensor"));
   }
   if (normalizeTariffStandingSource(tariff?.standing_source) === "entity" && tariff?.standing_entity) {
-    entityBits.push("Standing sensor");
+    entityBits.push(tl("tariff.standing_sensor"));
   }
   const scheduleBits = [];
-  if (normalizeTariffImportSource(tariff?.import_source) === "schedule") scheduleBits.push("Import schedule");
-  if (normalizeTariffExportSource(tariff?.export_source) === "schedule") scheduleBits.push("Export schedule");
-  if (normalizeTariffStandingSource(tariff?.standing_source) === "plugin") scheduleBits.push("Standing sensor");
+  if (normalizeTariffImportSource(tariff?.import_source) === "schedule") scheduleBits.push(tl("tariff.import_schedule"));
+  if (normalizeTariffExportSource(tariff?.export_source) === "schedule") scheduleBits.push(tl("tariff.export_schedule"));
+  if (normalizeTariffStandingSource(tariff?.standing_source) === "plugin") scheduleBits.push(tl("tariff.standing_sensor"));
   const providerBits = [];
   if (showSupplierTariffProvider(tariff)) {
     const oct = tariff?.octopus ?? {};
@@ -5459,15 +5460,15 @@ function tariffSettingsSummary(tariff) {
   }
   if (!rates.import_p_per_kwh && !rates.export_p_per_kwh && !rates.standing_charge_p_per_day) {
     if (providerBits.length) return providerBits.join(" · ");
-    if (entityBits.length) return `${entityBits.join(" · ")} — awaiting live values`;
-    if (scheduleBits.length) return `${scheduleBits.join(" · ")} — set band rates`;
-    return "Not configured — add rates for cost analysis";
+    if (entityBits.length) return tl("tariff.entitybits_awaiting_live_values", { entityBits: entityBits.join(" · ") });
+    if (scheduleBits.length) return tl("tariff.schedulebits_set_band_rates", { scheduleBits: scheduleBits.join(" · ") });
+    return tl("tariff.not_configured_add_rates_for_cost");
   }
   const parts = [];
-  if (rates.import_p_per_kwh) parts.push(`Import ${formatTariffMoney(rates.import_p_per_kwh, currency)}/kWh`);
-  if (rates.export_p_per_kwh) parts.push(`Export ${formatTariffMoney(rates.export_p_per_kwh, currency)}/kWh`);
+  if (rates.import_p_per_kwh) parts.push(tl("tariff.import_import_p_per_kwh_kwh", { import_p_per_kwh: formatTariffMoney(rates.import_p_per_kwh, currency) }));
+  if (rates.export_p_per_kwh) parts.push(tl("tariff.export_export_p_per_kwh_kwh", { export_p_per_kwh: formatTariffMoney(rates.export_p_per_kwh, currency) }));
   if (rates.standing_charge_p_per_day) {
-    parts.push(`Standing ${formatTariffMoney(rates.standing_charge_p_per_day, currency)}/day`);
+    parts.push(tl("tariff.standing_standing_charge_p_per_day", { standing_charge_p_per_day: formatTariffMoney(rates.standing_charge_p_per_day, currency) }));
   }
   const status = scheduleBits.length ? ` · ${scheduleBits.join(", ")}` : "";
   const providerStatus = providerBits.length ? ` · ${providerBits.join(", ")}` : "";
@@ -5726,7 +5727,7 @@ function formatHourlyWeatherTemp(temp, unit) {
 }
 
 function formatHourlyWeatherTime(t, isNow) {
-  if (isNow) return "Now";
+  if (isNow) return tl("common.now");
   const d = new Date(t);
   if (Number.isNaN(d.getTime())) return "—";
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
@@ -5778,7 +5779,7 @@ function parseHourlyWeatherSlots(forecast, overviewWx, maxHours = 24) {
 
 async function fetchHourlyWeatherOverview(hass, weatherEntityId, overviewWx) {
   if (!weatherEntityId) {
-    return { empty: "Add Google Weather to show an hourly forecast." };
+    return { empty: tl("weather.add_google_weather_to_show_an") };
   }
   try {
     const response = await callServiceWithResponse(
@@ -5791,11 +5792,11 @@ async function fetchHourlyWeatherOverview(hass, weatherEntityId, overviewWx) {
     const block = response?.[weatherEntityId] ?? Object.values(response || {})[0];
     const forecast = block?.forecast;
     if (!Array.isArray(forecast) || !forecast.length) {
-      return { empty: "No hourly forecast available yet." };
+      return { empty: tl("weather.no_hourly_forecast_available_yet") };
     }
     const slots = parseHourlyWeatherSlots(forecast, overviewWx);
     if (!slots.length) {
-      return { empty: "No hourly forecast available yet." };
+      return { empty: tl("weather.no_hourly_forecast_available_yet") };
     }
     if (slots[0].isNow && Number.isFinite(overviewWx?.temperature)) {
       slots[0].tempDisplay = formatHourlyWeatherTemp(
@@ -5809,7 +5810,7 @@ async function fetchHourlyWeatherOverview(hass, weatherEntityId, overviewWx) {
     }
     return { slots, weatherEntityId };
   } catch (err) {
-    return { error: err?.message || "Could not load hourly forecast." };
+    return { error: err?.message || tl("weather.could_not_load_hourly_forecast") };
   }
 }
 
@@ -5822,7 +5823,7 @@ function renderHourlyWeatherOverviewHtml(hass, data) {
   }
   const slots = data?.slots || [];
   if (!slots.length) {
-    return `<p class="placeholder hourly-weather-empty">No hourly forecast available yet.</p>`;
+    return `<p class="placeholder hourly-weather-empty">${tl("weather.no_hourly_forecast_available_yet")}</p>`;
   }
   const cols = slots
     .map(
@@ -5842,10 +5843,10 @@ function renderHourlyWeatherOverviewHtml(hass, data) {
     .join("");
   return `<div class="hourly-weather-card-inner" data-hourly-weather="1">
 <div class="hourly-weather-head">
-<h3 class="hourly-weather-title"><svg class="hourly-weather-title-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7v5.2l3.2 1.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Hourly overview</h3>
+<h3 class="hourly-weather-title"><svg class="hourly-weather-title-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7v5.2l3.2 1.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>${tl("weather.hourly_overview")}</h3>
 <div class="hourly-weather-nav">
-<button type="button" class="hourly-weather-nav-btn" data-hourly-scroll="-1" aria-label="Scroll hourly forecast left">‹</button>
-<button type="button" class="hourly-weather-nav-btn" data-hourly-scroll="1" aria-label="Scroll hourly forecast right">›</button>
+<button type="button" class="hourly-weather-nav-btn" data-hourly-scroll="-1" aria-label="${tl("weather.scroll_hourly_forecast_left")}">‹</button>
+<button type="button" class="hourly-weather-nav-btn" data-hourly-scroll="1" aria-label="${tl("weather.scroll_hourly_forecast_right")}">›</button>
 </div>
 </div>
 <div class="hourly-weather-scroll-wrap">
@@ -5983,7 +5984,7 @@ function renderDevicePvCard(hass, plant, plantState) {
       liveKw,
       maxKw,
       formatDevicePowerKw(flows.pvW),
-      "PV1 Power",
+      tl("pv.pv1_power"),
       pct
     );
     return `<div class="device-card device-card--pv"><div class="device-pv-gauges device-pv-gauges--single">${gauge}</div></div>`;
@@ -6008,12 +6009,12 @@ function renderDeviceBatteryCard(flows, tempDisplay) {
   const icon = renderDeviceBatteryIcon(flows.batterySoc);
   return `<div class="device-battery-card ${tone}">
 <div class="device-battery-top">
-<div class="device-battery-status-row">${icon}<span class="device-battery-status">${esc(flows.batteryStatus)}</span></div>
+<div class="device-battery-status-row">${icon}<span class="device-battery-status">${esc(stateWord(flows.batteryStatus))}</span></div>
 <div class="device-battery-pct">${esc(formatPercent(flows.batterySoc))}</div>
 </div>
 <div class="device-battery-metrics">
-<div class="device-battery-metric device-battery-metric--power"><span class="device-battery-metric-label">Power</span><span class="device-battery-metric-value">${esc(formatDevicePowerKw(flows.batteryW))}</span></div>
-<div class="device-battery-metric device-battery-metric--temp"><span class="device-battery-metric-label">Temp.</span><span class="device-battery-metric-value">${esc(tempDisplay)}</span></div>
+<div class="device-battery-metric device-battery-metric--power"><span class="device-battery-metric-label">${tl("device.power")}</span><span class="device-battery-metric-value">${esc(formatDevicePowerKw(flows.batteryW))}</span></div>
+<div class="device-battery-metric device-battery-metric--temp"><span class="device-battery-metric-label">${tl("device.temp")}</span><span class="device-battery-metric-value">${esc(tempDisplay)}</span></div>
 </div>
 </div>`;
 }
@@ -6036,13 +6037,13 @@ function renderDeviceBatteryTempSummaryCard(hass, map) {
   const maxParts = batteryTempMetricParts(hass, map.bms_temp_high);
   return `<div class="fox-device-new-summary-card fox-device-new-summary-card--temp fox-device-new-summary-card--temps"${style}>
 <div class="fox-device-new-summary-head">
-<span class="fox-device-new-summary-label">Battery Temperature</span>
+<span class="fox-device-new-summary-label">${tl("device.battery_temperature")}</span>
 ${icon ? `<span class="fox-device-new-summary-icon" aria-hidden="true">${icon}</span>` : ""}
 </div>
 <div class="fox-device-new-summary-body">
 <div class="fox-device-new-summary-temp-labels">
-<span class="fox-device-new-summary-temp-label">Min.</span>
-<span class="fox-device-new-summary-temp-label">Max.</span>
+<span class="fox-device-new-summary-temp-label">${tl("device.min")}</span>
+<span class="fox-device-new-summary-temp-label">${tl("device.max")}</span>
 </div>
 <div class="fox-device-new-summary-temp-values">
 ${renderFoxSummaryMetricValue(minParts.num, minParts.unit, {
@@ -6061,10 +6062,10 @@ function renderDeviceNewSummaryCardItems(hass, plant, plantState) {
   const map = resolveEntityMap(hass, plant, plantState);
   const iconKeys = { pv: "pv_power", soc: "battery_soc", discharge: "discharging" };
   const cards = [
-    { label: "PV Power", metric: devicePowerKwMetricParts(flows.pvW), tone: "pv" },
-    { label: "Battery SOC", metric: percentMetricParts(flows.batterySoc), tone: "soc" },
+    { label: tl("device.pv_power"), metric: devicePowerKwMetricParts(flows.pvW), tone: "pv" },
+    { label: tl("common.battery_soc"), metric: percentMetricParts(flows.batterySoc), tone: "soc" },
     {
-      label: "Discharging power",
+      label: tl("device.discharging_power"),
       metric: { num: deviceNewDischargeKw(flows).toFixed(3), unit: FOX_UNIT_KW },
       tone: "discharge",
     },
@@ -6105,7 +6106,7 @@ function repairDeviceNewSummaryElement(summary) {
 
 function renderDeviceNewMetricGrid(hass, rows) {
   if (!rows.length) {
-    return `<p class="device-param-empty">No sensors discovered for this section.</p>`;
+    return `<p class="device-param-empty">${tl("device.no_sensors_discovered_for_this_section")}</p>`;
   }
   return `<div class="fox-device-new-metric-grid">${rows
     .map((r) => {
@@ -6156,7 +6157,7 @@ function formatFoxTonePill(text, toneClass, { showCheckIcon = false } = {}) {
   const label = String(text || "—");
   if (label === "—") return esc(label);
   const icon = showCheckIcon ? foxDeviceCheckPillIcon() : "";
-  return `<span class="fox-device-new-check-pill ${toneClass}">${icon}<span class="fox-device-new-check-pill-text">${esc(label)}</span></span>`;
+  return `<span class="fox-device-new-check-pill ${toneClass}">${icon}<span class="fox-device-new-check-pill-text">${esc(stateWord(label))}</span></span>`;
 }
 
 function isFoxFaultInverterState(label) {
@@ -6169,7 +6170,7 @@ function wrapFoxInverterStatePillLink(label, pillHtml, { fromOverview = false } 
   const attrs = fromOverview
     ? `data-action="nav" data-view="device_new" data-device-sub="alarms"`
     : `data-action="device-new-tab" data-sub="alarms"`;
-  return wrapFoxOverviewPillNav(pillHtml, attrs, "View alerts");
+  return wrapFoxOverviewPillNav(pillHtml, attrs, tl("common.view_alerts"));
 }
 
 /** Wrap overview status / work mode / plant mode pills for navigation. */
@@ -6212,7 +6213,7 @@ function formatFoxOverviewWorkModePill(label) {
 
 function formatFoxOverviewPlantModePill(mode) {
   const raw = String(mode || "baseline").trim();
-  const display = raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : "Baseline";
+  const display = raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : tl("overview.baseline");
   const tone = modeClass(mode).replace(/^mode-/, "plant-");
   return formatFoxTonePill(display, `fox-overview-pill--${tone}`);
 }
@@ -6283,10 +6284,10 @@ function renderDeviceNewFoxDatalogger(hass, plant, plantState, map) {
   } else if (id.bms_online != null && id.bms_online !== "") {
     status = id.bms_online === true || id.bms_online === "on" ? "Online" : "Offline";
   }
-  rows.push({ name: "Status", html: formatDeviceNewOnlineBadge(status) });
-  rows.push({ name: "Software Version", value: formatFoxDataloggerSoftwareVersion(hass, plantState, map) });
+  rows.push({ name: tl("common.status"), html: formatDeviceNewOnlineBadge(status) });
+  rows.push({ name: tl("device.software_version"), value: formatFoxDataloggerSoftwareVersion(hass, plantState, map) });
   const signal = entityDisplayValue(hass, map.datalogger_signal);
-  rows.push({ name: "Signal strength", value: signal !== "—" ? signal : "—" });
+  rows.push({ name: tl("device.signal_strength"), value: signal !== "—" ? signal : "—" });
   return renderDeviceNewMetricGrid(hass, rows);
 }
 
@@ -6310,7 +6311,7 @@ function renderDeviceNewPvTable(hass, map) {
     (n) =>
       `<tr><td>PV${n}</td><td>${esc(cell(map[`pv${n}_voltage`]))}</td><td>${esc(cell(map[`pv${n}_current`]))}</td><td>${esc(cell(map[`pv${n}_power`]))}</td></tr>`
   ).join("");
-  return `<div class="device-param-table-wrap fox-device-new-table-wrap"><table class="device-param-table fox-device-new-table"><thead><tr><th>PV</th><th>Voltage (V)</th><th>Current (A)</th><th>Power (kW)</th></tr></thead><tbody>${totalRow}${stringRows}</tbody></table></div>`;
+  return `<div class="device-param-table-wrap fox-device-new-table-wrap"><table class="device-param-table fox-device-new-table"><thead><tr><th>PV</th><th>${tl("common.voltage_v")}</th><th>${tl("common.current_a")}</th><th>${tl("common.power_kw")}</th></tr></thead><tbody>${totalRow}${stringRows}</tbody></table></div>`;
 }
 
 function renderDeviceNewMetricTable(hass, map, keys, headers) {
@@ -6364,30 +6365,30 @@ function renderDeviceNewSidebar(hass, plant, plantState) {
   const serialHero = pcsSn
     ? `<div class="fox-device-new-sidebar-serial-row">
 <button type="button" class="fox-device-new-sidebar-serial-btn device-serial-btn" data-action="device-new-sub" data-sub="system">
-<span class="fox-device-new-sidebar-serial-prefix">SN:</span>
+<span class="fox-device-new-sidebar-serial-prefix">${tl("device.sn")}</span>
 <span class="device-serial fox-device-new-sidebar-serial">${esc(pcsSn)}</span>
 <span class="fox-device-new-sidebar-chevron chev" aria-hidden="true">›</span>
 </button>
-<button type="button" class="fox-device-new-sidebar-copy-btn" data-action="copy-device-serial" data-serial="${esc(pcsSn)}" aria-label="Copy serial number">${deviceSerialCopyIconSvg()}</button>
+<button type="button" class="fox-device-new-sidebar-copy-btn" data-action="copy-device-serial" data-serial="${esc(pcsSn)}" aria-label="${tl("device.copy_serial_number")}">${deviceSerialCopyIconSvg()}</button>
 </div>`
-    : `<p class="device-serial device-serial-muted fox-device-new-sidebar-serial-muted">Serial unavailable</p>`;
+    : `<p class="device-serial device-serial-muted fox-device-new-sidebar-serial-muted">${tl("device.serial_unavailable")}</p>`;
   const rows = [
     status !== "—"
       ? {
-          label: "State",
+          label: tl("device.state"),
           html: wrapFoxInverterStatePillLink(status, formatFoxDeviceCheckPill(status)),
         }
       : null,
-    pcsSn ? { label: "PSC SN", value: pcsSn } : null,
-    batterySn ? { label: "Battery SN", value: batterySn } : null,
+    pcsSn ? { label: tl("device.psc_sn"), value: pcsSn } : null,
+    batterySn ? { label: tl("device.battery_sn"), value: batterySn } : null,
     plantTitle
       ? {
-          label: "Plant",
+          label: tl("common.plant"),
           html: `<span class="fox-device-new-sidebar-plant">${esc(plantTitle)}<span class="fox-device-new-sidebar-chevron" aria-hidden="true">›</span></span>`,
         }
       : null,
-    model ? { label: "Model", value: model } : null,
-    meterLabel ? { label: "Meter", html: formatFoxDeviceCheckPill(meterLabel) } : null,
+    model ? { label: tl("device.model"), value: model } : null,
+    meterLabel ? { label: tl("device.meter"), html: formatFoxDeviceCheckPill(meterLabel) } : null,
     deviceNewSidebarRowValue(id.master_version || entityDisplayValue(hass, map.master_version))
       ? { label: "Version_Master", value: id.master_version || entityDisplayValue(hass, map.master_version) }
       : null,
@@ -6400,14 +6401,14 @@ function renderDeviceNewSidebar(hass, plant, plantState) {
   ].filter(Boolean);
   const body = rows.length
     ? `<dl class="fox-device-new-sidebar-list">${rows.map(renderDeviceNewSidebarRow).join("")}</dl>`
-    : `<p class="placeholder">No device identity available yet.</p>`;
+    : `<p class="placeholder">${tl("device.no_device_identity_available_yet")}</p>`;
   return `<div class="fox-device-new-sidebar-col"><aside class="fox-device-new-sidebar">
 <div class="fox-device-new-sidebar-hero">
 <img class="fox-device-new-sidebar-img" src="${esc(DEVICE_EVO_IMAGE_STATIC)}" alt="" loading="lazy" />
 ${serialHero}
 </div>
 <div class="fox-device-new-sidebar-divider" aria-hidden="true"></div>
-<h3 class="fox-device-new-sidebar-section-title">Device Information</h3>
+<h3 class="fox-device-new-sidebar-section-title">${tl("device.device_information")}</h3>
 ${body}
 </aside></div>`;
 }
@@ -6419,7 +6420,7 @@ async function fetchDeviceRealtimeChartSeries(hass, plant, plantState, { dayOffs
     return { ...s, entity_id: candidates[0] || null };
   }).filter((s) => s.entity_id);
   if (!specs.length) {
-    return { empty: "Map inverter power entities in FoxESS Modbus, then reload FoxESS Plant." };
+    return { empty: tl("device.map_inverter_power_entities_in_foxess") };
   }
   const now = new Date();
   const day = startOfLocalDay(now);
@@ -6462,8 +6463,8 @@ async function fetchDeviceRealtimeChartSeries(hass, plant, plantState, { dayOffs
     if (socPoints.length) {
       socSeries = {
         id: "battery_soc",
-        label: "Battery SOC",
-        tooltipLabel: "Battery SOC",
+        label: tl("common.battery_soc"),
+        tooltipLabel: tl("common.battery_soc"),
         legendGroup: "soc",
         yAxis: "soc",
         color: STATISTICS_SOC_COLOR,
@@ -6474,7 +6475,7 @@ async function fetchDeviceRealtimeChartSeries(hass, plant, plantState, { dayOffs
     }
   }
   if (!series.some((s) => s.points.length) && !socSeries?.points?.length) {
-    return { empty: "No power history for this day yet." };
+    return { empty: tl("device.no_power_history_for_this_day") };
   }
   return { series, socSeries, range, dayOffset };
 }
@@ -6588,7 +6589,7 @@ const FOX_ANALYSIS_SPLIT_COLORS = {
 };
 
 function renderEnergyBalanceHelpIcon() {
-  return `<button type="button" class="fox-analysis-help-btn" data-action="energy-balance-help-open" aria-label="Energy Balance help">
+  return `<button type="button" class="fox-analysis-help-btn" data-action="energy-balance-help-open" aria-label="${tl("energy.energy_balance_help")}">
 <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" stroke-width="1.2"/><text x="8" y="11.5" text-anchor="middle" font-size="10" font-weight="600" fill="currentColor">?</text></svg>
 </button>`;
 }
@@ -6596,15 +6597,15 @@ function renderEnergyBalanceHelpIcon() {
 function renderEnergyBalanceHelpModal() {
   return `<div class="fox-help-modal-backdrop" data-energy-balance-help-modal="1" data-action="energy-balance-help-backdrop">
 <div class="fox-help-modal" data-action="energy-balance-help-dialog" role="dialog" aria-modal="true" aria-labelledby="fox-energy-balance-help-title">
-<button type="button" class="fox-help-modal-close" data-action="energy-balance-help-close" aria-label="Close">×</button>
-<h2 id="fox-energy-balance-help-title" class="fox-help-modal-title">Energy Balance</h2>
+<button type="button" class="fox-help-modal-close" data-action="energy-balance-help-close" aria-label="${tl("energy.close")}">×</button>
+<h2 id="fox-energy-balance-help-title" class="fox-help-modal-title">${tl("common.energy_balance")}</h2>
 <div class="fox-help-modal-body">
-<p>The energy balance refers to the proportion between the production and consumption.</p>
-<p>A positive energy balance means that you have produced more energy than you consumed.</p>
-<p>A negative energy balance means that you have produced less energy than you consumed.</p>
+<p>${tl("energy.the_energy_balance_refers_to_the")}</p>
+<p>${tl("energy.a_positive_energy_balance_means_that")}</p>
+<p>${tl("energy.a_negative_energy_balance_means_that")}</p>
 </div>
 <div class="fox-help-modal-footer">
-<button type="button" class="fox-help-modal-ok" data-action="energy-balance-help-close">Ok</button>
+<button type="button" class="fox-help-modal-ok" data-action="energy-balance-help-close">${tl("energy.ok")}</button>
 </div>
 </div>
 </div>`;
@@ -6674,23 +6675,23 @@ function foxAnalysisTopCardsData(a) {
     production: {
       total: pvTotal,
       segments: [
-        { value: pvToLoadBattery, color: FOX_ANALYSIS_SPLIT_COLORS.selfConsumption, label: "Self-Consumption" },
-        { value: pvToGrid, color: FOX_ANALYSIS_SPLIT_COLORS.export, label: "Export" },
+        { value: pvToLoadBattery, color: FOX_ANALYSIS_SPLIT_COLORS.selfConsumption, label: tl("common.self_consumption") },
+        { value: pvToGrid, color: FOX_ANALYSIS_SPLIT_COLORS.export, label: tl("common.export") },
       ],
       rows: [
-        { label: "Self-Consumption", value: pvToLoadBattery, pct: selfConsumption, color: FOX_ANALYSIS_SPLIT_COLORS.selfConsumption },
-        { label: "Export", value: pvToGrid, pct: Math.max(0, 100 - selfConsumption), color: FOX_ANALYSIS_SPLIT_COLORS.export },
+        { label: tl("common.self_consumption"), value: pvToLoadBattery, pct: selfConsumption, color: FOX_ANALYSIS_SPLIT_COLORS.selfConsumption },
+        { label: tl("common.export"), value: pvToGrid, pct: Math.max(0, 100 - selfConsumption), color: FOX_ANALYSIS_SPLIT_COLORS.export },
       ],
     },
     consumption: {
       total: loadTotal,
       segments: [
-        { value: loadFromPvBattery, color: FOX_ANALYSIS_SPLIT_COLORS.selfSufficiency, label: "Self-Sufficiency" },
-        { value: loadFromGrid, color: FOX_ANALYSIS_SPLIT_COLORS.gridPurchase, label: "Grid Purchase" },
+        { value: loadFromPvBattery, color: FOX_ANALYSIS_SPLIT_COLORS.selfSufficiency, label: tl("common.self_sufficiency") },
+        { value: loadFromGrid, color: FOX_ANALYSIS_SPLIT_COLORS.gridPurchase, label: tl("panel.grid_purchase") },
       ],
       rows: [
-        { label: "Self-Sufficiency", value: loadFromPvBattery, pct: selfSufficiency, color: FOX_ANALYSIS_SPLIT_COLORS.selfSufficiency },
-        { label: "Grid Purchase", value: loadFromGrid, pct: Math.max(0, 100 - selfSufficiency), color: FOX_ANALYSIS_SPLIT_COLORS.gridPurchase },
+        { label: tl("common.self_sufficiency"), value: loadFromPvBattery, pct: selfSufficiency, color: FOX_ANALYSIS_SPLIT_COLORS.selfSufficiency },
+        { label: tl("panel.grid_purchase"), value: loadFromGrid, pct: Math.max(0, 100 - selfSufficiency), color: FOX_ANALYSIS_SPLIT_COLORS.gridPurchase },
       ],
     },
   };
@@ -6792,18 +6793,18 @@ function buildEnergyBreakdownPvRow(a) {
   const pvToGrid = Number(a.pv_to_grid_kwh_today ?? 0) || 0;
   const selfConsumption = Number(a.self_consumption_percent_today ?? 0) || 0;
   return renderEnergyBreakdownRow({
-    heading: "PV Production",
+    heading: tl("energy.pv_production"),
     totalKwh: pvTotal,
     metrics: [
-      { label: "To Load & Battery", value: pvToLoadBattery, color: FOX_ENERGY.pv },
-      { label: "To Grid", value: pvToGrid, color: "var(--primary-text-color)" },
+      { label: tl("energy.to_load_battery"), value: pvToLoadBattery, color: FOX_ENERGY.pv },
+      { label: tl("common.to_grid"), value: pvToGrid, color: "var(--primary-text-color)" },
     ],
     segments: [
       { value: pvToLoadBattery, color: FOX_ENERGY.pv },
       { value: pvToGrid, color: FOX_ENERGY.muted },
     ],
     centerPct: selfConsumption,
-    centerLabel: "Self-Consumption",
+    centerLabel: tl("common.self_consumption"),
     accent: FOX_ENERGY.pv,
   });
 }
@@ -6814,18 +6815,18 @@ function buildEnergyBreakdownLoadRow(a) {
   const loadFromGrid = Number(a.load_from_grid_kwh_today ?? 0) || 0;
   const selfSufficiency = Number(a.self_sufficiency_percent_today ?? 0) || 0;
   return renderEnergyBreakdownRow({
-    heading: "Load Consumption",
+    heading: tl("energy.load_consumption"),
     totalKwh: loadTotal,
     metrics: [
-      { label: "From PV & Battery", value: loadFromPvBattery, color: FOX_ENERGY.load },
-      { label: "From Grid", value: loadFromGrid, color: "var(--primary-text-color)" },
+      { label: tl("energy.from_pv_battery"), value: loadFromPvBattery, color: FOX_ENERGY.load },
+      { label: tl("common.from_grid"), value: loadFromGrid, color: "var(--primary-text-color)" },
     ],
     segments: [
       { value: loadFromPvBattery, color: FOX_ENERGY.load },
       { value: loadFromGrid, color: FOX_ENERGY.muted },
     ],
     centerPct: selfSufficiency,
-    centerLabel: "Self-Sufficiency",
+    centerLabel: tl("common.self_sufficiency"),
     accent: FOX_ENERGY.load,
   });
 }
@@ -6838,7 +6839,7 @@ function renderEnergyReportBalanceCard(a) {
 </div>
 <div class="fox-analysis-top-value">${data.balance.toFixed(2)}<span>kWh</span></div>
 <div class="fox-analysis-top-heading-row">
-<div class="fox-analysis-top-heading">Energy Balance</div>
+<div class="fox-analysis-top-heading">${tl("common.energy_balance")}</div>
 ${renderEnergyBalanceHelpIcon()}
 </div>
 </div>`;
@@ -6957,7 +6958,7 @@ function formatEnergyReportKwh(v) {
 
 function renderEnergyReportDetailsTable(rows) {
   if (!rows?.length) {
-    return `<p class="placeholder chart-empty">No detail rows for this period.</p>`;
+    return `<p class="placeholder chart-empty">${tl("reports.no_detail_rows_for_this_period")}</p>`;
   }
   const body = rows
     .map(
@@ -6976,17 +6977,17 @@ function renderEnergyReportDetailsTable(rows) {
 <table class="fox-report-details-table">
 <thead>
 <tr>
-<th rowspan="2">Date</th>
-<th colspan="3" class="fox-report-th-group">PV Production (kWh)</th>
-<th colspan="3" class="fox-report-th-group">Load Consumption (kWh)</th>
+<th rowspan="2">${tl("common.date")}</th>
+<th colspan="3" class="fox-report-th-group">${tl("reports.pv_production_kwh")}</th>
+<th colspan="3" class="fox-report-th-group">${tl("reports.load_consumption_kwh")}</th>
 </tr>
 <tr>
-<th>Export to Grid</th>
-<th>To Load &amp; Battery (Self-Consumption)</th>
-<th>Total</th>
-<th>From Grid</th>
-<th>From PV and Battery (Self-Sufficiency)</th>
-<th>Total</th>
+<th>${tl("reports.export_to_grid")}</th>
+<th>${tl("reports.to_load_battery_self_consumption")}</th>
+<th>${tl("common.total")}</th>
+<th>${tl("common.from_grid")}</th>
+<th>${tl("reports.from_pv_and_battery_self_sufficiency")}</th>
+<th>${tl("common.total")}</th>
 </tr>
 </thead>
 <tbody>${body}</tbody>
@@ -7004,7 +7005,7 @@ async function fetchEnergyReportData(hass, plant, plantState, period, offset = 0
   if (!points) {
     return {
       title,
-      error: error || "Daily energy sensors not found. Reload FoxESS Plant.",
+      error: error || tl("common.daily_energy_sensors_not_found_reload"),
       analytics: null,
       chartSvg: bar?.svg || "",
       detailRows: [],
@@ -7033,18 +7034,18 @@ function renderFoxAnalysisTopCards(a) {
 </div>
 <div class="fox-analysis-top-value" data-energy-balance-value>${data.balance.toFixed(2)}<span>kWh</span></div>
 <div class="fox-analysis-top-heading-row">
-<div class="fox-analysis-top-heading">Energy Balance</div>
+<div class="fox-analysis-top-heading">${tl("common.energy_balance")}</div>
 ${renderEnergyBalanceHelpIcon()}
 </div>
 </div>
 ${renderFoxAnalysisEnergySplitCard({
   cardId: "production",
-  title: "Production",
+  title: tl("panel.production"),
   ...data.production,
 })}
 ${renderFoxAnalysisEnergySplitCard({
   cardId: "consumption",
-  title: "Consumption",
+  title: tl("panel.consumption"),
   ...data.consumption,
 })}
 </div>`;
@@ -7306,32 +7307,32 @@ function renderFoxAnalysisSummaryCard(a, sparkData, analysisTariff, { loading = 
   }
 
   const rows = [
-    renderFoxAnalysisSummaryRow(`${periodLabel} Production`, pvVal.toFixed(2), "kWh", prodSpark, {
+    renderFoxAnalysisSummaryRow(tl("panel.periodlabel_production", { periodLabel }), pvVal.toFixed(2), "kWh", prodSpark, {
       valueKey: "production",
       labelKey: "production",
     }),
-    renderFoxAnalysisSummaryRow(`${periodLabel} Consumption`, loadVal.toFixed(2), "kWh", consSpark, {
+    renderFoxAnalysisSummaryRow(tl("panel.periodlabel_consumption", { periodLabel }), loadVal.toFixed(2), "kWh", consSpark, {
       valueKey: "consumption",
       labelKey: "consumption",
     }),
-    renderFoxAnalysisSummaryRow("Exported Energy Revenue", exportDisplay, exportUnit, exportSpark, {
+    renderFoxAnalysisSummaryRow(tl("panel.exported_energy_revenue"), exportDisplay, exportUnit, exportSpark, {
       valueKey: "export_revenue",
       muted: !tariffReady,
     }),
-    renderFoxAnalysisSummaryRow("Imported Energy Cost", importDisplay, importUnit, importSpark, {
+    renderFoxAnalysisSummaryRow(tl("panel.imported_energy_cost"), importDisplay, importUnit, importSpark, {
       valueKey: "import_cost",
       muted: !tariffReady,
     }),
     // Standing charge + import − export: what the day cost (negative = you earned more than you paid)
-    renderFoxAnalysisSummaryRow("Net Cost (incl. standing)", totalDisplay, totalUnit, totalSpark, {
+    renderFoxAnalysisSummaryRow(tl("panel.net_cost_incl_standing"), totalDisplay, totalUnit, totalSpark, {
       valueKey: "total_cost",
       muted: totalMuted,
     }),
   ].join("");
   return `<div class="fox-analysis-summary-card-inner">
 <div class="fox-analysis-summary-head">
-<h3 class="fox-analysis-summary-title">Analysis</h3>
-<button type="button" class="fox-analysis-summary-details" data-action="nav" data-view="energy_analysis">Details ›</button>
+<h3 class="fox-analysis-summary-title">${tl("common.analysis")}</h3>
+<button type="button" class="fox-analysis-summary-details" data-action="nav" data-view="energy_analysis">${tl("panel.details")}</button>
 </div>
 <div class="fox-analysis-summary-rows">${rows}</div>
 </div>`;
@@ -7340,25 +7341,25 @@ function renderFoxAnalysisSummaryCard(a, sparkData, analysisTariff, { loading = 
 function renderFoxSupplyUsagePanel(a) {
   const gridHint =
     a.grid_data_source === "glow" && a.grid_import_kw_live != null
-      ? `<p class="field-hint" style="margin:-4px 0 8px;text-align:center">Live meter ${Number(a.grid_import_kw_live).toFixed(2)} kW · grid from Glow smart meter</p>`
+      ? `<p class="field-hint" style="margin:-4px 0 8px;text-align:center">${tl("panel.live_meter_grid_import_kw_live", { grid_import_kw_live: Number(a.grid_import_kw_live).toFixed(2) })}</p>`
       : a.grid_data_source === "glow"
-        ? `<p class="field-hint" style="margin:-4px 0 8px;text-align:center">Grid import from Glow smart meter</p>`
+        ? `<p class="field-hint" style="margin:-4px 0 8px;text-align:center">${tl("panel.grid_import_from_glow_smart_meter")}</p>`
         : "";
   return `<div class="fox-analysis-stat-r">
-<div class="fox-analysis-stat-na">Supply</div>
+<div class="fox-analysis-stat-na">${tl("panel.supply")}</div>
 ${gridHint}
 <div class="fox-analysis-stat-row">
-${renderFoxAnalysisStatCol("Imported", a.load_from_grid_kwh_today, "imported", { muted: true })}
-${renderFoxAnalysisStatCol("PV Produced", a.pv_production_kwh_today, "pv_produced")}
-${renderFoxAnalysisStatCol("Discharged", a.battery_discharge_kwh_today, "discharged")}
+${renderFoxAnalysisStatCol(tl("panel.imported"), a.load_from_grid_kwh_today, "imported", { muted: true })}
+${renderFoxAnalysisStatCol(tl("panel.pv_produced"), a.pv_production_kwh_today, "pv_produced")}
+${renderFoxAnalysisStatCol(tl("panel.discharged"), a.battery_discharge_kwh_today, "discharged")}
 </div>
 ${renderFoxAnalysisFlowBridge()}
 <div class="fox-analysis-stat-usage-wrap">
-<div class="fox-analysis-stat-na fox-analysis-stat-na--overlay">Usage</div>
+<div class="fox-analysis-stat-na fox-analysis-stat-na--overlay">${tl("panel.usage")}</div>
 <div class="fox-analysis-stat-row">
-${renderFoxAnalysisStatCol("Exported", a.pv_to_grid_kwh_today, "exported", { muted: true })}
-${renderFoxAnalysisStatCol("Consumed", a.load_consumption_kwh_today, "consumed")}
-${renderFoxAnalysisStatCol("Charged", a.battery_charge_kwh_today, "charged")}
+${renderFoxAnalysisStatCol(tl("panel.exported"), a.pv_to_grid_kwh_today, "exported", { muted: true })}
+${renderFoxAnalysisStatCol(tl("panel.consumed"), a.load_consumption_kwh_today, "consumed")}
+${renderFoxAnalysisStatCol(tl("panel.charged"), a.battery_charge_kwh_today, "charged")}
 </div>
 </div>
 </div>`;
@@ -7376,7 +7377,7 @@ function renderDeviceRealtimeLegend(visible, { socSeries = null } = {}) {
   if (socSeries?.points?.length) {
     items.push({
       group: "soc",
-      label: socSeries.label || "Battery SOC",
+      label: socSeries.label || tl("common.battery_soc"),
       color: socSeries.color || STATISTICS_SOC_COLOR,
     });
   }
@@ -7419,7 +7420,7 @@ function renderStatisticsSideLegend(visible, { socVisible = false } = {}) {
 const STATISTICS_CHART_SERIES = [
   {
     key: "pv_power",
-    label: "Solar",
+    label: tl("common.solar"),
     legendGroup: "solar",
     color: "#19D4DE",
     fillColor: "rgba(25,212,222,0.16)",
@@ -7430,8 +7431,8 @@ const STATISTICS_CHART_SERIES = [
   },
   {
     key: "battery_charge",
-    label: "Battery",
-    tooltipLabel: "Battery charging",
+    label: tl("common.battery"),
+    tooltipLabel: tl("reports.battery_charging"),
     legendGroup: "battery",
     color: "#8DB6FF",
     fillColor: "rgba(141,182,255,0.14)",
@@ -7444,8 +7445,8 @@ const STATISTICS_CHART_SERIES = [
   },
   {
     key: "battery_discharge",
-    label: "Battery",
-    tooltipLabel: "Battery discharging",
+    label: tl("common.battery"),
+    tooltipLabel: tl("reports.battery_discharging"),
     legendGroup: "battery",
     color: "#8DB6FF",
     fillColor: "rgba(141,182,255,0.14)",
@@ -7458,8 +7459,8 @@ const STATISTICS_CHART_SERIES = [
   },
   {
     key: "grid_import",
-    label: "Grid",
-    tooltipLabel: "Grid import",
+    label: tl("reports.grid"),
+    tooltipLabel: tl("reports.grid_import"),
     legendGroup: "grid",
     color: "#FF6FAF",
     fillColor: "rgba(255,111,175,0.14)",
@@ -7471,8 +7472,8 @@ const STATISTICS_CHART_SERIES = [
   },
   {
     key: "grid_export",
-    label: "Grid",
-    tooltipLabel: "Grid export",
+    label: tl("reports.grid"),
+    tooltipLabel: tl("reports.grid_export"),
     legendGroup: "grid",
     color: "#FF6FAF",
     fillColor: "rgba(255,111,175,0.14)",
@@ -7486,7 +7487,7 @@ const STATISTICS_CHART_SERIES = [
   },
   {
     key: "load_power",
-    label: "Load",
+    label: tl("common.load"),
     legendGroup: "load",
     color: "#8A4DFF",
     fillColor: "rgba(138,77,255,0.14)",
@@ -7523,10 +7524,10 @@ const OPEN_METEO_CHART_STYLE = {
 /** Consolidated top legend (one button toggles whole group). */
 const STATISTICS_LEGEND_ORDER = ["solar", "battery", "grid", "load", "forecast", "forecast_om"];
 const STATISTICS_LEGEND_LABEL = {
-  solar: "Solar",
-  battery: "Battery",
-  grid: "Grid",
-  load: "Load",
+  solar: tl("common.solar"),
+  battery: tl("common.battery"),
+  grid: tl("reports.grid"),
+  load: tl("common.load"),
   forecast: "Solcast",
   forecast_om: "Open-Meteo",
 };
@@ -7545,14 +7546,14 @@ const STATISTICS_SOC_Y_TICKS = [0, 50, 100];
 const STATISTICS_SIDE_LEGEND = {
   soc: [{ group: "soc", label: "SoC", color: STATISTICS_SOC_COLOR }],
   supply: [
-    { group: "solar", label: "Solar", color: "#19D4DE" },
-    { group: "battery", label: "Battery Discharge", color: "#8DB6FF" },
-    { group: "grid", label: "Grid Import", color: "#2F6BFF" },
+    { group: "solar", label: tl("common.solar"), color: "#19D4DE" },
+    { group: "battery", label: tl("common.battery_discharge"), color: "#8DB6FF" },
+    { group: "grid", label: tl("common.grid_import"), color: "#2F6BFF" },
   ],
   usage: [
-    { group: "grid", label: "Grid Export", color: "#FF6FAF" },
-    { group: "battery", label: "Battery Charge", color: "#C4A3FF" },
-    { group: "load", label: "Total Load", color: "#8A4DFF" },
+    { group: "grid", label: tl("common.grid_export"), color: "#FF6FAF" },
+    { group: "battery", label: tl("common.battery_charge"), color: "#C4A3FF" },
+    { group: "load", label: tl("reports.total_load"), color: "#8A4DFF" },
   ],
   forecast: [
     { group: "forecast", label: "Solcast", color: "#FFD700" },
@@ -7667,42 +7668,42 @@ const BATTERY_SOC_CHART_LAYOUT = {
 
 const ENERGY_CHART_BAR = {
   pv: { suffix: "solar_energy_today", label: "PV", color: FOX_ENERGY.pv },
-  load: { suffix: "load_energy_today", label: "Load", color: FOX_ENERGY.load, computed: true },
-  grid: { suffix: "grid_consumption_energy_today", label: "From grid", color: "#FF6FAF" },
+  load: { suffix: "load_energy_today", label: tl("common.load"), color: FOX_ENERGY.load, computed: true },
+  grid: { suffix: "grid_consumption_energy_today", label: tl("energy.from_grid"), color: "#FF6FAF" },
 };
 
 const ENERGY_PERIOD_TABS = [
-  { id: "day", label: "Day" },
-  { id: "week", label: "Week" },
-  { id: "month", label: "Month" },
-  { id: "year", label: "Year" },
-  { id: "total", label: "Total" },
+  { id: "day", label: tl("common.day") },
+  { id: "week", label: tl("common.week") },
+  { id: "month", label: tl("common.month") },
+  { id: "year", label: tl("common.year") },
+  { id: "total", label: tl("common.total") },
 ];
 
 /** Fox Energy Report: week / month / year only. */
 const REPORTS_PERIOD_TABS = [
-  { id: "week", label: "Week" },
-  { id: "month", label: "Month" },
-  { id: "year", label: "Year" },
+  { id: "week", label: tl("common.week") },
+  { id: "month", label: tl("common.month") },
+  { id: "year", label: tl("common.year") },
 ];
 
 const PERFORMANCE_REPORT_TABS = [
-  { id: "day", label: "Day" },
-  { id: "week", label: "Week" },
-  { id: "month", label: "Month" },
+  { id: "day", label: tl("common.day") },
+  { id: "week", label: tl("common.week") },
+  { id: "month", label: tl("common.month") },
 ];
 
 const REPORTS_NAV = [
-  { id: "energy_report", label: "Energy Report" },
-  { id: "octopus", label: "Octopus Energy Analysis" },
+  { id: "energy_report", label: tl("reports.energy_report") },
+  { id: "octopus", label: tl("common.octopus_energy_analysis") },
 ];
 
 /** Device → Analysis energy chart (no day — real-time curve has its own day nav). */
 const DEVICE_NEW_ENERGY_PERIOD_TABS = [
-  { id: "week", label: "Week" },
-  { id: "month", label: "Month" },
-  { id: "year", label: "Year" },
-  { id: "total", label: "Total" },
+  { id: "week", label: tl("common.week") },
+  { id: "month", label: tl("common.month") },
+  { id: "year", label: tl("common.year") },
+  { id: "total", label: tl("common.total") },
 ];
 
 function normalizeReportsPeriod(period) {
@@ -7710,15 +7711,15 @@ function normalizeReportsPeriod(period) {
 }
 
 const FOX_SUPPLY_SERIES = [
-  { key: "solar", label: "Solar", color: "#19D4DE" },
-  { key: "batteryDischarge", label: "Battery Discharge", color: "#8DB6FF" },
-  { key: "gridImport", label: "Grid Import", color: "#2F6BFF" },
+  { key: "solar", label: tl("common.solar"), color: "#19D4DE" },
+  { key: "batteryDischarge", label: tl("common.battery_discharge"), color: "#8DB6FF" },
+  { key: "gridImport", label: tl("common.grid_import"), color: "#2F6BFF" },
 ];
 
 const FOX_USAGE_SERIES = [
-  { key: "load", label: "Load", color: "#8A4DFF" },
-  { key: "batteryCharge", label: "Battery Charge", color: "#C4A3FF" },
-  { key: "gridExport", label: "Grid Export", color: "#FF6FAF" },
+  { key: "load", label: tl("common.load"), color: "#8A4DFF" },
+  { key: "batteryCharge", label: tl("common.battery_charge"), color: "#C4A3FF" },
+  { key: "gridExport", label: tl("common.grid_export"), color: "#FF6FAF" },
 ];
 
 const OVERVIEW_DAILY_DAYS = 7;
@@ -7873,160 +7874,160 @@ const DEVICE_ENTITY_FALLBACKS = {
 const DEVICE_PV_STRINGS = [1, 2, 3, 4];
 
 const DEVICE_PARAMETER_SECTIONS = [
-  { id: "pv", title: "PV Information", kind: "pv-table" },
+  { id: "pv", title: tl("common.pv_information"), kind: "pv-table" },
   {
     id: "ac",
-    title: "AC Information",
+    title: tl("common.ac_information"),
     kind: "metric-table",
     keys: ["grid_voltage_R", "inv_current_R", "inv_power", "rfreq"],
-    headers: ["Voltage (V)", "Current (A)", "Power (kW)", "Frequency (Hz)"],
+    headers: [tl("common.voltage_v"), tl("common.current_a"), tl("common.power_kw"), tl("common.frequency_hz")],
   },
   {
     id: "eps",
-    title: "EPS Information",
+    title: tl("common.eps_information"),
     kind: "metric-table",
     keys: ["eps_rvolt_R", "eps_rcurrent_R", "eps_power_R", "eps_frequency"],
-    headers: ["Voltage (V)", "Current (A)", "Power (kW)", "Frequency (Hz)"],
+    headers: [tl("common.voltage_v"), tl("common.current_a"), tl("common.power_kw"), tl("common.frequency_hz")],
   },
   {
     id: "load",
-    title: "Load Information",
+    title: tl("common.load_information"),
     kind: "rows",
     rows: [
-      ["load_energy_today", "Daily load consumption"],
-      ["load_power_total", "Total load consumption"],
-      ["load_power", "Total load power"],
-      ["load_power_R", "Grid load power"],
-      ["eps_power_R", "EPS load power"],
+      ["load_energy_today", tl("common.daily_load_consumption")],
+      ["load_power_total", tl("common.total_load_consumption")],
+      ["load_power", tl("common.total_load_power")],
+      ["load_power_R", tl("common.grid_load_power")],
+      ["eps_power_R", tl("common.eps_load_power")],
     ],
   },
   {
     id: "grid",
-    title: "Grid Information",
+    title: tl("common.grid_information"),
     kind: "rows",
     rows: [
-      ["grid_status", "Grid Status"],
-      ["feed_in_energy_today", "Daily feed-in energy"],
-      ["feed_in_energy_total", "Total feed-in energy"],
-      ["grid_consumption_energy_today", "Daily purchased energy"],
-      ["grid_consumption_energy_total", "Total purchased energy"],
-      ["grid_export", "Feed-in Power"],
-      ["grid_import", "Purchased Power"],
+      ["grid_status", tl("common.grid_status")],
+      ["feed_in_energy_today", tl("common.daily_feed_in_energy")],
+      ["feed_in_energy_total", tl("common.total_feed_in_energy")],
+      ["grid_consumption_energy_today", tl("common.daily_purchased_energy")],
+      ["grid_consumption_energy_total", tl("common.total_purchased_energy")],
+      ["grid_export", tl("common.feed_in_power")],
+      ["grid_import", tl("common.purchased_power")],
     ],
   },
   {
     id: "battery",
-    title: "Battery Information",
+    title: tl("common.battery_information"),
     kind: "rows",
     rows: [
-      ["bms_kwh_nominal", "Nominal energy"],
+      ["bms_kwh_nominal", tl("glow.nominal_energy")],
       ["battery_soc", "SOC"],
-      ["battery_kwh_remaining", "Remaining energy"],
-      ["battery_status", "Status"],
-      ["battery_power", "Battery power"],
-      ["bat_current_1", "Current"],
-      ["batvolt_1", "Voltage"],
-      ["bms_temp_low", "Min. battery temperature"],
+      ["battery_kwh_remaining", tl("glow.remaining_energy")],
+      ["battery_status", tl("common.status")],
+      ["battery_power", tl("glow.battery_power")],
+      ["bat_current_1", tl("common.current")],
+      ["batvolt_1", tl("common.voltage")],
+      ["bms_temp_low", tl("glow.min_battery_temperature")],
       ["battery_soh", "SOH"],
-      ["battery_charge_today", "Daily charged energy"],
-      ["battery_charge_total", "Total charged energy"],
-      ["battery_discharge_today", "Daily discharged energy"],
-      ["battery_discharge_total", "Total discharged energy"],
-      ["battery_cycles", "Battery cycles"],
+      ["battery_charge_today", tl("common.daily_charged_energy")],
+      ["battery_charge_total", tl("common.total_charged_energy")],
+      ["battery_discharge_today", tl("common.daily_discharged_energy")],
+      ["battery_discharge_total", tl("common.total_discharged_energy")],
+      ["battery_cycles", tl("glow.battery_cycles")],
     ],
   },
-  { id: "datalogger", title: "Datalogger Information", kind: "datalogger" },
+  { id: "datalogger", title: tl("common.datalogger_information"), kind: "datalogger" },
 ];
 
 /** Fox Cloud Devices → Real-time tab (full page: PV/AC/EPS tables + metric sections). */
 const DEVICE_NEW_REALTIME_SECTIONS = [
-  { id: "pv", title: "PV Information", kind: "pv-table" },
+  { id: "pv", title: tl("common.pv_information"), kind: "pv-table" },
   {
     id: "ac",
-    title: "AC Information",
+    title: tl("common.ac_information"),
     kind: "metric-table",
     keys: ["grid_voltage_R", "inv_current_R", "inv_power", "rfreq"],
-    headers: ["Voltage (V)", "Current (A)", "Power (kW)", "Frequency (Hz)"],
+    headers: [tl("common.voltage_v"), tl("common.current_a"), tl("common.power_kw"), tl("common.frequency_hz")],
   },
   {
     id: "eps",
-    title: "EPS Information",
+    title: tl("common.eps_information"),
     kind: "metric-table",
     keys: ["eps_rvolt_R", "eps_rcurrent_R", "eps_power_R", "eps_frequency"],
-    headers: ["Voltage (V)", "Current (A)", "Power (kW)", "Frequency (Hz)"],
+    headers: [tl("common.voltage_v"), tl("common.current_a"), tl("common.power_kw"), tl("common.frequency_hz")],
   },
   {
     id: "load",
-    title: "Load Information",
+    title: tl("common.load_information"),
     kind: "rows",
     rows: [
-      ["load_energy_today", "Daily load consumption"],
-      ["load_energy_total", "Total load consumption"],
-      ["load_power", "Total load power"],
-      ["load_power_R", "Grid load power"],
-      ["eps_power_R", "EPS load power"],
+      ["load_energy_today", tl("common.daily_load_consumption")],
+      ["load_energy_total", tl("common.total_load_consumption")],
+      ["load_power", tl("common.total_load_power")],
+      ["load_power_R", tl("common.grid_load_power")],
+      ["eps_power_R", tl("common.eps_load_power")],
     ],
   },
-  { id: "datalogger", title: "Datalogger Information", kind: "fox-datalogger" },
+  { id: "datalogger", title: tl("common.datalogger_information"), kind: "fox-datalogger" },
   {
     id: "grid",
-    title: "Grid Information",
+    title: tl("common.grid_information"),
     kind: "rows",
     rows: [
-      ["grid_status", "Grid Status"],
-      ["feed_in_energy_today", "Daily feed-in energy"],
-      ["feed_in_energy_total", "Total feed-in energy"],
-      ["grid_consumption_energy_today", "Daily purchased energy"],
-      ["grid_consumption_energy_total", "Total purchased energy"],
-      ["grid_export", "Feed-in Power"],
-      ["grid_import", "Purchased Power"],
+      ["grid_status", tl("common.grid_status")],
+      ["feed_in_energy_today", tl("common.daily_feed_in_energy")],
+      ["feed_in_energy_total", tl("common.total_feed_in_energy")],
+      ["grid_consumption_energy_today", tl("common.daily_purchased_energy")],
+      ["grid_consumption_energy_total", tl("common.total_purchased_energy")],
+      ["grid_export", tl("common.feed_in_power")],
+      ["grid_import", tl("common.purchased_power")],
     ],
   },
   {
     id: "battery",
-    title: "Battery Information",
+    title: tl("common.battery_information"),
     kind: "subsections",
     subsections: [
       {
-        title: "General",
+        title: tl("device.general"),
         rows: [
           ["battery_soc", "SOC"],
-          ["bms_design_energy_wh", "Capacity"],
-          ["bat_current_1", "Current"],
-          ["batvolt_1", "Voltage"],
-          ["battery_discharge_today", "Daily discharged energy"],
-          ["battery_discharge_total", "Total discharged energy"],
-          ["battery_charge_today", "Daily charged energy"],
-          ["battery_charge_total", "Total charged energy"],
+          ["bms_design_energy_wh", tl("device.capacity")],
+          ["bat_current_1", tl("common.current")],
+          ["batvolt_1", tl("common.voltage")],
+          ["battery_discharge_today", tl("common.daily_discharged_energy")],
+          ["battery_discharge_total", tl("common.total_discharged_energy")],
+          ["battery_charge_today", tl("common.daily_charged_energy")],
+          ["battery_charge_total", tl("common.total_charged_energy")],
         ],
       },
       {
-        title: "Health",
+        title: tl("device.health"),
         rows: [
           ["battery_soh", "SOH"],
-          ["battery_ah_remaining", "Remaining Capacity"],
-          ["bms_self_discharge_rate", "Evolution of self-discharging rates"],
-          ["bms_remaining_power_capacity", "Remaining Power Capacity"],
-          ["bms_round_trip_efficiency_remaining", "Remaining Round trip efficiency"],
-          ["bms_ohmic_resistance", "Ohmic resistance"],
+          ["battery_ah_remaining", tl("device.remaining_capacity")],
+          ["bms_self_discharge_rate", tl("device.evolution_of_self_discharging_rates")],
+          ["bms_remaining_power_capacity", tl("device.remaining_power_capacity")],
+          ["bms_round_trip_efficiency_remaining", tl("device.remaining_round_trip_efficiency")],
+          ["bms_ohmic_resistance", tl("device.ohmic_resistance")],
         ],
       },
       {
-        title: "General",
+        title: tl("device.general"),
         rows: [
-          ["battery_charge_total", "Charge Energy throughput"],
-          ["battery_discharge_total", "Discharge Energy throughput"],
-          ["bms_charge_capacity_throughput_ah", "Charge Capacity throughput"],
-          ["bms_discharge_capacity_throughput_ah", "Discharge Capacity throughput"],
-          ["battery_cycles", "Number of full equivalent charge-discharge cycles"],
+          ["battery_charge_total", tl("device.charge_energy_throughput")],
+          ["battery_discharge_total", tl("device.discharge_energy_throughput")],
+          ["bms_charge_capacity_throughput_ah", tl("device.charge_capacity_throughput")],
+          ["bms_discharge_capacity_throughput_ah", tl("device.discharge_capacity_throughput")],
+          ["battery_cycles", tl("device.number_of_full_equivalent_charge_discharge")],
         ],
       },
       {
-        title: "Tracking of harmful events",
+        title: tl("device.tracking_of_harmful_events"),
         rows: [
-          ["bms_deep_discharge_event_count", "Number of deep discharge event"],
-          ["bms_extreme_temp_hours", "Time spent in extreme temp"],
-          ["bms_extreme_temp_charge_hours", "Time spent charging in extreme temp"],
+          ["bms_deep_discharge_event_count", tl("device.number_of_deep_discharge_event")],
+          ["bms_extreme_temp_hours", tl("device.time_spent_in_extreme_temp")],
+          ["bms_extreme_temp_charge_hours", tl("device.time_spent_charging_in_extreme_temp")],
         ],
       },
     ],
@@ -8267,7 +8268,7 @@ async function hassMessageWithTimeout(hass, message, timeoutMs = HA_WS_TIMEOUT_M
   let timer;
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(
-      () => reject(new Error(`Home Assistant request timed out after ${Math.round(timeoutMs / 1000)}s`)),
+      () => reject(new Error(tl("panel.home_assistant_request_timed_out_after", { value: Math.round(timeoutMs / 1000) }))),
       timeoutMs
     );
   });
@@ -8493,6 +8494,27 @@ const FOX_ALARM_CATEGORY_COLORS = {
   Communication: "#699BFF",
   Other: "#8c8c8c",
 };
+
+/** Shown name of an alarm category (the English id keys the colours). */
+function alarmCategoryLabel(cat) {
+  const labels = {
+    PV: "PV",
+    Grid: tl("alerts.category_grid"),
+    Output: tl("alerts.category_output"),
+    Safety: tl("alerts.category_safety"),
+    Thermal: tl("alerts.category_thermal"),
+    Storage: tl("alerts.category_storage"),
+    Communication: tl("alerts.category_communication"),
+    Other: tl("alerts.category_other"),
+  };
+  return labels[cat] ?? String(cat ?? "");
+}
+
+/** Shown name of an alarm severity (critical / warning / info). */
+function alarmSeverityLabel(sev) {
+  const labels = { critical: tl("alerts.severity_critical"), warning: tl("alerts.severity_warning"), info: tl("alerts.severity_info") };
+  return labels[sev] ?? String(sev ?? "");
+}
 
 const FOX_ALARM_SEVERITY_COLORS = {
   critical: "#ff4d4f",
@@ -8747,7 +8769,7 @@ function countOverviewFaultsLast24h(alarmData) {
 
 function formatOverviewFaultDetectedText(count) {
   const n = Math.max(0, Number(count) || 0);
-  return n === 1 ? "1 fault detected" : `${n} faults detected`;
+  return n === 1 ? tl("alerts.x_1_fault_detected") : tl("alerts.n_faults_detected", { count: n });
 }
 
 function overviewSystemStatusOkIcon() {
@@ -8760,20 +8782,20 @@ function overviewSystemStatusFaultIcon() {
 
 function renderOverviewSystemStatusCard({ loading = false, faultCount = null, error = null } = {}) {
   const navAttrs = `data-action="nav" data-view="device_new" data-device-sub="alarms"`;
-  const detailsBtn = `<button type="button" class="overview-system-status-details" ${navAttrs}>Details <span aria-hidden="true">›</span></button>`;
+  const detailsBtn = `<button type="button" class="overview-system-status-details" ${navAttrs}>${tl("common.details")} <span aria-hidden="true">›</span></button>`;
   let body;
   if (loading) {
-    body = `<div class="overview-system-status-body overview-system-status-body--loading"><span>Checking system status…</span></div>`;
+    body = `<div class="overview-system-status-body overview-system-status-body--loading"><span>${tl("overview.checking_system_status")}</span></div>`;
   } else if (faultCount == null && error) {
     // Anything other than "working normally" is clickable too, to reach the Alerts page.
     body = `<button type="button" class="overview-system-status-body overview-system-status-body--link" ${navAttrs}><span class="overview-system-status-text">${esc(error)}</span></button>`;
   } else if ((faultCount ?? 0) > 0) {
-    body = `<button type="button" class="overview-system-status-body overview-system-status-body--link" ${navAttrs} aria-label="${esc(formatOverviewFaultDetectedText(faultCount))} — open Alerts">${overviewSystemStatusFaultIcon()}<span class="overview-system-status-text overview-system-status-text--fault">${esc(formatOverviewFaultDetectedText(faultCount))}</span></button>`;
+    body = `<button type="button" class="overview-system-status-body overview-system-status-body--link" ${navAttrs} aria-label="${tl("overview.faultcount_open_alerts", { faultCount: esc(formatOverviewFaultDetectedText(faultCount)) })}">${overviewSystemStatusFaultIcon()}<span class="overview-system-status-text overview-system-status-text--fault">${esc(formatOverviewFaultDetectedText(faultCount))}</span></button>`;
   } else {
-    body = `<div class="overview-system-status-body">${overviewSystemStatusOkIcon()}<span class="overview-system-status-text">System working normally.</span></div>`;
+    body = `<div class="overview-system-status-body">${overviewSystemStatusOkIcon()}<span class="overview-system-status-text">${tl("overview.system_working_normally")}</span></div>`;
   }
   return `<div class="overview-system-status-card">
-<div class="overview-system-status-head"><span class="overview-system-status-title">System Status</span>${detailsBtn}</div>
+<div class="overview-system-status-head"><span class="overview-system-status-title">${tl("overview.system_status")}</span>${detailsBtn}</div>
 ${body}
 </div>`;
 }
@@ -8787,7 +8809,7 @@ function overviewAutomationStatusPillClass(tone) {
 
 function overviewStormStatusSummary(plantState) {
   const storm = plantState?.storm_prep ?? {};
-  if (!storm.enabled) return { label: "Off", tone: "off", detail: "Disabled in settings" };
+  if (!storm.enabled) return { label: tl("common.off"), tone: "off", detail: tl("common.disabled_in_settings") };
   const triggersArmed = Boolean(plantState?.active_storm_triggers?.length);
   const overrideArmed =
     Boolean(plantState?.override_active) && String(plantState?.mode ?? "") === "storm";
@@ -8795,56 +8817,56 @@ function overviewStormStatusSummary(plantState) {
   const armed = triggersArmed || overrideArmed || forecastArmed;
   if (armed) {
     const precheck = storm.solcast_precheck ?? {};
-    let detail = "Storm pre-charge active";
-    if (precheck.action === "pv_only") detail = "PV top-up only — no grid import";
-    else if (forecastArmed && !triggersArmed && !overrideArmed) detail = "Forecast pre-charge armed";
-    return { label: "Active", tone: "armed", detail };
+    let detail = tl("storm_safe.storm_pre_charge_active");
+    if (precheck.action === "pv_only") detail = tl("storm_safe.pv_top_up_only_no_grid");
+    else if (forecastArmed && !triggersArmed && !overrideArmed) detail = tl("storm_safe.forecast_pre_charge_armed");
+    return { label: tl("common.active"), tone: "armed", detail };
   }
   if (storm.condition_active) {
     const label = storm.current_condition?.label;
-    return { label: "Monitoring", tone: "watch", detail: label || "Storm conditions detected" };
+    return { label: tl("storm_safe.monitoring"), tone: "watch", detail: label || tl("storm_safe.storm_conditions_detected") };
   }
   if (storm.forecast_active) {
-    return { label: "Monitoring", tone: "watch", detail: "Severe weather in forecast" };
+    return { label: tl("storm_safe.monitoring"), tone: "watch", detail: tl("storm_safe.severe_weather_in_forecast") };
   }
-  return { label: "Ready", tone: "idle", detail: "Watching Google Weather" };
+  return { label: tl("common.ready"), tone: "idle", detail: tl("storm_safe.watching_google_weather") };
 }
 
 function overviewSmartChargeStatusSummary(plantState) {
   const sc = plantState?.smart_charge ?? {};
-  if (!sc.enabled) return { label: "Off", tone: "off", detail: "Disabled in settings" };
+  if (!sc.enabled) return { label: tl("common.off"), tone: "off", detail: tl("common.disabled_in_settings") };
   if (sc.discharge_armed) {
     const reason = sc.decision?.reason;
-    return { label: "Exporting", tone: "armed", detail: reason || "Force Discharge active" };
+    return { label: tl("smart_charge.exporting"), tone: "armed", detail: reason || tl("smart_charge.force_discharge_active") };
   }
   if (sc.armed) {
     const reason = sc.decision?.reason;
-    return { label: "Armed", tone: "armed", detail: reason || "Grid charge in progress" };
+    return { label: tl("smart_charge.armed"), tone: "armed", detail: reason || tl("smart_charge.grid_charge_in_progress") };
   }
   const reason = sc.decision?.reason;
   if (reason && String(reason).startsWith("Waiting for ")) {
-    return { label: "Waiting", tone: "watch", detail: reason };
+    return { label: tl("smart_charge.waiting"), tone: "watch", detail: reason };
   }
   if (reason && String(reason).startsWith("Meter check held")) {
-    return { label: "Meter check", tone: "watch", detail: reason };
+    return { label: tl("smart_charge.meter_check"), tone: "watch", detail: reason };
   }
-  return { label: "Ready", tone: "idle", detail: reason || "Watching tariffs and solar" };
+  return { label: tl("common.ready"), tone: "idle", detail: reason || tl("smart_charge.watching_tariffs_and_solar") };
 }
 
 const SMART_CHARGE_MODE_META = {
   max_safety: {
-    title: "Max safety",
-    hint: "Plans on pessimistic solar and a larger reserve — backup first",
+    title: tl("smart_charge.max_safety_2"),
+    hint: tl("smart_charge.plans_on_pessimistic_solar_and_a"),
     accent: "var(--fp-accent)",
   },
   max_profit: {
-    title: "Max profit",
-    hint: "Lowest cost — charge cheap, export at peaks",
+    title: tl("smart_charge.max_profit_2"),
+    hint: tl("smart_charge.lowest_cost_charge_cheap_export_at"),
     accent: "var(--fp-amber, #f9a825)",
   },
   max_green: {
-    title: "Max green",
-    hint: "Cost plus carbon — prefers low-carbon charge slots",
+    title: tl("smart_charge.max_green_2"),
+    hint: tl("smart_charge.cost_plus_carbon_prefers_low_carbon"),
     accent: "var(--fp-green, #4caf50)",
   },
 };
@@ -8865,16 +8887,16 @@ function smartChargePlanActionTone(action) {
 function smartChargePlanActionLabel(action) {
   const key = String(action || "idle");
   const labels = {
-    idle: "Idle",
-    hold: "Hold",
-    charge: "Charge",
-    charge_candidate: "Candidate",
-    spread_charge: "Charge",
-    winter_fill: "Charge",
-    solar_gap_fill: "Charge",
-    export: "Export",
-    spread_export: "Export",
-    arbitrage: "Candidate",
+    idle: tl("common.idle"),
+    hold: tl("smart_charge.hold"),
+    charge: tl("common.charge"),
+    charge_candidate: tl("smart_charge.candidate"),
+    spread_charge: tl("common.charge"),
+    winter_fill: tl("common.charge"),
+    solar_gap_fill: tl("common.charge"),
+    export: tl("common.export"),
+    spread_export: tl("common.export"),
+    arbitrage: tl("smart_charge.candidate"),
   };
   return labels[key] || key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
@@ -8883,7 +8905,7 @@ function smartChargeTimelineSlotTip(slot) {
   const start = String(slot.start || "?");
   const end = String(slot.end || "?");
   const action =
-    slot.reason === "hold" ? "Hold (charged, house on grid)" : smartChargePlanActionLabel(slot.action);
+    slot.reason === "hold" ? tl("smart_charge.hold_charged_house_on_grid") : smartChargePlanActionLabel(slot.action);
   const importP =
     slot.import_p_per_kwh != null && Number.isFinite(Number(slot.import_p_per_kwh))
       ? `${Number(slot.import_p_per_kwh).toFixed(1)}p`
@@ -8901,12 +8923,12 @@ function smartChargeTimelineSlotTip(slot) {
   const pv = num(slot.pv_kwh);
   const load = num(slot.load_kwh);
   if (pv != null) detailParts.push(`PV ${pv.toFixed(2)} kWh`);
-  if (load != null) detailParts.push(`Load ${load.toFixed(2)} kWh`);
+  if (load != null) detailParts.push(tl("smart_charge.load_load_kwh", { load: load.toFixed(2) }));
   const planned = num(slot.planned_import_kwh) || num(slot.planned_export_kwh);
-  if (planned) detailParts.push(`${slot.action === "export" ? "Export" : "Grid charge"} ${planned.toFixed(2)} kWh`);
-  if (slot.price_known === false) detailParts.push("price estimated");
+  if (planned) detailParts.push(`${slot.action === "export" ? tl("common.export") : tl("smart_charge.grid_charge")} ${planned.toFixed(2)} kWh`);
+  if (slot.price_known === false) detailParts.push(tl("smart_charge.price_estimated"));
   const detail = detailParts.join(" · ");
-  const aria = `${title}, Import: ${importP}, Export: ${exportP}${detail ? `, ${detail}` : ""}`;
+  const aria = tl("smart_charge.title_import_importp_export_exportp_value", { title, importP, exportP, value: detail ? `, ${detail}` : "" });
   return { title, importP, exportP, detail, aria };
 }
 
@@ -8930,7 +8952,7 @@ function bindSmartChargeTimelineTips(root) {
       const importLine = seg.getAttribute("data-tip-import") || "—";
       const exportLine = seg.getAttribute("data-tip-export") || "—";
       const detailLine = seg.getAttribute("data-tip-detail") || "";
-      floatTip.innerHTML = `<span>${esc(title)}</span><span>Import: ${esc(importLine)}</span><span>Export: ${esc(exportLine)}</span>${detailLine ? `<span>${esc(detailLine)}</span>` : ""}`;
+      floatTip.innerHTML = `<span>${esc(title)}</span><span>${tl("smart_charge.import_importline", { importLine: esc(importLine) })}</span><span>${tl("smart_charge.export_exportline", { exportLine: esc(exportLine) })}</span>${detailLine ? `<span>${esc(detailLine)}</span>` : ""}`;
       floatTip.hidden = false;
       wrap.querySelectorAll(".sc-timeline-seg--tip-active").forEach((el) => {
         el.classList.remove("sc-timeline-seg--tip-active");
@@ -8993,13 +9015,13 @@ function smartChargeTimelineSocLine(slots) {
 function renderSmartChargePlanTimeline(dailyPlan, currentSlot) {
   const slots = (dailyPlan || []).filter((s) => s.start && s.end && s.reason !== "no_slots");
   if (!slots.length) {
-    return `<p class="sc-empty-hint">${esc("Building plan from tariff rates, Solcast forecast and house load history…")}</p>`;
+    return `<p class="sc-empty-hint">${esc(tl("smart_charge.building_plan_from_tariff_rates_solcast"))}</p>`;
   }
   const slotKey = (s) => s?.start_utc || (s?.start && s?.end ? `${s.start}-${s.end}` : null);
   const nowKey = slotKey(currentSlot);
   const first = slots[0];
   const last = slots[slots.length - 1];
-  const rangeLabel = `${first.start} → ${last.end} · ${slots.length} half-hours`;
+  const rangeLabel = tl("smart_charge.start_end_length_half_hours", { start: first.start, end: last.end, length: slots.length });
   const segments = slots
     .map((s) => {
       const tone = smartChargePlanActionTone(s.action);
@@ -9022,16 +9044,16 @@ function renderSmartChargePlanTimeline(dailyPlan, currentSlot) {
 <p class="sc-timeline-range">${esc(rangeLabel)}</p>
 <div class="sc-timeline-scroll" style="--sc-slot-count:${slots.length}">
 ${smartChargeTimelineSocLine(slots)}
-<div class="sc-timeline" role="img" aria-label="Full ${esc(String(slots.length))}-slot charge and export plan from ${esc(first.start)} to ${esc(last.end)}">${segments}</div>
+<div class="sc-timeline" role="img" aria-label="${tl("smart_charge.full_length_slot_charge_and_export", { length: esc(String(slots.length)), start: esc(first.start), end: esc(last.end) })}">${segments}</div>
 <div class="sc-timeline-hours" aria-hidden="true">${hourRow}</div>
 </div>
 <div class="sc-timeline-float-tip" hidden role="tooltip"></div>
 <div class="sc-timeline-legend">
-<span><i class="sc-legend-dot sc-legend-dot--charge"></i>Charge</span>
-<span><i class="sc-legend-dot sc-legend-dot--export"></i>Export</span>
-<span><i class="sc-legend-dot sc-legend-dot--idle"></i>Self use</span>
-<span><i class="sc-legend-line"></i>Predicted SOC</span>
-<span><i class="sc-legend-dot sc-legend-dot--est"></i>Price estimated</span>
+<span>${tl("smart_charge.charge")}</span>
+<span>${tl("smart_charge.export")}</span>
+<span>${tl("smart_charge.self_use")}</span>
+<span>${tl("smart_charge.predicted_soc")}</span>
+<span>${tl("smart_charge.price_estimated_2")}</span>
 </div>
 </div>`;
 }
@@ -9041,16 +9063,16 @@ function smartChargeLiveStatusPresentation(live, decision) {
   const reason = decision?.reason;
   if (live?.discharge_armed) {
     return {
-      pill: "Exporting",
-      linePrefix: "Exporting",
+      pill: tl("smart_charge.exporting"),
+      linePrefix: tl("smart_charge.exporting"),
       tone: "export",
       cardClass: "sc-status-card sc-status-card--exporting",
     };
   }
   if (reason && String(reason).startsWith("Waiting for ")) {
     return {
-      pill: "Waiting",
-      linePrefix: "Waiting",
+      pill: tl("smart_charge.waiting"),
+      linePrefix: tl("smart_charge.waiting"),
       tone: "idle",
       cardClass: "sc-status-card",
     };
@@ -9060,24 +9082,24 @@ function smartChargeLiveStatusPresentation(live, decision) {
     (action === "grid_charge" || action === "arbitrage" || action === "spread_plan")
   ) {
     return {
-      pill: "Armed",
-      linePrefix: "Armed",
+      pill: tl("smart_charge.armed"),
+      linePrefix: tl("smart_charge.armed"),
       tone: "armed",
       cardClass: "sc-status-card sc-status-card--armed",
-      hint: "Charge windows set on the inverter — not necessarily importing right now.",
+      hint: tl("smart_charge.charge_windows_set_on_the_inverter"),
     };
   }
   if (action === "skip" || action === "idle") {
     return {
-      pill: "Ready",
-      linePrefix: "Ready",
+      pill: tl("common.ready"),
+      linePrefix: tl("common.ready"),
       tone: "idle",
       cardClass: "sc-status-card",
     };
   }
   return {
-    pill: "Ready",
-    linePrefix: reason ? "Ready" : "Waiting",
+    pill: tl("common.ready"),
+    linePrefix: reason ? tl("common.ready") : tl("smart_charge.waiting"),
     tone: "idle",
     cardClass: "sc-status-card",
   };
@@ -9088,32 +9110,32 @@ function renderSmartChargeStatTiles(decision) {
   if (decision.target_soc_effective != null) {
     const pct = Math.max(0, Math.min(100, Number(decision.target_soc_effective)));
     tiles.push({
-      label: "Target SOC",
+      label: tl("smart_charge.target_soc"),
       value: `${pct.toFixed(0)}%`,
       gauge: pct,
     });
   }
   if (decision.reserve_kwh != null) {
-    tiles.push({ label: "Reserve floor", value: `${Number(decision.reserve_kwh).toFixed(1)} kWh` });
+    tiles.push({ label: tl("smart_charge.reserve_floor"), value: `${Number(decision.reserve_kwh).toFixed(1)} kWh` });
   }
   const summary = decision.plan_summary || {};
   if (decision.grid_gap_kwh != null) {
-    tiles.push({ label: "Planned grid charge", value: `${Number(decision.grid_gap_kwh).toFixed(1)} kWh` });
+    tiles.push({ label: tl("smart_charge.planned_grid_charge"), value: `${Number(decision.grid_gap_kwh).toFixed(1)} kWh` });
   }
   const pvSource =
     summary.tomorrow_pv_source === "open_meteo" ? " · Open-Meteo" : summary.tomorrow_pv_source === "solcast" ? " · Solcast" : "";
   if (summary.tomorrow_pv_estimated && summary.tomorrow_pv_kwh != null) {
-    tiles.push({ label: "Tomorrow PV (est.)", value: `${Number(summary.tomorrow_pv_kwh).toFixed(1)} kWh` });
+    tiles.push({ label: tl("smart_charge.tomorrow_pv_est"), value: `${Number(summary.tomorrow_pv_kwh).toFixed(1)} kWh` });
   } else if (summary.tomorrow_pv_known === false) {
-    tiles.push({ label: "Tomorrow PV", value: "Awaiting forecast" });
+    tiles.push({ label: tl("smart_charge.tomorrow_pv"), value: tl("smart_charge.awaiting_forecast") });
   } else if (summary.tomorrow_pv_kwh != null) {
-    tiles.push({ label: `Tomorrow PV${pvSource}`, value: `${Number(summary.tomorrow_pv_kwh).toFixed(1)} kWh` });
+    tiles.push({ label: tl("smart_charge.tomorrow_pv_pvsource", { pvSource }), value: `${Number(summary.tomorrow_pv_kwh).toFixed(1)} kWh` });
   }
   if (summary.tomorrow_load_kwh != null) {
-    tiles.push({ label: "Tomorrow load", value: `${Number(summary.tomorrow_load_kwh).toFixed(1)} kWh` });
+    tiles.push({ label: tl("smart_charge.tomorrow_load"), value: `${Number(summary.tomorrow_load_kwh).toFixed(1)} kWh` });
   }
   if (summary.saving_p != null) {
-    tiles.push({ label: "Plan saving", value: `£${(Number(summary.saving_p) / 100).toFixed(2)}` });
+    tiles.push({ label: tl("smart_charge.plan_saving"), value: `£${(Number(summary.saving_p) / 100).toFixed(2)}` });
   }
   if (!tiles.length) return "";
   return `<div class="sc-stat-grid">${tiles
@@ -9246,16 +9268,16 @@ function formatFoxAlarmDateTime(ms) {
 function formatFoxTimeAgo(ms, now = Date.now()) {
   if (!Number.isFinite(ms)) return "";
   const sec = Math.max(0, Math.floor((now - ms) / 1000));
-  if (sec < 60) return "Updated just now";
+  if (sec < 60) return tl("panel.updated_just_now");
   const min = Math.floor(sec / 60);
-  if (min < 60) return `Updated ${min} minute${min === 1 ? "" : "s"} ago`;
+  if (min < 60) return tln("panel.updated_minutes_ago", min);
   const hr = Math.floor(min / 60);
-  if (hr < 48) return `Updated ${hr} hour${hr === 1 ? "" : "s"} ago`;
+  if (hr < 48) return tln("panel.updated_hours_ago", hr);
   const day = Math.floor(hr / 24);
-  return `Updated ${day} day${day === 1 ? "" : "s"} ago`;
+  return tln("panel.updated_days_ago", day);
 }
 
-function buildFoxAlarmDashboard(activeNames, historyEvents, { fetchedAt = Date.now(), deviceName = "Device" } = {}) {
+function buildFoxAlarmDashboard(activeNames, historyEvents, { fetchedAt = Date.now(), deviceName = tl("common.device") } = {}) {
   const active = activeNames.map((name) => {
     const meta = foxAlarmMeta(name);
     let since = null;
@@ -9305,7 +9327,7 @@ function buildFoxAlarmDashboard(activeNames, historyEvents, { fetchedAt = Date.n
 
   const trendGroups = Object.entries(FOX_ALARM_CATEGORY_COLORS)
     .filter(([cat]) => categorySeries[cat]?.some((v) => v > 0))
-    .map(([cat, color]) => ({ label: cat, color, values: categorySeries[cat] }));
+    .map(([cat, color]) => ({ label: alarmCategoryLabel(cat), color, values: categorySeries[cat] }));
 
   return {
     fetchedAt,
@@ -9314,14 +9336,14 @@ function buildFoxAlarmDashboard(activeNames, historyEvents, { fetchedAt = Date.n
     historicalRecords,
     historyEvents,
     categorySegments: Object.entries(categoryCounts).map(([label, value]) => ({
-      label,
+      label: alarmCategoryLabel(label),
       value,
       color: FOX_ALARM_CATEGORY_COLORS[label] || FOX_ALARM_CATEGORY_COLORS.Other,
     })),
     severitySegments: Object.entries(severityCounts)
       .filter(([, value]) => value > 0)
       .map(([label, value]) => ({
-        label: label.charAt(0).toUpperCase() + label.slice(1),
+        label: alarmSeverityLabel(label),
         value,
         color: FOX_ALARM_SEVERITY_COLORS[label] || FOX_ALARM_SEVERITY_COLORS.warning,
       })),
@@ -9337,7 +9359,7 @@ async function fetchDeviceAlarmDashboard(hass, plant, plantState) {
   if (!alarmsId && !lastId) {
     return {
       error:
-        "Alarm sensors not found. Update foxess_modbus, reload the integration, then reload this panel.",
+        tl("alerts.alarm_sensors_not_found_update_foxess"),
       missingEntities: true,
     };
   }
@@ -9376,7 +9398,7 @@ async function fetchDeviceAlarmDashboard(hass, plant, plantState) {
   const historyEvents = mergeStoredAlertEvents(liveHistoryEvents, plantState?.alert_log);
   return buildFoxAlarmDashboard(activeNames, historyEvents, {
     fetchedAt: Date.now(),
-    deviceName: plant.title || "Device",
+    deviceName: plant.title || tl("common.device"),
   });
 }
 
@@ -9419,7 +9441,7 @@ function renderFoxAlarmDonutCard(title, segments) {
               `<li><span class="fox-alarm-legend-dot" style="background:${s.color}"></span><span>${esc(s.label)}</span><strong>${esc(String(s.value))}</strong></li>`
           )
           .join("")}</ul>`
-      : `<div class="fox-alarm-no-data">${renderFoxAlarmNoDataIcon()}<span>No data</span></div>`;
+      : `<div class="fox-alarm-no-data">${renderFoxAlarmNoDataIcon()}<span>${tl("common.no_data")}</span></div>`;
   return renderFoxAlarmMiniCard(title, body);
 }
 
@@ -9427,37 +9449,37 @@ function renderFoxAlarmTrendCard(groups, labels) {
   const hasData = groups.some((g) => g.values.some((v) => v > 0));
   const body = hasData
     ? renderBarChartSvg(groups, labels, { height: 180 })
-    : `<div class="fox-alarm-no-data">${renderFoxAlarmNoDataIcon()}<span>No data</span></div>`;
-  return renderFoxAlarmMiniCard("Trend by Category", body, { wide: true });
+    : `<div class="fox-alarm-no-data">${renderFoxAlarmNoDataIcon()}<span>${tl("common.no_data")}</span></div>`;
+  return renderFoxAlarmMiniCard(tl("alerts.trend_by_category"), body, { wide: true });
 }
 
 function renderFoxAlarmSeverityPill(severity) {
   const tone = FOX_ALARM_SEVERITY_COLORS[severity] ? severity : "warning";
-  return `<span class="fox-alarm-severity fox-alarm-severity--${tone}">${esc(tone)}</span>`;
+  return `<span class="fox-alarm-severity fox-alarm-severity--${tone}">${esc(alarmSeverityLabel(tone).toLowerCase())}</span>`;
 }
 
 function renderFoxAlarmActiveTableRows(rows) {
   if (!rows.length) {
-    return `<div class="fox-alarm-empty-list">${renderFoxAlarmEmptyIcon()}<p>No Alerts</p></div>`;
+    return `<div class="fox-alarm-empty-list">${renderFoxAlarmEmptyIcon()}<p>${tl("alerts.no_alerts")}</p></div>`;
   }
   return `<div class="fox-alarm-table-wrap"><table class="fox-alarm-table"><thead><tr>
-<th>Time</th><th>Alarm</th><th>Category</th><th>Severity</th><th>Status</th>
+<th>${tl("common.time")}</th><th>${tl("alerts.alarm")}</th><th>${tl("alerts.category")}</th><th>${tl("alerts.severity")}</th><th>${tl("common.status")}</th>
 </tr></thead><tbody>${rows
     .map((row) => {
       const time = row.since ? formatFoxAlarmDateTime(row.since) : "—";
-      return `<tr class="fox-alarm-row fox-alarm-row--clickable" data-action="device-alarm-detail-open" data-alarm="${esc(row.name)}" title="View troubleshooting guide">
+      return `<tr class="fox-alarm-row fox-alarm-row--clickable" data-action="device-alarm-detail-open" data-alarm="${esc(row.name)}" title="${tl("alerts.view_troubleshooting_guide")}">
 <td>${esc(time)}</td>
-<td class="fox-alarm-name-cell">${esc(row.name)}<span class="fox-alarm-row-chev" aria-hidden="true">›</span></td>
-<td>${esc(row.category)}</td>
+<td class="fox-alarm-name-cell">${esc(alarmDisplayName(row.name))}<span class="fox-alarm-row-chev" aria-hidden="true">›</span></td>
+<td>${esc(alarmCategoryLabel(row.category))}</td>
 <td>${renderFoxAlarmSeverityPill(row.severity)}</td>
-<td><span class="fox-alarm-status fox-alarm-status--warn">Active</span></td>
+<td><span class="fox-alarm-status fox-alarm-status--warn">${tl("common.active")}</span></td>
 </tr>`;
     })
     .join("")}</tbody></table></div>`;
 }
 
 function renderFoxAlarmHistoricalEmpty() {
-  return `<div class="fox-alarm-table-empty">${renderFoxAlarmNoDataIcon()}<span>No data</span></div>`;
+  return `<div class="fox-alarm-table-empty">${renderFoxAlarmNoDataIcon()}<span>${tl("common.no_data")}</span></div>`;
 }
 
 function renderFoxAlarmHistoricalToolbar(data, { filters, timeRange }) {
@@ -9470,33 +9492,33 @@ function renderFoxAlarmHistoricalToolbar(data, { filters, timeRange }) {
   const custom = defaultAlarmCustomRangeValues();
   const startVal = timeRange?.start || custom.start;
   const endVal = timeRange?.end || custom.end;
-  const catOpts = `<option value="">Category</option>${categories
-    .map((c) => `<option value="${esc(c)}"${filters?.category === c ? " selected" : ""}>${esc(c)}</option>`)
+  const catOpts = `<option value="">${tl("alerts.category")}</option>${categories
+    .map((c) => `<option value="${esc(c)}"${filters?.category === c ? " selected" : ""}>${esc(alarmCategoryLabel(c))}</option>`)
     .join("")}`;
-  const sevOpts = `<option value="">Severity</option>${severities
+  const sevOpts = `<option value="">${tl("alerts.severity")}</option>${severities
     .map(
       (s) =>
         `<option value="${esc(s)}"${filters?.severity === s ? " selected" : ""}>${esc(s.charAt(0).toUpperCase() + s.slice(1))}</option>`
     )
     .join("")}`;
-  const devOpts = `<option value="">Device</option>${devices
+  const devOpts = `<option value="">${tl("common.device")}</option>${devices
     .map((d) => `<option value="${esc(d)}"${filters?.device === d ? " selected" : ""}>${esc(d)}</option>`)
     .join("")}`;
   return `<div class="fox-alarm-hist-toolbar">
 <div class="fox-alarm-hist-filters">
-<label class="fox-alarm-hist-select-wrap"><select class="fox-alarm-hist-select" data-field="device-alarm:category" aria-label="Category">${catOpts}</select></label>
-<label class="fox-alarm-hist-select-wrap"><select class="fox-alarm-hist-select" data-field="device-alarm:severity" aria-label="Severity">${sevOpts}</select></label>
-<label class="fox-alarm-hist-select-wrap"><select class="fox-alarm-hist-select" data-field="device-alarm:device" aria-label="Device">${devOpts}</select></label>
-<button type="button" class="fox-alarm-hist-clear" data-action="device-alarm-filter-clear">Clear</button>
+<label class="fox-alarm-hist-select-wrap"><select class="fox-alarm-hist-select" data-field="device-alarm:category" aria-label="${tl("alerts.category")}">${catOpts}</select></label>
+<label class="fox-alarm-hist-select-wrap"><select class="fox-alarm-hist-select" data-field="device-alarm:severity" aria-label="${tl("alerts.severity")}">${sevOpts}</select></label>
+<label class="fox-alarm-hist-select-wrap"><select class="fox-alarm-hist-select" data-field="device-alarm:device" aria-label="${tl("common.device")}">${devOpts}</select></label>
+<button type="button" class="fox-alarm-hist-clear" data-action="device-alarm-filter-clear">${tl("alerts.clear")}</button>
 </div>
 <div class="fox-alarm-hist-range">
 <div class="fox-alarm-hist-dates${mode === "custom" ? "" : " fox-alarm-hist-dates--hidden"}">
-<input type="date" class="fox-alarm-hist-date" data-field="device-alarm:range-start" value="${esc(startVal)}" aria-label="Start date"${mode === "custom" ? "" : " disabled"}>
+<input type="date" class="fox-alarm-hist-date" data-field="device-alarm:range-start" value="${esc(startVal)}" aria-label="${tl("alerts.start_date")}"${mode === "custom" ? "" : " disabled"}>
 <span class="fox-alarm-hist-date-sep" aria-hidden="true">→</span>
-<input type="date" class="fox-alarm-hist-date" data-field="device-alarm:range-end" value="${esc(endVal)}" aria-label="End date"${mode === "custom" ? "" : " disabled"}>
+<input type="date" class="fox-alarm-hist-date" data-field="device-alarm:range-end" value="${esc(endVal)}" aria-label="${tl("alerts.end_date")}"${mode === "custom" ? "" : " disabled"}>
 </div>
-<button type="button" class="fox-alarm-hist-range-btn${mode === "custom" ? " active" : ""}" data-action="device-alarm-range" data-range="custom">Custom</button>
-<button type="button" class="fox-alarm-hist-range-btn${mode === "24h" ? " active" : ""}" data-action="device-alarm-range" data-range="24h">Last 24H</button>
+<button type="button" class="fox-alarm-hist-range-btn${mode === "custom" ? " active" : ""}" data-action="device-alarm-range" data-range="custom">${tl("alerts.custom")}</button>
+<button type="button" class="fox-alarm-hist-range-btn${mode === "24h" ? " active" : ""}" data-action="device-alarm-range" data-range="24h">${tl("alerts.last_24h")}</button>
 </div>
 </div>`;
 }
@@ -9504,17 +9526,17 @@ function renderFoxAlarmHistoricalToolbar(data, { filters, timeRange }) {
 function renderFoxAlarmHistoricalTableRows(rows) {
   if (!rows.length) return renderFoxAlarmHistoricalEmpty();
   return `<div class="fox-alarm-table-wrap fox-alarm-table-wrap--historical"><table class="fox-alarm-table fox-alarm-table--historical"><thead><tr>
-<th>Device</th><th>Severity</th><th>Code</th><th>Message</th><th>Category</th><th>Occurrence time</th><th>Recovery time</th>
+<th>${tl("common.device")}</th><th>${tl("alerts.severity")}</th><th>${tl("alerts.code")}</th><th>${tl("alerts.message")}</th><th>${tl("alerts.category")}</th><th>${tl("alerts.occurrence_time")}</th><th>${tl("alerts.recovery_time")}</th>
 </tr></thead><tbody>${rows
     .map((row) => {
       const recovery =
         row.recoveryMs == null ? "—" : formatFoxAlarmDateTime(row.recoveryMs);
-      return `<tr class="fox-alarm-row fox-alarm-row--clickable" data-action="device-alarm-detail-open" data-alarm="${esc(row.name)}" title="View troubleshooting guide">
+      return `<tr class="fox-alarm-row fox-alarm-row--clickable" data-action="device-alarm-detail-open" data-alarm="${esc(row.name)}" title="${tl("alerts.view_troubleshooting_guide")}">
 <td>${esc(row.device)}</td>
 <td>${renderFoxAlarmSeverityPill(row.severity)}</td>
 <td>${esc(row.code)}</td>
-<td class="fox-alarm-name-cell">${esc(row.message)}<span class="fox-alarm-row-chev" aria-hidden="true">›</span></td>
-<td>${esc(row.category)}</td>
+<td class="fox-alarm-name-cell">${esc(alarmDisplayName(row.message))}<span class="fox-alarm-row-chev" aria-hidden="true">›</span></td>
+<td>${esc(alarmCategoryLabel(row.category))}</td>
 <td>${esc(formatFoxAlarmDateTime(row.occurrenceMs))}</td>
 <td>${esc(recovery)}</td>
 </tr>`;
@@ -9537,8 +9559,8 @@ function renderFoxAlarmListSection(data, { tab, filters, timeRange }) {
   const listBody = renderFoxAlarmHistListContent(data, { tab, filters, timeRange });
   return `<div class="card fox-alarm-list-card" data-fox-alarm-list-card="1">
 <div class="fox-alarm-tabs" role="tablist">
-<button type="button" class="fox-alarm-tab${tab === "active" ? " active" : ""}" data-action="device-alarm-tab" data-tab="active" role="tab">Active Warning</button>
-<button type="button" class="fox-alarm-tab${tab === "historical" ? " active" : ""}" data-action="device-alarm-tab" data-tab="historical" role="tab">Historical Warning</button>
+<button type="button" class="fox-alarm-tab${tab === "active" ? " active" : ""}" data-action="device-alarm-tab" data-tab="active" role="tab">${tl("alerts.active_warning")}</button>
+<button type="button" class="fox-alarm-tab${tab === "historical" ? " active" : ""}" data-action="device-alarm-tab" data-tab="historical" role="tab">${tl("alerts.historical_warning")}</button>
 </div>
 <div data-fox-alarm-list-dynamic>${listBody}</div>
 </div>`;
@@ -9546,20 +9568,20 @@ function renderFoxAlarmListSection(data, { tab, filters, timeRange }) {
 
 function renderFoxAlarmPage(data, { tab = "active", loading = false, filters = {}, timeRange = { mode: "24h" } } = {}) {
   if (loading) {
-    return `<div class="fox-alarm-page"><div class="fox-alarm-head"><h2 class="fox-alarm-title">Alerts</h2></div><p class="chart-loading">Loading alarm history…</p></div>`;
+    return `<div class="fox-alarm-page"><div class="fox-alarm-head"><h2 class="fox-alarm-title">${tl("common.alerts")}</h2></div><p class="chart-loading">${tl("alerts.loading_alarm_history")}</p></div>`;
   }
   if (data?.error) {
-    return `<div class="fox-alarm-page"><div class="fox-alarm-head"><h2 class="fox-alarm-title">Alerts</h2></div><p class="placeholder chart-empty">${esc(data.error)}</p></div>`;
+    return `<div class="fox-alarm-page"><div class="fox-alarm-head"><h2 class="fox-alarm-title">${tl("common.alerts")}</h2></div><p class="placeholder chart-empty">${esc(data.error)}</p></div>`;
   }
   const updated = formatFoxTimeAgo(data.fetchedAt);
   return `<div class="fox-alarm-page">
 <div class="fox-alarm-head">
-<h2 class="fox-alarm-title">Alerts</h2>
+<h2 class="fox-alarm-title">${tl("common.alerts")}</h2>
 <span class="fox-alarm-updated">${esc(updated)}</span>
 </div>
 <div class="fox-alarm-summary-grid">
-${renderFoxAlarmDonutCard("Category", data.categorySegments)}
-${renderFoxAlarmDonutCard("Severity", data.severitySegments)}
+${renderFoxAlarmDonutCard(tl("alerts.category"), data.categorySegments)}
+${renderFoxAlarmDonutCard(tl("alerts.severity"), data.severitySegments)}
 ${renderFoxAlarmTrendCard(data.trendGroups, data.trendLabels)}
 </div>
 ${renderFoxAlarmListSection(data, { tab, filters, timeRange })}
@@ -9705,7 +9727,7 @@ function energyPeriodNavLabel(period, offset = 0, now = new Date()) {
     return start.toLocaleDateString(undefined, { month: "long", year: "numeric" });
   }
   if (period === "year") return String(start.getFullYear());
-  return "Total";
+  return tl("common.total");
 }
 
 function formatDeviceCurveDateLabel(d) {
@@ -9730,12 +9752,12 @@ function deviceNewEnergyPeriodNavLabel(period, offset = 0, now = new Date()) {
     return start.toLocaleDateString(undefined, { month: "long", year: "numeric" });
   }
   if (period === "year") return String(start.getFullYear());
-  return "Total";
+  return tl("common.total");
 }
 
 function energyBreakdownTitle(period, offset = 0, now = new Date()) {
-  if (period === "day" && offset === 0) return "Today energy breakdown";
-  return `Energy breakdown · ${energyPeriodNavLabel(period, offset, now)}`;
+  if (period === "day" && offset === 0) return tl("energy.today_energy_breakdown");
+  return tl("energy.energy_breakdown_energyperiodnavlabel", { energyPeriodNavLabel: energyPeriodNavLabel(period, offset, now) });
 }
 
 function dailyLoadKwhFromPoints(points, dayStartMs, dayEndMs) {
@@ -10134,10 +10156,10 @@ function statisticsClientToTime(svg, clientX, padL, plotW, tMin, daySpan) {
 }
 
 const STATISTICS_TOOLTIP_LABEL_BY_ID = {
-  battery_charge: "Battery charging",
-  battery_discharge: "Battery discharging",
-  grid_import: "Grid import",
-  grid_export: "Grid export",
+  battery_charge: tl("reports.battery_charging"),
+  battery_discharge: tl("reports.battery_discharging"),
+  grid_import: tl("reports.grid_import"),
+  grid_export: tl("reports.grid_export"),
 };
 
 function statisticsSeriesTooltipLabel(s) {
@@ -10472,7 +10494,7 @@ async function fetchBatterySocChartSeries(hass, plant, plantState) {
   const chargeId = map.battery_charge;
   const dischargeId = map.battery_discharge;
   if (!socId) {
-    return { empty: "Map battery SOC in FoxESS Modbus, then reload FoxESS Plant." };
+    return { empty: tl("quick_settings.map_battery_soc_in_foxess_modbus") };
   }
   const now = new Date();
   const start = startOfLocalDay(now);
@@ -10485,7 +10507,7 @@ async function fetchBatterySocChartSeries(hass, plant, plantState) {
   const socPts = buildSocHistoryPoints(hass, socId, range, statsMap, hist);
   if (!socPts.length) {
     return {
-      empty: `No SOC history for ${socId}. Enable the Recorder for battery_soc (5-minute statistics or state history).`,
+      empty: tl("quick_settings.no_soc_history_for_socid_enable", { socId }),
     };
   }
   const chargePts = chargeId ? buildSocPowerPoints(hass, chargeId, range, statsMap, hist) : [];
@@ -10502,7 +10524,7 @@ async function fetchBatterySocChartSeries(hass, plant, plantState) {
 
 function renderBatterySocChartHtml(chart, liveSocPct) {
   if (!chart?.range || !chart?.socPts?.length) {
-    return `<p class="placeholder chart-empty">No battery SOC history for today yet.</p>`;
+    return `<p class="placeholder chart-empty">${tl("quick_settings.no_battery_soc_history_for_today")}</p>`;
   }
   const { socPts, segments, activityBars, range } = chart;
   const { width, height, pad, xTickHours, xTickCount, yTicks } = batterySocChartLayout();
@@ -10590,12 +10612,12 @@ function renderBatterySocChartHtml(chart, liveSocPct) {
 <div class="soc-chart-head">
 <div class="soc-chart-value">${esc(formatSocPercent(displaySoc))}</div>
 <div class="soc-chart-legend" aria-hidden="true">
-<span class="soc-chart-legend-item"><i style="background:${BATTERY_SOC_COLORS.charging.line}"></i>Charging</span>
-<span class="soc-chart-legend-item"><i style="background:${BATTERY_SOC_COLORS.discharging.line}"></i>Discharging</span>
+<span class="soc-chart-legend-item">${tl("quick_settings.charging", { line: BATTERY_SOC_COLORS.charging.line })}</span>
+<span class="soc-chart-legend-item">${tl("quick_settings.discharging", { line: BATTERY_SOC_COLORS.discharging.line })}</span>
 </div>
 </div>
 <div class="soc-chart-plot" data-pad-l="${pad.l}" data-pad-t="${pad.t}" data-pad-b="${pad.b}" data-plot-w="${w}" data-plot-h="${h}" data-t-min="${tMin}" data-t-max="${tMax}" data-now-ms="${nowMs}">
-<svg class="soc-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="${isNarrowChart() ? "xMidYMid meet" : "xMidYMid slice"}"${chartFluidStyle(width, height)} role="img" aria-label="Battery state of charge chart">
+<svg class="soc-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="${isNarrowChart() ? "xMidYMid meet" : "xMidYMid slice"}"${chartFluidStyle(width, height)} role="img" aria-label="${tl("quick_settings.battery_state_of_charge_chart")}">
 ${grid}
 ${yLabels}
 ${activityRects}
@@ -10642,7 +10664,7 @@ function bindBatterySocChart(root, chart) {
     const soc = clampSocPercent(interpolateSeriesAt(chart.socPts, t));
     const mode = batteryFlowModeAt(t, chart.chargePts, chart.dischargePts, chart.socPts);
     const modeLabel =
-      mode === "charging" ? "Charging" : mode === "discharging" ? "Discharging" : "Idle";
+      mode === "charging" ? tl("quick_settings.charging_2") : mode === "discharging" ? tl("quick_settings.discharging_2") : tl("common.idle");
     const modeColor = (BATTERY_SOC_COLORS[mode] || BATTERY_SOC_COLORS.idle).line;
     tooltip.hidden = false;
     tooltip.innerHTML = `<div class="soc-chart-tooltip-time">${esc(formatStatisticsHoverTime(t))}</div>
@@ -10671,7 +10693,7 @@ async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset =
     return { ...s, entity_id: candidates[0] || null };
   }).filter((s) => s.entity_id);
   if (!specs.length) {
-    return { empty: "Map power entities in FoxESS Modbus, then reload FoxESS Plant." };
+    return { empty: tl("reports.map_power_entities_in_foxess_modbus") };
   }
   let forecastState = plantState;
   if (dayOffset === 0) {
@@ -10778,7 +10800,7 @@ async function fetchStatisticsChartSeries(hass, plant, plantState, { dayOffset =
   if (!series.some((s) => s.points.length)) {
     const listed = specs.map((s) => s.entity_id).join(", ");
     return {
-      empty: `No statistics for: ${listed}. Confirm the Recorder stores 5-minute means for these entities (same as your Lovelace plotly-graph card).`,
+      empty: tl("reports.no_statistics_for_listed_confirm_the", { listed }),
       dayOffset,
     };
   }
@@ -10855,7 +10877,7 @@ function renderOverviewDailySparklineSvg(values, labels, accentColor) {
     );
     if (i === todayIdx) {
       parts.push(
-        `<text x="${cx.toFixed(1)}" y="8" text-anchor="middle" class="overview-daily-today-mark" font-size="${todayFont}">Today</text>`
+        `<text x="${cx.toFixed(1)}" y="8" text-anchor="middle" class="overview-daily-today-mark" font-size="${todayFont}">${tl("common.today")}</text>`
       );
       parts.push(
         `<line x1="${cx.toFixed(1)}" y1="9.5" x2="${cx.toFixed(1)}" y2="${(y - 1).toFixed(1)}" class="overview-daily-today-line"/>`
@@ -10994,7 +11016,7 @@ async function fetchFoxMirroredBarChart(hass, plant, plantState, period, offset 
   });
   const allDays = buildDaysInRange(start, end);
   return {
-    title: "Total",
+    title: tl("common.total"),
     breakdown: computeEnergyBreakdown(points, allDays),
     svg: renderMirroredEnergyBarChart(buckets, labels),
   };
@@ -11012,7 +11034,7 @@ async function fetchOverviewDailyEnergy(hass, plant, plantState) {
   const ids = [ent.pv, ent.load, ent.discharge, ent.charge, ent.grid].filter(Boolean);
   const labels = buildLastNDays(OVERVIEW_DAILY_DAYS);
   if (!ids.length) {
-    return { error: "Daily energy sensors not found. Reload FoxESS Plant after foxess_modbus is configured." };
+    return { error: tl("energy.daily_energy_sensors_not_found_reload") };
   }
   const rangeStart = labels[0];
   const now = new Date();
@@ -11046,11 +11068,11 @@ async function fetchOverviewDailyEnergy(hass, plant, plantState) {
 }
 
 function energyPeriodSummaryLabel(period) {
-  if (period === "week") return "Weekly";
-  if (period === "month") return "Monthly";
-  if (period === "year") return "Yearly";
-  if (period === "total") return "Total";
-  return "Daily";
+  if (period === "week") return tl("energy.weekly");
+  if (period === "month") return tl("energy.monthly");
+  if (period === "year") return tl("energy.yearly");
+  if (period === "total") return tl("common.total");
+  return tl("energy.daily");
 }
 
 function downsampleSparkSeries(values, maxPoints = ANALYSIS_SPARK_MAX_POINTS) {
@@ -11346,7 +11368,7 @@ function renderStatisticsChartHtml(series, range, options = {}) {
   const hasSoc = !!socSeries?.points?.length;
   const visible = series.filter((s) => s.points?.length);
   if (!visible.length && !hasSoc) {
-    return `<p class="placeholder chart-empty">No power history for today yet.</p>`;
+    return `<p class="placeholder chart-empty">${tl("reports.no_power_history_for_today_yet")}</p>`;
   }
   const layout = statisticsChartLayout({ sideLegend, hasSoc });
   const { width, height, pad, xTickHours, xTickCount } = layout;
@@ -11489,14 +11511,14 @@ function renderStatisticsChartHtml(series, range, options = {}) {
           )
           .join("");
 
-  const powerAxisLabel = sideLegend || hasSoc ? "Power (kW)" : "kW";
+  const powerAxisLabel = sideLegend || hasSoc ? tl("common.power_kw") : "kW";
   const leftAxisTitle = `<text x="${yLabelX}" y="${(pad.t - 6).toFixed(1)}" text-anchor="start" class="statistics-y-label statistics-y-label--left">${esc(powerAxisLabel)}</text>`;
   const rightAxisTitle = hasSoc
     ? `<text x="${yAxisRightX}" y="${(pad.t - 6).toFixed(1)}" text-anchor="end" class="statistics-y-label statistics-y-label--right">SOC</text>`
     : "";
 
   const plotHtml = `<div class="statistics-chart-plot" data-pad-l="${pad.l}" data-pad-t="${pad.t}" data-pad-b="${pad.b}" data-plot-w="${w}" data-plot-h="${h}" data-t-min="${tMin}" data-t-max="${tMax}" data-y-min="${yMin}" data-y-max="${yMax}" data-now-ms="${nowMs}">
-<svg class="statistics-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet"${chartFluidStyle(width, height)} role="img" aria-label="Statistics power chart">
+<svg class="statistics-chart-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet"${chartFluidStyle(width, height)} role="img" aria-label="${tl("reports.statistics_power_chart")}">
 ${leftAxisTitle}
 ${rightAxisTitle}
 ${grid}
@@ -11619,7 +11641,7 @@ function bindStatisticsChart(root, seriesMeta) {
 
 function renderBarChartSvg(groups, labels, { height = 200 } = {}) {
   const n = labels.length;
-  if (!n) return `<p class="placeholder chart-empty">No energy history in this period.</p>`;
+  if (!n) return `<p class="placeholder chart-empty">${tl("common.no_energy_history_in_this_period")}</p>`;
   const narrow = isNarrowChart();
   const width = chartRenderWidth(400);
   const pad = { l: 40, r: 12, t: 16, b: 36 };
@@ -11721,7 +11743,7 @@ function mirroredEnergyTooltipRowsHtml(bucket) {
   ].filter(Boolean);
   return rows.length
     ? rows.join("")
-    : `<div class="statistics-tooltip-row"><span class="statistics-tooltip-label">No data</span></div>`;
+    : `<div class="statistics-tooltip-row"><span class="statistics-tooltip-label">${tl("common.no_data")}</span></div>`;
 }
 
 function bindMirroredEnergyChart(root) {
@@ -11783,7 +11805,7 @@ function bindMirroredEnergyChart(root) {
 
 function renderMirroredEnergyBarChart(buckets, labels, { height = 300, labelMode = "auto" } = {}) {
   const n = buckets.length;
-  if (!n) return `<p class="placeholder chart-empty">No energy history in this period.</p>`;
+  if (!n) return `<p class="placeholder chart-empty">${tl("common.no_energy_history_in_this_period")}</p>`;
   const narrow = isNarrowChart();
   const width = chartRenderWidth(1000);
   if (narrow) height = Math.round(Math.min(300, Math.max(220, width * 0.62)));
@@ -11870,11 +11892,11 @@ function renderMirroredEnergyBarChart(buckets, labels, { height = 300, labelMode
 
   return `<div class="fox-energy-chart-wrap" data-fox-energy-chart="1" data-energy-buckets="${esc(JSON.stringify(buckets))}" data-energy-labels="${esc(JSON.stringify(displayLabels))}">
 <div class="statistics-chart-legend fox-energy-mirror-legend">
-<div class="fox-energy-legend-row"><span class="fox-energy-legend-heading">SUPPLY</span>${supplyLegend}</div>
-<div class="fox-energy-legend-row"><span class="fox-energy-legend-heading">USAGE</span>${usageLegend}</div>
+<div class="fox-energy-legend-row"><span class="fox-energy-legend-heading">${tl("energy.supply")}</span>${supplyLegend}</div>
+<div class="fox-energy-legend-row"><span class="fox-energy-legend-heading">${tl("energy.usage")}</span>${usageLegend}</div>
 </div>
 <div class="fox-energy-mirror-plot" data-chart-w="${width}" data-pad-l="${pad.l}" data-pad-r="${pad.r}">
-<svg class="fox-energy-mirror-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="${narrow ? "xMidYMid meet" : "none"}"${chartFluidStyle(width, height)} role="img" aria-label="Energy supply and usage chart">${parts.join("")}</svg>
+<svg class="fox-energy-mirror-chart" viewBox="0 0 ${width} ${height}" preserveAspectRatio="${narrow ? "xMidYMid meet" : "none"}"${chartFluidStyle(width, height)} role="img" aria-label="${tl("energy.energy_supply_and_usage_chart")}">${parts.join("")}</svg>
 <div class="statistics-tooltip" hidden role="tooltip"></div>
 </div>
 </div>`;
@@ -11895,7 +11917,7 @@ async function fetchEnergyHistoryPoints(hass, plant, plantState, rangeStart, ran
   const map = resolveEntityMap(hass, plant, plantState);
   const ent = resolveEnergyHistoryEntities(map);
   const ids = [ent.pv, ent.feedIn, ent.load, ent.discharge, ent.charge, ent.grid].filter(Boolean);
-  if (!ids.length) return { ent, points: null, error: "Daily energy sensors not found. Reload FoxESS Plant." };
+  if (!ids.length) return { ent, points: null, error: tl("common.daily_energy_sensors_not_found_reload") };
   const rangeMs = rangeEnd.getTime() - rangeStart.getTime();
   const significantChangesOnly = rangeMs > 2 * 86400000;
   const hist = await fetchHistoryDuring(hass, ids, rangeStart, rangeEnd, { significantChangesOnly });
@@ -12130,12 +12152,12 @@ const SMART_CHARGE_MODE_ICONS = {
   max_profit: `/foxess_plant_panel/smart-charge-max-profit.png?v=${SMART_CHARGE_MODE_ICON_VER}`,
   max_green: `/foxess_plant_panel/smart-charge-max-green.png?v=${SMART_CHARGE_MODE_ICON_VER}`,
 };
-const OCTOPUS_GREENER_CARD_TITLE = "Octopus Green Nights 24h Forecast";
-const OCTOPUS_UPCOMING_WEEK_CARD_TITLE = "Octopus Greener Nights Week Ahead";
+const OCTOPUS_GREENER_CARD_TITLE = tl("octopus.octopus_green_nights_24h_forecast");
+const OCTOPUS_UPCOMING_WEEK_CARD_TITLE = tl("octopus.octopus_greener_nights_week_ahead");
 const OCTOPUS_GREENER_DAILY_INTRO =
-  "Cut your carbon footprint by using electricity off-peak, and when it's windy and sunny. The graph below forecasts the carbon intensity of the grid, the greener the grid, the greener the graph and the cleaner the energy at that time. The National Green Line indicates when we deem the Low Carbon Score officially green.";
+  tl("octopus.cut_your_carbon_footprint_by_using");
 const OCTOPUS_GREENER_DAILY_HELP =
-  "Your Low Carbon Score is based on National Energy System Operator\u2019s (NESO) annual forecast for carbon density. The lower the carbon density, the greener the grid and the higher the Low Carbon Score. The National Green Line, refers to carbon intensity (and corresponding Low Carbon Score) when NESO deems the grid green. As of 2025, they deem the anything below 99gCO\u2082/kWh as low, and therefore greener.";
+  tl("octopus.your_low_carbon_score_is_based");
 const BANNER_HERO_WIDE_WIDTH = 1024;
 const BANNER_HERO_WIDE_HEIGHT = 512;
 const STORM_HERO_WIDTH = BANNER_HERO_WIDE_WIDTH;
@@ -12160,9 +12182,9 @@ function formatStormForecastActiveLine(nextStorm) {
   const token = esc(formatStormGoogleConditionToken(nextStorm.condition));
   const labels = formatStormMatchedCategories(nextStorm.matched_categories);
   if (labels) {
-    return `Forecast: <strong>${esc(labels)}</strong> in ~${hours}h (Google hourly: <code>${token}</code>) — <strong style="color:var(--fp-amber)">pre-charge active</strong>. Uncheck that category below to stop.`;
+    return tl("storm_safe.forecast_labels_in_hours_h_google", { labels: esc(labels), hours, token });
   }
-  return `Forecast: storm in ~${hours}h (<code>${token}</code>) — <strong style="color:var(--fp-amber)">pre-charge active</strong>.`;
+  return tl("storm_safe.forecast_storm_in_hours_h_token", { hours, token });
 }
 
 function formatStormNowLine(cond) {
@@ -12170,12 +12192,12 @@ function formatStormNowLine(cond) {
   const token = esc(formatStormGoogleConditionToken(cond.type ?? cond.text));
   const labels = formatStormMatchedCategories(cond.matched_categories);
   const stormNow = cond.is_storm
-    ? '<strong style="color:var(--fp-amber)">storm now</strong>'
-    : "clear now";
+    ? tl("storm_safe.storm_now")
+    : tl("storm_safe.clear_now");
   if (labels && cond.is_storm) {
-    return `Now: <strong>${esc(labels)}</strong> (Google: <code>${token}</code>) — ${stormNow}.`;
+    return tl("storm_safe.now_labels_google_token_stormnow", { labels: esc(labels), token, stormNow });
   }
-  return `Now: <strong>${esc(cond.label || cond.text)}</strong> (<code>${token}</code>) — ${stormNow}.`;
+  return tl("storm_safe.now_value_token_stormnow", { value: esc(cond.label || cond.text), token, stormNow });
 }
 
 const DEFAULT_STORM_SOLCAST_MARGIN = 1.35;
@@ -12190,28 +12212,28 @@ function stormSolcastActionClass(action) {
 function formatStormSolcastMetrics(precheck) {
   if (!precheck) return "";
   const parts = [];
-  if (precheck.soc_pct != null) parts.push(`Battery ${precheck.soc_pct}%`);
-  if (precheck.deficit_kwh != null) parts.push(`Gap ${precheck.deficit_kwh} kWh → ${precheck.target_soc_pct ?? 100}%`);
-  if (precheck.hours_until_storm != null) parts.push(`Storm ~${precheck.hours_until_storm}h`);
+  if (precheck.soc_pct != null) parts.push(tl("storm_safe.battery_soc_pct", { soc_pct: precheck.soc_pct }));
+  if (precheck.deficit_kwh != null) parts.push(tl("storm_safe.gap_deficit_kwh_kwh_value", { deficit_kwh: precheck.deficit_kwh, value: precheck.target_soc_pct ?? 100 }));
+  if (precheck.hours_until_storm != null) parts.push(tl("storm_safe.storm_hours_until_storm_h", { hours_until_storm: precheck.hours_until_storm }));
   if (precheck.pv_before_storm_kwh != null) {
-    parts.push(`Solcast PV ${precheck.pv_before_storm_kwh} kWh`);
+    parts.push(tl("storm_safe.solcast_pv_pv_before_storm_kwh", { pv_before_storm_kwh: precheck.pv_before_storm_kwh }));
   }
   if (precheck.effective_pv_kwh != null && precheck.safety_margin != null) {
-    parts.push(`Effective ${precheck.effective_pv_kwh} kWh (÷ ${precheck.safety_margin} margin)`);
+    parts.push(tl("storm_safe.effective_effective_pv_kwh_kwh_safety", { effective_pv_kwh: precheck.effective_pv_kwh, safety_margin: precheck.safety_margin }));
   }
   return parts.length ? parts.map((p) => esc(p)).join(" · ") : "";
 }
 
 const STORM_WEATHER_CATEGORY_FALLBACK = [
-  { id: "extreme_heat", label: "Extreme heat", icon: "storm_weather_extreme_heat.png" },
-  { id: "extreme_cold", label: "Extreme cold", icon: "storm_weather_extreme_cold.png" },
-  { id: "heavy_rain", label: "Heavy rain", icon: "storm_weather_heavy_rain.png" },
-  { id: "typhoons", label: "Typhoons", icon: "storm_weather_typhoons.png" },
-  { id: "dust_storm", label: "Dust storm", icon: "storm_weather_dust_storm.png" },
-  { id: "thunderstorms", label: "Thunderstorms", icon: "storm_weather_thunderstorms.png" },
-  { id: "wildfires", label: "Wildfires", icon: "storm_weather_wildfires.png" },
-  { id: "hailstorms", label: "Hailstorms", icon: "storm_weather_hailstorms.png" },
-  { id: "ice_storms", label: "Ice storms", icon: "storm_weather_ice_storms.png" },
+  { id: "extreme_heat", label: tl("storm_safe.extreme_heat"), icon: "storm_weather_extreme_heat.png" },
+  { id: "extreme_cold", label: tl("storm_safe.extreme_cold"), icon: "storm_weather_extreme_cold.png" },
+  { id: "heavy_rain", label: tl("storm_safe.heavy_rain"), icon: "storm_weather_heavy_rain.png" },
+  { id: "typhoons", label: tl("storm_safe.typhoons"), icon: "storm_weather_typhoons.png" },
+  { id: "dust_storm", label: tl("storm_safe.dust_storm"), icon: "storm_weather_dust_storm.png" },
+  { id: "thunderstorms", label: tl("storm_safe.thunderstorms"), icon: "storm_weather_thunderstorms.png" },
+  { id: "wildfires", label: tl("storm_safe.wildfires"), icon: "storm_weather_wildfires.png" },
+  { id: "hailstorms", label: tl("storm_safe.hailstorms"), icon: "storm_weather_hailstorms.png" },
+  { id: "ice_storms", label: tl("storm_safe.ice_storms"), icon: "storm_weather_ice_storms.png" },
 ];
 
 function stormWeatherIconUrl(iconFile) {
@@ -12274,16 +12296,16 @@ async function callServiceWithResponse(hass, domain, service, serviceData, targe
 const SOC_MIN_PCT = 10;
 
 const SOC_THUMBS = [
-  { key: "min_soc", label: "Off-grid min", short: "Off-grid", color: "#e53935" },
-  { key: "min_soc_on_grid", label: "System min", short: "On-grid", color: "#f9a825" },
-  { key: "max_soc", label: "System max", short: "Max", color: "#2e7d32" },
+  { key: "min_soc", label: tl("quick_settings.off_grid_min"), short: tl("quick_settings.off_grid"), color: "#e53935" },
+  { key: "min_soc_on_grid", label: tl("quick_settings.system_min"), short: tl("quick_settings.on_grid"), color: "#f9a825" },
+  { key: "max_soc", label: tl("quick_settings.system_max"), short: tl("quick_settings.max"), color: "#2e7d32" },
 ];
 
 const SOC_THUMBS_SMART = [
-  { key: "min_soc", label: "Off-grid min", short: "Off-grid", color: "#e53935" },
-  { key: "min_soc_on_grid", label: "System min", short: "On-grid", color: "#f9a825" },
-  { key: "export_min_soc", label: "Export floor", short: "Export", color: "#C06AFF" },
-  { key: "max_soc", label: "System max", short: "Max", color: "#2e7d32" },
+  { key: "min_soc", label: tl("quick_settings.off_grid_min"), short: tl("quick_settings.off_grid"), color: "#e53935" },
+  { key: "min_soc_on_grid", label: tl("quick_settings.system_min"), short: tl("quick_settings.on_grid"), color: "#f9a825" },
+  { key: "export_min_soc", label: tl("quick_settings.export_floor"), short: tl("common.export"), color: "#C06AFF" },
+  { key: "max_soc", label: tl("quick_settings.system_max"), short: tl("quick_settings.max"), color: "#2e7d32" },
 ];
 
 /** Enforce 10–100%, min ≤ system min ≤ [export floor] ≤ max. */
@@ -12321,7 +12343,7 @@ function tripleSocBatteryFillMarkup(liveSoc) {
 function validateSocLimits(draft, liveSoc, opts = {}) {
   const errors = [];
   const warnings = [];
-  if (!draft) return { errors: ["SOC limits unavailable."], warnings: [] };
+  if (!draft) return { errors: [tl("quick_settings.soc_limits_unavailable")], warnings: [] };
   const includeExport = Boolean(opts.includeExportFloor);
   const min = Math.round(Number(draft.min_soc));
   const mid = Math.round(Number(draft.min_soc_on_grid));
@@ -12329,31 +12351,31 @@ function validateSocLimits(draft, liveSoc, opts = {}) {
   const exp = includeExport ? Math.round(Number(draft.export_min_soc)) : null;
   const values = includeExport ? [min, mid, exp, max] : [min, mid, max];
   if (!values.every((v) => Number.isFinite(v))) {
-    return { errors: ["Enter a whole-number percentage for each SOC limit."], warnings: [] };
+    return { errors: [tl("quick_settings.enter_a_whole_number_percentage_for")], warnings: [] };
   }
   if (values.some((v) => v < SOC_MIN_PCT)) {
-    errors.push(`All SOC limits must be at least ${SOC_MIN_PCT}%.`);
+    errors.push(tl("quick_settings.all_soc_limits_must_be_at", { soc_min_pct: SOC_MIN_PCT }));
   }
   if (values.some((v) => v > 100)) {
-    errors.push("SOC limits cannot exceed 100%.");
+    errors.push(tl("quick_settings.soc_limits_cannot_exceed_100"));
   }
   if (min > mid) {
-    errors.push(`Off-grid min (${min}%) must be ≤ system min (${mid}%).`);
+    errors.push(tl("quick_settings.off_grid_min_min_must_be", { min, mid }));
   }
   if (includeExport) {
     if (mid > exp) {
-      errors.push(`System min (${mid}%) must be ≤ export floor (${exp}%).`);
+      errors.push(tl("quick_settings.system_min_mid_must_be_export", { mid, exp }));
     }
     if (exp > max) {
-      errors.push(`Export floor (${exp}%) must be ≤ system max (${max}%).`);
+      errors.push(tl("quick_settings.export_floor_exp_must_be_system", { exp, max }));
     }
   } else if (mid > max) {
-    errors.push(`System min (${mid}%) must be ≤ system max (${max}%).`);
+    errors.push(tl("quick_settings.system_min_mid_must_be_system", { mid, max }));
   }
   const live = Math.ceil(Number(liveSoc));
   if (Number.isFinite(live) && live > 0 && max < live) {
     errors.push(
-      `System max (${max}%) cannot be below the current battery level (${live}%). Discharge or wait for SOC to drop.`
+      tl("quick_settings.system_max_max_cannot_be_below", { max, live })
     );
   }
   return { errors, warnings };
@@ -12368,17 +12390,17 @@ function renderSocResultHtml(results) {
       const warn = Boolean(row.warning);
       const icon = skipped ? "·" : warn ? "!" : ok ? "✓" : "✕";
       const cls = skipped ? "info" : warn ? "warn" : ok ? "ok" : "err";
-      const detail = row.message || (skipped ? "" : ok ? "Operation successful" : "Failed");
+      const detail = row.message || (skipped ? "" : ok ? tl("quick_settings.operation_successful") : tl("quick_settings.failed"));
       return `<li class="soc-result-item ${cls}">
 <span class="soc-result-icon" aria-hidden="true">${icon}</span>
 <span class="soc-result-text"><strong>${esc(row.label || row.key)}</strong> ${esc(detail)}</span>
 </li>`;
     })
     .join("");
-  return `<div class="soc-result-panel" role="dialog" aria-label="SOC save result">
+  return `<div class="soc-result-panel" role="dialog" aria-label="${tl("quick_settings.soc_save_result")}">
 <div class="soc-result-head">
-<strong>Result</strong>
-<button type="button" class="soc-result-close" data-action="soc-result-close" aria-label="Close result">×</button>
+${tl("quick_settings.result")}
+<button type="button" class="soc-result-close" data-action="soc-result-close" aria-label="${tl("quick_settings.close_result")}">×</button>
 </div>
 <ul class="soc-result-list">${items}</ul>
 </div>`;
@@ -16105,6 +16127,15 @@ class FoxessPlantPanel extends HTMLElement {
   }
 
   connectedCallback() {
+    // The module waits for its labels before defining this element, so HA may already have set these on
+    // the plain element as own properties, hiding the class setters: move them onto the setters.
+    for (const prop of ["hass", "narrow", "route", "panel"]) {
+      if (Object.prototype.hasOwnProperty.call(this, prop)) {
+        const value = this[prop];
+        delete this[prop];
+        this[prop] = value;
+      }
+    }
     // `toggle` doesn't bubble, so catch it on the way down: remember which <details data-keep-open> are open,
     // otherwise the next redraw (every few seconds) closes them again
     this._onDetailsToggle ??= (ev) => {
@@ -16251,7 +16282,7 @@ class FoxessPlantPanel extends HTMLElement {
     const regBuild = this._panel?.config?.panel_js_build || "—";
     const regVer = String(regBuild).split("-")[0] || "—";
     const diskVer = this._plantState?.panel_runtime?.manifest_version || "—";
-    return `js ${jsVer} · registered ${regVer} · disk ${diskVer}`;
+    return tl("panel.js_jsver_registered_regver_disk_diskver", { jsVer, regVer, diskVer });
   }
 
   _syncPanelBuildFooter(shell) {
@@ -16267,7 +16298,7 @@ class FoxessPlantPanel extends HTMLElement {
       el.setAttribute("aria-hidden", "true");
       shell.appendChild(el);
     }
-    el.textContent = `Panel build ${this._panelBuild()}`;
+    el.textContent = tl("panel.panel_build_panelbuild", { panelBuild: this._panelBuild() });
   }
 
   _panelIsStale() {
@@ -16287,9 +16318,7 @@ class FoxessPlantPanel extends HTMLElement {
     const jsVer = panelVersionFromModuleUrl() || PANEL_VERSION;
     const regVer = String(this._panel?.config?.panel_js_build || "—").split("-")[0];
     return `<div class="banner warn panel-stale-banner" role="status">
-<strong>Panel update pending</strong>
-Browser ${esc(jsVer)} · HA registered ${esc(regVer)} · files on disk ${esc(runtime.manifest_version || "—")}.
-Reloading panel registration…
+${tl("panel.panel_update_pending_browser_jsver_ha", { jsVer: esc(jsVer), regVer: esc(regVer), value: esc(runtime.manifest_version || "—") })}
 </div>`;
   }
 
@@ -16301,7 +16330,7 @@ Reloading panel registration…
     try {
       const plants = await fetchPlantList(this._hass);
       if (!plants.length) return;
-      this._root.innerHTML = `<div class="main"><p class="placeholder">FoxESS Plant found — reloading panel registration…</p></div>`;
+      this._root.innerHTML = `<div class="main"><p class="placeholder">${tl("settings.foxess_plant_found_reloading_panel_registration")}</p></div>`;
       await this._hass.callService("foxess_plant", "reload_panel", {}, undefined, true, true);
       window.setTimeout(() => window.location.reload(), 400);
     } catch (err) {
@@ -16348,14 +16377,14 @@ Reloading panel registration…
 
   _renderPanelBrand() {
     const menuLabel =
-      this._hass?.localize?.("ui.sidebar.sidebar_toggle") || "Open menu";
+      this._hass?.localize?.("ui.sidebar.sidebar_toggle") || tl("panel.open_menu");
     return `<div class="panel-header-top">
 <button type="button" class="panel-ha-menu-btn" data-action="ha-menu-toggle" aria-label="${esc(menuLabel)}">${HA_MENU_ICON_SVG}</button>
 <div class="panel-brand-row">
 <img class="panel-brand-icon" src="${esc(this._brandIconSrc)}" data-fallback="${esc(this._brandIconFallback)}" data-static="${esc(this._brandIconStatic)}" width="40" height="40" alt="FoxESS">
 <div>
 <div class="panel-brand-title">Fox Plant</div>
-<div class="panel-brand-sub">FoxESS Inverter Control</div>
+<div class="panel-brand-sub">${tl("panel.foxess_inverter_control")}</div>
 </div>
 </div>
 </div>`;
@@ -16894,7 +16923,7 @@ Reloading panel registration…
     const plants = this._panel?.config?.plants ?? [];
     if (plants.length <= 1) return "";
     const selectedId = this._selectedPlantId ?? plants[0]?.entry_id;
-    return `<div class="plant-row"><label>Plant</label><select data-action="pick-plant" aria-label="Plant selector">${plants
+    return `<div class="plant-row"><label>${tl("common.plant")}</label><select data-action="pick-plant" aria-label="${tl("panel.plant_selector")}">${plants
       .map(
         (p) =>
           `<option value="${esc(p.entry_id)}" ${p.entry_id === selectedId ? "selected" : ""}>${esc(
@@ -17204,7 +17233,7 @@ Reloading panel registration…
       ? ""
       : `<header class="header"><h1>${esc(title)}</h1></header>`;
     return `${header}<div class="card settings-locked-card quick-settings-card">
-<div class="banner info"><strong>Managed by SmartCharge</strong>${esc(detail)} Open <strong>SmartCharge</strong> to change SOC limits, charge windows, and work mode while automation is on.</div>
+<div class="banner info">${tl("settings.managed_by_smartcharge_detail_open_smartcharge", { detail: esc(detail) })}</div>
 </div>`;
   }
 
@@ -17307,9 +17336,9 @@ Reloading panel registration…
       if (state) this._plantState = state;
       this._initSmartChargeDraft();
       if (this._smartChargeDraft?.enabled) this._initSmartChargeSocDraft();
-      this._showToast("SmartCharge settings saved");
+      this._showToast(tl("smart_charge.smartcharge_settings_saved"));
     } catch (err) {
-      this._showToast(formatWebsocketError(err, "Save failed"), "err");
+      this._showToast(formatWebsocketError(err, tl("common.save_failed")), "err");
     } finally {
       this._busy = false;
       this._render();
@@ -17574,7 +17603,7 @@ Reloading panel registration…
       });
       if (state) this._plantState = state;
       this._initFoxCloudDraft();
-      this._showToast("Fox Cloud API saved");
+      this._showToast(tl("settings.fox_cloud_api_saved"));
     } catch (err) {
       this._showToast(String(err?.message || err), "err");
     } finally {
@@ -17603,11 +17632,11 @@ Reloading panel registration…
       const notes = [
         res?.sn_note,
         res?.warmup_note,
-        res?.warmup_probe_error ? `Warmup: ${res.warmup_probe_error}` : null,
+        res?.warmup_probe_error ? tl("settings.warmup_warmup_probe_error", { warmup_probe_error: res.warmup_probe_error }) : null,
       ].filter(Boolean);
       const suffix = notes.length ? `. ${notes.join(" ")}` : "";
-      if (!connected) this._showToast(`Fox Cloud test failed${suffix}`, "err");
-      else this._showToast(`Fox Cloud connected${sn}${suffix}`);
+      if (!connected) this._showToast(tl("settings.fox_cloud_test_failed_suffix", { suffix }), "err");
+      else this._showToast(tl("settings.fox_cloud_connected_sn_suffix", { sn, suffix }));
     } catch (err) {
       this._showToast(String(err?.message || err), "err");
     } finally {
@@ -17660,7 +17689,7 @@ Reloading panel registration…
       });
       if (res?.plant_state) this._plantState = res.plant_state;
       if (res?.warmup) this._initWarmupDraftFromLive(res.warmup);
-      if (showToast) this._showToast("Battery warmup refreshed from Fox Cloud");
+      if (showToast) this._showToast(tl("warmup.battery_warmup_refreshed_from_fox_cloud"));
     } catch (err) {
       if (showToast) this._showToast(String(err?.message || err), "err");
       throw err;
@@ -17694,7 +17723,7 @@ Reloading panel registration…
       });
       if (res?.plant_state) this._plantState = res.plant_state;
       if (res?.warmup) this._initWarmupDraftFromLive(res.warmup);
-      this._showToast("Battery warmup saved to inverter");
+      this._showToast(tl("warmup.battery_warmup_saved_to_inverter"));
     } catch (err) {
       this._showToast(String(err?.message || err), "err");
     } finally {
@@ -17706,15 +17735,15 @@ Reloading panel registration…
   _warmupStatusLabel(state, { enabled = false } = {}) {
     const text = String(state || "").toLowerCase();
     if (!text) {
-      if (enabled) return "warmup standby";
+      if (enabled) return tl("warmup.warmup_standby");
       return "off";
     }
-    if (text.includes("warm up state") && !text.includes("stopped") && !text.includes("ready")) return "warming up";
-    if (text.includes("ready warm up") && !text.includes("stopped")) return "warmup ready";
-    if (text.includes("self warm")) return "self warming";
-    if (text.includes("stopped")) return "warmup standby";
-    if (text.includes("ready stopped")) return "standby ready";
-    if (text.includes("standby")) return "warmup standby";
+    if (text.includes("warm up state") && !text.includes("stopped") && !text.includes("ready")) return tl("warmup.warming_up");
+    if (text.includes("ready warm up") && !text.includes("stopped")) return tl("warmup.warmup_ready");
+    if (text.includes("self warm")) return tl("warmup.self_warming");
+    if (text.includes("stopped")) return tl("warmup.warmup_standby");
+    if (text.includes("ready stopped")) return tl("warmup.standby_ready");
+    if (text.includes("standby")) return tl("warmup.warmup_standby");
     return String(state).replace(/^The battery is in (a )?/i, "").replace(/ state$/i, "");
   }
 
@@ -17774,7 +17803,7 @@ Reloading panel registration…
         continue;
       }
       if (!host.querySelector("ha-entity-picker")) {
-        host.innerHTML = `<p class="field-hint tariff-entity-picker-loading">Loading entity picker…</p>`;
+        host.innerHTML = `<p class="field-hint tariff-entity-picker-loading">${tl("common.loading_entity_picker")}</p>`;
       }
     }
     try {
@@ -17784,7 +17813,7 @@ Reloading panel registration…
       for (const kind of ["import", "export", "standing"]) {
         const host = this._root.querySelector(`[data-tariff-picker="${kind}"]`);
         if (!host || this._tariffDraft[`${kind}_source`] !== "entity") continue;
-        host.innerHTML = `<p class="tariff-entity-picker-error">${esc(err?.message || "Entity picker unavailable")}</p>`;
+        host.innerHTML = `<p class="tariff-entity-picker-error">${esc(err?.message || tl("common.entity_picker_unavailable"))}</p>`;
       }
       return;
     }
@@ -17856,11 +17885,11 @@ Reloading panel registration…
     this._syncTariffScheduleFromDom();
     const draft = buildTariffSavePayload(this._tariffDraft);
     const missing = [];
-    if (draft.import_source === "entity" && !draft.import_entity) missing.push("Import sensor");
-    if (draft.export_source === "entity" && !draft.export_entity) missing.push("Export sensor");
-    if (draft.standing_source === "entity" && !draft.standing_entity) missing.push("Standing charge sensor");
+    if (draft.import_source === "entity" && !draft.import_entity) missing.push(tl("tariff.import_sensor"));
+    if (draft.export_source === "entity" && !draft.export_entity) missing.push(tl("tariff.export_sensor"));
+    if (draft.standing_source === "entity" && !draft.standing_entity) missing.push(tl("tariff.standing_charge_sensor"));
     if (missing.length) {
-      this._showToast(`${missing.join(", ")} required when using sensor source`, "err");
+      this._showToast(tl("tariff.missing_required_for_sensor_source", { missing: missing.join(", ") }), "err");
       return;
     }
     this._busy = true;
@@ -17873,7 +17902,7 @@ Reloading panel registration…
       });
       if (state) this._plantState = state;
       this._initTariffDraft();
-      this._showToast("Tariff settings saved");
+      this._showToast(tl("tariff.tariff_settings_saved"));
     } catch (err) {
       this._showToast(tariffSaveErrorMessage(err), "err");
       console.error("FoxESS Plant: tariff save failed", err);
@@ -17975,21 +18004,21 @@ Reloading panel registration…
       const hasToken = Boolean(payload.refresh_token || d.refresh_token_set);
       const hasLogin = Boolean(payload.email && (payload.password || d.password_set));
       if (!hasToken && !hasLogin) {
-        this._showToast("Paste your E.ON Next sign-in token (see the steps on the card)", "err");
+        this._showToast(tl("octopus.paste_your_e_on_next_sign"), "err");
         return;
       }
     } else if (payload.enabled && payload.source === "native") {
       if (!payload.api_key && !this._octopusDraft.api_key_set) {
-        this._showToast("Octopus API key is required", "err");
+        this._showToast(tl("octopus.octopus_api_key_is_required"), "err");
         return;
       }
       if (!payload.account_number) {
-        this._showToast("Octopus account number is required (e.g. A-12345678)", "err");
+        this._showToast(tl("octopus.octopus_account_number_is_required_e"), "err");
         return;
       }
     }
     if (payload.enabled && payload.source === "entity" && !payload.import_entity && !payload.export_entity) {
-      this._showToast("Choose at least one import or export sensor for external mode", "err");
+      this._showToast(tl("octopus.choose_at_least_one_import_or"), "err");
       return;
     }
     this._busy = true;
@@ -18006,7 +18035,7 @@ Reloading panel registration…
       this._initTariffDraft();
       const fuseErr = payload.provider === "fuse" ? this._plantState?.tariff?.fuse?.last_error : null;
       this._showToast(
-        fuseErr ? `Fuse saved, but: ${fuseErr}` : `${label} settings saved — schedule synced from your tariff`,
+        fuseErr ? tl("octopus.fuse_saved_but_fuseerr", { fuseErr }) : tl("octopus.label_settings_saved_schedule_synced_from", { label }),
         fuseErr ? "err" : undefined
       );
     } catch (err) {
@@ -18028,11 +18057,11 @@ Reloading panel registration…
     }
     const key = this._octopusDraft.api_key || undefined;
     if (!key && !this._octopusDraft.api_key_set) {
-      this._showToast("Enter an Octopus API key to test", "err");
+      this._showToast(tl("octopus.enter_an_octopus_api_key_to"), "err");
       return;
     }
     if (!this._octopusDraft.account_number) {
-      this._showToast("Enter your Octopus account number to test", "err");
+      this._showToast(tl("octopus.enter_your_octopus_account_number_to"), "err");
       return;
     }
     this._busy = true;
@@ -18047,7 +18076,7 @@ Reloading panel registration…
       if (result?.plant_state) this._plantState = result.plant_state;
       const imp = result?.octopus?.import_meters?.length ?? 0;
       const exp = result?.octopus?.export_meters?.length ?? 0;
-      this._showToast(`Connected — ${imp} import meter(s), ${exp} export meter(s)`);
+      this._showToast(tl("octopus.connected_imp_import_meter_s_exp", { imp, exp }));
       this._initOctopusDraft();
       this._octopusPickerMountGen += 1;
       this._scheduleRender();
@@ -18064,7 +18093,7 @@ Reloading panel registration…
     const d = this._octopusDraft;
     const hasToken = Boolean(d.refresh_token || d.refresh_token_set);
     if (!hasToken && !(d.email && (d.password || d.password_set))) {
-      this._showToast("Paste your E.ON Next sign-in token to test", "err");
+      this._showToast(tl("eon_next.paste_your_e_on_next_sign"), "err");
       return;
     }
     this._busy = true;
@@ -18085,7 +18114,7 @@ Reloading panel registration…
       const accounts = result?.octopus?.account_numbers ?? [];
       if (!d.account_number && accounts.length) d.account_number = accounts[0];
       this._showToast(
-        `Connected — ${accounts.length} account(s), ${imp} import meter(s), ${exp} export meter(s)`
+        tl("eon_next.connected_length_account_s_imp_import", { length: accounts.length, imp, exp })
       );
       this._scheduleRender();
     } catch (err) {
@@ -18118,8 +18147,8 @@ Reloading panel registration…
       const label = energyProviderLabel(tariffEnergyProviderId(this._plantState?.tariff));
       this._showToast(
         agile
-          ? `${label} rates refreshed (import ${impN}, export ${expN})${errHint}`
-          : `${label} rates refreshed — daily schedule updated (import ${impN}, export ${expN})${errHint}`
+          ? tl("octopus.label_rates_refreshed_import_impn_export", { label, impN, expN, errHint })
+          : tl("octopus.label_rates_refreshed_daily_schedule_updated", { label, impN, expN, errHint })
       );
     } catch (err) {
       this._showToast(tariffSaveErrorMessage(err), "err");
@@ -18142,13 +18171,13 @@ Reloading panel registration…
     const msg = { plant_id: plant.entry_id };
     if (action === "fuse-send-code") {
       if (!d.phone) {
-        this._showToast("Enter the mobile number on your Fuse account", "err");
+        this._showToast(tl("fuse.enter_the_mobile_number_on_your"), "err");
         return;
       }
       Object.assign(msg, { type: "foxess_plant/fuse_send_code", phone: d.phone });
     } else if (action === "fuse-verify-code") {
       if (!/^\d{6}$/.test(d.code.replace(/\s/g, ""))) {
-        this._showToast("Enter the 6-digit code Fuse texted you", "err");
+        this._showToast(tl("fuse.enter_the_6_digit_code_fuse"), "err");
         return;
       }
       Object.assign(msg, { type: "foxess_plant/fuse_verify_code", code: d.code });
@@ -18163,15 +18192,15 @@ Reloading panel registration…
       const fuse = this._plantState?.tariff?.fuse ?? {};
       if (action === "fuse-send-code") {
         d.code = "";
-        this._showToast("Code sent — check your phone");
+        this._showToast(tl("fuse.code_sent_check_your_phone"));
       } else if (action === "fuse-verify-code") {
         d.code = "";
         d.phone = "";
-        this._showToast(fuse.last_error ? `Signed in, but: ${fuse.last_error}` : "Signed in to Fuse — tariff read", fuse.last_error ? "err" : undefined);
+        this._showToast(fuse.last_error ? tl("fuse.signed_in_but_last_error", { last_error: fuse.last_error }) : tl("fuse.signed_in_to_fuse_tariff_read"), fuse.last_error ? "err" : undefined);
       } else if (action === "fuse-fetch") {
-        this._showToast(fuse.last_error ? `Fuse: ${fuse.last_error}` : "Fuse tariff read", fuse.last_error ? "err" : undefined);
+        this._showToast(fuse.last_error ? tl("fuse.fuse_last_error", { last_error: fuse.last_error }) : tl("fuse.fuse_tariff_read"), fuse.last_error ? "err" : undefined);
       } else {
-        this._showToast("Signed out of Fuse — the saved rates stay in use");
+        this._showToast(tl("fuse.signed_out_of_fuse_the_saved"));
       }
     } catch (err) {
       this._showToast(tariffSaveErrorMessage(err), "err");
@@ -18194,7 +18223,7 @@ Reloading panel registration…
       if (result?.plant_state) this._plantState = result.plant_state;
       this._initTariffDraft();
       this._showToast(
-        `Daily schedule filled from ${energyProviderLabel(tariffEnergyProviderId(this._plantState?.tariff))} rates`
+        tl("octopus.daily_schedule_filled_from_energyproviderlabel_r", { energyProviderLabel: energyProviderLabel(tariffEnergyProviderId(this._plantState?.tariff)) })
       );
     } catch (err) {
       this._showToast(tariffSaveErrorMessage(err), "err");
@@ -18213,7 +18242,7 @@ Reloading panel registration…
       const host = this._root.querySelector(`[data-octopus-picker="${kind}"]`);
       if (!host) continue;
       if (!host.querySelector("ha-entity-picker")) {
-        host.innerHTML = `<p class="field-hint tariff-entity-picker-loading">Loading entity picker…</p>`;
+        host.innerHTML = `<p class="field-hint tariff-entity-picker-loading">${tl("common.loading_entity_picker")}</p>`;
       }
     }
     try {
@@ -18223,7 +18252,7 @@ Reloading panel registration…
       for (const kind of ["import", "export"]) {
         const host = this._root.querySelector(`[data-octopus-picker="${kind}"]`);
         if (!host) continue;
-        host.innerHTML = `<p class="tariff-entity-picker-error">${esc(err?.message || "Entity picker unavailable")}</p>`;
+        host.innerHTML = `<p class="tariff-entity-picker-error">${esc(err?.message || tl("common.entity_picker_unavailable"))}</p>`;
       }
       return;
     }
@@ -18380,22 +18409,22 @@ Reloading panel registration…
 
   _glowSettingsSubtitle() {
     const g = this._plantState?.glow;
-    if (!g?.enabled) return "Off — optional Hildebrand Glow IHD smart meter";
+    if (!g?.enabled) return tl("glow.off_optional_hildebrand_glow_ihd_smart");
     const live = g.live || {};
-    if (live.import_kw != null) return `Live ${Number(live.import_kw).toFixed(2)} kW import · smart meter`;
-    if (g.mqtt_connected) return "MQTT connected — awaiting first reading";
+    if (live.import_kw != null) return tl("glow.live_import_kw_kw_import_smart", { import_kw: Number(live.import_kw).toFixed(2) });
+    if (g.mqtt_connected) return tl("glow.mqtt_connected_awaiting_first_reading");
     if (g.last_error) return String(g.last_error).slice(0, 60);
-    return "Enabled — configure MQTT or Bright API";
+    return tl("glow.enabled_configure_mqtt_or_bright_api");
   }
 
   _performanceSettingsSubtitle() {
     const cfg = this._performanceConfigFromState();
-    if (cfg.enabled === false) return "Off — recorder-backed solar and savings reports";
+    if (cfg.enabled === false) return tl("performance.off_recorder_backed_solar_and_savings");
     const cost = cfg.system_install_cost_gbp;
     if (cost != null && Number(cost) > 0) {
-      return `On · £${Number(cost).toFixed(0)} install cost · ${Number(cfg.inverter_ac_limit_kw || 4.3).toFixed(1)} kW AC limit`;
+      return tl("performance.on_cost_install_cost_value_kw", { cost: Number(cost).toFixed(0), value: Number(cfg.inverter_ac_limit_kw || 4.3).toFixed(1) });
     }
-    return "On · set install cost for payback";
+    return tl("performance.on_set_install_cost_for_payback");
   }
 
   _performanceConfigFromState() {
@@ -18456,10 +18485,10 @@ Reloading panel registration…
     const mapped = PERFORMANCE_WEATHER_ROLE_FIELDS.filter((r) => cfg[r.key]).length;
     const hint = this._plantState?.performance?.local_weather?.station_hint;
     if (mapped >= 2) {
-      return hint ? `${mapped} sensors mapped · ${hint}` : `${mapped} sensors mapped`;
+      return hint ? tl("weather.mapped_sensors_mapped_hint", { mapped, hint }) : tl("weather.mapped_sensors_mapped", { mapped });
     }
-    if (hint) return `Local station detected · ${hint} — map sensors`;
-    return "Map local PWS / Ecowitt sensors for Performance";
+    if (hint) return tl("weather.local_station_detected_hint_map_sensors", { hint });
+    return tl("weather.map_local_pws_ecowitt_sensors_for");
   }
 
   _applyDetectedWeatherMappings({ onlyEmpty = true } = {}) {
@@ -18522,9 +18551,9 @@ Reloading panel registration…
       });
       if (state) this._plantState = state;
       this._initWeatherDraft();
-      this._showToast("Weather sensor mappings saved");
+      this._showToast(tl("weather.weather_sensor_mappings_saved"));
     } catch (err) {
-      this._showToast(err?.message || "Save failed", "err");
+      this._showToast(err?.message || tl("common.save_failed"), "err");
     } finally {
       this._busy = false;
       this._render();
@@ -18538,7 +18567,7 @@ Reloading panel registration…
       const host = this._root.querySelector(`[data-weather-picker="${role.key}"]`);
       if (!host) continue;
       if (!host.querySelector("ha-entity-picker")) {
-        host.innerHTML = `<p class="field-hint tariff-entity-picker-loading">Loading entity picker…</p>`;
+        host.innerHTML = `<p class="field-hint tariff-entity-picker-loading">${tl("common.loading_entity_picker")}</p>`;
       }
     }
     try {
@@ -18548,7 +18577,7 @@ Reloading panel registration…
       for (const role of PERFORMANCE_WEATHER_ROLE_FIELDS) {
         const host = this._root.querySelector(`[data-weather-picker="${role.key}"]`);
         if (!host) continue;
-        host.innerHTML = `<p class="tariff-entity-picker-error">${esc(err?.message || "Entity picker unavailable")}</p>`;
+        host.innerHTML = `<p class="tariff-entity-picker-error">${esc(err?.message || tl("common.entity_picker_unavailable"))}</p>`;
       }
       return;
     }
@@ -18646,9 +18675,9 @@ Reloading panel registration…
       });
       if (state) this._plantState = state;
       this._initPerformanceDraft();
-      this._showToast("Performance settings saved");
+      this._showToast(tl("performance.performance_settings_saved"));
     } catch (err) {
-      this._showToast(err?.message || "Save failed", "err");
+      this._showToast(err?.message || tl("common.save_failed"), "err");
     } finally {
       this._busy = false;
       this._render();
@@ -18670,9 +18699,9 @@ Reloading panel registration…
       });
       if (state) this._plantState = state;
       this._applyGlowDraftFromSaved(this._plantState?.glow ?? {});
-      this._showToast("Glow settings saved");
+      this._showToast(tl("glow.glow_settings_saved"));
     } catch (err) {
-      this._showToast(err?.message || "Save failed", "err");
+      this._showToast(err?.message || tl("common.save_failed"), "err");
     } finally {
       this._busy = false;
       this._render();
@@ -18700,14 +18729,14 @@ Reloading panel registration…
       this._applyGlowDraftFromSaved(this._plantState?.glow ?? res?.glow ?? {});
       const g = res?.glow ?? {};
       const lines = [
-        g.valid ? "Bright login OK" : "Login failed",
+        g.valid ? tl("glow.bright_login_ok") : tl("glow.login_failed"),
         g.resource_count != null ? `${g.resource_count} resource(s)` : null,
-        g.import_resource_id ? `Import: ${g.import_resource_id}` : null,
-        g.export_resource_id ? `Export: ${g.export_resource_id}` : null,
+        g.import_resource_id ? tl("glow.import_import_resource_id", { import_resource_id: g.import_resource_id }) : null,
+        g.export_resource_id ? tl("glow.export_export_resource_id", { export_resource_id: g.export_resource_id }) : null,
       ].filter(Boolean);
-      this._showToast(lines.join(" · ") || "Glow test complete");
+      this._showToast(lines.join(" · ") || tl("glow.glow_test_complete"));
     } catch (err) {
-      this._showToast(err?.message || "Glow test failed", "err");
+      this._showToast(err?.message || tl("glow.glow_test_failed"), "err");
     } finally {
       this._busy = false;
       this._render();
@@ -18726,14 +18755,14 @@ Reloading panel registration…
   _solcastSettingsSubtitle() {
     const sc = this._plantState?.solcast;
     const om = this._plantState?.open_meteo;
-    const omText = om?.enabled ? "Open-Meteo on" : "";
+    const omText = om?.enabled ? tl("solar_forecast.open_meteo_on") : "";
     let scText;
-    if (!solcastEnabledFromLive(sc)) scText = "Solcast off";
-    else if (!sc.api_key_set) scText = "Solcast API key required";
-    else if (!sc.coordinates_configured) scText = "Solcast site latitude/longitude required";
-    else if (!sc.hobbyist_sites_resolved) scText = "Linking to Solcast Home PV site(s)… save settings";
-    else if (om?.enabled && !om.solcast_fresh) scText = "Solcast not updating";
-    else scText = `Solcast ${sc.api_used_today ?? 0}/${sc.api_limit ?? 10} calls today`;
+    if (!solcastEnabledFromLive(sc)) scText = tl("solar_forecast.solcast_off");
+    else if (!sc.api_key_set) scText = tl("solar_forecast.solcast_api_key_required");
+    else if (!sc.coordinates_configured) scText = tl("solar_forecast.solcast_site_latitude_longitude_required");
+    else if (!sc.hobbyist_sites_resolved) scText = tl("solar_forecast.linking_to_solcast_home_pv_site");
+    else if (om?.enabled && !om.solcast_fresh) scText = tl("solar_forecast.solcast_not_updating");
+    else scText = tl("solar_forecast.solcast_value_value2_calls_today", { value: sc.api_used_today ?? 0, value2: sc.api_limit ?? 10 });
     return [scText, omText].filter(Boolean).join(" · ");
   }
 
@@ -18747,7 +18776,7 @@ Reloading panel registration…
       const draft = this._solcastDraft;
       const om = this._openMeteoDraft;
       if (om?.enabled && !om.models.length) {
-        this._showToast("Pick at least one Open-Meteo weather model.", "err");
+        this._showToast(tl("solar_forecast.pick_at_least_one_open_meteo"), "err");
         return;
       }
       const validationErr = this._solcastDirty ? validateSolcastDraft(draft) : null;
@@ -18765,7 +18794,7 @@ Reloading panel registration…
         this._initOpenMeteoDraft();
       }
       if (!this._solcastDirty) {
-        this._showToast("Solar forecast settings saved");
+        this._showToast(tl("solar_forecast.solar_forecast_settings_saved"));
         return;
       }
       const lat = normalizeSolcastCoordinateInput(draft.latitude);
@@ -18800,10 +18829,10 @@ Reloading panel registration…
       }
       this._initSolcastDraft();
       this._solcastDirty = false;
-      this._showToast("Solar forecast settings saved");
+      this._showToast(tl("solar_forecast.solar_forecast_settings_saved"));
       this._reloadStatisticsChartWhenVisible();
     } catch (err) {
-      this._showToast(err?.message || "Save failed", "err");
+      this._showToast(err?.message || tl("common.save_failed"), "err");
     } finally {
       this._busy = false;
       this._render();
@@ -18849,13 +18878,13 @@ Reloading panel registration…
       const summary = sc.live_summary;
       const match = sc.test_match_note || summary?.match_note;
       const msg = match
-        ? `Solcast hobbyist OK — ${match}`
+        ? tl("solar_forecast.solcast_hobbyist_ok_match", { match })
         : summary?.condition_label
-          ? `Solcast hobbyist OK — ${summary.condition_label}`
-          : "Solcast hobbyist API OK (listed Home PV sites)";
+          ? tl("solar_forecast.solcast_hobbyist_ok_condition_label", { condition_label: summary.condition_label })
+          : tl("solar_forecast.solcast_hobbyist_api_ok_listed_home");
       this._showToast(msg);
     } catch (err) {
-      this._showToast(err?.message || "Solcast test failed", "err");
+      this._showToast(err?.message || tl("solar_forecast.solcast_test_failed"), "err");
     } finally {
       this._busy = false;
       this._render();
@@ -18876,9 +18905,9 @@ Reloading panel registration…
       });
       if (state) this._plantState = state;
       this._initPvDraft();
-      this._showToast("PV configuration saved");
+      this._showToast(tl("pv.pv_configuration_saved"));
     } catch (err) {
-      this._showToast(err?.message || "Save failed", "err");
+      this._showToast(err?.message || tl("common.save_failed"), "err");
     } finally {
       this._busy = false;
       this._render();
@@ -18937,9 +18966,9 @@ Reloading panel registration…
       const state = await this._hass.connection.sendMessagePromise(payload);
       if (state) this._plantState = state;
       this._initStormDraft();
-      this._showToast("StormSafe settings saved");
+      this._showToast(tl("storm_safe.stormsafe_settings_saved"));
     } catch (err) {
-      this._showToast(err?.message || "Save failed", "err");
+      this._showToast(err?.message || tl("common.save_failed"), "err");
     } finally {
       this._busy = false;
       this._render();
@@ -19128,7 +19157,7 @@ Reloading panel registration…
       const serial = btn.dataset.serial;
       if (!serial) return;
       const ok = await copyTextToClipboard(serial);
-      this._showToast(ok ? "Serial number copied" : "Copy failed", ok ? "ok" : "err");
+      this._showToast(ok ? tl("panel.serial_number_copied") : tl("panel.copy_failed"), ok ? "ok" : "err");
       return;
     }
     if (action === "device-new-sub") {
@@ -19444,7 +19473,7 @@ Reloading panel registration…
     }
     if (action === "copy-eon-next-snippet") {
       const ok = await copyTextToClipboard(EON_NEXT_TOKEN_SNIPPET);
-      this._showToast(ok ? "Snippet copied — paste it into the browser console on eonnext.com" : "Copy failed", ok ? "ok" : "err");
+      this._showToast(ok ? tl("panel.snippet_copied_paste_it_into_the") : tl("panel.copy_failed"), ok ? "ok" : "err");
       return;
     }
     if (action === "test-octopus") {
@@ -19501,8 +19530,8 @@ Reloading panel registration…
       });
       this._showToast(
         applied
-          ? `Filled ${applied} sensor mapping${applied === 1 ? "" : "s"} from local station`
-          : "No local weather sensors detected"
+          ? tln("weather.filled_sensor_mappings", applied)
+          : tl("panel.no_local_weather_sensors_detected")
       );
       this._render();
       return;
@@ -19535,7 +19564,7 @@ Reloading panel registration…
       if (!this._warmupDraft) return;
       const found = warmupWindowsFromTariff(normalizeTariffSchedule(this._plantState?.tariff?.schedule));
       if (!found) {
-        this._showToast("No cheaper window in your tariff map to use", "err");
+        this._showToast(tl("panel.no_cheaper_window_in_your_tariff"), "err");
         return;
       }
       this._warmupDraft.slots = [0, 1, 2].map((i) =>
@@ -19543,7 +19572,7 @@ Reloading panel registration…
           ? { enabled: true, start: found.windows[i].start, end: found.windows[i].end }
           : { enabled: false, start: "00:00", end: "00:00" }
       );
-      this._showToast("Warm-up periods set to your cheapest-rate windows. Save to apply.");
+      this._showToast(tl("panel.warm_up_periods_set_to_your"));
       this._scheduleRender();
       return;
     }
@@ -19588,7 +19617,7 @@ Reloading panel registration…
       return;
     }
     if (action === "apply-plant-schedule-now") {
-      await this._runPlantService("reapply_schedule", {}, "Schedule applied now");
+      await this._runPlantService("reapply_schedule", {}, tl("panel.schedule_applied_now"));
       return;
     }
     if (action === "verify-plant-schedule") {
@@ -19640,7 +19669,7 @@ Reloading panel registration…
       return;
     }
     if (action === "reapply-schedule") {
-      await this._runPlantService("reapply_schedule", {}, "Schedule re-applied to inverter");
+      await this._runPlantService("reapply_schedule", {}, tl("panel.schedule_re_applied_to_inverter"));
       return;
     }
     if (action === "take-control") {
@@ -20709,12 +20738,12 @@ Reloading panel registration…
     if (summary) {
       const live = wrap.querySelector(".triple-soc-battery-pct")?.textContent?.replace("%", "") ?? "0";
       if (smart) {
-        summary.innerHTML = `<strong>Export floor</strong> ${exp}% · <strong>Usable to</strong> ${max}% · <strong>Now</strong> ${live}%<br><span style="font-size:12px;color:var(--secondary-text-color)">Force-export stops at the purple handle; Self Use resumes below it</span>`;
+        summary.innerHTML = `${tl("quick_settings.export_floor_exp_usable_to_max", { exp, max, live })}<br><span style="font-size:12px;color:var(--secondary-text-color)">${tl("quick_settings.force_export_stops_at_the_purple")}</span>`;
       } else {
         summary.innerHTML =
           min === mid
-            ? `<strong>Reserve from</strong> ${min}%<br><strong>Usable to</strong> ${max}% · <strong>Now</strong> ${live}%`
-            : `<strong>Reserve band</strong> ${min}% – ${mid}%<br><strong>Usable to</strong> ${max}% · <strong>Now</strong> ${live}%`;
+            ? tl("quick_settings.reserve_from_min_usable_to_max", { min, max, live })
+            : tl("quick_settings.reserve_band_min_mid_usable_to", { min, mid, max, live });
       }
     }
     if (smart) this._syncSmartChargeSocValidationUi();
@@ -20738,9 +20767,9 @@ Reloading panel registration…
     const fillMarkup = tripleSocBatteryFillMarkup(live);
     const fieldPrefix = context === "smart" ? "sc-soc-num" : "soc-num";
     const note = smart
-      ? `<p class="soc-limit-note">Off-grid / system min / max write to the inverter. <strong>Export floor</strong> is virtual (SmartCharge only) — force-export stops there and returns to Self Use so you keep house battery.</p>`
+      ? `<p class="soc-limit-note">${tl("quick_settings.off_grid_system_min_max_write")}</p>`
       : opts.note ||
-        `<p class="soc-limit-note">Minimum for all three limits is <strong>10%</strong>. Keep <strong>off-grid min ≤ system min ≤ system max</strong>. On the EVO, system max can't be below <strong>Max SOC From Grid</strong>: lowering system max lowers it too, and raising system max raises it back if they were equal.</p>`;
+        `<p class="soc-limit-note">${tl("quick_settings.minimum_for_all_three_limits_is")}</p>`;
 
     const thumbsHtml = thumbs
       .map(
@@ -20778,24 +20807,24 @@ Reloading panel registration…
 <div class="triple-soc-zone headroom" style="width:${100 - max}%"></div>`;
 
     const summaryHtml = smart
-      ? `<strong>Export floor</strong> ${exp}% · <strong>Usable to</strong> ${max}% · <strong>Now</strong> ${live}%<br><span style="font-size:12px;color:var(--secondary-text-color)">Force-export stops at the purple handle; Self Use resumes below it</span>`
+      ? `${tl("quick_settings.export_floor_exp_usable_to_max", { exp, max, live })}<br><span style="font-size:12px;color:var(--secondary-text-color)">${tl("quick_settings.force_export_stops_at_the_purple")}</span>`
       : min === mid
-        ? `<strong>Reserve from</strong> ${min}%<br><strong>Usable to</strong> ${max}% · <strong>Now</strong> ${live}%`
-        : `<strong>Reserve band</strong> ${min}% – ${mid}%<br><strong>Usable to</strong> ${max}% · <strong>Now</strong> ${live}%`;
+        ? tl("quick_settings.reserve_from_min_usable_to_max", { min, max, live })
+        : tl("quick_settings.reserve_band_min_mid_usable_to", { min, mid, max, live });
 
     const legendHtml = smart
       ? `<div class="soc-legend">
-<span><i style="background:#e53935"></i> Below off-grid min</span>
-<span><i style="background:#f9a825"></i> Off-grid reserve</span>
-<span><i style="background:#2e7d32"></i> House / Self Use</span>
-<span><i style="background:#C06AFF"></i> Exportable band</span>
-<span><i style="background:var(--fp-accent)"></i> Charge headroom</span>
+<span>${tl("quick_settings.below_off_grid_min")}</span>
+<span>${tl("quick_settings.off_grid_reserve")}</span>
+<span>${tl("quick_settings.house_self_use")}</span>
+<span>${tl("quick_settings.exportable_band")}</span>
+<span>${tl("quick_settings.charge_headroom")}</span>
 </div>`
       : `<div class="soc-legend">
-<span><i style="background:#e53935"></i> Below off-grid min</span>
-<span><i style="background:#f9a825"></i> Off-grid reserve</span>
-<span><i style="background:#2e7d32"></i> Normal use</span>
-<span><i style="background:var(--fp-accent)"></i> Charge headroom</span>
+<span>${tl("quick_settings.below_off_grid_min")}</span>
+<span>${tl("quick_settings.off_grid_reserve")}</span>
+<span>${tl("quick_settings.normal_use")}</span>
+<span>${tl("quick_settings.charge_headroom")}</span>
 </div>`;
 
     return `<div class="triple-soc" data-triple-soc-context="${esc(context)}">
@@ -20826,7 +20855,7 @@ ${note}
 </div>`;
   }
 
-  async _runPlantService(service, extra = {}, toastMsg = "Updated") {
+  async _runPlantService(service, extra = {}, toastMsg = tl("common.updated")) {
     const plant = this._getPlant();
     if (!plant) return;
     this._busy = true;
@@ -20839,7 +20868,7 @@ ${note}
       await this._refreshPlantState();
       this._showToast(toastMsg);
     } catch (err) {
-      this._showToast(err?.message || "Action failed", "err");
+      this._showToast(err?.message || tl("panel.action_failed"), "err");
     } finally {
       this._busy = false;
       this._render();
@@ -20857,9 +20886,9 @@ ${note}
       });
       await this._refreshPlantState();
       this._initChargeDraft();
-      this._showToast("Synced schedule from inverter");
+      this._showToast(tl("quick_settings.synced_schedule_from_inverter"));
     } catch (err) {
-      this._showToast(err?.message || "Sync failed", "err");
+      this._showToast(err?.message || tl("quick_settings.sync_failed"), "err");
     } finally {
       this._busy = false;
       this._render();
@@ -20873,26 +20902,26 @@ ${note}
     const segmentProof = rows.find(
       (row) => String(row.key || "").startsWith("segment_") && row.success && !row.skipped
     );
-    const prefix = saved ? "Schedule saved — " : "";
+    const prefix = saved ? tl("quick_settings.schedule_saved") : "";
     if (hardFail) {
       const failed = rows
         .filter((row) => !row.success && !row.warning && !row.skipped)
         .map((row) => row.label || row.key);
       this._showToast(
         failed.length
-          ? `${prefix}${failed.join(", ")} failed read-back`
-          : `${prefix}inverter read-back failed`,
+          ? tl("quick_settings.prefix_failed_read_back", { prefix, failed: failed.join(", ") })
+          : tl("quick_settings.prefix_inverter_read_back_failed", { prefix }),
         "err"
       );
     } else if (segmentProof) {
-      this._showToast(`${prefix}active segment on inverter — read-back OK`);
+      this._showToast(tl("quick_settings.prefix_active_segment_on_inverter_read", { prefix }));
     } else if (hasWarning) {
       this._showToast(
-        `${prefix}saved on HA — segment not active now; applies at window start`,
+        tl("quick_settings.prefix_saved_on_ha_segment_not", { prefix }),
         "err"
       );
     } else {
-      this._showToast(saved ? "Schedule saved on Home Assistant" : "Schedule verification complete");
+      this._showToast(saved ? tl("quick_settings.schedule_saved_on_home_assistant") : tl("quick_settings.schedule_verification_complete"));
     }
   }
 
@@ -20911,7 +20940,7 @@ ${note}
         : null;
       this._toastForScheduleVerifyResults(this._scheduleApplyResults);
     } catch (err) {
-      this._showToast(formatWebsocketError(err, "Schedule verify failed"), "err");
+      this._showToast(formatWebsocketError(err, tl("eon_next.schedule_verify_failed")), "err");
     } finally {
       this._busy = false;
       this._render();
@@ -20941,7 +20970,7 @@ ${note}
       this._initChargeDraft();
       this._toastForScheduleVerifyResults(this._scheduleApplyResults, { saved: true });
     } catch (err) {
-      this._showToast(formatWebsocketError(err, "Scheduler save failed"), "err");
+      this._showToast(formatWebsocketError(err, tl("quick_settings.scheduler_save_failed")), "err");
     } finally {
       this._busy = false;
       this._render();
@@ -20960,9 +20989,9 @@ ${note}
       });
       await this._refreshPlantState();
       this._initChargeDraft();
-      this._showToast("Charge schedule saved to inverter");
+      this._showToast(tl("quick_settings.charge_schedule_saved_to_inverter"));
     } catch (err) {
-      this._showToast(formatWebsocketError(err, "Schedule save failed"), "err");
+      this._showToast(formatWebsocketError(err, tl("quick_settings.schedule_save_failed")), "err");
     } finally {
       this._busy = false;
       this._render();
@@ -21001,15 +21030,15 @@ ${note}
       const allOk = !this._socSaveResults?.length || this._socSaveResults.every((row) => row.success);
       if (allOk) {
         this._socSaveError = null;
-        this._showToast("SOC limits saved");
+        this._showToast(tl("quick_settings.soc_limits_saved"));
       } else {
         const failed = this._socSaveResults.filter((row) => !row.success).map((row) => row.label);
-        this._socSaveError = `Save incomplete: ${failed.join(", ")}`;
+        this._socSaveError = tl("quick_settings.save_incomplete_failed", { failed: failed.join(", ") });
         this._showToast(this._socSaveError, "err");
       }
     } catch (err) {
       this._socSaveResults = null;
-      this._socSaveError = formatWebsocketError(err, "SOC save failed");
+      this._socSaveError = formatWebsocketError(err, tl("quick_settings.soc_save_failed"));
       this._showToast(this._socSaveError, "err");
       this._render();
     } finally {
@@ -21033,9 +21062,9 @@ ${note}
       });
       if (response) this._plantState = response;
       await this._refreshPlantState();
-      this._showToast("Work mode updated");
+      this._showToast(tl("quick_settings.work_mode_updated"));
     } catch (err) {
-      this._showToast(formatWebsocketError(err, "Work mode failed"), "err");
+      this._showToast(formatWebsocketError(err, tl("quick_settings.work_mode_failed")), "err");
     } finally {
       this._busy = false;
       this._render();
@@ -21056,8 +21085,8 @@ ${note}
   _scheduleSyncButtons() {
     const dis = this._busy ? "disabled" : "";
     return `<div class="btn-row schedule-sync-row">
-<button type="button" class="btn btn-secondary" data-action="sync-schedule" ${dis}>Sync from inverter</button>
-<button type="button" class="btn btn-primary" data-action="reapply-schedule" ${dis}>Re-apply to inverter</button>
+<button type="button" class="btn btn-secondary" data-action="sync-schedule" ${dis}>${tl("quick_settings.sync_from_inverter")}</button>
+<button type="button" class="btn btn-primary" data-action="reapply-schedule" ${dis}>${tl("quick_settings.re_apply_to_inverter")}</button>
 </div>`;
   }
 
@@ -21065,10 +21094,10 @@ ${note}
     const st = this._plantState;
     if (!st) return "";
     if (st.drift) {
-      return `<div class="banner warn"><strong>Schedule drift</strong>Inverter charge windows differ from what Fox Plant expects. Sync copies the inverter into your app settings; re-apply pushes your app schedule to the inverter and enables plant control.${this._scheduleSyncButtons()}</div>`;
+      return `<div class="banner warn">${tl("panel.schedule_drift_inverter_charge_windows_differ", { scheduleSyncButtons: this._scheduleSyncButtons() })}</div>`;
     }
     if (!st.control_active) {
-      return `<div class="banner info"><strong>Manual control</strong>Fox Plant is not managing charge periods. Modbus or the Fox app may change settings freely.</div>`;
+      return `<div class="banner info">${tl("panel.manual_control_fox_plant_is_not")}</div>`;
     }
     return "";
   }
@@ -21077,7 +21106,7 @@ ${note}
     const st = this._plantState;
     if (!st) return "";
     const mode = st.mode ?? "baseline";
-    return `<div class="mode-banner-row"><span class="mode-pill ${modeClass(mode)}">${esc(mode)}</span><span class="mode-banner-hint">${st.control_active ? "Plant control active" : "Plant control off"}</span></div>${this._modeBannerExtra()}`;
+    return `<div class="mode-banner-row"><span class="mode-pill ${modeClass(mode)}">${esc(mode)}</span><span class="mode-banner-hint">${st.control_active ? tl("common.plant_control_active") : tl("common.plant_control_off")}</span></div>${this._modeBannerExtra()}`;
   }
 
   _renderOverviewWeather() {
@@ -21100,15 +21129,15 @@ ${note}
     const sunRow = sun
       ? `<div class="overview-sun-times">${
           sun.sunrise
-            ? `<span class="overview-sun-item"><svg class="overview-sun-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M3 18h18M7 18a5 5 0 0 1 10 0M12 3v4M5 8 6.5 9.5M19 8l-1.5 1.5M8.5 14.5 12 11l3.5 3.5"/></svg>Sunrise ${esc(sun.sunrise)}</span>`
+            ? `<span class="overview-sun-item"><svg class="overview-sun-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M3 18h18M7 18a5 5 0 0 1 10 0M12 3v4M5 8 6.5 9.5M19 8l-1.5 1.5M8.5 14.5 12 11l3.5 3.5"/></svg>${tl("weather.sunrise_sunrise", { sunrise: esc(sun.sunrise) })}</span>`
             : ""
         }${
           sun.sunset
-            ? `<span class="overview-sun-item"><svg class="overview-sun-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M3 18h18M7 18a5 5 0 0 1 10 0M12 9V5M5 8 6.5 9.5M19 8l-1.5 1.5M8.5 5.5 12 9l3.5-3.5"/></svg>Sunset ${esc(sun.sunset)}</span>`
+            ? `<span class="overview-sun-item"><svg class="overview-sun-icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M3 18h18M7 18a5 5 0 0 1 10 0M12 9V5M5 8 6.5 9.5M19 8l-1.5 1.5M8.5 5.5 12 9l3.5-3.5"/></svg>${tl("weather.sunset_sunset", { sunset: esc(sun.sunset) })}</span>`
             : ""
         }</div>`
       : "";
-    return `<div class="overview-weather-block"><div class="overview-weather" role="img" aria-label="${esc(aria || "Weather")}">${icon}${temp}${label}</div>${sunRow}${renderOverviewPanelTempPill(this._plantState)}</div>`;
+    return `<div class="overview-weather-block"><div class="overview-weather" role="img" aria-label="${esc(aria || tl("common.weather"))}">${icon}${temp}${label}</div>${sunRow}${renderOverviewPanelTempPill(this._plantState)}</div>`;
   }
 
   _resolveOverviewWeatherEntity() {
@@ -21126,7 +21155,7 @@ ${note}
   _renderHourlyWeatherCard() {
     if (!this._overviewHourlyWeatherEnabled()) return "";
     if (this._hourlyWeatherLoading) {
-      return `<div class="card hourly-weather-card"><p class="chart-loading">Loading hourly forecast…</p></div>`;
+      return `<div class="card hourly-weather-card"><p class="chart-loading">${tl("weather.loading_hourly_forecast")}</p></div>`;
     }
     const body = renderHourlyWeatherOverviewHtml(this._hass, this._hourlyWeather);
     return `<div class="card hourly-weather-card">${body}</div>`;
@@ -21149,7 +21178,7 @@ ${note}
       );
     } catch (err) {
       this._hourlyWeather = {
-        error: err?.message || "Could not load hourly forecast.",
+        error: err?.message || tl("weather.could_not_load_hourly_forecast"),
       };
     } finally {
       this._hourlyWeatherLoading = false;
@@ -21168,7 +21197,7 @@ ${note}
         ? wrapFoxOverviewPillNav(
             formatFoxOverviewStatusPill(systemStatus),
             `data-action="nav" data-view="device_new" data-device-sub="alarms"`,
-            "View alerts"
+            tl("common.view_alerts")
           )
         : "";
     const workPart =
@@ -21176,15 +21205,15 @@ ${note}
         ? wrapFoxOverviewPillNav(
             formatFoxOverviewWorkModePill(workMode),
             `data-action="nav-quick-settings-section" data-section="work-mode"`,
-            "Open Work Mode in Quick Settings"
+            tl("overview.open_work_mode_in_quick_settings")
           )
         : "";
     // Only while the battery is actually being warmed (Fox Cloud, read while warming is possible); not in standby
     const warmupPart = st.battery_warmup?.warming_now
       ? wrapFoxOverviewPillNav(
-          formatFoxTonePill("Warming up", "fox-overview-pill--warmup"),
+          formatFoxTonePill(tl("overview.warming_up"), "fox-overview-pill--warmup"),
           `data-action="nav" data-view="device_new" data-device-sub="warmup"`,
-          "Open Battery WarmUp"
+          tl("overview.open_battery_warmup")
         )
       : "";
     return `<div class="overview-status-block">
@@ -21197,9 +21226,9 @@ ${workPart}
 ${wrapFoxOverviewPillNav(
   formatFoxOverviewPlantModePill(plantMode),
   `data-action="nav-quick-settings-section" data-section="plant-control"`,
-  "Open Plant Controls in Quick Settings"
+  tl("overview.open_plant_controls_in_quick_settings")
 )}
-<span class="overview-control-hint">${st.control_active ? "Plant control active" : "Plant control off"}</span>
+<span class="overview-control-hint">${st.control_active ? tl("common.plant_control_active") : tl("common.plant_control_off")}</span>
 </div>
 </div>
 ${this._modeBannerExtra()}
@@ -21221,7 +21250,7 @@ ${this._modeBannerExtra()}
     const haClass = ctx.haUiDark ? "fox-flow-scene--ha-dark" : "fox-flow-scene--ha-light";
     const skyClass = ctx.bgTheme === "day_light" ? " fox-flow-scene--light-sky" : "";
     return `<div class="scene-card scene-card--fox-flow">
-<div class="fox-flow-scene ${ctx.isNight ? "fox-flow-scene--night" : "fox-flow-scene--day"} ${haClass}${skyClass}" role="img" aria-label="Live energy flow" data-panel-build="${esc(this._panelBuild())}">
+<div class="fox-flow-scene ${ctx.isNight ? "fox-flow-scene--night" : "fox-flow-scene--day"} ${haClass}${skyClass}" role="img" aria-label="${tl("energy.live_energy_flow")}" data-panel-build="${esc(this._panelBuild())}">
 <div class="fox-flow-stage">
 ${this._renderFlowBackdropMarkup(ctx)}
 <img class="fox-flow-layer fox-flow-layer-pv" src="${esc(flowSceneLayerUrl("pv", ctx.bgTheme, ctx.overlayTheme))}" alt="" loading="eager" decoding="async" />
@@ -21231,7 +21260,7 @@ ${pathsHtml}
 <circle class="flow-hub-dot ${ctx.hubActive ? "active" : ""}" cx="${FOX_FLOW_HUB.x}" cy="${FOX_FLOW_HUB.y}" r="${FLOW_STROKE.hubR}" fill="${ctx.hubActive ? FLOW_ACTIVE_STROKE.battery : flowPipeStroke(ctx.isNight)}"/>
 </svg>
 <div class="fox-flow-badge fox-flow-badge-solar">
-<span class="fox-flow-badge-label">Solar</span>
+<span class="fox-flow-badge-label">${tl("common.solar")}</span>
 <span class="fox-flow-badge-value">${esc(formatFoxPower(ctx.flows.pvW))}</span>
 </div>
 <div class="fox-flow-badge fox-flow-badge-grid">
@@ -21243,7 +21272,7 @@ ${pathsHtml}
 <span class="fox-flow-badge-value">${esc(formatFoxPower(ctx.batteryPower))} | ${esc(formatPercent(ctx.soc))}</span>
 </div>
 <div class="fox-flow-badge fox-flow-badge-home">
-<span class="fox-flow-badge-label">Home</span>
+<span class="fox-flow-badge-label">${tl("energy.home")}</span>
 <span class="fox-flow-badge-value">${esc(formatFoxPower(ctx.flows.loadW))}</span>
 </div>
 </div>
@@ -21272,9 +21301,9 @@ ${pathsHtml}
       isNight,
       soc,
       gridExporting,
-      gridLabel: gridExporting ? "To Grid" : "On Grid",
+      gridLabel: gridExporting ? tl("common.to_grid") : tl("flow.on_grid"),
       gridPower: gridExporting ? flows.gridExportW : flows.gridImportW,
-      batteryStatus: String(flows.batteryStatus || "Idle").toUpperCase(),
+      batteryStatus: stateWord(flows.batteryStatus || "Idle").toUpperCase(),
       batteryPower: Math.abs(flows.batteryW),
       hubActive: lines.some((l) => l.id.includes("hub")),
       key: flowSceneStructureKey(lines, gridExporting, isNight, bgTheme, haUiDark),
@@ -21348,11 +21377,11 @@ ${pathsHtml}
       ? renderOctopusRewardsCard(greenerPayload, { compact: true })
       : "";
     return `${forecastCard}<div class="card statistics-card" style="margin-top:14px">
-<p class="card-title">Statistics</p>
+<p class="card-title">${tl("common.statistics")}</p>
 ${this._renderStatisticsChartBody()}
 </div>
 <div class="card soc-chart-card" style="margin-top:14px">
-<p class="card-title">Battery SOC</p>
+<p class="card-title">${tl("common.battery_soc")}</p>
 ${this._renderBatterySocChartBody(plant)}
 </div>
 ${octopusGreenerCard}${octopusRewardsCard}
@@ -21509,19 +21538,19 @@ ${this._renderImpactPanel()}`;
 
   _renderStormHero(armed) {
     return `<div class="fp-banner-hero fp-banner-hero--wide">
-<img src="${esc(STORM_HERO_IMAGE_STATIC)}" width="${STORM_HERO_WIDTH}" height="${STORM_HERO_HEIGHT}" alt="StormSafe: home battery backup during a storm" loading="eager" decoding="async" />
+<img src="${esc(STORM_HERO_IMAGE_STATIC)}" width="${STORM_HERO_WIDTH}" height="${STORM_HERO_HEIGHT}" alt="${tl("storm_safe.stormsafe_home_battery_backup_during_a")}" loading="eager" decoding="async" />
 </div>`;
   }
 
   _renderWarmupHero() {
     return `<div class="fp-banner-hero fp-banner-hero--wide">
-<img src="${esc(WARMUP_HERO_IMAGE_STATIC)}" width="${BANNER_HERO_WIDE_WIDTH}" height="${BANNER_HERO_WIDE_HEIGHT}" alt="Battery WarmUp: keeping the home battery warm on a winter night" loading="eager" decoding="async" />
+<img src="${esc(WARMUP_HERO_IMAGE_STATIC)}" width="${BANNER_HERO_WIDE_WIDTH}" height="${BANNER_HERO_WIDE_HEIGHT}" alt="${tl("warmup.battery_warmup_keeping_the_home_battery")}" loading="eager" decoding="async" />
 </div>`;
   }
 
   _renderSmartChargeHero() {
     return `<div class="fp-banner-hero fp-banner-hero--wide">
-<img src="${esc(SMART_CHARGE_HERO_IMAGE_STATIC)}" width="${SMART_CHARGE_HERO_WIDTH}" height="${SMART_CHARGE_HERO_HEIGHT}" alt="SmartCharge: Fox home battery charging from solar and off-peak grid" loading="eager" decoding="async" />
+<img src="${esc(SMART_CHARGE_HERO_IMAGE_STATIC)}" width="${SMART_CHARGE_HERO_WIDTH}" height="${SMART_CHARGE_HERO_HEIGHT}" alt="${tl("smart_charge.smartcharge_fox_home_battery_charging_from")}" loading="eager" decoding="async" />
 </div>`;
   }
 
@@ -21535,25 +21564,25 @@ ${this._renderImpactPanel()}`;
     const imp = this._plantState?.impact ?? {};
     if (imp.co2_kg == null && imp.trees_planted == null && imp.oil_litres == null) {
       return `<div class="card impact-card" style="margin-top:14px">
-<p class="card-title">Impact</p>
-<p class="placeholder impact-placeholder">Lifetime yield not available yet. Reload FoxESS Plant after foxess_modbus exposes <code>total_yield_total</code> (Yield Total).</p>
+<p class="card-title">${tl("overview.impact")}</p>
+<p class="placeholder impact-placeholder">${tl("overview.lifetime_yield_not_available_yet_reload")}</p>
 </div>`;
     }
     const items = [
       {
-        label: "CO₂ reduction",
+        label: tl("overview.co2_reduction"),
         value: imp.co2_kg,
         unit: "kg",
         icon: "co2",
       },
       {
-        label: "Trees planted",
+        label: tl("overview.trees_planted"),
         value: imp.trees_planted,
         unit: "",
         icon: "tree",
       },
       {
-        label: "Oil saved",
+        label: tl("overview.oil_saved"),
         value: imp.oil_litres,
         unit: "L",
         icon: "oil",
@@ -21575,10 +21604,10 @@ ${this._renderImpactPanel()}`;
     const basisKwh = imp.impact_basis_kwh ?? imp.solar_kwh_total;
     const basis =
       basisKwh != null
-        ? `<p class="impact-basis">Based on ${Number(basisKwh).toFixed(1)} kWh lifetime yield</p>`
+        ? `<p class="impact-basis">${tl("overview.based_on_basiskwh_kwh_lifetime_yield", { basisKwh: Number(basisKwh).toFixed(1) })}</p>`
         : "";
     return `<div class="card impact-card" style="margin-top:14px">
-<p class="card-title">Impact</p>
+<p class="card-title">${tl("overview.impact")}</p>
 <div class="impact-grid">${grid}</div>
 ${basis}
 </div>`;
@@ -21663,7 +21692,7 @@ ${chart}
 
   _renderOverviewDailyCharts() {
     if (this._overviewDailyLoading) {
-      return `<div class="overview-daily-loading">Loading daily energy…</div>`;
+      return `<div class="overview-daily-loading">${tl("overview.loading_daily_energy")}</div>`;
     }
     const data = this._overviewDaily;
     if (data?.error) {
@@ -21674,13 +21703,13 @@ ${chart}
     }
     const a = this._plantState?.analytics ?? {};
     return `${this._renderOverviewDailyCard(
-      "Daily Production",
+      tl("overview.daily_production"),
       data.production,
       data.labels,
       OVERVIEW_DAILY_COLORS.production,
       a.pv_production_kwh_today
     )}${this._renderOverviewDailyCard(
-      "Daily Consumption",
+      tl("overview.daily_consumption"),
       data.consumption,
       data.labels,
       OVERVIEW_DAILY_COLORS.consumption,
@@ -21712,7 +21741,7 @@ ${chart}
       if (this._view !== "overview" || this._getPlant()?.entry_id !== plantId) return;
       const faultCount = countOverviewFaultsLast24h(data);
       if (faultCount == null) {
-        this._overviewSystemStatus = { error: data.error || "System status unavailable.", faultCount: null };
+        this._overviewSystemStatus = { error: data.error || tl("overview.system_status_unavailable"), faultCount: null };
       } else {
         this._overviewSystemStatus = { faultCount, fetchedAt: Date.now() };
       }
@@ -21720,7 +21749,7 @@ ${chart}
     } catch (err) {
       if (this._view !== "overview" || this._getPlant()?.entry_id !== plantId) return;
       this._overviewSystemStatus = {
-        error: err?.message || "Could not load system status.",
+        error: err?.message || tl("overview.could_not_load_system_status"),
         faultCount: null,
       };
       this._overviewSystemStatusPlantId = plantId;
@@ -21758,7 +21787,7 @@ ${chart}
       this._overviewDaily = {
         error:
           err?.message ||
-          "Could not load daily energy history. Enable the Home Assistant recorder for your daily kWh sensors.",
+          tl("overview.could_not_load_daily_energy_history"),
       };
       this._analysisTariffDaily = { configured: false, error: err?.message };
     } finally {
@@ -21789,17 +21818,17 @@ ${this._renderOverviewAfterHero(plant)}`;
   _identityRows(plant) {
     const id = this._plantState?.identity ?? {};
     const rows = [
-      ["pcs_model_name", "PCS model"],
-      ["pcs_serial_number", "PCS serial"],
-      ["grid_status", "Grid status"],
-      ["inverter_state", "System status"],
-      ["modbus_protocol_version", "Modbus protocol"],
-      ["master_version", "Master firmware"],
-      ["slave_version", "Slave firmware"],
-      ["manager_version", "Manager firmware"],
-      ["bms_online", "BMS online"],
-      ["bms_pack_serial_modbus", "BMS pack serial (Modbus)"],
-      ["bms_pack_count", "BMS pack count"],
+      ["pcs_model_name", tl("settings.pcs_model")],
+      ["pcs_serial_number", tl("settings.pcs_serial")],
+      ["grid_status", tl("settings.grid_status")],
+      ["inverter_state", tl("settings.system_status")],
+      ["modbus_protocol_version", tl("common.modbus_protocol")],
+      ["master_version", tl("common.master_firmware")],
+      ["slave_version", tl("common.slave_firmware")],
+      ["manager_version", tl("settings.manager_firmware")],
+      ["bms_online", tl("settings.bms_online")],
+      ["bms_pack_serial_modbus", tl("settings.bms_pack_serial_modbus")],
+      ["bms_pack_count", tl("settings.bms_pack_count")],
     ];
     return rows
       .map(([key, label]) => {
@@ -21815,7 +21844,7 @@ ${this._renderOverviewAfterHero(plant)}`;
 
   _identityValueList(rows) {
     if (!rows.length) {
-      return `<p class="placeholder">No identity entities discovered yet. Update foxess_modbus, reload Home Assistant, then reload this panel.</p>`;
+      return `<p class="placeholder">${tl("settings.no_identity_entities_discovered_yet_update")}</p>`;
     }
     return `<div class="entity-list">${rows
       .map(
@@ -21838,21 +21867,21 @@ ${wrapFoxInverterStatePillLink(systemStatus, formatFoxOverviewStatusPill(systemS
   /** @deprecated Devices Legacy — use _renderDeviceNew. */
   _renderDeviceLegacy(plant) {
     if (this._deviceSub === "system") {
-      return `<button type="button" class="back-btn" data-action="device-back">← Device</button><header class="header"><h1>System info</h1><p>From Modbus (matches Fox app where confirmed)</p></header>${this._identityValueList(this._identityRows(plant))}`;
+      return `<button type="button" class="back-btn" data-action="device-back">${tl("device.device")}</button><header class="header"><h1>${tl("device.system_info")}</h1><p>${tl("device.from_modbus_matches_fox_app_where")}</p></header>${this._identityValueList(this._identityRows(plant))}`;
     }
     if (this._deviceSub === "parameters") {
-      return `<button type="button" class="back-btn" data-action="device-back">← Device</button><header class="header"><h1>Parameters</h1><p>Live Modbus values (Fox app layout)</p></header>${this._renderDeviceParameters(plant)}`;
+      return `<button type="button" class="back-btn" data-action="device-back">${tl("device.device")}</button><header class="header"><h1>${tl("device.parameters")}</h1><p>${tl("device.live_modbus_values_fox_app_layout")}</p></header>${this._renderDeviceParameters(plant)}`;
     }
     if (this._deviceSub === "battery") {
       const map = resolveEntityMap(this._hass, plant, this._plantState);
       const section = DEVICE_PARAMETER_SECTIONS.find((s) => s.id === "battery");
       const rows = section ? entityMapRows(this._hass, plant, this._plantState, section.rows) : [];
-      return `<button type="button" class="back-btn" data-action="device-back">← Device</button><header class="header"><h1>Battery</h1></header>${this._entityList(rows)}`;
+      return `<button type="button" class="back-btn" data-action="device-back">${tl("device.device")}</button><header class="header"><h1>${tl("common.battery")}</h1></header>${this._entityList(rows)}`;
     }
     if (this._deviceSub === "pv-config") {
-      return `<button type="button" class="back-btn" data-action="device-back">← Device</button>${this._renderPvConfiguration({
-        title: "System PV Configuration",
-        subtitle: "General solar panel settings for PV1 and PV2",
+      return `<button type="button" class="back-btn" data-action="device-back">${tl("device.device")}</button>${this._renderPvConfiguration({
+        title: tl("device.system_pv_configuration"),
+        subtitle: tl("device.general_solar_panel_settings_for_pv1"),
       })}`;
     }
     const serial = plantDeviceSerial(this._hass, plant, this._plantState);
@@ -21860,14 +21889,14 @@ ${wrapFoxInverterStatePillLink(systemStatus, formatFoxOverviewStatusPill(systemS
     const serialRow =
       serial !== "—"
         ? `<button type="button" class="device-serial-btn" data-action="device-sub" data-sub="system"><span class="device-serial">${esc(serial)}</span><span class="chev">›</span></button>`
-        : `<p class="device-serial device-serial-muted">Serial unavailable</p>`;
+        : `<p class="device-serial device-serial-muted">${tl("device.serial_unavailable")}</p>`;
     return `<div data-device-main="1"><header class="header device-header"><h1>${esc(plant.title)}</h1>${modelLine !== "—" ? `<p class="device-model">${esc(modelLine)}</p>` : ""}<div data-device-status-wrap>${this._renderDeviceStatusRow(plant)}</div></header>
-<div class="device-hero"><img class="device-hero-img" src="${esc(DEVICE_EVO_IMAGE_STATIC)}" alt="${esc(modelLine !== "—" ? modelLine : "Inverter")}" loading="lazy" />${serialRow}</div>
+<div class="device-hero"><img class="device-hero-img" src="${esc(DEVICE_EVO_IMAGE_STATIC)}" alt="${esc(modelLine !== "—" ? modelLine : tl("device.inverter"))}" loading="lazy" />${serialRow}</div>
 <div data-device-live>${this._renderDeviceLiveHtml(plant)}</div>
 <div data-device-nav>
-${renderListButton({ action: "device-sub", sub: "parameters" }, "Detailed parameters", "PV, AC, battery, grid — like Fox app")}
-${renderListButton({ action: "device-sub", sub: "system" }, "System info", "Firmware, BMS, grid status")}
-${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Configuration", pvConfigSummary(this._plantState?.pv_config))}
+${renderListButton({ action: "device-sub", sub: "parameters" }, tl("device.detailed_parameters"), tl("device.pv_ac_battery_grid_like_fox"))}
+${renderListButton({ action: "device-sub", sub: "system" }, tl("device.system_info"), tl("device.firmware_bms_grid_status"))}
+${renderListButton({ action: "device-sub", sub: "pv-config" }, tl("device.system_pv_configuration"), pvConfigSummary(this._plantState?.pv_config))}
 </div></div>`;
   }
 
@@ -21902,7 +21931,7 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
   }
 
   _entityList(rows) {
-    if (!rows.length) return `<p class="placeholder">No entities mapped.</p>`;
+    if (!rows.length) return `<p class="placeholder">${tl("settings.no_entities_mapped")}</p>`;
     return `<div class="entity-list">${rows
       .map(
         (r) =>
@@ -21923,18 +21952,18 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
       if (!v && !c && !p) return null;
       return `<tr><td>PV${n}</td><td>${esc(entityDisplayValue(this._hass, v))}</td><td>${esc(entityDisplayValue(this._hass, c))}</td><td>${esc(entityDisplayValue(this._hass, p))}</td></tr>`;
     }).filter(Boolean);
-    if (!rows.length) return `<p class="device-param-empty">No PV string sensors discovered.</p>`;
+    if (!rows.length) return `<p class="device-param-empty">${tl("pv.no_pv_string_sensors_discovered")}</p>`;
     const total =
       map.pv_power && this._hass?.states?.[map.pv_power]
         ? `<tr><td>PV</td><td>—</td><td>—</td><td>${esc(entityDisplayValue(this._hass, map.pv_power))}</td></tr>`
         : "";
-    return `<div class="device-param-table-wrap"><table class="device-param-table"><thead><tr><th>PV</th><th>Voltage (V)</th><th>Current (A)</th><th>Power (kW)</th></tr></thead><tbody>${total}${rows.join("")}</tbody></table></div>`;
+    return `<div class="device-param-table-wrap"><table class="device-param-table"><thead><tr><th>PV</th><th>${tl("common.voltage_v")}</th><th>${tl("common.current_a")}</th><th>${tl("common.power_kw")}</th></tr></thead><tbody>${total}${rows.join("")}</tbody></table></div>`;
   }
 
   _renderDeviceMetricTable(map, keys, headers) {
     const values = keys.map((key) => entityDisplayValue(this._hass, map[key]));
     if (values.every((v) => v === "—")) {
-      return `<p class="device-param-empty">No sensors discovered for this section.</p>`;
+      return `<p class="device-param-empty">${tl("device.no_sensors_discovered_for_this_section")}</p>`;
     }
     return `<div class="device-param-table-wrap"><table class="device-param-table"><thead><tr>${headers
       .map((h) => `<th>${esc(h)}</th>`)
@@ -21947,20 +21976,20 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     const bmsId = map.bms_online;
     if (bmsId && this._hass?.states?.[bmsId]) {
       const on = this._hass.states[bmsId].state === "on";
-      rows.push({ name: "Status", value: on ? "Online" : "Offline" });
+      rows.push({ name: tl("common.status"), value: on ? tl("state.online") : tl("state.offline") });
     } else if (id.bms_online != null && id.bms_online !== "") {
-      rows.push({ name: "Status", value: id.bms_online === true || id.bms_online === "on" ? "Online" : "Offline" });
+      rows.push({ name: tl("common.status"), value: id.bms_online === true || id.bms_online === "on" ? tl("state.online") : tl("state.offline") });
     }
     const firmware = formatFoxDataloggerSoftwareVersion(this._hass, this._plantState, map);
-    if (firmware && firmware !== "—") rows.push({ name: "Software version", value: firmware });
+    if (firmware && firmware !== "—") rows.push({ name: tl("device.software_version_2"), value: firmware });
     const proto = id.modbus_protocol_version || entityDisplayValue(this._hass, map.modbus_protocol_version);
-    if (proto && proto !== "—") rows.push({ name: "Modbus protocol", value: proto });
+    if (proto && proto !== "—") rows.push({ name: tl("common.modbus_protocol"), value: proto });
     const master = id.master_version || entityDisplayValue(this._hass, map.master_version);
-    if (master && master !== "—") rows.push({ name: "Master firmware", value: master });
+    if (master && master !== "—") rows.push({ name: tl("common.master_firmware"), value: master });
     const slave = id.slave_version || entityDisplayValue(this._hass, map.slave_version);
-    if (slave && slave !== "—") rows.push({ name: "Slave firmware", value: slave });
+    if (slave && slave !== "—") rows.push({ name: tl("common.slave_firmware"), value: slave });
     if (!rows.length) {
-      return `<p class="device-param-empty">No datalogger sensors discovered yet.</p>`;
+      return `<p class="device-param-empty">${tl("device.no_datalogger_sensors_discovered_yet")}</p>`;
     }
     if (layout === "grid") {
       return renderDeviceNewMetricGrid(this._hass, rows);
@@ -22009,7 +22038,7 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     const map = resolveEntityMap(this._hass, plant, this._plantState);
     const sections = DEVICE_PARAMETER_SECTIONS.filter((section) => this._deviceParamSectionHasContent(section, map));
     if (!sections.length) {
-      return `<p class="placeholder">No Modbus sensors discovered. Reload foxess_modbus and this panel, or reconfigure the plant device link.</p>`;
+      return `<p class="placeholder">${tl("glow.no_modbus_sensors_discovered_reload_foxess")}</p>`;
     }
     const entityIds = deviceParamEntityIds(map, sections);
     const updated = deviceParamLastUpdated(this._hass, entityIds);
@@ -22102,7 +22131,7 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
       if (this._view !== "device_new" || this._deviceNewSub !== "alarms") return;
       if (this._deviceNewAlarmCacheKey(this._getPlant()) !== cacheKey) return;
       this._deviceNewAlarmData = {
-        error: err?.message || "Could not load alarm history. Enable the Home Assistant recorder for alarm sensors.",
+        error: err?.message || tl("alerts.could_not_load_alarm_history_enable"),
       };
       this._deviceNewAlarmPlantId = cacheKey;
     } finally {
@@ -22230,7 +22259,7 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
       this._deviceNewStatisticsChart = {
         error:
           err?.message ||
-          "Could not load device curve. Enable the Home Assistant recorder for inverter power sensors.",
+          tl("device.could_not_load_device_curve_enable"),
       };
       this._deviceNewStatisticsChartPlantId = cacheKey;
     } finally {
@@ -22275,7 +22304,7 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
       this._deviceNewEnergyChart = {
         error:
           err?.message ||
-          "Could not load energy analysis. Enable the Home Assistant recorder and keep history for energy sensors.",
+          tl("energy.could_not_load_energy_analysis_enable"),
       };
       this._deviceNewEnergyChartPlantId = cacheKey;
     } finally {
@@ -22296,9 +22325,9 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     const label = formatDeviceCurveDateLabel(start);
     const canNext = offset > 0;
     return `<div class="energy-date-nav fox-device-new-date-nav">
-<button type="button" data-action="device-new-curve-nav" data-dir="prev" aria-label="Previous day">‹</button>
+<button type="button" data-action="device-new-curve-nav" data-dir="prev" aria-label="${tl("common.previous_day")}">‹</button>
 <span class="energy-date-label">${esc(label)}</span>
-<button type="button" data-action="device-new-curve-nav" data-dir="next" aria-label="Next day"${canNext ? "" : " disabled"}>›</button>
+<button type="button" data-action="device-new-curve-nav" data-dir="next" aria-label="${tl("common.next_day")}"${canNext ? "" : " disabled"}>›</button>
 </div>`;
   }
 
@@ -22318,9 +22347,9 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
       this._deviceNewEnergyPeriodOffset
     );
     return `<div class="energy-date-nav fox-device-new-date-nav">
-<button type="button" data-action="device-new-energy-nav" data-dir="prev" aria-label="Previous period">‹</button>
+<button type="button" data-action="device-new-energy-nav" data-dir="prev" aria-label="${tl("common.previous_period")}">‹</button>
 <span class="energy-date-label">${esc(label)}</span>
-<button type="button" data-action="device-new-energy-nav" data-dir="next" aria-label="Next period"${bounds.canNext ? "" : " disabled"}>›</button>
+<button type="button" data-action="device-new-energy-nav" data-dir="next" aria-label="${tl("common.next_period")}"${bounds.canNext ? "" : " disabled"}>›</button>
 </div>`;
   }
 
@@ -22330,7 +22359,7 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
 
   _renderDeviceNewCurveBody() {
     if (this._deviceNewStatisticsChartLoading) {
-      return `<p class="chart-loading">Loading real-time curve…</p>`;
+      return `<p class="chart-loading">${tl("device.loading_real_time_curve")}</p>`;
     }
     const chart = this._deviceNewStatisticsChart;
     if (chart?.error) {
@@ -22340,17 +22369,17 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
       return `<p class="placeholder chart-empty">${esc(chart.empty)}</p>`;
     }
     if (!chart) {
-      return `<p class="placeholder chart-empty">Real-time curve not loaded yet.</p>`;
+      return `<p class="placeholder chart-empty">${tl("device.real_time_curve_not_loaded_yet")}</p>`;
     }
     const dayOffset = chart.dayOffset ?? 0;
     const range = statisticsRangeForDisplay(chart.range, dayOffset);
     if (!range) {
-      return `<p class="placeholder chart-empty">Real-time curve not loaded yet.</p>`;
+      return `<p class="placeholder chart-empty">${tl("device.real_time_curve_not_loaded_yet")}</p>`;
     }
     const series = (chart?.series || []).filter((s) => s.points?.length);
     const socSeries = chart?.socSeries;
     if (!series.length && !socSeries?.points?.length) {
-      return `<p class="placeholder chart-empty">No power history for this day yet.</p>`;
+      return `<p class="placeholder chart-empty">${tl("device.no_power_history_for_this_day")}</p>`;
     }
     return renderStatisticsChartHtml(series, range, {
       sideLegend: false,
@@ -22363,7 +22392,7 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
 
   _renderDeviceNewEnergyBody() {
     if (this._deviceNewEnergyChartLoading) {
-      return `<p class="chart-loading">Loading energy analysis…</p>`;
+      return `<p class="chart-loading">${tl("energy.loading_energy_analysis")}</p>`;
     }
     if (this._deviceNewEnergyChart?.error) {
       return `<p class="placeholder chart-empty">${esc(this._deviceNewEnergyChart.error)}</p>`;
@@ -22371,20 +22400,20 @@ ${renderListButton({ action: "device-sub", sub: "pv-config" }, "System PV Config
     if (this._deviceNewEnergyChart?.svg) {
       return this._deviceNewEnergyChart.svg;
     }
-    return `<p class="placeholder chart-empty">Energy analysis not loaded yet.</p>`;
+    return `<p class="placeholder chart-empty">${tl("energy.energy_analysis_not_loaded_yet")}</p>`;
   }
 
   _renderDeviceNewAnalysisCharts() {
     return `<div class="card fox-device-new-card">
 <div class="fox-device-new-card-head">
-<h3 class="fox-device-new-card-title">Realtime Curve</h3>
+<h3 class="fox-device-new-card-title">${tl("device.realtime_curve")}</h3>
 ${this._renderDeviceNewCurveDateNav()}
 </div>
 <div data-device-new-curve="1">${this._renderDeviceNewCurveBody()}</div>
 </div>
 <div class="card fox-device-new-card">
 <div class="fox-device-new-card-head fox-device-new-card-head--energy">
-<h3 class="fox-device-new-card-title">Energy Analysis</h3>
+<h3 class="fox-device-new-card-title">${tl("common.energy_analysis")}</h3>
 ${this._renderDeviceNewEnergyCardToolbar()}
 </div>
 <div data-device-new-energy-chart="1">${this._renderDeviceNewEnergyBody()}</div>
@@ -22410,7 +22439,7 @@ ${this._renderDeviceNewEnergyCardToolbar()}
     if (section.kind === "rows") {
       return renderDeviceNewMetricRows(this._hass, plant, this._plantState, section.rows);
     }
-    return `<p class="device-param-empty">Unsupported section.</p>`;
+    return `<p class="device-param-empty">${tl("device.unsupported_section")}</p>`;
   }
 
   _renderDeviceNewRealtimeSections(plant) {
@@ -22419,7 +22448,7 @@ ${this._renderDeviceNewEnergyCardToolbar()}
       this._deviceNewSectionHasContent(section, map)
     );
     if (!sections.length) {
-      return `<p class="placeholder">No Modbus sensors discovered yet. Reload foxess_modbus and this panel.</p>`;
+      return `<p class="placeholder">${tl("device.no_modbus_sensors_discovered_yet_reload")}</p>`;
     }
     return `<div class="fox-device-new-realtime">${sections
       .map(
@@ -22436,7 +22465,7 @@ ${this._renderDeviceNewEnergyCardToolbar()}
     // Same grid as Battery Information, grouped the same way
     const groups = [
       [
-        "Grid connection",
+        tl("settings.grid_connection"),
         [
           "grid_standard_code",
           "rated_power",
@@ -22450,16 +22479,16 @@ ${this._renderDeviceNewEnergyCardToolbar()}
           "export_current_limit",
         ],
       ],
-      ["Metering", ["meter1_type", "meter2_type", "meter_compensation"]],
-      ["Backup (EPS)", ["eps_output_mode", "eps_frequency_setting"]],
-      ["Battery", ["max_charge_current", "max_discharge_current"]],
-      ["Peak shaving", ["peak_shaving_threshold_soc", "peak_shaving_export_limit"]],
-      ["Solar", ["mppt_scan"]],
+      [tl("settings.metering"), ["meter1_type", "meter2_type", "meter_compensation"]],
+      [tl("settings.backup_eps"), ["eps_output_mode", "eps_frequency_setting"]],
+      [tl("common.battery"), ["max_charge_current", "max_discharge_current"]],
+      [tl("settings.peak_shaving"), ["peak_shaving_threshold_soc", "peak_shaving_export_limit"]],
+      [tl("common.solar"), ["mppt_scan"]],
     ];
     const byKey = new Map(rows.map((r) => [r.key, r]));
     const placed = new Set(groups.flatMap(([, keys]) => keys));
     const leftover = rows.filter((r) => !placed.has(r.key));
-    const body = [...groups, ["Other", leftover.map((r) => r.key)]]
+    const body = [...groups, [tl("settings.other"), leftover.map((r) => r.key)]]
       .map(([title, keys]) => {
         const items = keys.map((k) => byKey.get(k)).filter(Boolean);
         if (!items.length) return "";
@@ -22470,8 +22499,8 @@ ${this._renderDeviceNewEnergyCardToolbar()}
       })
       .join("");
     return `<section class="fox-device-new-section fox-installer-settings">
-<h3 class="fox-device-new-section-title">Installer settings</h3>
-<p class="field-hint">Set by your installer on the inverter; not shown in the Fox app. Read-only.</p>
+<h3 class="fox-device-new-section-title">${tl("settings.installer_settings")}</h3>
+<p class="field-hint">${tl("settings.set_by_your_installer_on_the")}</p>
 ${body}
 </section>`;
   }
@@ -22479,16 +22508,16 @@ ${body}
   _renderDeviceNew(plant) {
     if (this._deviceNewScreen === "system") {
       return `<div data-device-new-main="1" data-plant-id="${esc(plant.entry_id)}">
-<button type="button" class="back-btn" data-action="device-new-back">← Device</button>
-<header class="header"><h1>System info</h1><p>From Modbus (matches Fox app where confirmed)</p></header>
+<button type="button" class="back-btn" data-action="device-new-back">${tl("device.device")}</button>
+<header class="header"><h1>${tl("device.system_info")}</h1><p>${tl("device.from_modbus_matches_fox_app_where")}</p></header>
 ${this._identityValueList(this._identityRows(plant))}
 </div>`;
     }
     if (this._deviceNewSub === "pv-config") {
       return `<div data-device-new-main="1" data-plant-id="${esc(plant.entry_id)}">
 ${this._renderPvConfiguration({
-  title: "System PV Configuration",
-  subtitle: "General solar panel settings for PV1 and PV2",
+  title: tl("device.system_pv_configuration"),
+  subtitle: tl("device.general_solar_panel_settings_for_pv1"),
 })}
 </div>`;
     }
@@ -22569,16 +22598,16 @@ ${this._renderInstallerSettings()}
             ? "#ff9f43"
             : "#52c41a";
       return [
-        { label: "Inverter (Fox)", value: kwh(fox) },
-        { label: "Meter (Glow)", value: kwh(meter) },
-        { label: "Δ meter − fox", html: `<span style="color:${deltaColor};font-weight:600">${esc(deltaTxt)}</span>` },
+        { label: tl("panel.inverter_fox"), value: kwh(fox) },
+        { label: tl("panel.meter_glow"), value: kwh(meter) },
+        { label: tl("panel.meter_fox"), html: `<span style="color:${deltaColor};font-weight:600">${esc(deltaTxt)}</span>` },
       ];
     };
     return `<section class="fox-device-new-section">
-<h3 class="fox-device-new-section-title">Export: inverter vs meter</h3>
-<p class="field-hint">What the FoxESS inverter believes it exported vs what your Glow smart meter actually recorded (meter − inverter).</p>
-<div class="fox-device-new-subsection"><h4 class="fox-device-new-subsection-title">Today</h4>${renderDeviceNewMetricGrid(this._hass, periodRows(foxToday, meterToday))}</div>
-<div class="fox-device-new-subsection"><h4 class="fox-device-new-subsection-title">Total</h4>${renderDeviceNewMetricGrid(this._hass, periodRows(foxTotal, meterTotal))}</div>
+<h3 class="fox-device-new-section-title">${tl("panel.export_inverter_vs_meter")}</h3>
+<p class="field-hint">${tl("panel.what_the_foxess_inverter_believes_it")}</p>
+<div class="fox-device-new-subsection"><h4 class="fox-device-new-subsection-title">${tl("common.today")}</h4>${renderDeviceNewMetricGrid(this._hass, periodRows(foxToday, meterToday))}</div>
+<div class="fox-device-new-subsection"><h4 class="fox-device-new-subsection-title">${tl("common.total")}</h4>${renderDeviceNewMetricGrid(this._hass, periodRows(foxTotal, meterTotal))}</div>
 </section>`;
   }
 
@@ -22661,7 +22690,7 @@ ${this._renderInstallerSettings()}
       this._energyChart = {
         error:
           err?.message ||
-          "Could not load history. Enable the Home Assistant recorder and keep history for power sensors.",
+          tl("common.could_not_load_history_enable_the"),
       };
     } finally {
       this._energyChartLoading = false;
@@ -22691,7 +22720,7 @@ ${this._renderInstallerSettings()}
       this._statisticsChart = {
         error:
           err?.message ||
-          "Could not load history. Enable the Home Assistant recorder and keep history for power sensors.",
+          tl("common.could_not_load_history_enable_the"),
       };
     } finally {
       this._statisticsChartLoading = false;
@@ -22745,7 +22774,7 @@ ${this._renderInstallerSettings()}
       this._statisticsChart = {
         error:
           err?.message ||
-          "Could not load history. Enable the Home Assistant recorder and keep history for power sensors.",
+          tl("common.could_not_load_history_enable_the"),
       };
     } finally {
       this._statisticsChartLoading = false;
@@ -22769,13 +22798,13 @@ ${this._renderInstallerSettings()}
     } catch (err) {
       console.error("FoxESS Plant statistics chart render failed", err);
       if (this._statisticsChartVisible()) this._ensureStatisticsChartLoaded();
-      return `<p class="placeholder chart-empty">Statistics chart unavailable. Reload the panel or refresh the page.</p>`;
+      return `<p class="placeholder chart-empty">${tl("reports.statistics_chart_unavailable_reload_the_panel")}</p>`;
     }
   }
 
   _renderStatisticsChartBodyInner(options = {}) {
     if (this._statisticsChartLoading) {
-      return `<p class="chart-loading">Loading statistics…</p>`;
+      return `<p class="chart-loading">${tl("reports.loading_statistics")}</p>`;
     }
     const chart = this._statisticsChart;
     if (chart?.error) {
@@ -22789,9 +22818,9 @@ ${this._renderInstallerSettings()}
     if (!range) {
       if (this._statisticsChartVisible()) {
         this._ensureStatisticsChartLoaded();
-        return `<p class="chart-loading">Loading statistics…</p>`;
+        return `<p class="chart-loading">${tl("reports.loading_statistics")}</p>`;
       }
-      return `<p class="placeholder chart-empty">Open Analysis or wait for history to load.</p>`;
+      return `<p class="placeholder chart-empty">${tl("reports.open_analysis_or_wait_for_history")}</p>`;
     }
     const series = this._statisticsSeriesForDisplay();
     const includeSoc = options.includeSoc === true;
@@ -22803,7 +22832,7 @@ ${this._renderInstallerSettings()}
         forecastFullDaySolid: dayOffset > 0,
       });
     }
-    return `<p class="placeholder chart-empty">Open Analysis or wait for history to load.</p>`;
+    return `<p class="placeholder chart-empty">${tl("reports.open_analysis_or_wait_for_history")}</p>`;
   }
 
   _bindForecastAccuracyCharts() {
@@ -22853,7 +22882,7 @@ ${this._renderInstallerSettings()}
       this._batterySocChart = {
         error:
           err?.message ||
-          "Could not load battery SOC history. Enable the Home Assistant recorder for battery_soc.",
+          tl("quick_settings.could_not_load_battery_soc_history"),
       };
     } finally {
       this._batterySocChartLoading = false;
@@ -22863,7 +22892,7 @@ ${this._renderInstallerSettings()}
 
   _renderBatterySocChartBody(plant) {
     if (this._batterySocChartLoading) {
-      return `<p class="chart-loading">Loading battery SOC…</p>`;
+      return `<p class="chart-loading">${tl("quick_settings.loading_battery_soc")}</p>`;
     }
     if (this._batterySocChart?.error) {
       return `<p class="placeholder chart-empty">${esc(this._batterySocChart.error)}</p>`;
@@ -22880,7 +22909,7 @@ ${this._renderInstallerSettings()}
       );
       return renderBatterySocChartHtml(this._batterySocChart, displaySoc);
     }
-    return `<p class="placeholder chart-empty">Waiting for battery SOC history…</p>`;
+    return `<p class="placeholder chart-empty">${tl("quick_settings.waiting_for_battery_soc_history")}</p>`;
   }
 
   _bindBatterySocChart() {
@@ -22900,9 +22929,9 @@ ${this._renderInstallerSettings()}
     const bounds = energyPeriodBounds(this._reportsPeriod, this._reportsPeriodOffset);
     const label = energyPeriodNavLabel(this._reportsPeriod, this._reportsPeriodOffset);
     return `<div class="energy-date-nav">
-<button type="button" data-action="reports-nav" data-dir="prev" aria-label="Previous period">‹</button>
+<button type="button" data-action="reports-nav" data-dir="prev" aria-label="${tl("common.previous_period")}">‹</button>
 <span class="energy-date-label">${esc(label)}</span>
-<button type="button" data-action="reports-nav" data-dir="next" aria-label="Next period"${bounds.canNext ? "" : " disabled"}>›</button>
+<button type="button" data-action="reports-nav" data-dir="next" aria-label="${tl("common.next_period")}"${bounds.canNext ? "" : " disabled"}>›</button>
 </div>`;
   }
 
@@ -22953,7 +22982,7 @@ ${this._renderInstallerSettings()}
         title: energyPeriodNavLabel(this._reportsPeriod, this._reportsPeriodOffset),
         error:
           err?.message ||
-          "Could not load energy report. Enable the Home Assistant recorder and keep history for energy sensors.",
+          tl("reports.could_not_load_energy_report_enable"),
         analytics: null,
         chartSvg: "",
         detailRows: [],
@@ -22968,7 +22997,7 @@ ${this._renderInstallerSettings()}
 
   _renderEnergyReportChartBody() {
     if (this._energyReportLoading) {
-      return `<p class="chart-loading">Loading chart…</p>`;
+      return `<p class="chart-loading">${tl("common.loading_chart")}</p>`;
     }
     if (this._energyReport?.error) {
       return `<p class="placeholder chart-empty">${esc(this._energyReport.error)}</p>`;
@@ -22976,7 +23005,7 @@ ${this._renderInstallerSettings()}
     if (this._energyReport?.chartSvg) {
       return this._energyReport.chartSvg;
     }
-    return `<p class="chart-loading">Loading chart…</p>`;
+    return `<p class="chart-loading">${tl("common.loading_chart")}</p>`;
   }
 
   _renderEnergyReport(plant) {
@@ -22991,22 +23020,22 @@ ${renderEnergyReportBalanceCard(analytics)}
 ${renderEnergyReportPvDonutCard(analytics)}
 ${renderEnergyReportLoadDonutCard(analytics)}
 </div>`
-      : `<p class="placeholder chart-empty">${esc(report?.error || "Loading energy report…")}</p>`;
+      : `<p class="placeholder chart-empty">${esc(report?.error || tl("reports.loading_energy_report"))}</p>`;
     const detailsHtml = report?.error
       ? ""
       : `<div class="card fox-report-details">
-<h3 class="fox-report-details-title">Details</h3>
-${this._energyReportLoading ? `<p class="chart-loading">Loading details…</p>` : renderEnergyReportDetailsTable(report?.detailRows || [])}
+<h3 class="fox-report-details-title">${tl("common.details")}</h3>
+${this._energyReportLoading ? `<p class="chart-loading">${tl("reports.loading_details")}</p>` : renderEnergyReportDetailsTable(report?.detailRows || [])}
 </div>`;
     return `<div data-energy-report-main="1" data-plant-id="${esc(plant.entry_id)}">
-<header class="header"><h1>Energy Report</h1><p>${esc(title)}</p></header>
+<header class="header"><h1>${tl("reports.energy_report")}</h1><p>${esc(title)}</p></header>
 <div class="card fox-analysis-toolbar" data-energy-report-toolbar="1">
 ${this._renderReportsPeriodTabs()}
 ${this._renderReportsDateNav()}
 </div>
 ${summaryHtml}
 <div class="card fox-report-chart-card fox-analysis-chart-card" data-energy-report-chart="1">
-<h3 class="fox-analysis-summary-title fox-analysis-chart-title">Energy Analysis</h3>
+<h3 class="fox-analysis-summary-title fox-analysis-chart-title">${tl("common.energy_analysis")}</h3>
 ${this._renderEnergyReportChartBody()}
 </div>
 ${detailsHtml}
@@ -23068,7 +23097,7 @@ ${detailsHtml}
       if (this._performanceDayCacheKey(this._getPlant()) === cacheKey) {
         this._performanceDayChart = {
           enabled: true,
-          error: err?.message || "Could not load performance data. Enable recorder for performance sensors.",
+          error: err?.message || tl("performance.could_not_load_performance_data_enable"),
         };
       }
     } finally {
@@ -23107,7 +23136,7 @@ ${detailsHtml}
       if (this._performancePeriodCacheKey(this._getPlant()) === cacheKey) {
         this._performancePeriodReport = {
           enabled: true,
-          error: err?.message || "Could not load performance period report.",
+          error: err?.message || tl("performance.could_not_load_performance_period_report"),
         };
       }
     } finally {
@@ -23132,18 +23161,18 @@ ${detailsHtml}
     const bounds = energyPeriodBounds(mode, this._reportsPeriodOffset);
     const label = energyPeriodNavLabel(mode, this._reportsPeriodOffset);
     return `<div class="energy-date-nav">
-<button type="button" data-action="reports-nav" data-dir="prev" aria-label="Previous period">‹</button>
+<button type="button" data-action="reports-nav" data-dir="prev" aria-label="${tl("common.previous_period")}">‹</button>
 <span class="energy-date-label">${esc(label)}</span>
-<button type="button" data-action="reports-nav" data-dir="next" aria-label="Next period"${bounds.canNext ? "" : " disabled"}>›</button>
+<button type="button" data-action="reports-nav" data-dir="next" aria-label="${tl("common.next_period")}"${bounds.canNext ? "" : " disabled"}>›</button>
 </div>`;
   }
 
   _renderPerformanceDayNav() {
     const canNext = this._performanceDayOffset > 0;
     return `<div class="energy-date-nav">
-<button type="button" data-action="performance-day-nav" data-dir="prev" aria-label="Previous day">‹</button>
+<button type="button" data-action="performance-day-nav" data-dir="prev" aria-label="${tl("common.previous_day")}">‹</button>
 <span class="energy-date-label">${esc(performanceDayLabel(this._performanceDayOffset))}</span>
-<button type="button" data-action="performance-day-nav" data-dir="next" aria-label="Next day"${canNext ? "" : " disabled"}>›</button>
+<button type="button" data-action="performance-day-nav" data-dir="next" aria-label="${tl("common.next_day")}"${canNext ? "" : " disabled"}>›</button>
 </div>`;
   }
 
@@ -23170,7 +23199,7 @@ ${detailsHtml}
       ? { enabled: true, live: {}, summary: { today: {} } }
       : this._performanceDayChart;
     const body = this._performanceDayChart?.error
-      ? `<div data-performance-report-main="1"><header class="header"><h1>Performance</h1></header><p class="placeholder">${esc(this._performanceDayChart.error)}</p></div>`
+      ? `<div data-performance-report-main="1"><header class="header"><h1>${tl("common.performance")}</h1></header><p class="placeholder">${esc(this._performanceDayChart.error)}</p></div>`
       : renderPerformanceReportPage(chart, {
           loading: this._performanceDayChartLoading && !this._performanceDayChart,
           dayOffset: this._performanceDayOffset,
@@ -23213,7 +23242,7 @@ ${detailsHtml}
         this._smartChargeAnalysis = {
           error:
             err?.message ||
-            "Could not load SmartCharge analysis. Enable the recorder for smart charge and power sensors.",
+            tl("smart_charge.could_not_load_smartcharge_analysis_enable"),
         };
       }
     } finally {
@@ -23276,7 +23305,7 @@ ${this._renderReportsDateNav()}
       });
       if (result?.plant_state) this._plantState = result.plant_state;
     } catch (err) {
-      this._showToast(err?.message || "Could not refresh Octopus Energy Analysis", "err");
+      this._showToast(err?.message || tl("octopus.could_not_refresh_octopus_energy_analysis"), "err");
     } finally {
       this._octopusAnalysisLoading = false;
       if (this._view === "reports" && this._reportsView === "octopus") {
@@ -23307,9 +23336,9 @@ ${this._renderReportsDateNav()}
     const bounds = energyPeriodBounds(this._energyPeriod, this._energyPeriodOffset);
     const label = energyPeriodNavLabel(this._energyPeriod, this._energyPeriodOffset);
     return `<div class="energy-date-nav">
-<button type="button" data-action="energy-nav" data-dir="prev" aria-label="Previous period">‹</button>
+<button type="button" data-action="energy-nav" data-dir="prev" aria-label="${tl("common.previous_period")}">‹</button>
 <span class="energy-date-label">${esc(label)}</span>
-<button type="button" data-action="energy-nav" data-dir="next" aria-label="Next period"${bounds.canNext ? "" : " disabled"}>›</button>
+<button type="button" data-action="energy-nav" data-dir="next" aria-label="${tl("common.next_period")}"${bounds.canNext ? "" : " disabled"}>›</button>
 </div>`;
   }
 
@@ -23321,10 +23350,10 @@ ${this._renderReportsDateNav()}
 
   _renderEnergyQuickStatsRow(a) {
     return `<div class="stats-row overview-energy-stats-row">
-${this._stat("Load", a.load_consumption_kwh_today, " kWh")}
-${this._stat("From grid", a.load_from_grid_kwh_today, " kWh")}
-${this._stat("PV today", a.pv_production_kwh_today, " kWh")}
-${this._stat("PV → grid", a.pv_to_grid_kwh_today, " kWh")}
+${this._stat(tl("common.load"), a.load_consumption_kwh_today, " kWh")}
+${this._stat(tl("energy.from_grid"), a.load_from_grid_kwh_today, " kWh")}
+${this._stat(tl("energy.pv_today"), a.pv_production_kwh_today, " kWh")}
+${this._stat(tl("energy.pv_grid"), a.pv_to_grid_kwh_today, " kWh")}
 </div>`;
   }
 
@@ -23347,10 +23376,10 @@ ${this._stat("PV → grid", a.pv_to_grid_kwh_today, " kWh")}
       dischargeVal,
       loading
     );
-    return `<div class="card${bandClass}"${bandStyle}><p class="card-title">Balance</p>
+    return `<div class="card${bandClass}"${bandStyle}><p class="card-title">${tl("energy.balance")}</p>
 <div class="overview-balance-panel">
-${renderOverviewBalanceMetric("Battery charge", a.battery_charge_kwh_today, chargeSpark)}
-${renderOverviewBalanceMetric("Battery discharge", a.battery_discharge_kwh_today, dischargeSpark)}
+${renderOverviewBalanceMetric(tl("energy.battery_charge"), a.battery_charge_kwh_today, chargeSpark)}
+${renderOverviewBalanceMetric(tl("energy.battery_discharge"), a.battery_discharge_kwh_today, dischargeSpark)}
 </div></div>`;
   }
 
@@ -23398,17 +23427,17 @@ ${renderOverviewBalanceMetric("Battery discharge", a.battery_discharge_kwh_today
 
   _renderOverviewEnergyBreakdown(plant) {
     if (this._overviewDailyLoading && !this._plantState?.analytics) {
-      return `<div class="card breakdown-card overview-energy-breakdown"><p class="chart-loading">Loading breakdown…</p></div>`;
+      return `<div class="card breakdown-card overview-energy-breakdown"><p class="chart-loading">${tl("energy.loading_breakdown")}</p></div>`;
     }
     const a = readLiveAnalytics(this._hass, plant, this._plantState, this._overviewDaily);
-    return this._renderEnergyBreakdownRows(a, "Today energy breakdown", {
+    return this._renderEnergyBreakdownRows(a, tl("energy.today_energy_breakdown"), {
       extraClass: "overview-energy-breakdown",
     });
   }
 
   _renderOverviewEnergyBand(plant) {
     if (this._overviewDailyLoading && !this._plantState?.analytics) {
-      return `<div class="overview-energy-band"><p class="chart-loading">Loading energy data…</p></div>`;
+      return `<div class="overview-energy-band"><p class="chart-loading">${tl("tariff.loading_energy_data")}</p></div>`;
     }
     const a = readLiveAnalytics(this._hass, plant, this._plantState, this._overviewDaily);
     return `<div class="overview-energy-band">
@@ -23491,7 +23520,7 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
       this._analysisSummarySpark = {
         error:
           err?.message ||
-          "Could not load energy history for sparklines. Enable the Home Assistant recorder for daily kWh sensors.",
+          tl("panel.could_not_load_energy_history_for"),
         production: [],
         consumption: [],
       };
@@ -23661,7 +23690,7 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
       } catch (err) {
         if (this._forecastAccuracyOverviewCacheKey(this._getPlant()) !== cacheKey) return;
         this._forecastAccuracyOverview = {
-          error: err?.message || "Failed to load forecast accuracy",
+          error: err?.message || tl("solar_forecast.failed_to_load_forecast_accuracy"),
           solcast_enabled: true,
         };
         this._forecastAccuracyOverviewKey = cacheKey;
@@ -23726,7 +23755,7 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
         if (loadGen !== this._forecastAccuracyLoadGen) return;
         if (this._forecastAccuracyAnalysisCacheKey(this._getPlant()) !== cacheKey) return;
         this._forecastAccuracyAnalysis = {
-          error: err?.message || "Failed to load forecast accuracy",
+          error: err?.message || tl("solar_forecast.failed_to_load_forecast_accuracy"),
           solcast_enabled: true,
         };
         this._forecastAccuracyAnalysisKey = cacheKey;
@@ -23772,8 +23801,8 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
     const loadVal = Number(a.load_consumption_kwh_today ?? 0) || 0;
     const prodLabel = root.querySelector('[data-summary-label="production"]');
     const consLabel = root.querySelector('[data-summary-label="consumption"]');
-    if (prodLabel) prodLabel.textContent = `${periodLabel} Production`;
-    if (consLabel) consLabel.textContent = `${periodLabel} Consumption`;
+    if (prodLabel) prodLabel.textContent = tl("panel.periodlabel_production", { periodLabel });
+    if (consLabel) consLabel.textContent = tl("panel.periodlabel_consumption", { periodLabel });
     const prodEl = root.querySelector('[data-summary-value="production"]');
     const consEl = root.querySelector('[data-summary-value="consumption"]');
     if (prodEl) prodEl.innerHTML = `${pvVal.toFixed(2)}<span>kWh</span>`;
@@ -24005,16 +24034,16 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
     if (this._energyPeriod === "day") {
       body = this._renderStatisticsChartBody({ sideLegend: true, includeSoc: true });
     } else if (this._energyChartLoading) {
-      body = `<p class="chart-loading">Loading chart…</p>`;
+      body = `<p class="chart-loading">${tl("common.loading_chart")}</p>`;
     } else if (this._energyChart?.error) {
       body = `<p class="placeholder chart-empty">${esc(this._energyChart.error)}</p>`;
     } else if (this._energyChart?.svg) {
       body = this._energyChart.svg;
     } else {
-      body = `<p class="chart-loading">Loading chart…</p>`;
+      body = `<p class="chart-loading">${tl("common.loading_chart")}</p>`;
     }
     return `<div class="fox-analysis-chart-card">
-<h3 class="fox-analysis-summary-title fox-analysis-chart-title">Statistics</h3>
+<h3 class="fox-analysis-summary-title fox-analysis-chart-title">${tl("common.statistics")}</h3>
 ${body}
 </div>`;
   }
@@ -24087,7 +24116,7 @@ ${body}
           })}</div>`
         : "";
     return `<div data-energy-analysis-main="1" data-plant-id="${esc(plant.entry_id)}">
-<header class="header"><h1>Energy Analysis</h1><p>${esc(title)}</p></header>
+<header class="header"><h1>${tl("common.energy_analysis")}</h1><p>${esc(title)}</p></header>
 <div class="card fox-analysis-toolbar" data-energy-analysis-toolbar="1">
 ${this._renderEnergyPeriodTabs()}
 ${this._renderEnergyDateNav()}
@@ -24108,8 +24137,8 @@ ${this._renderEnergyAnalysisCharts()}
 
   _renderSmartChargeGridBehaviourInfo() {
     return `<div class="card">
-<p class="card-title">Grid charging behaviour</p>
-<p class="storm-hint">Charge windows come from the committed plan (Octopus rates or your tariff schedule). When a planned half-hour starts, period 1 is set to force charge from grid for that window, with max SOC set to the planned level so it stops once enough energy is stored. There is no manual timetable to configure.</p>
+<p class="card-title">${tl("smart_charge.grid_charging_behaviour")}</p>
+<p class="storm-hint">${tl("smart_charge.charge_windows_come_from_the_committed")}</p>
 </div>`;
   }
 
@@ -24119,12 +24148,12 @@ ${this._renderEnergyAnalysisCharts()}
     return `<div class="card">
 <p class="card-title">${esc(title)}</p>
 ${hint ? `<p class="storm-hint">${hint}</p>` : ""}
-<div class="toggle-row"><span>Force charge</span><input type="checkbox" data-field="${esc(fieldPrefix)}:enable_force_charge" ${p.enable_force_charge ? "checked" : ""} ${dis}></div>
-<div class="toggle-row"><span>Charge from grid</span><input type="checkbox" data-field="${esc(fieldPrefix)}:enable_charge_from_grid" ${p.enable_charge_from_grid ? "checked" : ""} ${dis}></div>
+<div class="toggle-row"><span>${tl("common.force_charge_2")}</span><input type="checkbox" data-field="${esc(fieldPrefix)}:enable_force_charge" ${p.enable_force_charge ? "checked" : ""} ${dis}></div>
+<div class="toggle-row"><span>${tl("common.charge_from_grid")}</span><input type="checkbox" data-field="${esc(fieldPrefix)}:enable_charge_from_grid" ${p.enable_charge_from_grid ? "checked" : ""} ${dis}></div>
 </div>`;
   }
 
-  _renderPeriodCard(idx, period, fieldPrefix = "period", titlePrefix = "Period") {
+  _renderPeriodCard(idx, period, fieldPrefix = "period", titlePrefix = tl("quick_settings.period")) {
     const p = period || DEFAULT_PERIODS[0];
     const actual = fieldPrefix === "period" ? this._plantState?.actual_periods?.[idx] : null;
     const drift =
@@ -24135,12 +24164,12 @@ ${hint ? `<p class="storm-hint">${hint}</p>` : ""}
           (timeForInput(p.start) !== timeForInput(actual.start) ||
             timeForInput(p.end) !== timeForInput(actual.end))));
     return `<div class="period-card">
-<h4>${titlePrefix} ${idx + 1} ${drift ? '<span style="color:var(--fp-amber);font-size:12px">≠ inverter</span>' : ""}</h4>
-<div class="toggle-row"><span>Force charge</span><input type="checkbox" data-field="${fieldPrefix}:${idx}:enable_force_charge" ${p.enable_force_charge ? "checked" : ""}></div>
-<div class="toggle-row"><span>Charge from grid</span><input type="checkbox" data-field="${fieldPrefix}:${idx}:enable_charge_from_grid" ${p.enable_charge_from_grid ? "checked" : ""}></div>
+<h4>${titlePrefix} ${idx + 1} ${drift ? `<span style="color:var(--fp-amber);font-size:12px">${tl("quick_settings.inverter")}</span>` : ""}</h4>
+<div class="toggle-row"><span>${tl("common.force_charge_2")}</span><input type="checkbox" data-field="${fieldPrefix}:${idx}:enable_force_charge" ${p.enable_force_charge ? "checked" : ""}></div>
+<div class="toggle-row"><span>${tl("common.charge_from_grid")}</span><input type="checkbox" data-field="${fieldPrefix}:${idx}:enable_charge_from_grid" ${p.enable_charge_from_grid ? "checked" : ""}></div>
 <div class="period-times">
-<div class="field"><label>Start</label><input type="time" data-field="${fieldPrefix}:${idx}:start" value="${esc(timeForInput(p.start))}"></div>
-<div class="field"><label>End</label><input type="time" data-field="${fieldPrefix}:${idx}:end" value="${esc(timeForInput(p.end))}"></div>
+<div class="field"><label>${tl("common.start")}</label><input type="time" data-field="${fieldPrefix}:${idx}:start" value="${esc(timeForInput(p.start))}"></div>
+<div class="field"><label>${tl("common.end")}</label><input type="time" data-field="${fieldPrefix}:${idx}:end" value="${esc(timeForInput(p.end))}"></div>
 </div>
 </div>`;
   }
@@ -24169,19 +24198,19 @@ ${hint ? `<p class="storm-hint">${hint}</p>` : ""}
   }
 
   _googleRoleLabel(role) {
-    if (role === "urgent") return "Urgent";
-    if (role === "severe") return "Severe";
-    if (role === "any") return "Alert";
+    if (role === "urgent") return tl("panel.urgent");
+    if (role === "severe") return tl("panel.severe");
+    if (role === "any") return tl("panel.alert");
     return "";
   }
 
   _renderStormEnableCard() {
     const draft = this._stormDraft;
     if (!draft) {
-      return `<div class="card"><p class="card-title">StormSafe</p><p class="gw-status">Loading…</p></div>`;
+      return `<div class="card"><p class="card-title">StormSafe</p><p class="gw-status">${tl("common.loading")}</p></div>`;
     }
     return `<div class="card">
-<div class="toggle-row"><span><strong>Enable StormSafe</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Arms when Google Weather reports a storm-type condition (or alert binaries turn on)</span></span>
+<div class="toggle-row"><span>${tl("storm_safe.enable_stormsafe")}<br><span style="font-size:12px;color:var(--secondary-text-color)">${tl("storm_safe.arms_when_google_weather_reports_a")}</span></span>
 <input type="checkbox" data-action="toggle-storm-enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 </div>`;
   }
@@ -24190,7 +24219,7 @@ ${hint ? `<p class="storm-hint">${hint}</p>` : ""}
     const gw = this._triggerMeta?.google_weather;
     const draft = this._stormDraft;
     if (!gw || !draft) {
-      return `<div class="card gw-card gw-warn"><p class="card-title">Weather source</p><p class="gw-status">Loading…</p></div>`;
+      return `<div class="card gw-card gw-warn"><p class="card-title">${tl("weather.weather_source")}</p><p class="gw-status">${tl("common.loading")}</p></div>`;
     }
     const repo = gw.hacs_repo || "https://github.com/safepay/ha_google_weather";
     const entries = gw.entries ?? [];
@@ -24198,18 +24227,18 @@ ${hint ? `<p class="storm-hint">${hint}</p>` : ""}
     const selected = this._getSelectedGoogleWeatherEntry();
 
     if (!gw.installed) {
-      return `<div class="card gw-card gw-warn"><p class="card-title">Install Google Weather (2 minutes)</p>
+      return `<div class="card gw-card gw-warn"><p class="card-title">${tl("weather.install_google_weather_2_minutes")}</p>
 <ol class="storm-hint" style="margin:0;padding-left:18px;line-height:1.6">
-<li>HACS → Custom repositories → <a href="${esc(repo)}" target="_blank" rel="noopener">ha_google_weather</a></li>
-<li>Install <strong>Google Weather</strong>, restart Home Assistant</li>
-<li>Settings → Integrations → Add → Google Weather (API key + your home location)</li>
-<li>Return here, enable <strong>StormSafe</strong>, pick your Google Weather location, and press <strong>Save StormSafe settings</strong></li>
+<li>${tl("weather.hacs_custom_repositories_ha_google_weather", { repo: esc(repo) })}</li>
+<li>${tl("weather.install_google_weather_restart_home_assistant")}</li>
+<li>${tl("weather.settings_integrations_add_google_weather_api")}</li>
+<li>${tl("weather.return_here_enable_stormsafe_pick_your")}</li>
 </ol></div>`;
     }
 
     if (!entries.length) {
       return `<div class="card gw-card gw-warn"><p class="card-title">Google Weather</p>
-<p class="gw-status">No Google Weather config entries found. Add the integration under Settings → Devices &amp; services.</p></div>`;
+<p class="gw-status">${tl("weather.no_google_weather_config_entries_found")}</p></div>`;
     }
 
     const options = entries
@@ -24229,44 +24258,44 @@ ${hint ? `<p class="storm-hint">${hint}</p>` : ""}
     if (selected?.alerts_supported) {
       cls += " gw-ready";
       const names = selected.alert_entities.map((a) => esc(a.name)).join(", ");
-      detail = `<p class="gw-linked"><strong>Alert triggers:</strong> ${names} (when <em>on</em>).</p>`;
+      detail = `<p class="gw-linked">${tl("weather.alert_triggers_names_when_on", { names })}</p>`;
     }
 
     if (selected?.condition_supported || selected?.weather_entity) {
       cls += selected?.alerts_supported ? "" : " gw-ready";
-      detail += `<p class="gw-linked"><strong>Native Google Weather</strong> — current conditions + hourly forecast. Pre-charges when a storm is due within your lead time (below).</p>`;
+      detail += `<p class="gw-linked">${tl("weather.native_google_weather_current_conditions_hourly")}</p>`;
       if (cond) {
         detail += `<p class="gw-linked">${formatStormNowLine(cond)}</p>`;
       } else if (selected.condition_entity_id) {
-        detail += `<p class="gw-linked">Enable the <strong>Weather condition</strong> sensor in HA if hidden (eye icon).</p>`;
+        detail += `<p class="gw-linked">${tl("weather.enable_the_weather_condition_sensor_in")}</p>`;
       }
       if (forecastActive && forecast.next_storm) {
         detail += `<p class="gw-linked">${formatStormForecastActiveLine(forecast.next_storm)}</p>`;
       } else if (draft.use_forecast_lead && selected.weather_entity) {
-        detail += `<p class="gw-linked">Forecast: no storm in the next <strong>${esc(String(draft.forecast_lead_hours || 4))}</strong> hours.</p>`;
+        detail += `<p class="gw-linked">${tl("weather.forecast_no_storm_in_the_next", { value: esc(String(draft.forecast_lead_hours || 4)) })}</p>`;
       }
     } else if (selected) {
       cls += " gw-warn";
-      detail = `<p class="gw-linked">No weather condition sensor found for this integration entry. Update Google Weather or pick another source under Advanced.</p>`;
+      detail = `<p class="gw-linked">${tl("weather.no_weather_condition_sensor_found_for")}</p>`;
     } else {
-      detail = `<p class="gw-linked">Choose your Google Weather location. StormSafe uses official alert binaries (if available) and/or the weather condition sensor.</p>`;
+      detail = `<p class="gw-linked">${tl("weather.choose_your_google_weather_location_stormsafe")}</p>`;
     }
 
     if (selected?.weather_entity) {
-      detail += `<p class="gw-linked">Also watches: <code>${esc(selected.weather_entity)}</code></p>`;
+      detail += `<p class="gw-linked">${tl("weather.also_watches_weather_entity", { weather_entity: esc(selected.weather_entity) })}</p>`;
     }
 
     const enableHint =
       draft.enabled && !selected
-        ? `<p class="storm-hint" style="margin:12px 0 0;color:var(--fp-amber)">Select a location below, then press <strong>Save StormSafe settings</strong>.</p>`
+        ? `<p class="storm-hint" style="margin:12px 0 0;color:var(--fp-amber)">${tl("weather.select_a_location_below_then_press")}</p>`
         : "";
 
     return `<div class="card ${cls}"><p class="card-title">Google Weather</p>
-<p class="storm-hint">Weather data source for StormSafe — live conditions, hourly forecast lead time, and optional severe-weather alert sensors from the Google Weather integration in Home Assistant.</p>
-<label class="field" style="margin-top:12px"><span style="font-size:12px;color:var(--secondary-text-color)">Google Weather location</span>
-<p class="field-hint" style="margin:4px 0 8px">Each Home Assistant config entry is one place Google tracks (usually your home). StormSafe reads current weather and forecast from the entry you choose.</p>
+<p class="storm-hint">${tl("weather.weather_data_source_for_stormsafe_live")}</p>
+<label class="field" style="margin-top:12px"><span style="font-size:12px;color:var(--secondary-text-color)">${tl("weather.google_weather_location")}</span>
+<p class="field-hint" style="margin:4px 0 8px">${tl("weather.each_home_assistant_config_entry_is")}</p>
 <select class="gw-select" data-action="pick-google-weather-entry" ${this._busy || !draft.enabled ? "disabled" : ""}>
-<option value="">— Select location —</option>
+<option value="">${tl("weather.select_location")}</option>
 ${options}
 </select></label>
 ${enableHint}${detail}</div>`;
@@ -24286,38 +24315,38 @@ ${enableHint}${detail}</div>`;
     const metrics = formatStormSolcastMetrics(precheck);
     const summary = precheck.summary
       ? esc(precheck.summary)
-      : "Enable the option below to evaluate whether solar can cover the battery gap before grid import.";
+      : tl("storm_safe.enable_the_option_below_to_evaluate");
     const detail = precheck.detail ? `<p class="storm-solcast-precheck-detail">${esc(precheck.detail)}</p>` : "";
     const metricsBlock = metrics
       ? `<p class="storm-solcast-precheck-metrics">${metrics}</p>`
       : "";
     const solcastHint = !solcastConfigured
-      ? `<p class="storm-hint" style="margin:12px 0 0">Solcast is not set up yet — add your API key under <strong>Settings → Solcast</strong> and configure PV strings before turning this on.</p>`
+      ? `<p class="storm-hint" style="margin:12px 0 0">${tl("storm_safe.solcast_is_not_set_up_yet")}</p>`
       : "";
     const precheckTitle =
       action === "pv_only"
-        ? "PV likely sufficient — grid import can be skipped"
+        ? tl("storm_safe.pv_likely_sufficient_grid_import_can")
         : action === "full_grid" && enabled && precheck.forecast_active
-          ? "Grid pre-charge recommended"
-          : "Pre-charge check";
+          ? tl("storm_safe.grid_pre_charge_recommended")
+          : tl("storm_safe.pre_charge_check");
     return `<div class="card storm-solcast-card">
-<p class="card-title">Solcast PV pre-check</p>
-<p class="storm-hint">Optional. When a storm is only in the <strong>forecast</strong> (not active yet), Fox Plant can compare your battery gap to Solcast solar expected <em>before</em> the storm hour. If PV covers the gap (with a safety margin), StormSafe arms without grid import — saving import cost while still monitoring the weather.</p>
-<p class="storm-hint" style="margin-top:8px"><strong>Important:</strong> When storm conditions are <em>active now</em>, or battery SOC is below your safety floor, full grid pre-charge always applies regardless of this setting. Turning this option off always uses grid pre-charge when StormSafe arms.</p>
-<div class="toggle-row"><span><strong>Limit grid pre-charge using Solcast</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Off by default — enable only if you accept relying on forecast solar before severe weather</span></span>
+<p class="card-title">${tl("storm_safe.solcast_pv_pre_check")}</p>
+<p class="storm-hint">${tl("storm_safe.optional_when_a_storm_is_only")}</p>
+<p class="storm-hint" style="margin-top:8px">${tl("storm_safe.important_when_storm_conditions_are_active")}</p>
+<div class="toggle-row"><span>${tl("storm_safe.limit_grid_pre_charge_using_solcast")}<br><span style="font-size:12px;color:var(--secondary-text-color)">${tl("storm_safe.off_by_default_enable_only_if")}</span></span>
 <input type="checkbox" data-field="toggle-storm-solcast" ${enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
-<div class="field" style="margin-top:10px"><label>Safety margin (×)</label>
-<p class="field-hint">Conservative factor on Solcast PV (default 1.35 — higher = less trust in forecast). SmartCharge uses 1.15; StormSafe uses a larger margin because backup matters more than cost.</p>
+<div class="field" style="margin-top:10px"><label>${tl("storm_safe.safety_margin")}</label>
+<p class="field-hint">${tl("storm_safe.conservative_factor_on_solcast_pv_default")}</p>
 <input type="number" min="1" max="3" step="0.05" data-field="storm-solcast-margin" value="${esc(String(margin))}" ${!enabled || this._busy ? "disabled" : ""}></div>
-<div class="field"><label>Minimum SOC floor (%)</label>
-<p class="field-hint">If battery is below this level when a forecast storm is due, grid pre-charge is used even when Solcast looks sufficient (default 90%).</p>
+<div class="field"><label>${tl("storm_safe.minimum_soc_floor")}</label>
+<p class="field-hint">${tl("storm_safe.if_battery_is_below_this_level")}</p>
 <input type="number" min="10" max="100" step="1" data-field="storm-solcast-min-soc" value="${esc(String(minSoc))}" ${!enabled || this._busy ? "disabled" : ""}></div>
 ${solcastHint}
 <div class="storm-solcast-precheck ${precheckClass}">
 <p class="storm-solcast-precheck-title">${esc(precheckTitle)}</p>
 <p style="margin:0;font-size:13px;line-height:1.5">${summary}</p>
 ${metricsBlock}${detail}
-<p class="storm-solcast-precheck-detail" style="margin-top:8px">Press <strong>Save StormSafe settings</strong> to apply option changes and refresh this calculation.</p>
+<p class="storm-solcast-precheck-detail" style="margin-top:8px">${tl("storm_safe.press_save_stormsafe_settings_to_apply")}</p>
 </div>
 </div>`;
   }
@@ -24336,13 +24365,13 @@ ${metricsBlock}${detail}
       (savedStorm.current_condition?.matched_categories ?? []).map((c) => c.id)
     );
     if (!catalog.length) {
-      return `<div class="card"><p class="card-title">Weather warnings</p>
-<p class="storm-hint">Choose which Google Weather conditions trigger StormSafe pre-charge.</p>
-<p class="placeholder" style="margin:8px 0 0">Loading categories…</p></div>`;
+      return `<div class="card"><p class="card-title">${tl("storm_safe.weather_warnings")}</p>
+<p class="storm-hint">${tl("storm_safe.choose_which_google_weather_conditions_trigger")}</p>
+<p class="placeholder" style="margin:8px 0 0">${tl("storm_safe.loading_categories")}</p></div>`;
     }
     if (!gwEntry) {
-      return `<div class="card"><p class="card-title">Weather warnings</p>
-<p class="storm-hint">Select a Google Weather location above to see which Fox-style warning categories Google publishes for your area.</p></div>`;
+      return `<div class="card"><p class="card-title">${tl("storm_safe.weather_warnings")}</p>
+<p class="storm-hint">${tl("storm_safe.select_a_google_weather_location_above")}</p></div>`;
     }
     const supportedIds = catalog.filter((row) => row.supported !== false).map((row) => row.id);
     const selected = new Set(
@@ -24359,7 +24388,7 @@ ${metricsBlock}${detail}
           : "";
         const via =
           supported && cat.support_via?.length
-            ? `<span class="storm-weather-category-via">via ${esc(cat.support_via.join(" + "))}</span>`
+            ? `<span class="storm-weather-category-via">${tl("storm_safe.via_support_via", { support_via: esc(cat.support_via.join(" + ")) })}</span>`
             : "";
         const forecastTokens = cat.forecast_conditions?.length
           ? cat.forecast_conditions
@@ -24367,16 +24396,16 @@ ${metricsBlock}${detail}
             ? cat.forecast_conditions_label.split(",").map((s) => s.trim()).filter(Boolean)
             : [];
         const forecastHint = forecastTokens.length
-          ? `<span class="storm-weather-category-forecast">Hourly forecast matches: ${forecastTokens
+          ? `<span class="storm-weather-category-forecast">${tl("storm_safe.hourly_forecast_matches_map", { map: forecastTokens
               .map((token) => `<code>${esc(token)}</code>`)
-              .join(", ")}</span>`
+              .join(", ") })}</span>`
           : "";
         const isForecastActive = forecastActive && activeForecastCatIds.has(cat.id);
         const isNowActive = activeNowCatIds.has(cat.id);
         const activeBadge = isForecastActive
-          ? `<span class="storm-weather-category-active-badge">Pre-charging — forecast</span>`
+          ? `<span class="storm-weather-category-active-badge">${tl("storm_safe.pre_charging_forecast")}</span>`
           : isNowActive
-            ? `<span class="storm-weather-category-active-badge">Active now</span>`
+            ? `<span class="storm-weather-category-active-badge">${tl("storm_safe.active_now")}</span>`
             : "";
         const activeClass =
           isForecastActive || isNowActive ? " storm-weather-category-row--active" : "";
@@ -24391,42 +24420,42 @@ ${note}${via}${forecastHint}${activeBadge}
       })
       .join("");
     const gatedHint = gatedCount
-      ? `<p class="storm-hint" style="margin:12px 0 0">${gatedCount} categor${gatedCount === 1 ? "y is" : "ies are"} unavailable for <strong>${esc(gwEntry.title)}</strong> — Google does not publish those alerts or forecast types there.</p>`
+      ? `<p class="storm-hint" style="margin:12px 0 0">${tln("storm_safe.categories_unavailable", gatedCount, { title: esc(gwEntry.title) })}</p>`
       : "";
-    return `<div class="card"><p class="card-title">Weather warnings</p>
-<p class="storm-hint">Toggle the severe weather types that should trigger StormSafe for <strong>${esc(gwEntry.title)}</strong>. Each row shows which Google hourly forecast tokens map to that category (e.g. <code>rainy</code> → Heavy rain). Uncheck a category to ignore that forecast. Grey rows are not offered by Google Weather in this region.</p>
+    return `<div class="card"><p class="card-title">${tl("storm_safe.weather_warnings")}</p>
+<p class="storm-hint">${tl("storm_safe.toggle_the_severe_weather_types_that", { title: esc(gwEntry.title) })}</p>
 <div class="storm-weather-category-list">${rows}</div>${gatedHint}</div>`;
   }
 
   _renderStormAdvancedTriggers() {
     const draft = this._stormDraft;
     if (!this._stormShowAdvanced) {
-      return `<details class="storm-advanced"><summary data-action="toggle-storm-advanced">Advanced: pick individual trigger entities</summary></details>`;
+      return `<details class="storm-advanced"><summary data-action="toggle-storm-advanced">${tl("storm_safe.advanced_pick_individual_trigger_entities")}</summary></details>`;
     }
     return `<details class="storm-advanced" open>
-<summary data-action="toggle-storm-advanced">Advanced: pick individual trigger entities</summary>
-<p class="storm-hint">Only needed if you are not using Google Weather alerts, or you want extra sensors (MeteoAlarm, NWS, templates).</p>
+<summary data-action="toggle-storm-advanced">${tl("storm_safe.advanced_pick_individual_trigger_entities")}</summary>
+<p class="storm-hint">${tl("storm_safe.only_needed_if_you_are_not")}</p>
 <div data-storm-trigger-chips>${this._renderTriggerChips()}</div>
-<input type="search" class="trigger-filter" data-action="storm-trigger-filter" placeholder="Search entities…" value="${esc(this._triggerFilter)}" aria-label="Filter trigger entities">
+<input type="search" class="trigger-filter" data-action="storm-trigger-filter" placeholder="${tl("storm_safe.search_entities")}" value="${esc(this._triggerFilter)}" aria-label="${tl("storm_safe.filter_trigger_entities")}">
 <div class="trigger-filter-actions">
-<button type="button" class="btn btn-secondary" data-action="storm-show-suggested" ${!this._triggerShowAll && !this._triggerFilter ? "disabled" : ""}>Weather matches</button>
-<button type="button" class="btn btn-secondary" data-action="storm-show-all" ${this._triggerShowAll ? "disabled" : ""}>All binary sensors</button>
+<button type="button" class="btn btn-secondary" data-action="storm-show-suggested" ${!this._triggerShowAll && !this._triggerFilter ? "disabled" : ""}>${tl("storm_safe.weather_matches")}</button>
+<button type="button" class="btn btn-secondary" data-action="storm-show-all" ${this._triggerShowAll ? "disabled" : ""}>${tl("storm_safe.all_binary_sensors")}</button>
 </div>
 <div data-storm-trigger-list>${this._renderTriggerPickerListHtml()}</div>
-<p style="margin:10px 0 0;font-size:12px;color:var(--secondary-text-color)" data-storm-trigger-count>${draft.trigger_entities.length} selected</p>
+<p style="margin:10px 0 0;font-size:12px;color:var(--secondary-text-color)" data-storm-trigger-count>${tl("storm_safe.length_selected", { length: draft.trigger_entities.length })}</p>
 </details>`;
   }
 
   _renderTriggerChips() {
     const selected = this._stormDraft?.trigger_entities ?? [];
     if (!selected.length) {
-      return '<p class="storm-hint" style="margin:0">Selected triggers appear here. Tick entities below, or use the search box.</p>';
+      return `<p class="storm-hint" style="margin:0">${tl("panel.selected_triggers_appear_here_tick_entities")}</p>`;
     }
     return `<div class="trigger-chips-wrap">${selected
       .map((entityId) => {
         const row = (this._triggerCandidates ?? []).find((r) => r.entity_id === entityId);
         const name = row?.name ?? entityId;
-        return `<span class="trigger-chip trigger-chip-selected"><button type="button" data-action="remove-storm-trigger" data-entity="${esc(entityId)}" aria-label="Remove ${esc(name)}">×</button>${esc(name)}</span>`;
+        return `<span class="trigger-chip trigger-chip-selected"><button type="button" data-action="remove-storm-trigger" data-entity="${esc(entityId)}" aria-label="${tl("panel.remove_name", { name: esc(name) })}">×</button>${esc(name)}</span>`;
       })
       .join("")}</div>`;
   }
@@ -24438,12 +24467,12 @@ ${note}${via}${forecastHint}${activeBadge}
     const suggestedCount = all.filter((r) => r.suggested).length;
 
     if (!all.length) {
-      return `<p class="placeholder" style="margin:8px 0 0">Loading entities… If this stays empty, reload FoxESS Plant and ensure weather warning binary sensors exist in Home Assistant.</p>`;
+      return `<p class="placeholder" style="margin:8px 0 0">${tl("settings.loading_entities_if_this_stays_empty")}</p>`;
     }
     if (!rows.length) {
       const hint = this._triggerGoogleOnly
-        ? "No Google Weather alerts match. Install Google Weather with alerts enabled, or show all sensors."
-        : `No matches for “${esc(this._triggerFilter)}”. Try “alert”, “warning”, or show all sensors.`;
+        ? tl("settings.no_google_weather_alerts_match_install")
+        : tl("settings.no_matches_for_triggerfilter_try_alert", { triggerFilter: esc(this._triggerFilter) });
       return `<p class="placeholder" style="margin:8px 0 0">${hint}</p>`;
     }
 
@@ -24481,15 +24510,15 @@ ${note}${via}${forecastHint}${activeBadge}
 
     let body = "";
     if (showGroupedHeader && googleRows.length) {
-      body += `<p class="trigger-section-title">Google Weather (${googleRows.length})</p>${renderRows(googleRows)}`;
+      body += `<p class="trigger-section-title">${tl("settings.google_weather_length", { length: googleRows.length })}</p>${renderRows(googleRows)}`;
       if (suggestedRows.length) {
-        body += `<p class="trigger-section-title">Other weather &amp; warnings (${suggestedRows.length})</p>${renderRows(suggestedRows)}`;
+        body += `<p class="trigger-section-title">${tl("settings.other_weather_warnings_length", { length: suggestedRows.length })}</p>${renderRows(suggestedRows)}`;
       }
       if (otherRows.length) {
-        body += `<p class="trigger-section-title">Other binary sensors (${otherRows.length})</p>${renderRows(otherRows)}`;
+        body += `<p class="trigger-section-title">${tl("settings.other_binary_sensors_length", { length: otherRows.length })}</p>${renderRows(otherRows)}`;
       }
     } else if (this._triggerGoogleOnly && rows.length) {
-      body += `<p class="trigger-section-title">Google Weather alerts (${rows.length})</p>${renderRows(rows)}`;
+      body += `<p class="trigger-section-title">${tl("settings.google_weather_alerts_length", { length: rows.length })}</p>${renderRows(rows)}`;
     } else {
       body = renderRows(rows);
     }
@@ -24546,38 +24575,38 @@ ${note}${via}${forecastHint}${activeBadge}
     const gwEntry = (this._getGoogleWeatherEntries() || []).find(
       (e) => e.entry_id === storm.google_weather_entry_id
     );
-    if (!storm.enabled) return "Off";
-    if (gwEntry) return `${gwEntry.title}${armed ? " · active" : ""}`;
+    if (!storm.enabled) return tl("common.off");
+    if (gwEntry) return `${gwEntry.title}${armed ? tl("storm_safe.active") : ""}`;
     return `${(storm.trigger_entities ?? []).length} trigger(s)`;
   }
 
   _smartChargeSettingsSubtitle() {
     const sc = this._plantState?.smart_charge ?? {};
-    if (!sc.enabled) return "Off";
+    if (!sc.enabled) return tl("common.off");
     const decision = sc.decision?.reason;
-    if (sc.discharge_armed) return decision ? `Exporting — ${decision}` : "Exporting";
-    if (sc.armed) return decision ? `Armed — ${decision}` : "Armed";
-    return decision || "Enabled";
+    if (sc.discharge_armed) return decision ? tl("smart_charge.exporting_decision", { decision }) : tl("smart_charge.exporting");
+    if (sc.armed) return decision ? tl("smart_charge.armed_decision", { decision }) : tl("smart_charge.armed");
+    return decision || tl("common.enabled");
   }
 
   _foxApiSettingsSubtitle() {
     const fox = this._plantState?.fox_cloud ?? {};
-    if (!fox.enabled) return "Off";
-    if (fox.api_key_set) return "Enabled · key saved";
-    return "Enabled — API key required";
+    if (!fox.enabled) return tl("common.off");
+    if (fox.api_key_set) return tl("settings.enabled_key_saved");
+    return tl("settings.enabled_api_key_required");
   }
 
   _warmupSettingsSubtitle() {
     const w = this._plantState?.battery_warmup ?? {};
-    if (!w.fox_api_ready) return "Fox Cloud API required";
-    if (!w.enabled) return "Off";
-    return this._warmupStatusLabel(w.state, { enabled: Boolean(w.enabled) }) || "Enabled";
+    if (!w.fox_api_ready) return tl("warmup.fox_cloud_api_required");
+    if (!w.enabled) return tl("common.off");
+    return this._warmupStatusLabel(w.state, { enabled: Boolean(w.enabled) }) || tl("common.enabled");
   }
 
   _controlSettingsSubtitle() {
     const control = this._plantState?.control_active
-      ? "Fox Plant manages periods"
-      : "Released to manual";
+      ? tl("settings.fox_plant_manages_periods")
+      : tl("settings.released_to_manual");
     return control;
   }
 
@@ -24615,24 +24644,24 @@ ${note}${via}${forecastHint}${activeBadge}
     const liveData = live.live || {};
     const lastMqtt = live.last_mqtt_at ? esc(formatSolcastTimestamp(live.last_mqtt_at)) : "—";
     const lastApi = live.last_api_at ? esc(formatSolcastTimestamp(live.last_api_at)) : "—";
-    const lastErr = live.last_error ? esc(String(live.last_error)) : "None";
+    const lastErr = live.last_error ? esc(String(live.last_error)) : tl("common.none");
     const kwh = (v) => (v != null ? `${Number(v).toFixed(2)} kWh` : "—");
     const importKw =
       liveData.import_kw != null ? `${Number(liveData.import_kw).toFixed(3)} kW` : "—";
     return `<div class="entity-list">
-<div class="entity-row"><span class="entity-name">MQTT</span><span class="entity-value">${live.mqtt_connected ? "Connected" : "Not connected"}</span></div>
-<div class="entity-row"><span class="entity-name">Live import power</span><span class="entity-value">${esc(importKw)}</span></div>
-<div class="entity-row"><span class="entity-name">Import today (meter)</span><span class="entity-value">${esc(kwh(liveData.import_kwh_today))}</span></div>
-<div class="entity-row"><span class="entity-name">Import total (meter)</span><span class="entity-value">${esc(kwh(liveData.import_kwh_cumulative))}</span></div>
-<div class="entity-row"><span class="entity-name">Export today (meter)</span><span class="entity-value">${esc(kwh(liveData.export_kwh_today))}</span></div>
-<div class="entity-row"><span class="entity-name">Export total (meter)</span><span class="entity-value">${esc(kwh(liveData.export_kwh_cumulative))}</span></div>
-<div class="entity-row"><span class="entity-name">Last MQTT</span><span class="entity-value">${lastMqtt}</span></div>
-<div class="entity-row"><span class="entity-name">Last API</span><span class="entity-value">${lastApi}</span></div>
-<div class="entity-row"><span class="entity-name">Device MAC</span><span class="entity-value">${esc(String(live.device_mac || "—"))}</span></div>
-<div class="entity-row"><span class="entity-name">MPAN</span><span class="entity-value">${esc(String(liveData.mpan || "—"))}</span></div>
-<div class="entity-row"><span class="entity-name">Last error</span><span class="entity-value">${lastErr}</span></div>
+<div class="entity-row"><span class="entity-name">MQTT</span><span class="entity-value">${live.mqtt_connected ? tl("glow.connected") : tl("glow.not_connected")}</span></div>
+<div class="entity-row"><span class="entity-name">${tl("glow.live_import_power")}</span><span class="entity-value">${esc(importKw)}</span></div>
+<div class="entity-row"><span class="entity-name">${tl("glow.import_today_meter")}</span><span class="entity-value">${esc(kwh(liveData.import_kwh_today))}</span></div>
+<div class="entity-row"><span class="entity-name">${tl("glow.import_total_meter")}</span><span class="entity-value">${esc(kwh(liveData.import_kwh_cumulative))}</span></div>
+<div class="entity-row"><span class="entity-name">${tl("glow.export_today_meter")}</span><span class="entity-value">${esc(kwh(liveData.export_kwh_today))}</span></div>
+<div class="entity-row"><span class="entity-name">${tl("glow.export_total_meter")}</span><span class="entity-value">${esc(kwh(liveData.export_kwh_cumulative))}</span></div>
+<div class="entity-row"><span class="entity-name">${tl("glow.last_mqtt")}</span><span class="entity-value">${lastMqtt}</span></div>
+<div class="entity-row"><span class="entity-name">${tl("glow.last_api")}</span><span class="entity-value">${lastApi}</span></div>
+<div class="entity-row"><span class="entity-name">${tl("glow.device_mac")}</span><span class="entity-value">${esc(String(live.device_mac || "—"))}</span></div>
+<div class="entity-row"><span class="entity-name">${tl("glow.mpan")}</span><span class="entity-value">${esc(String(liveData.mpan || "—"))}</span></div>
+<div class="entity-row"><span class="entity-name">${tl("common.last_error")}</span><span class="entity-value">${lastErr}</span></div>
 </div>
-<p class="field-hint" style="margin-top:8px">When enabled, analytics <strong>grid import and export</strong> use the smart meter. The IHD reports export only as a lifetime total, so <strong>Export today</strong> is derived from it (resets at midnight). Solar production and battery flows stay on FoxESS plant sensors.</p>`;
+<p class="field-hint" style="margin-top:8px">${tl("glow.when_enabled_analytics_grid_import_and")}</p>`;
   }
 
   _patchGlowSettingsLiveIfNeeded() {
@@ -24645,15 +24674,15 @@ ${note}${via}${forecastHint}${activeBadge}
 
   _renderSettingsMain(plant) {
     const subs = this._settingsMainSubtitles();
-    return `<div data-settings-main="1"><header class="header"><h1>Settings</h1><p>Configure your plant, automations, and integrations</p></header>
+    return `<div data-settings-main="1"><header class="header"><h1>${tl("common.settings")}</h1><p>${tl("settings.configure_your_plant_automations_and_integration")}</p></header>
 <div data-settings-live>${this._renderSettingsMainLiveHtml()}</div>
 <div data-settings-nav>
-${renderListButton({ action: "settings-sub", sub: "fox-api" }, "Fox API", subs["fox-api"])}
-${renderListButton({ action: "settings-sub", sub: "solcast" }, "Solar Forecast", subs.solcast)}
-${renderListButton({ action: "settings-sub", sub: "glow" }, "Glow smart meter", subs.glow)}
-${renderListButton({ action: "settings-sub", sub: "tariff" }, "Tariff", subs.tariff)}
-${renderListButton({ action: "settings-sub", sub: "weather" }, "Weather", subs.weather)}
-${renderListButton({ action: "settings-sub", sub: "performance" }, "Performance", subs.performance)}
+${renderListButton({ action: "settings-sub", sub: "fox-api" }, tl("settings.fox_api"), subs["fox-api"])}
+${renderListButton({ action: "settings-sub", sub: "solcast" }, tl("common.solar_forecast"), subs.solcast)}
+${renderListButton({ action: "settings-sub", sub: "glow" }, tl("common.glow_smart_meter"), subs.glow)}
+${renderListButton({ action: "settings-sub", sub: "tariff" }, tl("common.tariff"), subs.tariff)}
+${renderListButton({ action: "settings-sub", sub: "weather" }, tl("common.weather"), subs.weather)}
+${renderListButton({ action: "settings-sub", sub: "performance" }, tl("common.performance"), subs.performance)}
 </div></div>`;
   }
 
@@ -24661,17 +24690,17 @@ ${renderListButton({ action: "settings-sub", sub: "performance" }, "Performance"
     const options = selectableWorkModeOptions(this._plantState?.settings?.work_mode_options ?? []);
     if (!options.length) {
       return `<div class="card quick-settings-card">
-<p class="card-title">Work mode</p>
-<p class="placeholder" style="margin:0">Work mode entity not found. Reload the integration.</p>
+<p class="card-title">${tl("quick_settings.work_mode")}</p>
+<p class="placeholder" style="margin:0">${tl("quick_settings.work_mode_entity_not_found_reload")}</p>
 </div>`;
     }
     const rc = this._plantState?.settings?.remote_control;
     const rcHint =
       rc && rc !== "Disable" && rc !== "unknown" && rc !== "unavailable"
-        ? `<p class="field-hint" style="margin:0 0 12px">Remote control active: <strong>${esc(rc)}</strong> (use FoxESS Modbus Remote Control to change; not a work mode).</p>`
-        : `<p class="field-hint" style="margin:0 0 12px">Ordinary inverter strategy — force charge/discharge is separate on EVO.</p>`;
+        ? `<p class="field-hint" style="margin:0 0 12px">${tl("quick_settings.remote_control_active_rc_use_foxess", { rc: esc(rc) })}</p>`
+        : `<p class="field-hint" style="margin:0 0 12px">${tl("quick_settings.ordinary_inverter_strategy_force_charge_discharg")}</p>`;
     return `<div class="card quick-settings-card" data-quick-settings-section="work-mode">
-<p class="card-title">Work mode</p>
+<p class="card-title">${tl("quick_settings.work_mode")}</p>
 ${rcHint}
 <div class="mode-grid">${options
       .map((opt) => {
@@ -24681,7 +24710,7 @@ ${rcHint}
 ${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">${esc(meta.title)}</span>${meta.hint ? `<span class="hint">${esc(meta.hint)}</span>` : ""}</span></button>`;
       })
       .join("")}</div>
-<div class="btn-row" style="margin-top:16px"><button type="button" class="btn btn-primary" data-action="save-work-mode" ${this._busy ? "disabled" : ""}>Apply work mode</button></div>
+<div class="btn-row" style="margin-top:16px"><button type="button" class="btn btn-primary" data-action="save-work-mode" ${this._busy ? "disabled" : ""}>${tl("quick_settings.apply_work_mode")}</button></div>
 </div>`;
   }
 
@@ -24692,13 +24721,13 @@ ${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">
       ? // An inverter slot has its own min / max SOC (force charge stops at the max); the off-grid min
         // and the grid-charge switch are inverter-wide, not per slot.
         `<div class="period-times">
-<div class="field"><label>Min SOC (%)</label><input type="number" min="10" max="100" data-field="schedule:${idx}:min_soc_on_grid" value="${esc(String(seg.min_soc_on_grid ?? seg.min_soc ?? 10))}"></div>
-<div class="field"><label>Max SOC (%)</label><input type="number" min="10" max="100" data-field="schedule:${idx}:max_soc" value="${esc(String(seg.max_soc ?? 100))}"></div>
+<div class="field"><label>${tl("quick_settings.min_soc")}</label><input type="number" min="10" max="100" data-field="schedule:${idx}:min_soc_on_grid" value="${esc(String(seg.min_soc_on_grid ?? seg.min_soc ?? 10))}"></div>
+<div class="field"><label>${tl("quick_settings.max_soc")}</label><input type="number" min="10" max="100" data-field="schedule:${idx}:max_soc" value="${esc(String(seg.max_soc ?? 100))}"></div>
 </div>
-<p class="field-hint" style="margin:0 0 8px">Stored in the inverter&rsquo;s schedule slot. With force charge on, the inverter charges until Max SOC, then holds it until the slot ends.</p>
-<div class="toggle-row"><span>Force charge</span><input type="checkbox" data-field="schedule:${idx}:enable_force_charge" ${seg.enable_force_charge ? "checked" : ""}></div>`
+<p class="field-hint" style="margin:0 0 8px">${tl("quick_settings.stored_in_the_inverter_s_schedule")}</p>
+<div class="toggle-row"><span>${tl("common.force_charge_2")}</span><input type="checkbox" data-field="schedule:${idx}:enable_force_charge" ${seg.enable_force_charge ? "checked" : ""}></div>`
       : null;
-    const periodMaxHint = `<p class="field-hint" style="margin:0 0 8px">Period max is written to the inverter&rsquo;s system max SOC while this segment runs.</p>`;
+    const periodMaxHint = `<p class="field-hint" style="margin:0 0 8px">${tl("quick_settings.period_max_is_written_to_the")}</p>`;
     const modeOpts = options.length
       ? options
           .map(
@@ -24708,24 +24737,24 @@ ${renderWorkModeIconHtml(opt)}<span class="mode-option-body"><span class="name">
           .join("")
       : `<option value="${esc(seg.work_mode || "Self Use")}">${esc(seg.work_mode || "Self Use")}</option>`;
     return `<div class="period-card" data-schedule-segment="${idx}">
-<h4>Schedule ${idx + 1}${seg.label ? ` · ${esc(seg.label)}` : ""}</h4>
-<div class="toggle-row"><span>Enabled</span><input type="checkbox" data-field="schedule:${idx}:enabled" ${seg.enabled !== false ? "checked" : ""}></div>
+<h4>${tl("quick_settings.schedule_value_value2", { value: idx + 1, value2: seg.label ? ` · ${esc(seg.label)}` : "" })}</h4>
+<div class="toggle-row"><span>${tl("common.enabled")}</span><input type="checkbox" data-field="schedule:${idx}:enabled" ${seg.enabled !== false ? "checked" : ""}></div>
 <div class="period-times">
-<div class="field"><label>Start</label><input type="time" data-field="schedule:${idx}:start" value="${esc(timeForInput(seg.start))}"></div>
-<div class="field"><label>End</label><input type="time" data-field="schedule:${idx}:end" value="${esc(timeForInput(seg.end))}"></div>
+<div class="field"><label>${tl("common.start")}</label><input type="time" data-field="schedule:${idx}:start" value="${esc(timeForInput(seg.start))}"></div>
+<div class="field"><label>${tl("common.end")}</label><input type="time" data-field="schedule:${idx}:end" value="${esc(timeForInput(seg.end))}"></div>
 </div>
-<div class="field"><label>Work mode</label>
+<div class="field"><label>${tl("quick_settings.work_mode")}</label>
 <select data-field="schedule:${idx}:work_mode">${modeOpts}</select>
 </div>
 ${socFields ?? `<div class="period-times">
-<div class="field"><label>Period min SOC (%)</label><input type="number" min="10" max="100" data-field="schedule:${idx}:min_soc" value="${esc(String(seg.min_soc ?? 10))}"></div>
-<div class="field"><label>System min SOC (%)</label><input type="number" min="10" max="100" data-field="schedule:${idx}:min_soc_on_grid" value="${esc(String(seg.min_soc_on_grid ?? seg.min_soc ?? 10))}"></div>
-<div class="field"><label>Period max SOC (%)</label><input type="number" min="10" max="100" data-field="schedule:${idx}:max_soc" value="${esc(String(seg.max_soc ?? 100))}"></div>
+<div class="field"><label>${tl("quick_settings.period_min_soc")}</label><input type="number" min="10" max="100" data-field="schedule:${idx}:min_soc" value="${esc(String(seg.min_soc ?? 10))}"></div>
+<div class="field"><label>${tl("quick_settings.system_min_soc")}</label><input type="number" min="10" max="100" data-field="schedule:${idx}:min_soc_on_grid" value="${esc(String(seg.min_soc_on_grid ?? seg.min_soc ?? 10))}"></div>
+<div class="field"><label>${tl("quick_settings.period_max_soc")}</label><input type="number" min="10" max="100" data-field="schedule:${idx}:max_soc" value="${esc(String(seg.max_soc ?? 100))}"></div>
 </div>
 ${periodMaxHint}
-<div class="toggle-row"><span>Force charge</span><input type="checkbox" data-field="schedule:${idx}:enable_force_charge" ${seg.enable_force_charge ? "checked" : ""}></div>
-<div class="toggle-row"><span>Charge from grid</span><input type="checkbox" data-field="schedule:${idx}:enable_charge_from_grid" ${seg.enable_charge_from_grid ? "checked" : ""}></div>`}
-<div class="btn-row" style="margin-top:8px"><button type="button" class="btn btn-secondary" data-action="remove-schedule-segment" data-idx="${idx}">Remove</button></div>
+<div class="toggle-row"><span>${tl("common.force_charge_2")}</span><input type="checkbox" data-field="schedule:${idx}:enable_force_charge" ${seg.enable_force_charge ? "checked" : ""}></div>
+<div class="toggle-row"><span>${tl("common.charge_from_grid")}</span><input type="checkbox" data-field="schedule:${idx}:enable_charge_from_grid" ${seg.enable_charge_from_grid ? "checked" : ""}></div>`}
+<div class="btn-row" style="margin-top:8px"><button type="button" class="btn btn-secondary" data-action="remove-schedule-segment" data-idx="${idx}">${tl("quick_settings.remove")}</button></div>
 </div>`;
   }
 
@@ -24735,9 +24764,9 @@ ${periodMaxHint}
     const live = this._plantState?.plant_schedule ?? {};
     const active = live.active_segment;
     const activeHint = active
-      ? `<p class="field-hint" style="margin:0 0 12px;color:var(--fp-accent)">Active now: ${esc(active.start)}–${esc(active.end)} · ${esc(active.work_mode || "")}</p>`
+      ? `<p class="field-hint" style="margin:0 0 12px;color:var(--fp-accent)">${tl("quick_settings.active_now_start_end_value", { start: esc(active.start), end: esc(active.end), value: esc(active.work_mode || "") })}</p>`
       : live.active_source === "remaining"
-        ? `<p class="field-hint" style="margin:0 0 12px">Active now: remaining time mode (${esc(live.remaining_work_mode || draft.remaining_work_mode)})</p>`
+        ? `<p class="field-hint" style="margin:0 0 12px">${tl("quick_settings.active_now_remaining_time_mode_value", { value: esc(live.remaining_work_mode || draft.remaining_work_mode) })}</p>`
         : "";
     const remainingOptions = selectableWorkModeOptions(this._plantState?.settings?.work_mode_options ?? []);
     const remainingOpts = (remainingOptions.length ? remainingOptions : [draft.remaining_work_mode || "Self Use"])
@@ -24749,35 +24778,35 @@ ${periodMaxHint}
     const segments = draft.segments || [];
     const segmentCards = segments.length
       ? segments.map((seg, idx) => this._renderSchedulerSegmentCard(idx, seg, Boolean(live.on_inverter))).join("")
-      : `<p class="placeholder" style="margin:0 0 12px">No custom schedules yet — add one to match the Fox app &ldquo;Add a Schedule&rdquo; screen.</p>`;
+      : `<p class="placeholder" style="margin:0 0 12px">${tl("quick_settings.no_custom_schedules_yet_add_one")}</p>`;
     const applyFeedback = this._scheduleApplyResults?.length
       ? renderSocResultHtml(this._scheduleApplyResults).replace(
           'data-action="soc-result-close"',
           'data-action="schedule-result-close"'
-        ).replace('aria-label="SOC save result"', 'aria-label="Schedule apply result"')
+        ).replace(`aria-label="${tl("quick_settings.soc_save_result")}"`, `aria-label="${tl("quick_settings.schedule_apply_result")}"`)
       : "";
     const onInverter = Boolean(live.on_inverter);
     const activeSegmentNow = Boolean(active);
     const verifyBtn = activeSegmentNow && !onInverter
-      ? `<button type="button" class="btn btn-secondary" data-action="verify-plant-schedule" ${this._busy ? "disabled" : ""}>Verify segment on inverter</button>`
+      ? `<button type="button" class="btn btn-secondary" data-action="verify-plant-schedule" ${this._busy ? "disabled" : ""}>${tl("quick_settings.verify_segment_on_inverter")}</button>`
       : "";
     const howItRuns = onInverter
-      ? `The schedule is <strong>stored on the inverter</strong> (its own Mode Scheduler), so it keeps running even if Home Assistant is offline. Fox Plant checks it regularly and re-writes it if it was changed elsewhere — don't edit the schedule in the Fox app while Fox Plant is in control. Up to 6 slots; a slot crossing midnight uses two. Force-charge slots stop at their max SOC and charge at SmartCharge&rsquo;s max charge rate.`
-      : `Fox Plant owns the schedule on Home Assistant. Each segment sets work mode, SOC limits, and optional force-charge via <strong>Remote Control</strong> for its time window — applied every minute when that window is active. The timetable is not stored on the inverter (unlike the Fox app).`;
+      ? tl("quick_settings.the_schedule_is_stored_on_the")
+      : tl("quick_settings.fox_plant_owns_the_schedule_on");
     return `<div class="card quick-settings-card">
-<p class="card-title">Mode scheduler</p>
+<p class="card-title">${tl("quick_settings.mode_scheduler")}</p>
 <p class="field-hint" style="margin:0 0 12px">${howItRuns}</p>
-<div class="toggle-row"><span><strong>Enable HA scheduler</strong></span><input type="checkbox" data-field="schedule:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+<div class="toggle-row"><span>${tl("quick_settings.enable_ha_scheduler")}</span><input type="checkbox" data-field="schedule:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 ${activeHint}
-<div class="field"><label>Remaining time work mode</label>
+<div class="field"><label>${tl("quick_settings.remaining_time_work_mode")}</label>
 <select data-field="schedule:remaining_work_mode" ${this._busy ? "disabled" : ""}>${remainingOpts}</select>
-<p class="field-hint" style="margin:4px 0 0">Used for any time not covered by a custom segment (Fox app &ldquo;Remaining Time Mode&rdquo;).</p>
+<p class="field-hint" style="margin:4px 0 0">${tl("quick_settings.used_for_any_time_not_covered")}</p>
 </div>
 ${segmentCards}
 <div class="btn-row" style="margin-top:16px">
-<button type="button" class="btn btn-primary" data-action="save-plant-schedule" ${this._busy ? "disabled" : ""}>Save &amp; apply</button>
-<button type="button" class="btn btn-secondary" data-action="add-schedule-segment" ${this._busy || segments.length >= MAX_SCHEDULE_SEGMENTS ? "disabled" : ""}>Add a schedule</button>
-<button type="button" class="btn btn-secondary" data-action="apply-plant-schedule-now" ${this._busy ? "disabled" : ""}>Apply now</button>
+<button type="button" class="btn btn-primary" data-action="save-plant-schedule" ${this._busy ? "disabled" : ""}>${tl("quick_settings.save_apply")}</button>
+<button type="button" class="btn btn-secondary" data-action="add-schedule-segment" ${this._busy || segments.length >= MAX_SCHEDULE_SEGMENTS ? "disabled" : ""}>${tl("quick_settings.add_a_schedule")}</button>
+<button type="button" class="btn btn-secondary" data-action="apply-plant-schedule-now" ${this._busy ? "disabled" : ""}>${tl("quick_settings.apply_now")}</button>
 ${verifyBtn}
 </div>
 ${applyFeedback}
@@ -24787,13 +24816,13 @@ ${applyFeedback}
   _renderQuickSettingsControlSection() {
     const active = this._plantState?.control_active;
     return `<div class="card quick-settings-card" data-quick-settings-section="plant-control">
-<p class="card-title">Plant control</p>
-<p class="field-hint" style="margin:0 0 12px">When <strong>active</strong>, Fox Plant is the only writer for charge periods (via <code>foxess_modbus</code>). Release control if you need to edit schedules in the Fox app temporarily.</p>
+<p class="card-title">${tl("quick_settings.plant_control")}</p>
+<p class="field-hint" style="margin:0 0 12px">${tl("quick_settings.when_active_fox_plant_is_the")}</p>
 <div class="btn-row">
 ${active
-      ? `<button type="button" class="btn btn-danger" data-action="release-control" ${this._busy ? "disabled" : ""}>Release control</button>`
-      : `<button type="button" class="btn btn-primary" data-action="take-control" ${this._busy ? "disabled" : ""}>Take control</button>`}
-<button type="button" class="btn btn-secondary" data-action="apply-baseline" ${this._busy ? "disabled" : ""}>Apply baseline now</button>
+      ? `<button type="button" class="btn btn-danger" data-action="release-control" ${this._busy ? "disabled" : ""}>${tl("quick_settings.release_control")}</button>`
+      : `<button type="button" class="btn btn-primary" data-action="take-control" ${this._busy ? "disabled" : ""}>${tl("quick_settings.take_control")}</button>`}
+<button type="button" class="btn btn-secondary" data-action="apply-baseline" ${this._busy ? "disabled" : ""}>${tl("quick_settings.apply_baseline_now")}</button>
 </div>
 </div>`;
   }
@@ -24802,11 +24831,11 @@ ${active
     const scLock = smartChargeOwnsPlantControls(this._plantState);
     const controlSection = this._renderQuickSettingsControlSection();
     if (scLock) {
-      return `<header class="header"><h1>Quick Settings</h1><p>Day-to-day inverter controls — battery SOC limits, work mode, baseline charge windows, and plant control.</p></header>
+      return `<header class="header"><h1>${tl("common.quick_settings")}</h1><p>${tl("quick_settings.day_to_day_inverter_controls_battery")}</p></header>
 ${this._renderSettingsLockedPanel(
         "quick",
-        "Quick Settings",
-        " SOC limits, work mode, and charge windows are managed by SmartCharge while automation is on.",
+        tl("common.quick_settings"),
+        tl("quick_settings.soc_limits_work_mode_and_charge"),
         { omitHeader: true }
       )}
 ${controlSection}`;
@@ -24818,12 +24847,12 @@ ${controlSection}`;
     const plant = this._getPlant();
     const liveSoc = this._liveBatterySoc(plant) ?? 0;
     const validation = validateSocLimits(this._socDraft, liveSoc, this._socValidateOpts());
-    return `<header class="header"><h1>Quick Settings</h1><p>Day-to-day inverter controls — battery SOC limits, work mode, baseline charge windows, and plant control.</p></header>
+    return `<header class="header"><h1>${tl("common.quick_settings")}</h1><p>${tl("quick_settings.day_to_day_inverter_controls_battery")}</p></header>
 <div class="card quick-settings-card">
-<p class="card-title">SOC limits</p>
-<p class="field-hint" style="margin:0 0 12px">Quick controls for your plant. Drag the three handles — off-grid min, system min, system max</p>
+<p class="card-title">${tl("common.soc_limits")}</p>
+<p class="field-hint" style="margin:0 0 12px">${tl("quick_settings.quick_controls_for_your_plant_drag")}</p>
 ${this._renderTripleSoc(plant, this._socDraft, liveSoc)}
-<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-soc" ${this._busy || validation.errors.length ? "disabled" : ""}>Save to inverter</button></div>
+<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-soc" ${this._busy || validation.errors.length ? "disabled" : ""}>${tl("quick_settings.save_to_inverter")}</button></div>
 </div>
 ${this._renderQuickSettingsWorkModeCard()}
 ${this._renderQuickSettingsScheduleSection()}
@@ -24839,7 +24868,7 @@ ${controlSection}`;
       (mode) => mode !== "max_profit" || !profitUseless || draft.operating_mode === "max_profit"
     );
     const profitHint = profitUseless
-      ? `<p class="field-hint">Max Profit is ${draft.operating_mode === "max_profit" ? "not useful" : "hidden"} on your tariff: import is a flat price and exporting stored energy can&rsquo;t beat refilling it, so there&rsquo;s nothing extra to earn. Max Safety or Max Green fit better.</p>`
+      ? `<p class="field-hint">${tl("smart_charge.max_profit_is_value_on_your", { value: draft.operating_mode === "max_profit" ? tl("smart_charge.not_useful") : "hidden" })}</p>`
       : "";
     const cards = modes
       .map((mode) => {
@@ -24851,7 +24880,7 @@ ${controlSection}`;
 </button>`;
       })
       .join("");
-    return `<p class="card-title" style="margin-top:14px">Operating mode</p>
+    return `<p class="card-title" style="margin-top:14px">${tl("smart_charge.operating_mode")}</p>
 <div class="mode-grid">${cards}</div>
 ${profitHint}`;
   }
@@ -24861,12 +24890,12 @@ ${profitHint}`;
     const profile = this._plantState?.smart_charge?.tariff_profile || null;
     const fmtP = (v) => (v != null && Number.isFinite(Number(v)) ? `${Number(v).toFixed(2)}p/kWh` : "—");
     if (profile && profile.export_known !== false && !profile.has_export) {
-      return `<p class="field-hint">No export tariff found, so SmartCharge won&rsquo;t force-export the battery. Surplus solar still exports as normal.</p>`;
+      return `<p class="field-hint">${tl("smart_charge.no_export_tariff_found_so_smartcharge")}</p>`;
     }
     if (profile && profile.has_export && !profile.forced_export_useful) {
       const eff = Number(profile.round_trip_efficiency);
       const effText = Number.isFinite(eff) ? `${(eff * 100).toFixed(0)}%` : "battery";
-      return `<p class="field-hint">Export pays at most ${esc(fmtP(profile.export_max_p))}. Only ${esc(effText)} of a stored kWh comes back out, so that&rsquo;s never more than refilling it at your cheapest import (${esc(fmtP(profile.import_min_p))}): force-exporting the battery can&rsquo;t save money, so SmartCharge never does it on these rates. Surplus solar still exports as normal.</p>`;
+      return `<p class="field-hint">${tl("smart_charge.export_pays_at_most_export_max", { export_max_p: esc(fmtP(profile.export_max_p)), effText: esc(effText), import_min_p: esc(fmtP(profile.import_min_p)) })}</p>`;
     }
     const keys = {
       max_profit: { minP: "min_export_p_profit", minDef: 12, frac: "exportable_fraction_profit", fracDef: 1, allow: null },
@@ -24875,24 +24904,24 @@ ${profitHint}`;
     }[mode] || null;
     if (!keys) return "";
     const allowLabel =
-      mode === "max_green" ? "Allow forced export in green mode" : "Allow forced export in safety mode";
+      mode === "max_green" ? tl("smart_charge.allow_forced_export_in_green_mode") : tl("smart_charge.allow_forced_export_in_safety_mode");
     const allowRow = keys.allow
       ? `<div class="toggle-row"><span><strong>${allowLabel}</strong></span>
 <input type="checkbox" data-field="smart-charge:${keys.allow}" ${draft[keys.allow] ? "checked" : ""} ${busy}></div>`
       : "";
     const exportFlat = profile && profile.has_export && !profile.export_varies;
     const minRateRow = exportFlat
-      ? `<p class="field-hint">Export is a fixed ${esc(fmtP(profile.export_max_p))}. SmartCharge only force-exports when that beats refilling the battery later from cheaper import.</p>`
-      : `<div class="field"><label>Min export rate (p/kWh)</label>
+      ? `<p class="field-hint">${tl("smart_charge.export_is_a_fixed_export_max", { export_max_p: esc(fmtP(profile.export_max_p)) })}</p>`
+      : `<div class="field"><label>${tl("smart_charge.min_export_rate_p_kwh")}</label>
 <input type="number" min="0" max="100" step="0.5" data-field="smart-charge:${keys.minP}" value="${esc(String(draft[keys.minP] ?? keys.minDef))}" ${busy}></div>`;
-    return `<div class="toggle-row"><span><strong>Allow forced battery export</strong></span>
+    return `<div class="toggle-row"><span>${tl("smart_charge.allow_forced_battery_export")}</span>
 <input type="checkbox" data-field="smart-charge:export_enabled" ${draft.export_enabled ? "checked" : ""} ${busy}></div>
-<p class="field-hint">SmartCharge may empty the battery to the grid when export pays more than refilling it later. Surplus solar is still exported as normal either way.</p>
+<p class="field-hint">${tl("smart_charge.smartcharge_may_empty_the_battery_to")}</p>
 ${allowRow}
 ${minRateRow}
-<div class="field"><label>Max exportable fraction</label>
+<div class="field"><label>${tl("smart_charge.max_exportable_fraction")}</label>
 <input type="number" min="0.05" max="1" step="0.05" data-field="smart-charge:${keys.frac}" value="${esc(String(draft[keys.frac] ?? keys.fracDef))}" ${busy}>
-<p class="field-hint">Share of the battery above the export floor that may be force-exported per plan.</p></div>`;
+<p class="field-hint">${tl("smart_charge.share_of_the_battery_above_the")}</p></div>`;
   }
 
   _renderSmartChargeModePanel(draft) {
@@ -24901,19 +24930,19 @@ ${minRateRow}
     const busy = this._busy ? "disabled" : "";
     let body = this._renderSmartChargeExportFields(draft, mode, busy);
     if (mode === "max_green") {
-      body += `<div class="field"><label>Carbon weight (0–1)</label>
+      body += `<div class="field"><label>${tl("smart_charge.carbon_weight_0_1")}</label>
 <input type="number" min="0" max="1" step="0.05" data-field="smart-charge:green_carbon_weight" value="${esc(String(draft.green_carbon_weight ?? 0.5))}" ${busy}>
-<p class="field-hint">Adds up to 10p/kWh × weight to grid imports in high-carbon half-hours, steering charging towards greener slots.</p></div>`;
+<p class="field-hint">${tl("smart_charge.adds_up_to_10p_kwh_weight")}</p></div>`;
     } else if (mode === "max_safety") {
-      body += `<div class="field"><label>Safety reserve multiplier</label>
+      body += `<div class="field"><label>${tl("smart_charge.safety_reserve_multiplier")}</label>
 <input type="number" min="1" max="5" step="0.05" data-field="smart-charge:safety_reserve_multiplier" value="${esc(String(draft.safety_reserve_multiplier ?? 1.5))}" ${busy}></div>`;
     }
     const profile = this._plantState?.smart_charge?.tariff_profile || null;
     if (profile && profile.import_known && !profile.import_varies) {
-      body += `<p class="field-hint">Import is a flat ${esc(Number(profile.import_max_p).toFixed(2))}p/kWh, so grid charging can&rsquo;t save money. SmartCharge will just run self-use unless prices change.</p>`;
+      body += `<p class="field-hint">${tl("smart_charge.import_is_a_flat_import_max", { import_max_p: esc(Number(profile.import_max_p).toFixed(2)) })}</p>`;
     }
     return `<div class="sc-mode-panel" style="--sc-mode-accent: ${meta.accent}">
-<p class="sc-mode-panel-title"><span class="sc-mode-panel-icon" aria-hidden="true">${smartChargeModeIconHtml(mode)}</span>${esc(meta.title)} settings</p>
+<p class="sc-mode-panel-title"><span class="sc-mode-panel-icon" aria-hidden="true">${smartChargeModeIconHtml(mode)}</span>${tl("smart_charge.title_settings", { title: esc(meta.title) })}</p>
 ${body}
 </div>`;
   }
@@ -24975,16 +25004,16 @@ ${body}
     const chargeCount = planSlots.filter((s) => s.action === "charge").length;
     const loadSource =
       meta.load_source === "history"
-        ? `load from ${meta.load_history_days ?? "?"}-day history`
-        : "load from fallback kW (no history yet)";
+        ? tl("smart_charge.load_from_days_history", { days: meta.load_history_days ?? "?" })
+        : tl("smart_charge.load_from_fallback_kw_no_history");
     const estimated = meta.unknown_price_slots
-      ? ` · ${meta.unknown_price_slots} slots with estimated prices (not planned)`
+      ? ` ${tl("smart_charge.unknown_price_slots_slots_with_estimated", { unknown_price_slots: meta.unknown_price_slots })}`
       : "";
     const planSummary = meta.error
       ? String(meta.error)
       : planSlots.length > 0
-        ? `${planSlots.length} half-hours to ${planSlots[planSlots.length - 1].end}: ${chargeCount} charge · ${exportCount} export · ${loadSource}${estimated}`
-        : "Building plan from tariff rates, Solcast forecast and house load history…";
+        ? tl("smart_charge.length_half_hours_to_end_chargecount", { length: planSlots.length, end: planSlots[planSlots.length - 1].end, chargeCount, exportCount, loadSource, estimated })
+        : tl("smart_charge.building_plan_from_tariff_rates_solcast");
     return { live, decision, dailyPlan, planSlots, spreadPairs, planSummary };
   }
 
@@ -25004,11 +25033,11 @@ ${body}
     const parts = [];
     if (nativeSolcastPvForecastEnabled(this._plantState)) {
       const last = formatSolcastTimestamp(sc.cache_updated_at || sc.last_fetch_at);
-      parts.push(`Solcast: last fetch ${last} · next fetch ${formatSolcastNextFetch(sc)}`);
+      parts.push(tl("smart_charge.solcast_last_fetch_last_next_fetch", { last, sc: formatSolcastNextFetch(sc) }));
     }
-    if (om?.enabled) parts.push(`Open-Meteo: last fetch ${formatSolcastTimestamp(om.fetched_at)}`);
-    if (summary.tomorrow_pv_source === "open_meteo") parts.push("tomorrow's PV from Open-Meteo");
-    else if (summary.tomorrow_pv_estimated) parts.push("tomorrow's PV estimated from the same time yesterday until the next poll");
+    if (om?.enabled) parts.push(tl("smart_charge.open_meteo_last_fetch_fetched_at", { fetched_at: formatSolcastTimestamp(om.fetched_at) }));
+    if (summary.tomorrow_pv_source === "open_meteo") parts.push(tl("smart_charge.tomorrow_s_pv_from_open_meteo"));
+    else if (summary.tomorrow_pv_estimated) parts.push(tl("smart_charge.tomorrow_s_pv_estimated_from_the"));
     if (!parts.length) return "";
     return `<p class="field-hint" style="margin:6px 0 0">${esc(parts.join(" · "))}</p>`;
   }
@@ -25018,14 +25047,14 @@ ${body}
     const statusLine = decision.reason
       ? `${status.linePrefix} — ${decision.reason}`
       : live.discharge_armed
-        ? "Exporting to grid"
+        ? tl("smart_charge.exporting_to_grid")
         : live.armed
-          ? "Grid charge armed on inverter"
-          : "Waiting for first evaluation";
+          ? tl("smart_charge.grid_charge_armed_on_inverter")
+          : tl("smart_charge.waiting_for_first_evaluation");
     const meterVerify = decision.meter_verify;
     const meterLine =
       meterVerify && meterVerify.status && meterVerify.status !== "skipped"
-        ? `<p class="field-hint" style="margin:8px 0 0">Meter check: ${esc(String(meterVerify.detail || meterVerify.status))}</p>`
+        ? `<p class="field-hint" style="margin:8px 0 0">${tl("smart_charge.meter_check_value", { value: esc(String(meterVerify.detail || meterVerify.status)) })}</p>`
         : "";
     const pillClass =
       status.tone === "export"
@@ -25044,7 +25073,7 @@ ${body}
       : "";
     return `<div class="${status.cardClass}">
 <div class="sc-status-head">
-<div><p class="sc-status-title">Live status</p><p class="sc-status-reason">${esc(statusLine)}</p>${status.hint ? `<p class="field-hint" style="margin:4px 0 0">${esc(status.hint)}</p>` : ""}${meterLine}</div>
+<div><p class="sc-status-title">${tl("common.live_status")}</p><p class="sc-status-reason">${esc(statusLine)}</p>${status.hint ? `<p class="field-hint" style="margin:4px 0 0">${esc(status.hint)}</p>` : ""}${meterLine}</div>
 <span class="${pillClass}">${esc(status.pill)}</span>
 </div>
 ${renderSmartChargeStatTiles(decision)}
@@ -25075,87 +25104,87 @@ ${spreadHtml}
     const socSection =
       draft.enabled && this._smartChargeSocDraft
         ? `<div class="card" data-smart-charge-soc="1">
-<p class="card-title">SOC limits</p>
-<p class="field-hint" style="margin:0 0 12px">Used by SmartCharge (overrides Quick Settings while automation is active). StormSafe can still charge above the system max when armed. The purple <strong>Export floor</strong> is virtual — SmartCharge stops force-export there and returns to Self Use.</p>
+<p class="card-title">${tl("common.soc_limits")}</p>
+<p class="field-hint" style="margin:0 0 12px">${tl("smart_charge.used_by_smartcharge_overrides_quick_settings")}</p>
 ${this._renderTripleSoc(plant, this._smartChargeSocDraft, liveSoc, {
   context: "smart",
 })}
 </div>`
         : "";
     return `<div data-smart-charge-settings="1">${this._renderSmartChargeHero()}
-<header class="header smart-charge-settings-header"><h1>SmartCharge</h1><p>Simulates the battery half-hour by half-hour from your tariff, the Solcast PV forecast and your house-load history, then picks the cheapest charge and export slots. Keeps an outage reserve floor. StormSafe always overrides.</p></header>
+<header class="header smart-charge-settings-header"><h1>SmartCharge</h1><p>${tl("smart_charge.simulates_the_battery_half_hour_by")}</p></header>
 ${draft.enabled ? `<div data-smart-charge-live>${statusCard}</div>` : statusCard}
 ${socSection}
 <div class="card">
-<p class="card-title">Automation</p>
-<div class="toggle-row"><span><strong>Enable SmartCharge</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Requires Fox Plant control, Solcast PV forecast, and tariff rates</span></span>
+<p class="card-title">${tl("smart_charge.automation")}</p>
+<div class="toggle-row"><span>${tl("smart_charge.enable_smartcharge")}<br><span style="font-size:12px;color:var(--secondary-text-color)">${tl("smart_charge.requires_fox_plant_control_solcast_pv")}</span></span>
 <input type="checkbox" data-field="smart-charge:enabled" ${draft.enabled ? "checked" : ""} ${busy}></div>
 ${draft.enabled ? this._renderSmartChargeModePicker(draft) : ""}
 ${draft.enabled ? this._renderSmartChargeModePanel(draft) : ""}
 ${draft.enabled ? `<details class="sc-section-details" data-sc-section="energy"${this._smartChargeSectionOpenAttr("energy", draft)}>
-<summary>Battery &amp; planner</summary>
-<div class="field"><label>Max grid charge power (kW)</label>
+<summary>${tl("smart_charge.battery_planner")}</summary>
+<div class="field"><label>${tl("smart_charge.max_grid_charge_power_kw")}</label>
 <input type="number" min="0.1" max="50" step="0.1" data-field="smart-charge:max_charge_kw" value="${esc(String(draft.max_charge_kw ?? 3))}" ${busy}>
-<p class="field-hint">Used to size how many half-hours are needed to reach the planned SOC.</p></div>
-<div class="field"><label>Max discharge / export power (kW)</label>
-<input type="number" min="0.1" max="50" step="0.1" data-field="smart-charge:max_discharge_kw" value="${draft.max_discharge_kw != null ? esc(String(draft.max_discharge_kw)) : ""}" placeholder="Same as charge" ${busy}></div>
-<div class="field"><label>Solar safety margin (Max safety mode)</label>
+<p class="field-hint">${tl("smart_charge.used_to_size_how_many_half")}</p></div>
+<div class="field"><label>${tl("smart_charge.max_discharge_export_power_kw")}</label>
+<input type="number" min="0.1" max="50" step="0.1" data-field="smart-charge:max_discharge_kw" value="${draft.max_discharge_kw != null ? esc(String(draft.max_discharge_kw)) : ""}" placeholder="${tl("smart_charge.same_as_charge")}" ${busy}></div>
+<div class="field"><label>${tl("smart_charge.solar_safety_margin_max_safety_mode")}</label>
 <input type="number" min="1" max="3" step="0.05" data-field="smart-charge:solar_safety_margin" value="${esc(String(draft.solar_safety_margin ?? 1.15))}" ${busy}>
-<p class="field-hint">Forecast PV is divided by this in Max safety mode, e.g. 1.25 plans on 80% of the Solcast estimate.</p></div>
-<div class="field"><label>Minimum saving to act (p/kWh)</label>
+<p class="field-hint">${tl("smart_charge.forecast_pv_is_divided_by_this")}</p></div>
+<div class="field"><label>${tl("smart_charge.minimum_saving_to_act_p_kwh")}</label>
 <input type="number" min="0" max="50" step="0.1" data-field="smart-charge:min_saving_p_per_kwh" value="${esc(String(draft.min_saving_p_per_kwh ?? 1))}" ${busy}>
-<p class="field-hint">A charge or export is only planned when it saves at least this much per kWh moved.</p></div>
-<div class="field"><label>Peak lower limit (SOC %)</label>
+<p class="field-hint">${tl("smart_charge.a_charge_or_export_is_only")}</p></div>
+<div class="field"><label>${tl("smart_charge.peak_lower_limit_soc")}</label>
 <input type="number" min="0" max="100" step="1" data-field="smart-charge:peak_min_soc" value="${esc(String(draft.peak_min_soc ?? 20))}" ${busy}>
-<p class="field-hint">Time-of-use tariffs: the grid charge happens only in the cheapest window and is sized so the battery is still at this SOC when the dearest (peak) band ends. That spare covers loads the history can&rsquo;t predict, like the oven. Set it to your inverter&rsquo;s minimum SOC plus the biggest surprise load you want covered. A top-up at a dearer daytime rate happens only when the battery is planned to drop below this before the peak ends (e.g. PV fell short). The inverter&rsquo;s own minimum SOC is unchanged.</p></div>
-<div class="field"><label>Round-trip efficiency</label>
+<p class="field-hint">${tl("smart_charge.time_of_use_tariffs_the_grid")}</p></div>
+<div class="field"><label>${tl("smart_charge.round_trip_efficiency")}</label>
 <input type="number" min="0.5" max="1" step="0.01" data-field="smart-charge:round_trip_efficiency" value="${esc(String(draft.round_trip_efficiency ?? 0.9))}" ${busy}>
 ${(() => {
   const prof = this._plantState?.smart_charge?.tariff_profile;
   if (prof?.round_trip_efficiency_source !== "measured") {
-    return `<p class="field-hint">Used until the inverter has enough battery history (50 kWh charged) to measure it.</p>`;
+    return `<p class="field-hint">${tl("smart_charge.used_until_the_inverter_has_enough")}</p>`;
   }
-  return `<p class="field-hint">Not used: SmartCharge uses your battery&rsquo;s measured round-trip efficiency, <strong>${esc((Number(prof.round_trip_efficiency) * 100).toFixed(1))}%</strong> (lifetime battery discharge &divide; charge, so it includes inverter and standby losses).</p>`;
+  return `<p class="field-hint">${tl("smart_charge.not_used_smartcharge_uses_your_battery", { value: esc((Number(prof.round_trip_efficiency) * 100).toFixed(1)) })}</p>`;
 })()}</div>
 </details>
 <details class="sc-section-details" data-sc-section="reserve"${this._smartChargeSectionOpenAttr("reserve", draft)}>
-<summary>Outage reserve &amp; house load</summary>
-<div class="field"><label>Load history (days)</label>
+<summary>${tl("smart_charge.outage_reserve_house_load")}</summary>
+<div class="field"><label>${tl("smart_charge.load_history_days")}</label>
 <input type="number" min="1" max="60" step="1" data-field="smart-charge:load_history_days" value="${esc(String(draft.load_history_days ?? 14))}" ${busy}>
-<p class="field-hint">Half-hourly house load is predicted from the median of this many days of the inverter&rsquo;s load energy history (weekday / weekend split when available).</p></div>
-<div class="field"><label>House load fallback (kW)</label>
+<p class="field-hint">${tl("smart_charge.half_hourly_house_load_is_predicted")}</p></div>
+<div class="field"><label>${tl("smart_charge.house_load_fallback_kw")}</label>
 <input type="number" min="0.1" max="50" step="0.1" data-field="smart-charge:house_load_kw_fallback" value="${esc(String(draft.house_load_kw_fallback ?? 1))}" ${busy}>
-<p class="field-hint">Flat average load used until load history is available.</p></div>
-<div class="field"><label>Reserve load override (kW, optional)</label>
-<input type="number" min="0" max="50" step="0.1" data-field="smart-charge:outage_reserve_load_kw" value="${draft.outage_reserve_load_kw != null ? esc(String(draft.outage_reserve_load_kw)) : ""}" placeholder="Use average load" ${busy}></div>
-<div class="field"><label>Vulnerable hours (reserve)</label>
+<p class="field-hint">${tl("smart_charge.flat_average_load_used_until_load")}</p></div>
+<div class="field"><label>${tl("smart_charge.reserve_load_override_kw_optional")}</label>
+<input type="number" min="0" max="50" step="0.1" data-field="smart-charge:outage_reserve_load_kw" value="${draft.outage_reserve_load_kw != null ? esc(String(draft.outage_reserve_load_kw)) : ""}" placeholder="${tl("smart_charge.use_average_load")}" ${busy}></div>
+<div class="field"><label>${tl("smart_charge.vulnerable_hours_reserve")}</label>
 <input type="number" min="0" max="24" step="0.5" data-field="smart-charge:outage_reserve_hours" value="${esc(String(draft.outage_reserve_hours ?? 3))}" ${busy}></div>
-<div class="field"><label>Reserve safety margin</label>
+<div class="field"><label>${tl("smart_charge.reserve_safety_margin")}</label>
 <input type="number" min="1" max="5" step="0.05" data-field="smart-charge:outage_reserve_margin" value="${esc(String(draft.outage_reserve_margin ?? 1.2))}" ${busy}></div>
 </details>
 <details class="sc-section-details" data-sc-section="agile"${this._smartChargeSectionOpenAttr("agile", draft)}>
-<summary>Rates &amp; re-planning</summary>
-<div class="field"><label>Evaluation interval (minutes)</label>
+<summary>${tl("smart_charge.rates_re_planning")}</summary>
+<div class="field"><label>${tl("smart_charge.evaluation_interval_minutes")}</label>
 <input type="number" min="5" max="60" step="1" data-field="smart-charge:agile_poll_interval_minutes" value="${esc(String(draft.agile_poll_interval_minutes ?? 15))}" ${busy}>
-<p class="field-hint">SmartCharge always also wakes on every half-hour boundary so planned slots start on time.</p></div>
-<div class="field"><label>Daily plan time (UK local)</label>
+<p class="field-hint">${tl("smart_charge.smartcharge_always_also_wakes_on_every")}</p></div>
+<div class="field"><label>${tl("smart_charge.daily_plan_time_uk_local")}</label>
 <input type="time" data-field="smart-charge:daily_plan_time" value="${esc(String(draft.daily_plan_time ?? "16:00"))}" ${busy}>
-<p class="field-hint">${this._plantState?.smart_charge?.tariff_profile?.import_varies === false ? "Forces a fresh rate fetch and replan." : "Forces a fresh Octopus fetch and replan (Agile publishes tomorrow&rsquo;s rates around 16:00). Slots whose price isn&rsquo;t published yet are estimated and never scheduled."} The plan always runs to the end of tomorrow and is also rebuilt when rates, the Solcast forecast or battery SOC change materially, and at least hourly.</p></div>
-<div class="toggle-row"><span><strong>Charge and export from the inverter's own schedule (EVO)</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Put each planned grid charge (Force Charge) on the inverter as a slot 30 minutes before it starts, and each planned export (Force Discharge) when it starts, as a 20-minute slot that Fox Plant keeps extending; both come off when done. The inverter then starts and stops them itself. Off: Fox Plant holds Remote Control on for the whole charge or export.</span></span>
+<p class="field-hint">${tl("smart_charge.value_the_plan_always_runs_to", { value: this._plantState?.smart_charge?.tariff_profile?.import_varies === false ? tl("smart_charge.forces_a_fresh_rate_fetch_and") : tl("smart_charge.forces_a_fresh_octopus_fetch_and") })}</p></div>
+<div class="toggle-row"><span>${tl("smart_charge.charge_and_export_from_the_inverter")}<br><span style="font-size:12px;color:var(--secondary-text-color)">${tl("smart_charge.put_each_planned_grid_charge_force")}</span></span>
 <input type="checkbox" data-field="smart-charge:charge_on_inverter" ${draft.charge_on_inverter !== false ? "checked" : ""} ${busy}></div>
-<div class="toggle-row"><span><strong>Glow / smart-meter rate check</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Double-check live meter import rate against Octopus API before force-charging</span></span>
+<div class="toggle-row"><span>${tl("smart_charge.glow_smart_meter_rate_check")}<br><span style="font-size:12px;color:var(--secondary-text-color)">${tl("smart_charge.double_check_live_meter_import_rate")}</span></span>
 <input type="checkbox" data-field="smart-charge:meter_rate_verify_enabled" ${draft.meter_rate_verify_enabled !== false ? "checked" : ""} ${busy}></div>
-${draft.meter_rate_verify_enabled !== false ? `<div class="field"><label>Import rate sensor (Glow / IHD)</label>
+${draft.meter_rate_verify_enabled !== false ? `<div class="field"><label>${tl("smart_charge.import_rate_sensor_glow_ihd")}</label>
 <input type="text" data-field="smart-charge:meter_rate_entity_id" value="${esc(String(draft.meter_rate_entity_id || ""))}" placeholder="sensor.…_import_unit_rate" ${busy}>
-<p class="field-hint">Use your live Glow/Hildebrand import unit-rate sensor. £/kWh or p/kWh both work. Leave blank to skip the check.</p></div>
-<div class="field"><label>Agreement tolerance (p/kWh)</label>
+<p class="field-hint">${tl("smart_charge.use_your_live_glow_hildebrand_import")}</p></div>
+<div class="field"><label>${tl("smart_charge.agreement_tolerance_p_kwh")}</label>
 <input type="number" min="0" max="20" step="0.05" data-field="smart-charge:meter_rate_tolerance_p_per_kwh" value="${esc(String(draft.meter_rate_tolerance_p_per_kwh ?? 0.5))}" ${busy}>
-<p class="field-hint">e.g. API −0.037p and meter −0.04p are fine — only block when the gap is larger than this.</p></div>
-<div class="field"><label>Recheck after mismatch (minutes)</label>
+<p class="field-hint">${tl("smart_charge.e_g_api_0_037p_and")}</p></div>
+<div class="field"><label>${tl("smart_charge.recheck_after_mismatch_minutes")}</label>
 <input type="number" min="1" max="30" step="1" data-field="smart-charge:meter_rate_recheck_minutes" value="${esc(String(draft.meter_rate_recheck_minutes ?? 5))}" ${busy}></div>` : ""}
 </details>
 ${this._renderSmartChargeGridBehaviourInfo()}` : ""}
-<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-smart-charge" ${busy || (draft.enabled && socValidation.errors.length) ? "disabled" : ""}>Save SmartCharge</button></div>
+<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-smart-charge" ${busy || (draft.enabled && socValidation.errors.length) ? "disabled" : ""}>${tl("smart_charge.save_smartcharge")}</button></div>
 </div></div>`;
   }
 
@@ -25171,19 +25200,19 @@ ${this._renderSmartChargeGridBehaviourInfo()}` : ""}
     const precheck = this._plantState?.storm_prep?.solcast_precheck ?? {};
     const armedMsg =
       armed && precheck.action === "pv_only"
-        ? "Storm prep is <strong>active</strong> — PV top-up only (no grid import per Solcast pre-check)."
+        ? tl("storm_safe.storm_prep_is_active_pv_top")
         : armed
-          ? "Storm prep is <strong>active</strong> — storm pre-charge applied."
-          : "No storm triggers active right now.";
+          ? tl("storm_safe.storm_prep_is_active_storm_pre")
+          : tl("storm_safe.no_storm_triggers_active_right_now");
     return `${this._renderStormHero(armed)}
-<header class="header storm-settings-header"><h1>StormSafe</h1><p>Pre-charge before severe weather — <strong>Google Weather</strong> detects storms; optional <strong>Solcast</strong> can reduce grid import when forecast solar covers the gap</p></header>
+<header class="header storm-settings-header"><h1>StormSafe</h1><p>${tl("storm_safe.pre_charge_before_severe_weather_google")}</p></header>
 <div class="card">
-<p class="card-title">Status</p>
+<p class="card-title">${tl("common.status")}</p>
 <p style="margin:0 0 10px;font-size:14px">${armedMsg}</p>
 ${activeTriggers.length ? `<div>${activeTriggers.map((t) => `<span class="trigger-chip">${esc(t)}</span>`).join("")}</div>` : ""}
 <div class="btn-row" style="margin-top:12px">
-<button type="button" class="btn btn-primary" data-action="arm-storm" ${this._busy ? "disabled" : ""}>Test arm</button>
-<button type="button" class="btn btn-secondary" data-action="disarm-storm" ${this._busy ? "disabled" : ""}>Disarm override</button>
+<button type="button" class="btn btn-primary" data-action="arm-storm" ${this._busy ? "disabled" : ""}>${tl("storm_safe.test_arm")}</button>
+<button type="button" class="btn btn-secondary" data-action="disarm-storm" ${this._busy ? "disabled" : ""}>${tl("storm_safe.disarm_override")}</button>
 </div>
 </div>
 ${this._renderStormEnableCard()}
@@ -25191,25 +25220,25 @@ ${this._renderGoogleWeatherSource()}
 ${this._renderStormSolcastSection()}
 ${this._renderStormWeatherCategories()}
 <div class="card">
-<p class="card-title">Pre-charge timing</p>
-<div class="toggle-row"><span><strong>Forecast pre-charge</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Arm storm pre-charge when Google hourly forecast shows severe weather within the lead time</span></span>
+<p class="card-title">${tl("storm_safe.pre_charge_timing")}</p>
+<div class="toggle-row"><span>${tl("storm_safe.forecast_pre_charge")}<br><span style="font-size:12px;color:var(--secondary-text-color)">${tl("storm_safe.arm_storm_pre_charge_when_google")}</span></span>
 <input type="checkbox" data-field="toggle-storm-forecast" ${draft.use_forecast_lead ? "checked" : ""} ${!draft.enabled || this._busy ? "disabled" : ""}></div>
-<div class="field" style="margin-top:10px"><label>Lead time (hours before forecast storm)</label>
+<div class="field" style="margin-top:10px"><label>${tl("storm_safe.lead_time_hours_before_forecast_storm")}</label>
 <input type="number" min="1" max="48" step="1" data-field="storm-lead-hours" value="${esc(String(draft.forecast_lead_hours ?? 4))}" ${!draft.enabled || !draft.use_forecast_lead || this._busy ? "disabled" : ""}></div>
 </div>
 ${this._renderStormAdvancedTriggers()}
 ${this._renderAutomationOverrideBehaviourCard(draft.charge_periods[0], "storm-behaviour", {
-  title: "While storm is active",
-  hint: "Direct inverter control while StormSafe is armed — not a timed charge schedule. Solcast may turn off grid import when PV covers the gap.",
+  title: tl("storm_safe.while_storm_is_active"),
+  hint: tl("storm_safe.direct_inverter_control_while_stormsafe_is"),
   disabled: !draft.enabled || this._busy,
 })}
 <div class="card">
-<p class="card-title">Optional max SoC during storm</p>
-<div class="field"><label>Target max % (leave empty to keep current max)</label>
+<p class="card-title">${tl("storm_safe.optional_max_soc_during_storm")}</p>
+<div class="field"><label>${tl("storm_safe.target_max_leave_empty_to_keep")}</label>
 <input type="number" min="10" max="100" step="1" data-field="storm-max-soc" value="${esc(maxSocVal)}" placeholder="e.g. 100" ${!draft.enabled || this._busy ? "disabled" : ""}></div>
 </div>
 <div class="btn-row">
-<button type="button" class="btn btn-primary" data-action="save-storm-prep" ${this._busy ? "disabled" : ""}>Save StormSafe settings</button>
+<button type="button" class="btn btn-primary" data-action="save-storm-prep" ${this._busy ? "disabled" : ""}>${tl("storm_safe.save_stormsafe_settings")}</button>
 </div>`;
   }
 
@@ -25218,20 +25247,20 @@ ${this._renderAutomationOverrideBehaviourCard(draft.charge_periods[0], "storm-be
     const cfg = this._pvDraft[which];
     const stringLabel = which === "pv2" ? "PV2" : "PV1";
     const disabled = this._busy || (!allowWhenDisabled && !cfg.enabled);
-    const offHint = !cfg.enabled && !allowWhenDisabled ? " (string off — enable under PV Configuration)" : "";
+    const offHint = !cfg.enabled && !allowWhenDisabled ? tl("pv.string_off_enable_under_pv_configuration") : "";
     return `<div class="pv-geometry-block" data-pv-string="${esc(which)}">
 <p class="pv-geometry-label"><strong>${esc(stringLabel)}</strong>${esc(offHint)}</p>
 <div class="field">
-<label>Tilt (°)</label>
-<p class="field-hint">Panel angle from horizontal (default 25° if unset)</p>
+<label>${tl("pv.tilt")}</label>
+<p class="field-hint">${tl("pv.panel_angle_from_horizontal_default_25")}</p>
 <div class="pv-range-row">
 <input type="range" min="0" max="90" step="1" data-field="pv:${which}:tilt" value="${esc(String(cfg.tilt))}" ${disabled ? "disabled" : ""}>
 <span class="pv-range-value">${esc(String(cfg.tilt))}°</span>
 </div>
 </div>
 <div class="field">
-<label>Azimuth (°)</label>
-<p class="field-hint">0° = north, 90° = east, 180° = south (default 180° if unset)</p>
+<label>${tl("pv.azimuth")}</label>
+<p class="field-hint">${tl("pv.x_0_north_90_east_180_south")}</p>
 <div class="pv-range-row">
 <input type="range" min="0" max="359" step="1" data-field="pv:${which}:azimuth" value="${esc(String(cfg.azimuth))}" ${disabled ? "disabled" : ""}>
 <span class="pv-range-value">${esc(String(cfg.azimuth))}°</span>
@@ -25243,8 +25272,8 @@ ${this._renderAutomationOverrideBehaviourCard(draft.charge_periods[0], "storm-be
   _renderPvStringBlock(which) {
     if (!this._pvDraft) this._initPvDraft();
     const cfg = this._pvDraft[which];
-    const sectionTitle = which === "pv2" ? "PV2 configuration" : "PV1 configuration";
-    const enabledLabel = which === "pv2" ? "PV2 Enabled" : "PV1 Enabled";
+    const sectionTitle = which === "pv2" ? tl("pv.pv2_configuration") : tl("pv.pv1_configuration");
+    const enabledLabel = which === "pv2" ? tl("pv.pv2_enabled") : tl("pv.pv1_enabled");
     const arrayHintTarget = which === "pv2" ? "PV2" : "PV1";
     const disabled = this._busy || !cfg.enabled;
     const disabledClass = cfg.enabled ? "" : " pv-string-disabled";
@@ -25256,8 +25285,8 @@ ${this._renderAutomationOverrideBehaviourCard(draft.charge_periods[0], "storm-be
     const annualRate = this._pvDraft.annual_degradation_pct ?? DEFAULT_PV_CONFIG.annual_degradation_pct;
     const autoHint = autoEff ? formatPvEfficiencyAgeHint(installDate, annualRate) : "";
     const effHint = autoEff
-      ? `<p class="field-hint">${esc(autoHint)} <a class="field-link" href="${esc(PV_EFFICIENCY_FACTOR_URL)}" target="_blank" rel="noopener noreferrer">What is the efficiency factor?</a></p>`
-      : `<p class="field-hint"><a class="field-link" href="${esc(PV_EFFICIENCY_FACTOR_URL)}" target="_blank" rel="noopener noreferrer">What is the efficiency factor?</a></p>`;
+      ? `<p class="field-hint">${tl("pv.autohint_what_is_the_efficiency_factor", { autoHint: esc(autoHint), pv_efficiency_factor_url: esc(PV_EFFICIENCY_FACTOR_URL) })}</p>`
+      : `<p class="field-hint">${tl("pv.what_is_the_efficiency_factor", { pv_efficiency_factor_url: esc(PV_EFFICIENCY_FACTOR_URL) })}</p>`;
     const effDisabled = disabled || autoEff;
     const nameplateKw = ((cfg.panel_count * cfg.watts_per_panel) / 1000).toFixed(2);
     const effectiveKw = (
@@ -25270,40 +25299,40 @@ ${this._renderAutomationOverrideBehaviourCard(draft.charge_periods[0], "storm-be
 <input type="checkbox" data-field="pv:${which}:enabled" ${cfg.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 <div class="pv-config-fields">
 <div class="field">
-<label>PV Array size</label>
-<p class="field-hint">Total number of panels on ${esc(arrayHintTarget)}</p>
+<label>${tl("pv.pv_array_size")}</label>
+<p class="field-hint">${tl("pv.total_number_of_panels_on_arrayhinttarget", { arrayHintTarget: esc(arrayHintTarget) })}</p>
 <div class="pv-range-row">
 <input type="range" min="1" max="12" step="1" data-field="pv:${which}:panel_count" value="${esc(String(cfg.panel_count))}" ${disabled ? "disabled" : ""}>
 <span class="pv-range-value">${esc(String(cfg.panel_count))}</span>
 </div>
 </div>
 <div class="field">
-<label>Wattage per panel</label>
+<label>${tl("pv.wattage_per_panel")}</label>
 <div class="pv-range-row">
 <input type="range" min="100" max="1000" step="10" data-field="pv:${which}:watts_per_panel" value="${esc(String(cfg.watts_per_panel))}" ${disabled ? "disabled" : ""}>
 <span class="pv-range-value">${esc(String(cfg.watts_per_panel))} W</span>
 </div>
 </div>
 <div class="field">
-<label>Efficiency Factor</label>
+<label>${tl("pv.efficiency_factor")}</label>
 ${effHint}
-<input type="number" class="pv-eff-input" min="1" max="100" step="1" data-field="pv:${which}:efficiency_factor" value="${esc(String(cfg.efficiency_factor))}" ${effDisabled ? "disabled" : ""} aria-label="Efficiency factor percent"> <span style="font-size:14px">%</span>
+<input type="number" class="pv-eff-input" min="1" max="100" step="1" data-field="pv:${which}:efficiency_factor" value="${esc(String(cfg.efficiency_factor))}" ${effDisabled ? "disabled" : ""} aria-label="${tl("pv.efficiency_factor_percent")}"> <span style="font-size:14px">%</span>
 </div>
 ${this._renderPvTiltAzimuthFields(which)}
-<p class="field-hint" style="margin-top:4px">Nameplate ${esc(nameplateKw)} kW DC · Effective ${esc(effectiveKw)} kW (after efficiency)</p>
+<p class="field-hint" style="margin-top:4px">${tl("pv.nameplate_nameplatekw_kw_dc_effective_effectivek", { nameplateKw: esc(nameplateKw), effectiveKw: esc(effectiveKw) })}</p>
 <details class="pv-datasheet" data-keep-open="pv-datasheet-${esc(String(which))}"${this._keepOpenAttr(`pv-datasheet-${which}`)}>
-<summary>Panel datasheet &amp; mounting (for panel temperature)</summary>
-<div class="field"><label>NOCT (°C)</label>
+<summary>${tl("pv.panel_datasheet_mounting_for_panel_temperature")}</summary>
+<div class="field"><label>${tl("pv.noct_c")}</label>
 <input type="number" class="pv-eff-input" min="35" max="60" step="0.5" data-field="pv:${which}:noct_c" value="${esc(String(cfg.noct_c ?? 45))}" ${disabled ? "disabled" : ""}>
-<p class="field-hint">Nominal Operating Cell Temperature from the panel datasheet (often 42–47 °C).</p></div>
-<div class="field"><label>Power temperature coefficient (%/°C)</label>
+<p class="field-hint">${tl("pv.nominal_operating_cell_temperature_from_the")}</p></div>
+<div class="field"><label>${tl("pv.power_temperature_coefficient_c")}</label>
 <input type="number" class="pv-eff-input" min="-0.6" max="-0.1" step="0.01" data-field="pv:${which}:power_temp_coeff_pct" value="${esc(String(cfg.power_temp_coeff_pct ?? -0.3))}" ${disabled ? "disabled" : ""}>
-<p class="field-hint">&ldquo;Temperature coefficient of Pmax&rdquo; on the datasheet, e.g. −0.30.</p></div>
-<div class="field"><label>Mounting</label>
+<p class="field-hint">${tl("pv.temperature_coefficient_of_pmax_on_the")}</p></div>
+<div class="field"><label>${tl("pv.mounting")}</label>
 <select data-field="pv:${which}:mounting" ${disabled ? "disabled" : ""}>${Object.entries(PV_MOUNTINGS)
   .map(([value, label]) => `<option value="${value}" ${cfg.mounting === value ? "selected" : ""}>${esc(label)}</option>`)
   .join("")}</select>
-<p class="field-hint">Panels with less air behind them run hotter in the same sun.</p></div>
+<p class="field-hint">${tl("pv.panels_with_less_air_behind_them")}</p></div>
 </details>
 </div>
 </div>`;
@@ -25314,19 +25343,19 @@ ${this._renderPvTiltAzimuthFields(which)}
     const installDate = pvInstallationDate(this._plantState, this._solcastDraft);
     const annualRate = this._pvDraft.annual_degradation_pct ?? DEFAULT_PV_CONFIG.annual_degradation_pct;
     const installHint = installDate
-      ? `<p class="field-hint" style="margin:8px 0 0">Installation date <strong>${esc(installDate)}</strong> (from Solcast settings) — efficiency is calculated automatically and saved daily on each install-date anniversary (00:15 local).</p>`
-      : `<p class="field-hint" style="margin:8px 0 0">Set an installation date under <strong>Settings → Solcast</strong> to auto-calculate efficiency from system age.</p>`;
+      ? `<p class="field-hint" style="margin:8px 0 0">${tl("pv.installation_date_installdate_from_solcast_setti", { installDate: esc(installDate) })}</p>`
+      : `<p class="field-hint" style="margin:8px 0 0">${tl("pv.set_an_installation_date_under_settings")}</p>`;
     return `<header class="header"><h1>${esc(title)}</h1>${subtitle ? `<p>${esc(subtitle)}</p>` : ""}</header>
-<section class="card" style="margin-bottom:12px"><p class="card-title">PV Configuration</p>
-<p class="field-hint" style="margin:0">Panel count, wattage, efficiency, tilt, and azimuth drive the native Solcast rooftop PV forecast on Overview and Energy charts.</p>
+<section class="card" style="margin-bottom:12px"><p class="card-title">${tl("common.pv_configuration")}</p>
+<p class="field-hint" style="margin:0">${tl("pv.panel_count_wattage_efficiency_tilt_and")}</p>
 ${installHint}
-<div class="field" style="margin-top:12px"><label>Annual degradation (%)</label>
-<p class="field-hint">Solcast-style performance loss per year (default 2% — pro-rated by month since installation).</p>
-<input type="number" min="0" max="10" step="0.1" data-field="pv-meta:annual_degradation_pct" value="${esc(String(annualRate))}" ${this._busy || !installDate ? "disabled" : ""} aria-label="Annual degradation percent"></div>
+<div class="field" style="margin-top:12px"><label>${tl("pv.annual_degradation")}</label>
+<p class="field-hint">${tl("pv.solcast_style_performance_loss_per_year")}</p>
+<input type="number" min="0" max="10" step="0.1" data-field="pv-meta:annual_degradation_pct" value="${esc(String(annualRate))}" ${this._busy || !installDate ? "disabled" : ""} aria-label="${tl("pv.annual_degradation_percent")}"></div>
 </section>
 ${this._renderPvStringBlock("pv1")}
 ${this._renderPvStringBlock("pv2")}
-<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-pv-config" ${this._busy ? "disabled" : ""}>Save PV configuration</button></div>`;
+<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-pv-config" ${this._busy ? "disabled" : ""}>${tl("pv.save_pv_configuration")}</button></div>`;
   }
 
   _renderTariffRateBlock(kind, { label, unitLabel, placeholder, liveMeta, pluginEntityId }) {
@@ -25349,27 +25378,27 @@ ${this._renderPvStringBlock("pv2")}
     const suggestedHint = source === "entity" ? tariffSuggestedEntitiesHint(this._hass, kind) : "";
     const scheduleOption = isStanding ? "plugin" : "schedule";
     const scheduleLabel = isStanding
-      ? "Plugin sensor (configured below)"
-      : "Time-of-use schedule (plugin sensor)";
+      ? tl("tariff.plugin_sensor_configured_below")
+      : tl("tariff.time_of_use_schedule_plugin_sensor");
     let liveHint = "";
     if (source === "entity") {
       if (liveMeta?.available === false) {
         liveHint = entityId
-          ? `Sensor ${entityId} is unavailable`
-          : "Choose a sensor that reports this rate";
+          ? tl("tariff.sensor_entityid_is_unavailable", { entityId })
+          : tl("tariff.choose_a_sensor_that_reports_this");
       } else if (liveMeta?.resolved_p != null) {
-        liveHint = `Live: ${formatTariffMoney(liveMeta.resolved_p, currency)}${unitLabel}${liveMeta.entity_id ? ` from ${liveMeta.entity_id}` : ""}`;
+        liveHint = tl("tariff.live_resolved_p_unitlabel_value", { resolved_p: formatTariffMoney(liveMeta.resolved_p, currency), unitLabel, value: liveMeta.entity_id ? ` from ${liveMeta.entity_id}` : "" });
       } else if (entityId && liveMeta?.state != null) {
-        liveHint = `Live state: ${liveMeta.state}${liveMeta.unit ? ` ${liveMeta.unit}` : ""} — could not convert to ${currency} automatically`;
+        liveHint = tl("tariff.live_state_state_value_could_not", { state: liveMeta.state, value: liveMeta.unit ? ` ${liveMeta.unit}` : "", currency });
       } else if (entityId) {
-        liveHint = "Waiting for a numeric reading from the selected sensor";
+        liveHint = tl("tariff.waiting_for_a_numeric_reading_from");
       } else {
         liveHint = suggestedHint;
       }
     } else if (pluginEntityId) {
-      liveHint = `Plugin sensor: ${pluginEntityId} — updated on schedule boundaries for recorder history`;
+      liveHint = tl("tariff.plugin_sensor_pluginentityid_updated_on_schedule", { pluginEntityId });
     } else if (!isStanding) {
-      liveHint = "Save to create plugin sensors that update each hour (or when the band changes)";
+      liveHint = tl("tariff.save_to_create_plugin_sensors_that");
     }
     const entityHint = source === "entity" ? liveHint || suggestedHint : liveHint;
     const standingApiLocked =
@@ -25382,8 +25411,8 @@ ${this._renderPvStringBlock("pv2")}
         ? `<div class="field" data-tariff-manual="${esc(kind)}">
 <p class="field-hint">${
             standingApiLocked
-              ? `Synced from ${esc(energyProviderLabel(tariffEnergyProviderId(this._tariffDraft)))} automatically whenever rates are fetched — published to the plugin sensor in ${esc(currency)}/day`
-              : `Daily standing charge in ${esc(currency)} — published to the plugin sensor on save`
+              ? tl("tariff.synced_from_energyproviderlabel_automatically_wh", { energyProviderLabel: esc(energyProviderLabel(tariffEnergyProviderId(this._tariffDraft))), currency: esc(currency) })
+              : tl("tariff.daily_standing_charge_in_currency_published", { currency: esc(currency) })
           }</p>
 <input type="number" min="0" max="9999" step="${esc(inputStep)}" inputmode="decimal" data-field="tariff:${esc(kind)}:p" value="${esc(String(manualDisplay || ""))}" placeholder="${esc(placeholder)}" ${standingInputDisabled ? "disabled readonly" : ""}>
 </div>`
@@ -25393,12 +25422,12 @@ ${this._renderPvStringBlock("pv2")}
 <label>${esc(label)}</label>
 <select data-field="tariff:${esc(kind)}:source" ${this._busy ? "disabled" : ""}>
 <option value="${esc(scheduleOption)}" ${source === scheduleOption ? "selected" : ""}>${esc(scheduleLabel)}</option>
-<option value="entity" ${source === "entity" ? "selected" : ""}>Home Assistant sensor</option>
+<option value="entity" ${source === "entity" ? "selected" : ""}>${tl("tariff.home_assistant_sensor_2")}</option>
 </select>
 </div>
 ${standingManualBlock}
 <div class="field" ${source === "entity" ? "" : 'style="display:none"'} data-tariff-entity="${esc(kind)}">
-<p class="field-hint">${esc(entityHint || "Use the Home Assistant sensor picker — search by friendly name or entity id.")}</p>
+<p class="field-hint">${esc(entityHint || tl("tariff.use_the_home_assistant_sensor_picker"))}</p>
 <div class="tariff-entity-picker-host" data-tariff-picker="${esc(kind)}"></div>
 </div>
 </div>`;
@@ -25431,7 +25460,7 @@ ${standingManualBlock}
     const hourBlocks = schedule.hours
       .map((bandIdx, hour) => {
         const color = TARIFF_BAND_COLORS[bandIdx] ?? TARIFF_BAND_COLORS[0];
-        return `<button type="button" class="tariff-hour-block" style="background:${color}" title="${String(hour).padStart(2, "0")}:00–${String((hour + 1) % 24).padStart(2, "0")}:00 · ${esc(TARIFF_BAND_LABELS[bandIdx] || "Band A")}" data-action="tariff-hour" data-hour="${hour}" ${scheduleRatesDisabled ? "disabled" : ""} aria-label="Hour ${hour}"></button>`;
+        return `<button type="button" class="tariff-hour-block" style="background:${color}" title="${String(hour).padStart(2, "0")}:00–${String((hour + 1) % 24).padStart(2, "0")}:00 · ${esc(TARIFF_BAND_LABELS[bandIdx] || tl("tariff.band_a"))}" data-action="tariff-hour" data-hour="${hour}" ${scheduleRatesDisabled ? "disabled" : ""} aria-label="${tl("tariff.hour_hour", { hour })}"></button>`;
       })
       .join("");
     const hourLabels = schedule.hours
@@ -25456,11 +25485,11 @@ ${standingManualBlock}
                 .map((p) => Number(p).toFixed(4))
             ),
           ];
-          const shown = !prices.length ? "—" : prices.length > 1 ? "Varies" : String(minorToMajor(Number(prices[0]), currency));
-          const from = exportFrom === "entity" ? "your export sensor" : energyProviderLabel(exportFrom);
-          exportCell = `<div class="field" style="margin:0"><label>Export ${esc(currency)}/kWh</label><input type="text" readonly disabled data-field="tariff:schedule:band:${idx}:export_from_provider" value="${esc(shown)}" title="${esc(`Set by ${from} — change it on the Export card`)}"></div>`;
+          const shown = !prices.length ? "—" : prices.length > 1 ? tl("tariff.varies") : String(minorToMajor(Number(prices[0]), currency));
+          const from = exportFrom === "entity" ? tl("tariff.your_export_sensor") : energyProviderLabel(exportFrom);
+          exportCell = `<div class="field" style="margin:0"><label>${tl("tariff.export_currency_kwh", { currency: esc(currency) })}</label><input type="text" readonly disabled data-field="tariff:schedule:band:${idx}:export_from_provider" value="${esc(shown)}" title="${esc(tl("tariff.set_by_from_change_it_on", { from }))}"></div>`;
         } else {
-          exportCell = `<div class="field" style="margin:0"><label>Export ${esc(currency)}/kWh</label><input type="number" min="0" max="9999" step="${esc(inputStep)}" inputmode="decimal" data-field="tariff:schedule:band:${idx}:export" value="${esc(String(exportDisplay || ""))}" placeholder="${currency === "GBP" ? "e.g. 0.150" : "e.g. 0.15"}" ${exportRatesDisabled ? "disabled" : ""}></div>`;
+          exportCell = `<div class="field" style="margin:0"><label>${tl("tariff.export_currency_kwh", { currency: esc(currency) })}</label><input type="number" min="0" max="9999" step="${esc(inputStep)}" inputmode="decimal" data-field="tariff:schedule:band:${idx}:export" value="${esc(String(exportDisplay || ""))}" placeholder="${currency === "GBP" ? "e.g. 0.150" : "e.g. 0.15"}" ${exportRatesDisabled ? "disabled" : ""}></div>`;
         }
         const bandWorkMode = resolveWorkModeDraft(band.work_mode || "Self Use", workModeOptions);
         const modeOpts = (workModeOptions.length ? workModeOptions : [bandWorkMode])
@@ -25471,36 +25500,36 @@ ${standingManualBlock}
           .join("");
         return `<div class="tariff-band-rate-row">
 <span class="tariff-band-chip" style="cursor:default;border:none;padding:4px 0"><span class="tariff-band-swatch" style="background:${TARIFF_BAND_COLORS[idx]}"></span>${esc(TARIFF_BAND_LABELS[idx])}</span>
-${showImport ? `<div class="field" style="margin:0"><label>Import ${esc(currency)}/kWh</label><input type="number" min="0" max="9999" step="${esc(inputStep)}" inputmode="decimal" data-field="tariff:schedule:band:${idx}:import" value="${esc(String(importDisplay || ""))}" placeholder="${currency === "GBP" ? "e.g. 0.245" : "e.g. 0.25"}" ${scheduleRatesDisabled ? "disabled" : ""}></div>` : `<div></div>`}
+${showImport ? `<div class="field" style="margin:0"><label>${tl("tariff.import_currency_kwh", { currency: esc(currency) })}</label><input type="number" min="0" max="9999" step="${esc(inputStep)}" inputmode="decimal" data-field="tariff:schedule:band:${idx}:import" value="${esc(String(importDisplay || ""))}" placeholder="${currency === "GBP" ? "e.g. 0.245" : "e.g. 0.25"}" ${scheduleRatesDisabled ? "disabled" : ""}></div>` : `<div></div>`}
 ${exportCell}
-<label class="tariff-band-work-mode"><span>Work Mode</span><select data-field="tariff:schedule:band:${idx}:work_mode" ${bandInverterDisabled ? "disabled" : ""}>${modeOpts}</select></label>
-<label class="tariff-band-force"><input type="checkbox" data-field="tariff:schedule:band:${idx}:force_charge" ${band.enable_force_charge ? "checked" : ""} ${bandInverterDisabled ? "disabled" : ""}><span>Force Charge</span></label>
+<label class="tariff-band-work-mode"><span>${tl("tariff.work_mode")}</span><select data-field="tariff:schedule:band:${idx}:work_mode" ${bandInverterDisabled ? "disabled" : ""}>${modeOpts}</select></label>
+<label class="tariff-band-force"><input type="checkbox" data-field="tariff:schedule:band:${idx}:force_charge" ${band.enable_force_charge ? "checked" : ""} ${bandInverterDisabled ? "disabled" : ""}><span>${tl("common.force_charge")}</span></label>
 </div>`;
       })
       .join("");
     const haSchedulerOn = Boolean(this._plantState?.plant_schedule?.enabled);
     const bandControlHint = haSchedulerOn
-      ? "Quick Settings mode scheduler is enabled — it takes priority over tariff band work modes."
-      : "When enabled, each hour applies that band’s work mode (and optional force charge) while plant control is on.";
+      ? tl("tariff.quick_settings_mode_scheduler_is_enabled")
+      : tl("tariff.when_enabled_each_hour_applies_that");
     const bandControlChecked = Boolean(draft.apply_band_inverter_control);
     const smartChargeBandHint = smartChargeActive
-      ? `<p class="field-hint" style="margin:0 0 12px;color:var(--fp-accent)">SmartCharge is currently active — per-band Work Mode and Force Charge are not applied while it is enabled.</p>`
+      ? `<p class="field-hint" style="margin:0 0 12px;color:var(--fp-accent)">${tl("tariff.smartcharge_is_currently_active_per_band")}</p>`
       : "";
     const pluginIds = this._plantState?.tariff?.plugin_sensors ?? {};
     const pluginHint = pluginIds.import || pluginIds.export
-      ? `<p class="field-hint" style="margin:0 0 12px">Plugin sensors: ${[pluginIds.import, pluginIds.export].filter(Boolean).map((id) => esc(id)).join(" · ") || "—"} — rates update at each hour boundary so the recorder captures when costs change.</p>`
-      : `<p class="field-hint" style="margin:0 0 12px">Plugin sensors are created when you save. They update at each hour boundary so the recorder captures when costs change (same path planned for Agile API tariffs).</p>`;
+      ? `<p class="field-hint" style="margin:0 0 12px">${tl("tariff.plugin_sensors_value_rates_update_at", { value: [pluginIds.import, pluginIds.export].filter(Boolean).map((id) => esc(id)).join(" · ") || "—" })}</p>`
+      : `<p class="field-hint" style="margin:0 0 12px">${tl("tariff.plugin_sensors_are_created_when_you")}</p>`;
     const scheduleIntro = octopusLocked && exportManual
-      ? `Import rates and hour bands are synced from ${supplierLabel} automatically whenever rates are fetched. Export is Manual Rates: type each band's export rate below and Save Tariff — it is kept on every sync. Work Mode and Force Charge per band can still be configured.`
+      ? tl("tariff.import_rates_and_hour_bands_are", { supplierLabel })
       : octopusLocked
-      ? `Rates and hour bands are synced from ${supplierLabel} automatically whenever rates are fetched (including the 30-minute poll). Work Mode and Force Charge per band can still be configured below.`
-      : "24 hourly blocks from 00:00 to 24:00, same every day. Pick a band colour, then tap hours to assign it. Use one band for a flat tariff, or two to four for peak/off-peak.";
+      ? tl("tariff.rates_and_hour_bands_are_synced", { supplierLabel })
+      : tl("tariff.x_24_hourly_blocks_from_00_00");
     const cardLockClass = `${octopusLocked ? " tariff-schedule-locked" : ""}${smartChargeActive ? " tariff-band-inverter-locked" : ""}`;
     return `<div class="card tariff-schedule-card${cardLockClass}">
-<p class="card-title">Daily Time-of-Use Schedule</p>
+<p class="card-title">${tl("tariff.daily_time_of_use_schedule")}</p>
 <p class="field-hint" style="margin:0 0 12px">${esc(scheduleIntro)}</p>
 ${exportFrom ? `<p class="field-hint" style="margin:0 0 12px">${esc(exportElsewhereHint(exportFrom))}</p>` : ""}
-<div class="toggle-row" style="margin:0 0 12px"><span>Apply band work mode to inverter</span><input type="checkbox" data-field="tariff:apply_band_inverter_control" ${bandControlChecked ? "checked" : ""} ${bandInverterDisabled ? "disabled" : ""}></div>
+<div class="toggle-row" style="margin:0 0 12px"><span>${tl("tariff.apply_band_work_mode_to_inverter")}</span><input type="checkbox" data-field="tariff:apply_band_inverter_control" ${bandControlChecked ? "checked" : ""} ${bandInverterDisabled ? "disabled" : ""}></div>
 <p class="field-hint" style="margin:0 0 12px">${esc(bandControlHint)}</p>
 ${smartChargeBandHint}
 ${pluginHint}
@@ -25519,13 +25548,13 @@ ${pluginHint}
     const liveCurrency = tariffCurrencyFromTariff(live);
     const entities = live.entities ?? {};
     const historyCount = live.rate_history_count ?? 0;
-    const lastUpdated = live.last_updated_at ? esc(formatSolcastTimestamp(live.last_updated_at)) : "Never";
+    const lastUpdated = live.last_updated_at ? esc(formatSolcastTimestamp(live.last_updated_at)) : tl("common.never");
     const effective = tariffEffectiveRates(live);
     const effectiveBits = [];
-    if (effective.import_p_per_kwh) effectiveBits.push(`Import ${formatTariffMoney(effective.import_p_per_kwh, liveCurrency)}/kWh`);
-    if (effective.export_p_per_kwh) effectiveBits.push(`Export ${formatTariffMoney(effective.export_p_per_kwh, liveCurrency)}/kWh`);
+    if (effective.import_p_per_kwh) effectiveBits.push(tl("tariff.import_import_p_per_kwh_kwh", { import_p_per_kwh: formatTariffMoney(effective.import_p_per_kwh, liveCurrency) }));
+    if (effective.export_p_per_kwh) effectiveBits.push(tl("tariff.export_export_p_per_kwh_kwh", { export_p_per_kwh: formatTariffMoney(effective.export_p_per_kwh, liveCurrency) }));
     if (effective.standing_charge_p_per_day) {
-      effectiveBits.push(`Standing ${formatTariffMoney(effective.standing_charge_p_per_day, liveCurrency)}/day`);
+      effectiveBits.push(tl("tariff.standing_standing_charge_p_per_day", { standing_charge_p_per_day: formatTariffMoney(effective.standing_charge_p_per_day, liveCurrency) }));
     }
     const currencyOptions = Object.entries(TARIFF_CURRENCIES)
       .sort((a, b) => a[1].name.localeCompare(b[1].name))
@@ -25538,29 +25567,29 @@ ${pluginHint}
     const scheduleStatus = live.schedule_status ?? {};
     const bandLabel =
       scheduleStatus.band_index != null ? TARIFF_BAND_LABELS[scheduleStatus.band_index] || "" : "";
-    return `<header class="header"><h1>Tariff</h1><p>Electricity rates for cost and revenue analysis. Import and export can each come from a supplier, a Home Assistant sensor, or rates you type in — the same supplier for both, or different ones.</p></header>
+    return `<header class="header"><h1>${tl("common.tariff")}</h1><p>${tl("tariff.electricity_rates_for_cost_and_revenue")}</p></header>
 <div class="card">
-<p class="card-title">Electricity Tariff</p>
+<p class="card-title">${tl("tariff.electricity_tariff")}</p>
 <div class="field">
-<label>Currency</label>
+<label>${tl("tariff.currency")}</label>
 <select data-field="tariff:currency" ${this._busy ? "disabled" : ""}>${currencyOptions}</select>
-<p class="field-hint">Rates are stored in the selected currency. Changing currency does not convert existing values — re-enter rates after switching.</p>
+<p class="field-hint">${tl("tariff.rates_are_stored_in_the_selected")}</p>
 </div>
 ${this._renderTariffScheduleEditor()}
 ${this._renderTariffRateBlock("standing", {
-      label: "Daily Standing Charge",
+      label: tl("tariff.daily_standing_charge"),
       unitLabel: `${currency}/day`,
       placeholder: currency === "GBP" ? "e.g. 0.53" : "e.g. 1.00",
       liveMeta: entities.standing,
       pluginEntityId: pluginSensors.standing,
     })}
-<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-tariff-settings" ${this._busy ? "disabled" : ""}>Save Tariff</button></div>
+<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-tariff-settings" ${this._busy ? "disabled" : ""}>${tl("tariff.save_tariff")}</button></div>
 </div>
 <div class="card">
-<p class="card-title">Status</p>
-<p style="margin:0 0 8px;font-size:14px">${live.configured ? "Tariff configured — ready for cost analysis." : "Not configured yet — save at least one rate above."}</p>
-${effectiveBits.length ? `<p class="field-hint" style="margin:0 0 8px">Effective rates now: ${esc(effectiveBits.join(" · "))}${bandLabel ? ` · ${esc(bandLabel)} (hour ${scheduleStatus.hour ?? "—"})` : ""}</p>` : ""}
-<p class="field-hint" style="margin:0">Last saved: ${lastUpdated}${historyCount ? ` · ${esc(String(historyCount))} rate snapshot(s) recorded` : ""}</p>
+<p class="card-title">${tl("common.status")}</p>
+<p style="margin:0 0 8px;font-size:14px">${live.configured ? tl("tariff.tariff_configured_ready_for_cost_analysis") : tl("tariff.not_configured_yet_save_at_least")}</p>
+${effectiveBits.length ? `<p class="field-hint" style="margin:0 0 8px">${tl("tariff.effective_rates_now_effectivebits_value", { effectiveBits: esc(effectiveBits.join(" · ")), value: bandLabel ? ` · ${esc(bandLabel)} (hour ${scheduleStatus.hour ?? "—"})` : "" })}</p>` : ""}
+<p class="field-hint" style="margin:0">${tl("tariff.last_saved_lastupdated_value", { lastUpdated, value: historyCount ? ` ${tl("tariff.historycount_rate_snapshot_s_recorded", { historyCount: esc(String(historyCount)) })}` : "" })}</p>
 </div>
 ${this._renderTariffImportCard(entities, currency)}
 ${showOctopusTariffProvider(this._tariffDraft) ? this._renderOctopusSettings() : ""}
@@ -25577,30 +25606,30 @@ ${this._renderTariffExportCard(entities, currency)}`;
     const busy = this._busy ? "disabled" : "";
     if (live.signed_in) {
       const since = live.signed_in_at ? ` since ${formatSolcastTimestamp(live.signed_in_at)}` : "";
-      return `<p class="field-hint" style="margin:0 0 8px">Signed in to Fuse as ${esc(live.phone || "your account")}${esc(since)}. Fox Plant stays signed in, re-reads your tariff every week and again when your Fuse contract changes.</p>
+      return `<p class="field-hint" style="margin:0 0 8px">${tl("fuse.signed_in_to_fuse_as_value", { value: esc(live.phone || tl("fuse.your_account")), since: esc(since) })}</p>
 <div class="btn-row">
-<button type="button" class="btn btn-secondary" data-action="fuse-fetch" ${busy}>Fetch Rates Now</button>
-<button type="button" class="btn btn-secondary" data-action="fuse-sign-out" ${busy}>Sign Out</button>
+<button type="button" class="btn btn-secondary" data-action="fuse-fetch" ${busy}>${tl("common.fetch_rates_now")}</button>
+<button type="button" class="btn btn-secondary" data-action="fuse-sign-out" ${busy}>${tl("fuse.sign_out")}</button>
 </div>`;
     }
     const intro = live.auth_failed
-      ? `<p class="field-hint" style="color:var(--fp-amber)">Fuse signed Fox Plant out. Sign in again below — the saved rates stay in use meanwhile.</p>`
-      : `<p class="field-hint">Fuse has no API keys, so Fox Plant signs in the way the Fuse website does: enter the mobile number on your Fuse account, press Send Code, then type in the code Fuse texts you. You normally only do this once.</p>`;
+      ? `<p class="field-hint" style="color:var(--fp-amber)">${tl("fuse.fuse_signed_fox_plant_out_sign")}</p>`
+      : `<p class="field-hint">${tl("fuse.fuse_has_no_api_keys_so")}</p>`;
     const codeStep = live.code_sent
-      ? `<div class="field"><label>Code From Fuse</label>
-<input type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" data-field="fuse:code" value="${esc(d.code)}" placeholder="6-digit code" ${busy}>
-<p class="field-hint">Texted to ${esc(live.phone || "your phone")}. It expires after a few minutes — Send A New Code if it does.</p>
+      ? `<div class="field"><label>${tl("fuse.code_from_fuse")}</label>
+<input type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="7" data-field="fuse:code" value="${esc(d.code)}" placeholder="${tl("fuse.x_6_digit_code")}" ${busy}>
+<p class="field-hint">${tl("fuse.texted_to_value_it_expires_after", { value: esc(live.phone || tl("fuse.your_phone")) })}</p>
 </div>`
       : "";
     return `${intro}
-<div class="field"><label>Mobile Number</label>
+<div class="field"><label>${tl("fuse.mobile_number")}</label>
 <input type="tel" autocomplete="tel" data-field="fuse:phone" value="${esc(d.phone)}" placeholder="+447700900123" ${busy}>
-<p class="field-hint">In international (E.164) format: +44 then the number without its leading 0, e.g. +447700900123.</p>
+<p class="field-hint">${tl("fuse.in_international_e_164_format_44")}</p>
 </div>
 ${codeStep}
 <div class="btn-row">
-<button type="button" class="btn ${live.code_sent ? "btn-secondary" : "btn-primary"}" data-action="fuse-send-code" ${busy}>${live.code_sent ? "Send A New Code" : "Send Code"}</button>
-${live.code_sent ? `<button type="button" class="btn btn-primary" data-action="fuse-verify-code" ${busy}>Sign In</button>` : ""}
+<button type="button" class="btn ${live.code_sent ? "btn-secondary" : "btn-primary"}" data-action="fuse-send-code" ${busy}>${live.code_sent ? tl("fuse.send_a_new_code") : tl("fuse.send_code")}</button>
+${live.code_sent ? `<button type="button" class="btn btn-primary" data-action="fuse-verify-code" ${busy}>${tl("fuse.sign_in")}</button>` : ""}
 </div>`;
   }
 
@@ -25608,26 +25637,26 @@ ${live.code_sent ? `<button type="button" class="btn btn-primary" data-action="f
   _fuseTariffLines(kind, currency) {
     const t = this._plantState?.tariff?.fuse?.tariffs?.[kind];
     if (!t) return [];
-    const lines = [`${kind === "ELEC_EXPORT" ? "Export" : "Import"} tariff: ${t.name}`];
+    const lines = [`${kind === "ELEC_EXPORT" ? tl("common.export") : tl("common.import")} tariff: ${t.name}`];
     const multi = (t.rates || []).length > 1;
     for (const r of t.rates || []) {
-      const hours = r.windows ? ` (${r.windows.map(([a, b]) => `${a}–${b}`).join(", ")})` : multi ? " (all other hours)" : "";
-      lines.push(`${multi ? `${r.name} rate` : "Unit rate"}: ${formatTariffMoney(r.p_per_kwh, currency)}/kWh${hours}`);
+      const hours = r.windows ? ` (${r.windows.map(([a, b]) => `${a}–${b}`).join(", ")})` : multi ? tl("fuse.all_other_hours") : "";
+      lines.push(`${multi ? `${r.name} rate` : tl("fuse.unit_rate")}: ${formatTariffMoney(r.p_per_kwh, currency)}/kWh${hours}`);
     }
     if (kind === "ELEC_IMPORT" || t.standing_p_per_day) {
-      lines.push(`Standing charge: ${formatTariffMoney(t.standing_p_per_day || 0, currency)}/day`);
+      lines.push(tl("fuse.standing_charge_value_day", { value: formatTariffMoney(t.standing_p_per_day || 0, currency) }));
     }
     if (t.start_date || t.end_date) {
       lines.push(
-        `Contract: ${formatUkDate(t.start_date) || "—"} – ${t.end_date ? formatUkDate(t.end_date) : "open-ended"}${t.fixed ? " (fixed)" : ""}`
+        tl("fuse.contract_value_value2_value3", { value: formatUkDate(t.start_date) || "—", value2: t.end_date ? formatUkDate(t.end_date) : "open-ended", value3: t.fixed ? tl("fuse.fixed") : "" })
       );
     }
     if (t.ended) {
-      lines.push("Contract ended — Fox Plant checks Fuse daily for the new prices and keeps using these until then");
+      lines.push(tl("fuse.contract_ended_fox_plant_checks_fuse"));
     } else if (t.next_update_date) {
-      const why = t.next_update_reason === "PRICE_CAP" ? " (price cap)" : "";
+      const why = t.next_update_reason === "PRICE_CAP" ? tl("fuse.price_cap") : "";
       lines.push(
-        `Next price change: ${formatUkDate(t.next_update_date)}${why} — Fox Plant reads the new prices then; SmartCharge plans with these until then`
+        tl("fuse.next_price_change_next_update_date", { next_update_date: formatUkDate(t.next_update_date), why })
       );
     }
     return lines;
@@ -25637,23 +25666,23 @@ ${live.code_sent ? `<button type="button" class="btn btn-primary" data-action="f
   _fuseMeterLines(kind) {
     const meter = this._plantState?.tariff?.fuse?.meter ?? {};
     const info = meter[kind];
-    if (!info) return meter.last_error ? [`Meter readings: ${meter.last_error}`] : [];
+    if (!info) return meter.last_error ? [tl("fuse.meter_readings_last_error", { last_error: meter.last_error })] : [];
     const gas = kind === "GAS";
-    const upTo = info.data_up_to ? formatSolcastTimestamp(info.data_up_to) : "none yet";
-    const what = gas ? "Gas meter readings" : "Meter readings";
-    const lines = [`${what}: real readings up to ${upTo}, in Home Assistant statistics as "${info.name}" (Energy dashboard)`];
+    const upTo = info.data_up_to ? formatSolcastTimestamp(info.data_up_to) : tl("fuse.none_yet");
+    const what = gas ? tl("fuse.gas_meter_readings") : tl("fuse.meter_readings");
+    const lines = [tl("fuse.what_real_readings_up_to_upto", { what, upTo, name: info.name })];
     if (info.yesterday_kwh != null) {
       const verb = gas ? "used" : kind === "ELEC_EXPORT" ? "exported" : "imported";
-      lines.push(`Yesterday from the ${gas ? "gas " : ""}meter: ${Number(info.yesterday_kwh).toFixed(2)} ${info.unit || "kWh"} ${verb}`);
+      lines.push(tl("fuse.yesterday_from_the_value_meter_yesterday", { value: gas ? "gas " : "", yesterday_kwh: Number(info.yesterday_kwh).toFixed(2), value2: info.unit || "kWh", verb }));
     }
-    if (meter.last_error && !gas) lines.push(`Meter readings: ${meter.last_error}`);
+    if (meter.last_error && !gas) lines.push(tl("fuse.meter_readings_last_error", { last_error: meter.last_error }));
     return lines;
   }
 
   _fuseFetchLines(live) {
     const lines = [];
-    if (live.last_fetch_at) lines.push(`Last read from Fuse: ${formatSolcastTimestamp(live.last_fetch_at)}`);
-    if (live.last_error) lines.push(`Error: ${live.last_error}`);
+    if (live.last_fetch_at) lines.push(tl("fuse.last_read_from_fuse_last_fetch", { last_fetch_at: formatSolcastTimestamp(live.last_fetch_at) }));
+    if (live.last_error) lines.push(tl("common.error_last_error", { last_error: live.last_error }));
     return lines;
   }
 
@@ -25668,7 +25697,7 @@ ${live.code_sent ? `<button type="button" class="btn btn-primary" data-action="f
     const lines = [...this._fuseTariffLines("ELEC_IMPORT", currency)];
     if (saved) lines.push(...this._fuseMeterLines("ELEC_IMPORT"));
     if (live.last_fetch_at && !live.tariffs?.ELEC_IMPORT && !live.last_error) {
-      lines.push("No import supply on this Fuse account");
+      lines.push(tl("fuse.no_import_supply_on_this_fuse"));
     }
     if (this._tariffDraft?.export_provider === "same") {
       lines.push(...this._fuseTariffLines("ELEC_EXPORT", currency));
@@ -25676,12 +25705,12 @@ ${live.code_sent ? `<button type="button" class="btn btn-primary" data-action="f
     }
     if (saved) lines.push(...this._fuseMeterLines("GAS"));
     lines.push(...this._fuseFetchLines(live));
-    if (!saved) lines.push("Not saved yet — press Save Fuse to use Fuse for import.");
+    if (!saved) lines.push(tl("fuse.not_saved_yet_press_save_fuse"));
     return `<div class="card">
 <p class="card-title">Fuse</p>
-<p class="field-hint" style="margin:0 0 12px">Reads your Fuse tariff — unit rates, the hours each applies, standing charge and contract dates — and syncs the daily schedule, so SmartCharge plans against it.</p>
+<p class="field-hint" style="margin:0 0 12px">${tl("fuse.reads_your_fuse_tariff_unit_rates")}</p>
 ${this._renderFuseSignIn()}
-${saved ? "" : `<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-octopus-settings" ${busy}>Save Fuse</button></div>`}
+${saved ? "" : `<div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-octopus-settings" ${busy}>${tl("fuse.save_fuse")}</button></div>`}
 ${lines.length ? `<p class="field-hint" style="margin:12px 0 0">${lines.map((l) => esc(l)).join("<br>")}</p>` : ""}
 </div>`;
   }
@@ -25691,16 +25720,16 @@ ${lines.length ? `<p class="field-hint" style="margin:12px 0 0">${lines.map((l) 
     const entityId = this._tariffDraft?.[`${kind}_entity`] || "";
     let hint = "";
     if (liveMeta?.available === false) {
-      hint = entityId ? `Sensor ${entityId} is unavailable` : "Choose a sensor that reports this rate";
+      hint = entityId ? tl("tariff.sensor_entityid_is_unavailable", { entityId }) : tl("tariff.choose_a_sensor_that_reports_this");
     } else if (liveMeta?.resolved_p != null) {
-      hint = `Live: ${formatTariffMoney(liveMeta.resolved_p, currency)}/kWh${liveMeta.entity_id ? ` from ${liveMeta.entity_id}` : ""}`;
+      hint = tl("tariff.live_resolved_p_kwh_value", { resolved_p: formatTariffMoney(liveMeta.resolved_p, currency), value: liveMeta.entity_id ? ` from ${liveMeta.entity_id}` : "" });
     } else if (entityId && liveMeta?.state != null) {
-      hint = `Live state: ${liveMeta.state}${liveMeta.unit ? ` ${liveMeta.unit}` : ""} — could not convert to ${currency} automatically`;
+      hint = tl("tariff.live_state_state_value_could_not", { state: liveMeta.state, value: liveMeta.unit ? ` ${liveMeta.unit}` : "", currency });
     } else {
-      hint = tariffSuggestedEntitiesHint(this._hass, kind) || "Search by friendly name or entity id.";
+      hint = tariffSuggestedEntitiesHint(this._hass, kind) || tl("tariff.search_by_friendly_name_or_entity");
     }
     return `<div class="field" data-tariff-entity="${esc(kind)}">
-<label>Sensor</label>
+<label>${tl("tariff.sensor")}</label>
 <p class="field-hint">${esc(hint)}</p>
 <div class="tariff-entity-picker-host" data-tariff-picker="${esc(kind)}"></div>
 </div>`;
@@ -25714,14 +25743,14 @@ ${lines.length ? `<p class="field-hint" style="margin:12px 0 0">${lines.map((l) 
     ).join("");
     const hint =
       provider === "manual"
-        ? "Type import rates per band in the Daily Time-of-Use Schedule above."
+        ? tl("tariff.type_import_rates_per_band_in")
         : provider === "entity"
-          ? "A sensor that reports your import price — or an Octopus Energy integration rate sensor, whose upcoming rates SmartCharge also plans with."
-          : `Connect your ${energyProviderLabel(provider)} account below: import rates and hour bands sync automatically.`;
+          ? tl("tariff.a_sensor_that_reports_your_import")
+          : tl("tariff.connect_your_energyproviderlabel_account_below_i", { energyProviderLabel: energyProviderLabel(provider) });
     return `<div class="card">
-<p class="card-title">Import</p>
+<p class="card-title">${tl("common.import")}</p>
 <div class="field">
-<label>Provider</label>
+<label>${tl("tariff.provider")}</label>
 <select data-field="tariff:import_provider" ${this._busy ? "disabled" : ""}>${options}</select>
 <p class="field-hint" style="margin:4px 0 0">${esc(hint)}</p>
 </div>
@@ -25748,46 +25777,46 @@ ${provider === "entity" ? this._renderTariffEntityField("import", entities.impor
     const fuse = provider === "fuse";
     const hint =
       provider === "same"
-        ? `Export rates come from the export meter on your ${energyProviderLabel(importProvider)} account.`
+        ? tl("tariff.export_rates_come_from_the_export", { energyProviderLabel: energyProviderLabel(importProvider) })
         : provider === "manual"
-          ? "Type export rates per band in the Daily Time-of-Use Schedule above — e.g. a fixed SEG rate."
+          ? tl("tariff.type_export_rates_per_band_in")
           : provider === "entity"
-            ? "A sensor that reports your export price (its upcoming rates too, if it lists them)."
-            : `Export from a different supplier than import: sign in to ${energyProviderLabel(provider)} here. Only its export meter is used.`;
+            ? tl("tariff.a_sensor_that_reports_your_export")
+            : tl("tariff.export_from_a_different_supplier_than", { energyProviderLabel: energyProviderLabel(provider) });
     const statusLines = [];
     if (fuse) {
       const fuseLive = this._plantState?.tariff?.fuse ?? {};
       statusLines.push(...this._fuseTariffLines("ELEC_EXPORT", currency));
       if (savedProvider === "fuse") statusLines.push(...this._fuseMeterLines("ELEC_EXPORT"), ...this._fuseMeterLines("GAS"));
       if (fuseLive.last_fetch_at && !fuseLive.tariffs?.ELEC_EXPORT && !fuseLive.last_error) {
-        statusLines.push("No export supply on this Fuse account");
+        statusLines.push(tl("tariff.no_export_supply_on_this_fuse"));
       }
       statusLines.push(...this._fuseFetchLines(fuseLive));
-      if (savedProvider !== "fuse") statusLines.push("Not saved yet — press Save Export.");
+      if (savedProvider !== "fuse") statusLines.push(tl("tariff.not_saved_yet_press_save_export"));
     } else if (savedProvider === provider && provider !== "same") {
-      if (live.export_tariff_code) statusLines.push(`Export tariff: ${live.export_tariff_code}`);
+      if (live.export_tariff_code) statusLines.push(tl("common.export_tariff_export_tariff_code", { export_tariff_code: live.export_tariff_code }));
       if (live.current_export_p_per_kwh != null) {
-        statusLines.push(`Current: ${formatTariffMoney(live.current_export_p_per_kwh, currency)}/kWh`);
+        statusLines.push(tl("tariff.current_current_export_p_per_kwh", { current_export_p_per_kwh: formatTariffMoney(live.current_export_p_per_kwh, currency) }));
       }
       if (supplier) {
-        statusLines.push(`Last fetch: ${live.last_fetch_at ? formatSolcastTimestamp(live.last_fetch_at) : "Never"}`);
-        if (live.last_error) statusLines.push(`Error: ${live.last_error}`);
+        statusLines.push(tl("common.last_fetch_value", { value: live.last_fetch_at ? formatSolcastTimestamp(live.last_fetch_at) : tl("common.never") }));
+        if (live.last_error) statusLines.push(tl("common.error_last_error", { last_error: live.last_error }));
       }
     } else if (savedProvider !== provider) {
-      statusLines.push("Not saved yet — press Save Export.");
+      statusLines.push(tl("tariff.not_saved_yet_press_save_export"));
     }
     return `<div class="card">
-<p class="card-title">Export</p>
+<p class="card-title">${tl("common.export")}</p>
 <div class="field">
-<label>Provider</label>
+<label>${tl("tariff.provider")}</label>
 <select data-field="tariff:export_provider" ${busy}>${options}</select>
 <p class="field-hint" style="margin:4px 0 0">${esc(hint)}</p>
 </div>
 ${provider === "entity" ? this._renderTariffEntityField("export", entities.export, currency) : ""}
 ${supplier ? this._renderExportSupplierFields(provider, live) : ""}
 <div class="btn-row">
-${supplier && !fuse ? `<button type="button" class="btn btn-secondary" data-action="test-export-supplier" ${busy}>Test Connection</button>` : ""}
-<button type="button" class="btn btn-primary" data-action="save-tariff-export" ${busy}>Save Export</button>
+${supplier && !fuse ? `<button type="button" class="btn btn-secondary" data-action="test-export-supplier" ${busy}>${tl("common.test_connection")}</button>` : ""}
+<button type="button" class="btn btn-primary" data-action="save-tariff-export" ${busy}>${tl("tariff.save_export")}</button>
 </div>
 ${statusLines.length ? `<p class="field-hint" style="margin:12px 0 0">${statusLines.map((l) => esc(l)).join("<br>")}</p>` : ""}
 </div>`;
@@ -25800,7 +25829,7 @@ ${statusLines.length ? `<p class="field-hint" style="margin:12px 0 0">${statusLi
     const busy = this._busy ? "disabled" : "";
     const meters = (this._exportSupplierMeters ?? live.export_meters ?? []).filter(Boolean);
     const meterField = meters.length
-      ? `<div class="field"><label>Export MPAN</label><select data-field="export_supplier:export_mpan" ${busy}><option value="">Auto</option>${meters
+      ? `<div class="field"><label>${tl("common.export_mpan")}</label><select data-field="export_supplier:export_mpan" ${busy}><option value="">${tl("common.auto")}</option>${meters
           .map(
             (m) =>
               `<option value="${esc(m.mpan)}" ${d.export_mpan === m.mpan ? "selected" : ""}>${esc(m.display_name || m.mpan)}${m.tariff_code ? ` · ${esc(m.tariff_code)}` : ""}</option>`
@@ -25808,21 +25837,21 @@ ${statusLines.length ? `<p class="field-hint" style="margin:12px 0 0">${statusLi
           .join("")}</select></div>`
       : "";
     if (provider === "octopus") {
-      return `<div class="field"><label>API Key</label>
-<input type="password" autocomplete="off" data-field="export_supplier:api_key" value="${esc(String(d.api_key || ""))}" placeholder="${esc(d.api_key_set ? "••••••••  (leave blank to keep)" : "Paste Octopus API key")}" ${busy}>
-<p class="field-hint">From your <a class="field-link" href="${esc(OCTOPUS_API_DOCS_URL)}" target="_blank" rel="noopener noreferrer">Octopus dashboard</a> (Developer settings → API access).</p>
+      return `<div class="field"><label>${tl("common.api_key")}</label>
+<input type="password" autocomplete="off" data-field="export_supplier:api_key" value="${esc(String(d.api_key || ""))}" placeholder="${esc(d.api_key_set ? tl("common.leave_blank_to_keep") : tl("common.paste_octopus_api_key"))}" ${busy}>
+<p class="field-hint">${tl("tariff.from_your_octopus_dashboard_developer_settings", { octopus_api_docs_url: esc(OCTOPUS_API_DOCS_URL) })}</p>
 </div>
-<div class="field"><label>Account Number</label>
+<div class="field"><label>${tl("common.account_number")}</label>
 <input type="text" data-field="export_supplier:account_number" value="${esc(String(d.account_number || ""))}" placeholder="A-12345678" ${busy}>
 </div>
 ${meterField}`;
     }
-    return `<div class="field"><label>Sign-In Token</label>
-<input type="password" autocomplete="off" data-field="export_supplier:refresh_token" value="${esc(String(d.refresh_token || ""))}" placeholder="${esc(d.refresh_token_set ? "••••••••  (saved — paste a new one only if asked)" : "Paste sign-in token")}" ${busy}>
-<p class="field-hint">On a computer, sign in at <a class="field-link" href="https://www.eonnext.com/dashboard" target="_blank" rel="noopener noreferrer">eonnext.com</a>, <button type="button" class="btn btn-secondary" style="padding:2px 8px;min-height:0" data-action="copy-eon-next-snippet" ${busy}>Copy Snippet</button>, press F12 → Console, paste it and press Enter, then paste the token here.</p>
+    return `<div class="field"><label>${tl("common.sign_in_token")}</label>
+<input type="password" autocomplete="off" data-field="export_supplier:refresh_token" value="${esc(String(d.refresh_token || ""))}" placeholder="${esc(d.refresh_token_set ? tl("common.saved_paste_a_new_one_only") : tl("common.paste_sign_in_token"))}" ${busy}>
+<p class="field-hint">${tl("tariff.on_a_computer_sign_in_at")} <button type="button" class="btn btn-secondary" style="padding:2px 8px;min-height:0" data-action="copy-eon-next-snippet" ${busy}>${tl("common.copy_snippet")}</button>${tl("tariff.press_f12_console_paste_it_and")}</p>
 </div>
-<div class="field"><label>Account Number (Optional)</label>
-<input type="text" data-field="export_supplier:account_number" value="${esc(String(d.account_number || ""))}" placeholder="Auto — every account on this login" ${busy}>
+<div class="field"><label>${tl("common.account_number_optional")}</label>
+<input type="text" data-field="export_supplier:account_number" value="${esc(String(d.account_number || ""))}" placeholder="${tl("common.auto_every_account_on_this_login")}" ${busy}>
 </div>
 ${meterField}`;
   }
@@ -25870,7 +25899,7 @@ ${meterField}`;
     if (!plant || !this._tariffDraft) return;
     const payload = this._exportSupplierPayload();
     if (payload.provider === "entity" && !payload.export_entity) {
-      this._showToast("Choose the export price sensor", "err");
+      this._showToast(tl("tariff.choose_the_export_price_sensor"), "err");
       return;
     }
     this._busy = true;
@@ -25885,7 +25914,7 @@ ${meterField}`;
       this._initExportSupplierDraft();
       this._initTariffDraft();
       const err = this._plantState?.tariff?.export?.last_error;
-      this._showToast(err ? `Export saved, but the fetch failed: ${err}` : "Export saved", err ? "err" : undefined);
+      this._showToast(err ? tl("tariff.export_saved_but_the_fetch_failed", { err }) : tl("tariff.export_saved"), err ? "err" : undefined);
     } catch (err) {
       this._showToast(tariffSaveErrorMessage(err), "err");
       console.error("FoxESS Plant: export save failed", err);
@@ -25909,7 +25938,7 @@ ${meterField}`;
       });
       this._exportSupplierMeters = result?.export_meters ?? null;
       this._showToast(
-        `Connected — export tariff ${result?.export_tariff_code || "found"}, ${result?.rates_count ?? 0} rates. Press Save Export to use it.`
+        tl("tariff.connected_export_tariff_value_value2_rates", { value: result?.export_tariff_code || "found", value2: result?.rates_count ?? 0 })
       );
     } catch (err) {
       this._showToast(tariffSaveErrorMessage(err), "err");
@@ -25920,7 +25949,7 @@ ${meterField}`;
   }
 
   _renderSettingsFoxApi(plant) {
-    return `<header class="header"><h1>Fox API</h1><p>FoxESS Open API, used only for battery warmup (a cloud-only setting). Inverter control and scheduling use Modbus.</p></header>
+    return `<header class="header"><h1>${tl("settings.fox_api")}</h1><p>${tl("settings.foxess_open_api_used_only_for")}</p></header>
 ${this._renderFoxApiCredentials()}`;
   }
 
@@ -25928,27 +25957,27 @@ ${this._renderFoxApiCredentials()}`;
     if (!this._foxCloudDraft) this._initFoxCloudDraft();
     const draft = this._foxCloudDraft;
     const live = this._plantState?.fox_cloud ?? {};
-    const keyPlaceholder = draft.api_key_set ? "••••••••  (leave blank to keep)" : "Paste Fox Cloud API key";
+    const keyPlaceholder = draft.api_key_set ? tl("common.leave_blank_to_keep") : tl("settings.paste_fox_cloud_api_key");
     const sn = live.device_sn || this._plantState?.battery_warmup?.device_sn || this._plantState?.identity?.pcs_serial_number || "";
     const detailBlock = draft.enabled
-      ? `<div class="field"><label>API Key</label>
+      ? `<div class="field"><label>${tl("common.api_key")}</label>
 <input type="password" autocomplete="off" data-field="fox:api_key" value="${esc(String(draft.api_key || ""))}" placeholder="${esc(keyPlaceholder)}" ${this._busy ? "disabled" : ""}>
-<p class="field-hint">Create a key in the <a class="field-link" href="${esc(FOX_CLOUD_API_DOCS_URL)}" target="_blank" rel="noopener noreferrer">FoxESS Cloud Open API</a> portal (API management).</p>
+<p class="field-hint">${tl("settings.create_a_key_in_the_foxess", { fox_cloud_api_docs_url: esc(FOX_CLOUD_API_DOCS_URL) })}</p>
 </div>
-<div class="field"><label>Device serial (optional)</label>
-<input type="text" data-field="fox:device_sn" value="${esc(String(draft.device_sn || ""))}" placeholder="${esc(sn ? `Auto: ${sn}` : "PCS serial from Modbus")}" ${this._busy ? "disabled" : ""}>
-<p class="field-hint">Leave blank to use the PCS serial from Modbus. Fox Cloud scheduler calls need the inverter <strong>deviceSN</strong> from your Fox account — if test fails with error 41200, open the Fox portal device list and paste that SN here.</p>
+<div class="field"><label>${tl("settings.device_serial_optional")}</label>
+<input type="text" data-field="fox:device_sn" value="${esc(String(draft.device_sn || ""))}" placeholder="${esc(sn ? tl("settings.auto_sn", { sn }) : tl("settings.pcs_serial_from_modbus"))}" ${this._busy ? "disabled" : ""}>
+<p class="field-hint">${tl("settings.leave_blank_to_use_the_pcs")}</p>
 </div>
 <div class="btn-row">
-<button type="button" class="btn btn-primary" data-action="save-fox-cloud" ${this._busy ? "disabled" : ""}>Save Fox Cloud</button>
-<button type="button" class="btn btn-secondary" data-action="test-fox-cloud" ${this._busy ? "disabled" : ""}>Test Connection</button>
+<button type="button" class="btn btn-primary" data-action="save-fox-cloud" ${this._busy ? "disabled" : ""}>${tl("settings.save_fox_cloud")}</button>
+<button type="button" class="btn btn-secondary" data-action="test-fox-cloud" ${this._busy ? "disabled" : ""}>${tl("common.test_connection")}</button>
 </div>
-${live.last_error ? `<p class="field-hint" style="margin-top:8px;color:var(--fp-amber)">Last error: ${esc(String(live.last_error))}</p>` : ""}`
+${live.last_error ? `<p class="field-hint" style="margin-top:8px;color:var(--fp-amber)">${tl("settings.last_error_last_error", { last_error: esc(String(live.last_error)) })}</p>` : ""}`
       : "";
     return `<div class="card">
-<p class="card-title">Fox Cloud API</p>
-<p class="field-hint">FoxESS Open API, used only to change battery warmup settings (the inverter shows them over Modbus but won&rsquo;t accept changes that way). A falling API quota on the Fox portal means authentication is working — some endpoints may still return &ldquo;permissions&rdquo; errors for owner accounts.</p>
-<div class="toggle-row"><span><strong>Enable Fox Cloud API</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Required for <strong>Device → Warmup</strong></span></span>
+<p class="card-title">${tl("settings.fox_cloud_api")}</p>
+<p class="field-hint">${tl("settings.foxess_open_api_used_only_to")}</p>
+<div class="toggle-row"><span>${tl("settings.enable_fox_cloud_api")}<br><span style="font-size:12px;color:var(--secondary-text-color)">${tl("settings.required_for_device_warmup")}</span></span>
 <input type="checkbox" data-field="fox:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 ${detailBlock}
 </div>`;
@@ -25964,7 +25993,7 @@ ${detailBlock}
     const cells = schedule.hours
       .map((band, hour) => {
         const covered = warmupCoversHour(draft.slots, hour);
-        const label = `${String(hour).padStart(2, "0")}:00–${String((hour + 1) % 24).padStart(2, "0")}:00 · ${fmt(prices[hour])}/kWh${covered ? " · warm-up" : ""}`;
+        const label = `${String(hour).padStart(2, "0")}:00–${String((hour + 1) % 24).padStart(2, "0")}:00 · ${fmt(prices[hour])}/kWh${covered ? tl("warmup.warm_up") : ""}`;
         return `<div class="warmup-tariff-hour${covered ? " is-warmup" : ""}" style="background:${TARIFF_BAND_COLORS[band] ?? TARIFF_BAND_COLORS[0]}" title="${esc(label)}"></div>`;
       })
       .join("");
@@ -25979,13 +26008,13 @@ ${detailBlock}
       )
       .join("");
     const action = found
-      ? `<button type="button" class="btn btn-secondary" data-action="warmup-fill-from-tariff" ${this._busy ? "disabled" : ""}>Fill from tariff</button>
-<span class="field-hint" style="margin:0">Cheapest rate ${esc(fmt(found.price))}: ${esc(found.windows.map((w) => `${w.start}–${w.end}`).join(", "))}</span>`
-      : `<span class="field-hint" style="margin:0">Your import price is the same all day, so there&rsquo;s no cheaper window to pick.</span>`;
+      ? `<button type="button" class="btn btn-secondary" data-action="warmup-fill-from-tariff" ${this._busy ? "disabled" : ""}>${tl("warmup.fill_from_tariff")}</button>
+<span class="field-hint" style="margin:0">${tl("warmup.cheapest_rate_price_map", { price: esc(fmt(found.price)), map: esc(found.windows.map((w) => `${w.start}–${w.end}`).join(", ")) })}</span>`
+      : `<span class="field-hint" style="margin:0">${tl("warmup.your_import_price_is_the_same")}</span>`;
     return `<div class="warmup-tariff">
 <div class="warmup-tariff-grid">${cells}</div>
 <div class="warmup-tariff-labels">${labels}</div>
-<div class="warmup-tariff-legend">${legend}<span class="warmup-tariff-key"><span class="warmup-tariff-key-mark"></span>warm-up</span></div>
+<div class="warmup-tariff-legend">${legend}<span class="warmup-tariff-key"><span class="warmup-tariff-key-mark"></span>${tl("warmup.warm_up_2")}</span></div>
 <div class="btn-row" style="align-items:center;gap:10px;margin:6px 0 12px">${action}</div>
 </div>`;
   }
@@ -26000,8 +26029,8 @@ ${detailBlock}
     const warmupError = live.last_error || this._plantState?.fox_cloud?.last_error || "";
     if (!ready) {
       return `${this._renderWarmupHero()}
-<header class="header"><h1>Battery WarmUp</h1><p>Pre-heat the battery pack in cold weather using grid power during cheap-rate windows — matches the Fox app <strong>Battery warmup</strong> screen.</p></header>
-<div class="card"><p class="field-hint" style="margin:0">Enable the <strong>Fox Cloud API</strong> under <strong>Settings → Fox API</strong> and save your API key first. Warmup is controlled via Fox Cloud (not Modbus).</p></div>`;
+<header class="header"><h1>${tl("common.battery_warmup")}</h1><p>${tl("warmup.pre_heat_the_battery_pack_in")}</p></header>
+<div class="card"><p class="field-hint" style="margin:0">${tl("warmup.enable_the_fox_cloud_api_under")}</p></div>`;
     }
     const ranges = draft.ranges || { start_min: 1, start_max: 9, end_min: 5, end_max: 15 };
     const tempC = live.battery_temperature_c;
@@ -26018,48 +26047,48 @@ ${detailBlock}
 <label class="warmup-slot-toggle"><input type="checkbox" data-field="warmup:slot:${i}:enabled" ${slot.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}><span></span></label>
 </div>
 <div class="warmup-slot-times">
-<label>Start<input type="time" data-field="warmup:slot:${i}:start" value="${esc(slot.start)}" ${this._busy ? "disabled" : ""}></label>
-<label>End<input type="time" data-field="warmup:slot:${i}:end" value="${esc(slot.end)}" ${this._busy ? "disabled" : ""}></label>
+<label>${tl("common.start")}<input type="time" data-field="warmup:slot:${i}:start" value="${esc(slot.start)}" ${this._busy ? "disabled" : ""}></label>
+<label>${tl("common.end")}<input type="time" data-field="warmup:slot:${i}:end" value="${esc(slot.end)}" ${this._busy ? "disabled" : ""}></label>
 </div>
 </div>`;
       })
       .join("");
     const blockedBanner = warmupBlocked
-      ? `<div class="banner err" style="margin-bottom:14px"><strong>Battery warmup not reachable via Fox Cloud API</strong><br>${esc(warmupError || "Fox returned an error when reading batteryHeating settings.")} Open the Fox portal device list and confirm the <strong>inverter deviceSN</strong> under Settings → Fox API — it is often different from the Modbus PCS serial (${esc(String(live.device_sn || "—"))}).</div>`
+      ? `<div class="banner err" style="margin-bottom:14px">${tl("warmup.battery_warmup_not_reachable_via_fox", { value: esc(warmupError || tl("warmup.fox_returned_an_error_when_reading")), value2: esc(String(live.device_sn || "—")) })}</div>`
       : "";
     return `${this._renderWarmupHero()}
-<header class="header"><h1>Battery WarmUp</h1><p>Grid-assisted battery heating during low-price periods. Settings sync with your inverter via Fox Cloud.</p></header>
+<header class="header"><h1>${tl("common.battery_warmup")}</h1><p>${tl("warmup.grid_assisted_battery_heating_during_low")}</p></header>
 ${blockedBanner}
 ${this._renderWarmupStatusCard(draft, statusLabel, tempDisplay)}
 <div class="card">
-<p class="card-title">Warmup</p>
-<div class="toggle-row"><span><strong>Enable battery warmup</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Heats the pack in cold weather, using grid power in the low-price slots below</span></span>
+<p class="card-title">${tl("warmup.warmup")}</p>
+<div class="toggle-row"><span>${tl("warmup.enable_battery_warmup")}<br><span style="font-size:12px;color:var(--secondary-text-color)">${tl("warmup.heats_the_pack_in_cold_weather")}</span></span>
 <input type="checkbox" data-field="warmup:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
-<p class="field-hint">Tip (Fox app): as the battery SOC is &lt;40%, only PV and grid energy (if enabled) will be used. Battery energy will not be used for self-warming.</p>
-<div class="field"><label>Start temperature</label>
+<p class="field-hint">${tl("warmup.tip_fox_app_as_the_battery")}</p>
+<div class="field"><label>${tl("warmup.start_temperature")}</label>
 <div class="pv-range-row">
 <input type="range" min="${esc(String(ranges.start_min))}" max="${esc(String(ranges.start_max))}" step="1" data-field="warmup:start_temperature" value="${esc(String(draft.start_temperature))}" ${this._busy ? "disabled" : ""}>
 <span class="pv-range-value" data-warmup-live="start">${esc(String(draft.start_temperature))}°C</span>
 </div>
-<p class="field-hint">Warmup starts when the battery falls below this (${esc(String(ranges.start_min))}–${esc(String(ranges.start_max))}°C).</p></div>
-<div class="field"><label>End temperature</label>
+<p class="field-hint">${tl("warmup.warmup_starts_when_the_battery_falls", { start_min: esc(String(ranges.start_min)), start_max: esc(String(ranges.start_max)) })}</p></div>
+<div class="field"><label>${tl("warmup.end_temperature")}</label>
 <div class="pv-range-row">
 <input type="range" min="${esc(String(ranges.end_min))}" max="${esc(String(ranges.end_max))}" step="1" data-field="warmup:end_temperature" value="${esc(String(draft.end_temperature))}" ${this._busy ? "disabled" : ""}>
 <span class="pv-range-value" data-warmup-live="end">${esc(String(draft.end_temperature))}°C</span>
 </div>
-<p class="field-hint">Warmup stops once the pack reaches this (${esc(String(ranges.end_min))}–${esc(String(ranges.end_max))}°C).</p></div>
+<p class="field-hint">${tl("warmup.warmup_stops_once_the_pack_reaches", { end_min: esc(String(ranges.end_min)), end_max: esc(String(ranges.end_max)) })}</p></div>
 </div>
 <div class="card">
-<p class="card-title">Warmup slots in low price</p>
-<p class="field-hint">During these windows, grid power is allowed to warm the battery (up to three slots, like the Fox app).</p>
+<p class="card-title">${tl("warmup.warmup_slots_in_low_price")}</p>
+<p class="field-hint">${tl("warmup.during_these_windows_grid_power_is")}</p>
 ${this._renderWarmupTariffStrip(draft)}
 <div class="warmup-slot-list">${slotCards}</div>
 </div>
 <div class="btn-row">
-<button type="button" class="btn btn-primary" data-action="save-battery-warmup" ${this._busy ? "disabled" : ""}>Save warmup</button>
-<button type="button" class="btn btn-secondary" data-action="fetch-battery-warmup" ${this._busy ? "disabled" : ""}>${loading ? "Refreshing…" : "Refresh from inverter"}</button>
+<button type="button" class="btn btn-primary" data-action="save-battery-warmup" ${this._busy ? "disabled" : ""}>${tl("warmup.save_warmup")}</button>
+<button type="button" class="btn btn-secondary" data-action="fetch-battery-warmup" ${this._busy ? "disabled" : ""}>${loading ? tl("warmup.refreshing") : tl("warmup.refresh_from_inverter")}</button>
 </div>
-<p class="field-hint" style="margin-top:8px">Device: ${esc(String(live.device_sn || "—"))}${live.state ? ` · ${esc(String(live.state))}` : ""}</p>`;
+<p class="field-hint" style="margin-top:8px">${tl("warmup.device_value_value2", { value: esc(String(live.device_sn || "—")), value2: live.state ? ` · ${esc(String(live.state))}` : "" })}</p>`;
   }
 
   /** Live status in the SmartCharge card style: orange while warmup is enabled, grey when it's off. */
@@ -26069,29 +26098,27 @@ ${this._renderWarmupTariffStrip(draft)}
     const slots = (draft.slots || []).filter((s) => s?.enabled);
     // Fox Cloud takes a minute or two to report a save; the backend shows the saved settings meanwhile
     const pending = live.pending_confirmation
-      ? `<p class="field-hint" style="margin:4px 0 0">Saved. Waiting for the inverter to confirm via Fox Cloud (usually a minute or two).</p>`
+      ? `<p class="field-hint" style="margin:4px 0 0">${tl("warmup.saved_waiting_for_the_inverter_to")}</p>`
       : "";
     const warning = live.confirm_warning
       ? `<p class="field-hint" style="margin:4px 0 0;color:var(--error-color,#db4437)">${esc(live.confirm_warning)}</p>`
       : "";
     const reason = on
-      ? `Heats the battery when it falls below ${draft.start_temperature}°C, up to ${draft.end_temperature}°C${
-          slots.length ? `, using grid power in ${slots.map((s) => `${s.start}–${s.end}`).join(", ")}` : ""
-        }.`
-      : "Warmup is off: the battery won't be heated, however cold it gets.";
+      ? tl("warmup.heats_the_battery_when_it_falls", { start_temperature: draft.start_temperature, end_temperature: draft.end_temperature, value: slots.length ? tl("warmup.using_grid_power_in_map", { map: slots.map((s) => `${s.start}–${s.end}`).join(", ") }) : "" })
+      : tl("warmup.warmup_is_off_the_battery_won");
     const tile = (label, value) =>
       `<div class="sc-stat-tile"><span class="sc-stat-label">${esc(label)}</span><span class="sc-stat-value">${esc(value)}</span></div>`;
-    const pill = on ? statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1) : "Off";
+    const pill = on ? statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1) : tl("common.off");
     return `<div class="sc-status-card warmup-status-card warmup-status-card--${on ? "on" : "off"}">
 <div class="sc-status-head">
-<div><p class="sc-status-title">Live status</p><p class="sc-status-reason">${esc(reason)}</p>${pending}${warning}</div>
+<div><p class="sc-status-title">${tl("common.live_status")}</p><p class="sc-status-reason">${esc(reason)}</p>${pending}${warning}</div>
 <span class="sc-status-pill ${on ? "sc-status-pill--warmup" : ""}">${esc(pill)}</span>
 </div>
 <div class="sc-stat-grid">
-${tile("Battery temperature", tempDisplay)}
-${tile("Starts below", `${draft.start_temperature}°C`)}
-${tile("Warms to", `${draft.end_temperature}°C`)}
-${tile("Low-price slots", slots.length ? String(slots.length) : "None")}
+${tile(tl("warmup.battery_temperature"), tempDisplay)}
+${tile(tl("warmup.starts_below"), `${draft.start_temperature}°C`)}
+${tile(tl("warmup.warms_to"), `${draft.end_temperature}°C`)}
+${tile(tl("warmup.low_price_slots"), slots.length ? String(slots.length) : tl("common.none"))}
 </div>
 </div>`;
   }
@@ -26099,19 +26126,19 @@ ${tile("Low-price slots", slots.length ? String(slots.length) : "None")}
   _renderSolcastApiCredentialsCard() {
     if (!this._solcastDraft) this._initSolcastDraft();
     const draft = this._solcastDraft;
-    const keyPlaceholder = draft.api_key_set ? "••••••••  (leave blank to keep)" : "Paste Solcast API key";
+    const keyPlaceholder = draft.api_key_set ? tl("common.leave_blank_to_keep") : tl("solar_forecast.paste_solcast_api_key");
     const detailBlock = draft.enabled
-      ? `<div class="field"><label>API Key</label>
+      ? `<div class="field"><label>${tl("common.api_key")}</label>
 <input type="password" autocomplete="off" data-field="solcast:api_key" value="${esc(String(draft.api_key || ""))}" placeholder="${esc(keyPlaceholder)}" ${this._busy ? "disabled" : ""}></div>
-<div class="field"><label>API limit (requests per day)</label>
-<p class="field-hint">Hobbyist plans are typically 10/day — used to spread automatic polling.</p>
+<div class="field"><label>${tl("solar_forecast.api_limit_requests_per_day")}</label>
+<p class="field-hint">${tl("solar_forecast.hobbyist_plans_are_typically_10_day")}</p>
 <input type="number" min="1" max="50" step="1" data-field="solcast:api_limit" value="${esc(String(draft.api_limit))}" ${this._busy ? "disabled" : ""}></div>
-<p class="field-hint" style="margin:8px 0 0">Test connection lists your Home PV systems (does not use daily forecast quota).</p>`
+<p class="field-hint" style="margin:8px 0 0">${tl("solar_forecast.test_connection_lists_your_home_pv")}</p>`
       : "";
     return `<div class="card">
-<p class="card-title">Solcast · API Credentials</p>
-<p class="field-hint">Register a free <a class="field-link" href="${esc(SOLCAST_HOBBYIST_URL)}" target="_blank" rel="noopener noreferrer">Home PV System</a> account (10 API requests/day). All quota goes to PV forecasts — no weather calls.</p>
-<div class="toggle-row"><span><strong>Enable Solcast PV forecast</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Replaces a third-party Solcast integration for chart PV lines</span></span>
+<p class="card-title">${tl("solar_forecast.solcast_api_credentials")}</p>
+<p class="field-hint">${tl("solar_forecast.register_a_free_home_pv_system", { solcast_hobbyist_url: esc(SOLCAST_HOBBYIST_URL) })}</p>
+<div class="toggle-row"><span>${tl("solar_forecast.enable_solcast_pv_forecast")}<br><span style="font-size:12px;color:var(--secondary-text-color)">${tl("solar_forecast.replaces_a_third_party_solcast_integration")}</span></span>
 <input type="checkbox" data-field="solcast:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 ${detailBlock}
 </div>`;
@@ -26122,12 +26149,12 @@ ${detailBlock}
     const draft = this._octopusDraft;
     const live = this._plantState?.tariff?.octopus ?? {};
     const currency = tariffCurrencyFromTariff(this._plantState?.tariff ?? {});
-    const keyPlaceholder = draft.api_key_set ? "••••••••  (leave blank to keep)" : "Paste Octopus API key";
+    const keyPlaceholder = draft.api_key_set ? tl("common.leave_blank_to_keep") : tl("common.paste_octopus_api_key");
     const native = draft.source !== "entity";
     const connected = Boolean(live.connected);
     const tariffType = live.tariff_type ? String(live.tariff_type) : "";
     const agile = tariffType === "agile" || tariffType === "tracker";
-    const lastFetch = live.last_fetch_at ? esc(formatSolcastTimestamp(live.last_fetch_at)) : "Never";
+    const lastFetch = live.last_fetch_at ? esc(formatSolcastTimestamp(live.last_fetch_at)) : tl("common.never");
     const lastErr = live.last_error ? esc(String(live.last_error)) : "";
     const importMeters = live.import_meters ?? [];
     const exportMeters = live.export_meters ?? [];
@@ -26145,86 +26172,86 @@ ${detailBlock}
       .join("");
     const rateBits = [];
     if (live.current_import_p_per_kwh != null) {
-      rateBits.push(`Import ${formatTariffMoney(live.current_import_p_per_kwh, currency)}/kWh`);
+      rateBits.push(tl("common.import_current_import_p_per_kwh", { current_import_p_per_kwh: formatTariffMoney(live.current_import_p_per_kwh, currency) }));
     }
     if (live.current_export_p_per_kwh != null) {
-      rateBits.push(`Export ${formatTariffMoney(live.current_export_p_per_kwh, currency)}/kWh`);
+      rateBits.push(tl("common.export_current_export_p_per_kwh", { current_export_p_per_kwh: formatTariffMoney(live.current_export_p_per_kwh, currency) }));
     }
     if (live.import_standing_p_per_day != null) {
-      rateBits.push(`Standing ${formatTariffMoney(live.import_standing_p_per_day, currency)}/day`);
+      rateBits.push(tl("common.standing_import_standing_p_per_day", { import_standing_p_per_day: formatTariffMoney(live.import_standing_p_per_day, currency) }));
     }
     const statusLines = [];
     if (connected && live.import_tariff_code) {
-      statusLines.push(`Import tariff: ${esc(live.import_tariff_code)}`);
+      statusLines.push(tl("common.import_tariff_import_tariff_code", { import_tariff_code: esc(live.import_tariff_code) }));
     }
     if (live.export_manual) {
-      statusLines.push("Export: manual — band rates in the daily schedule");
+      statusLines.push(tl("common.export_manual_band_rates_in_the"));
     } else if (live.export_tariff_code) {
-      statusLines.push(`Export tariff: ${esc(live.export_tariff_code)}`);
+      statusLines.push(tl("common.export_tariff_export_tariff_code", { export_tariff_code: esc(live.export_tariff_code) }));
     } else if (connected && native && exportMeters.length === 0) {
-      statusLines.push("Export: no SEG/Outgoing meter on this Octopus account");
+      statusLines.push(tl("octopus.export_no_seg_outgoing_meter_on"));
     }
     if (live.import_rates_count != null || live.export_rates_count != null) {
       statusLines.push(
-        `Rates loaded: import ${esc(String(live.import_rates_count ?? 0))} · export ${esc(String(live.export_rates_count ?? 0))}`
+        tl("common.rates_loaded_import_value_export_value2", { value: esc(String(live.import_rates_count ?? 0)), value2: esc(String(live.export_rates_count ?? 0)) })
       );
     }
     if (tariffType) {
-      statusLines.push(`Type: ${esc(tariffType)}${agile ? " — live half-hourly plugin sensors" : " — daily schedule"}`);
+      statusLines.push(tl("octopus.type_tarifftype_value", { tariffType: esc(tariffType), value: agile ? tl("octopus.live_half_hourly_plugin_sensors") : tl("octopus.daily_schedule") }));
     }
-    if (rateBits.length) statusLines.push(`Current: ${esc(rateBits.join(" · "))}`);
-    statusLines.push(`Last fetch: ${lastFetch}`);
-    if (lastErr) statusLines.push(`Error: ${lastErr}`);
+    if (rateBits.length) statusLines.push(tl("common.current_ratebits", { rateBits: esc(rateBits.join(" · ")) }));
+    statusLines.push(tl("octopus.last_fetch_lastfetch", { lastFetch }));
+    if (lastErr) statusLines.push(tl("octopus.error_lasterr", { lastErr }));
     const exportMpanField =
       this._tariffDraft?.export_provider !== "same"
         ? ""
         : exportMeters.length > 0
-        ? `<div class="field"><label>Export MPAN (SEG / Outgoing)</label><select data-field="octopus:export_mpan" ${this._busy ? "disabled" : ""}><option value="">Auto (${esc((exportMeters[0] && (exportMeters[0].display_name || exportMeters[0].mpan)) || "first")})</option>${exportOptions}</select>
-<p class="field-hint">Export rates come from your Outgoing/SEG agreement — separate from Agile import.</p></div>`
+        ? `<div class="field"><label>${tl("octopus.export_mpan_seg_outgoing")}</label><select data-field="octopus:export_mpan" ${this._busy ? "disabled" : ""}><option value="">${tl("octopus.auto_value", { value: esc((exportMeters[0] && (exportMeters[0].display_name || exportMeters[0].mpan)) || "first") })}</option>${exportOptions}</select>
+<p class="field-hint">${tl("octopus.export_rates_come_from_your_outgoing")}</p></div>`
         : native && draft.enabled
-          ? `<p class="field-hint" style="margin:8px 0 0;color:var(--fp-amber)">No export meter detected. If you have Outgoing Agile/SEG, run Test connection after Save — or check the export MPAN is on this account.</p>`
+          ? `<p class="field-hint" style="margin:8px 0 0;color:var(--fp-amber)">${tl("octopus.no_export_meter_detected_if_you")}</p>`
           : "";
     const entityBlock =
       draft.source === "entity"
-        ? `<div class="field"><label>External Import Rate Sensor</label>
+        ? `<div class="field"><label>${tl("octopus.external_import_rate_sensor")}</label>
 <div class="tariff-entity-picker-host" data-octopus-picker="import"></div>
 </div>
-<div class="field"><label>External Export Rate Sensor</label>
+<div class="field"><label>${tl("octopus.external_export_rate_sensor")}</label>
 <div class="tariff-entity-picker-host" data-octopus-picker="export"></div>
-<p class="field-hint">Use this if you already run the official <code>octopus_energy</code> integration — Fox Plant reads those entities instead of polling Octopus directly.</p>
+<p class="field-hint">${tl("octopus.use_this_if_you_already_run")}</p>
 </div>`
-        : `<div class="field"><label>API Key</label>
+        : `<div class="field"><label>${tl("common.api_key")}</label>
 <input type="password" autocomplete="off" data-field="octopus:api_key" value="${esc(String(draft.api_key || ""))}" placeholder="${esc(keyPlaceholder)}" ${this._busy ? "disabled" : ""}>
-<p class="field-hint">Create a key in your <a class="field-link" href="${esc(OCTOPUS_API_DOCS_URL)}" target="_blank" rel="noopener noreferrer">Octopus dashboard</a> (Developer settings → API access).</p>
+<p class="field-hint">${tl("octopus.create_a_key_in_your_octopus", { octopus_api_docs_url: esc(OCTOPUS_API_DOCS_URL) })}</p>
 </div>
-<div class="field"><label>Account Number</label>
+<div class="field"><label>${tl("common.account_number")}</label>
 <input type="text" data-field="octopus:account_number" value="${esc(String(draft.account_number || ""))}" placeholder="A-12345678" ${this._busy ? "disabled" : ""}>
 </div>
-${importMeters.length > 1 ? `<div class="field"><label>Import MPAN</label><select data-field="octopus:import_mpan" ${this._busy ? "disabled" : ""}><option value="">Select meter…</option>${importOptions}</select></div>` : ""}
+${importMeters.length > 1 ? `<div class="field"><label>${tl("common.import_mpan")}</label><select data-field="octopus:import_mpan" ${this._busy ? "disabled" : ""}><option value="">${tl("common.select_meter")}</option>${importOptions}</select></div>` : ""}
 ${exportMpanField}`;
     const scheduleAutoHint =
       native && draft.enabled && connected && !agile
-        ? "Fixed tariffs update the daily schedule automatically when rates are fetched."
+        ? tl("octopus.fixed_tariffs_update_the_daily_schedule")
         : "";
     const detailBlock = draft.enabled
-      ? `<div class="field"><label>Rate Source</label>
+      ? `<div class="field"><label>${tl("octopus.rate_source")}</label>
 <select data-field="octopus:source" ${this._busy ? "disabled" : ""}>
-<option value="native" ${native ? "selected" : ""}>Native API (recommended)</option>
-<option value="entity" ${!native ? "selected" : ""}>External Home Assistant sensors</option>
+<option value="native" ${native ? "selected" : ""}>${tl("octopus.native_api_recommended")}</option>
+<option value="entity" ${!native ? "selected" : ""}>${tl("octopus.external_home_assistant_sensors")}</option>
 </select>
 </div>
 ${entityBlock}
 <div class="btn-row">
-<button type="button" class="btn btn-secondary" data-action="test-octopus" ${this._busy || !native ? "disabled" : ""}>Test Connection</button>
-<button type="button" class="btn btn-secondary" data-action="fetch-octopus" ${this._busy || !native ? "disabled" : ""}>Fetch Rates Now</button>
-<button type="button" class="btn btn-primary" data-action="save-octopus-settings" ${this._busy ? "disabled" : ""}>Save Octopus</button>
+<button type="button" class="btn btn-secondary" data-action="test-octopus" ${this._busy || !native ? "disabled" : ""}>${tl("common.test_connection")}</button>
+<button type="button" class="btn btn-secondary" data-action="fetch-octopus" ${this._busy || !native ? "disabled" : ""}>${tl("common.fetch_rates_now")}</button>
+<button type="button" class="btn btn-primary" data-action="save-octopus-settings" ${this._busy ? "disabled" : ""}>${tl("octopus.save_octopus")}</button>
 </div>
 ${statusLines.length ? `<p class="field-hint" style="margin:12px 0 0">${statusLines.map((l) => esc(l)).join("<br>")}</p>` : ""}`
       : "";
     return `<div class="card">
-<p class="card-title">Octopus Energy</p>
-<p class="field-hint" style="margin:0 0 12px">Native Octopus polling for Go, Economy 7, flat SVT, and Agile. ${scheduleAutoHint || "Fixed tariffs sync the 24-hour schedule on fetch; Agile updates plugin import/export sensors every 30 minutes (including negative rates)."}</p>
-<div class="toggle-row"><span><strong>Enable Octopus Tariff Link</strong></span>
+<p class="card-title">${tl("octopus.octopus_energy")}</p>
+<p class="field-hint" style="margin:0 0 12px">${tl("octopus.native_octopus_polling_for_go_economy", { value: scheduleAutoHint || tl("octopus.fixed_tariffs_sync_the_24_hour") })}</p>
+<div class="toggle-row"><span>${tl("octopus.enable_octopus_tariff_link")}</span>
 <input type="checkbox" data-field="octopus:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 ${detailBlock}
 </div>`;
@@ -26247,93 +26274,93 @@ ${detailBlock}
         )
         .join("");
     const statusLines = [];
-    if (connected && live.import_tariff_code) statusLines.push(`Import tariff: ${live.import_tariff_code}`);
+    if (connected && live.import_tariff_code) statusLines.push(tl("common.import_tariff_import_tariff_code", { import_tariff_code: live.import_tariff_code }));
     if (live.export_manual) {
-      statusLines.push("Export: manual — band rates in the daily schedule");
+      statusLines.push(tl("common.export_manual_band_rates_in_the"));
     } else if (live.export_tariff_code) {
-      statusLines.push(`Export tariff: ${live.export_tariff_code}`);
+      statusLines.push(tl("common.export_tariff_export_tariff_code", { export_tariff_code: live.export_tariff_code }));
     } else if (connected && exportMeters.length === 0) {
-      statusLines.push("Export: no export meter on this E.ON Next login");
+      statusLines.push(tl("eon_next.export_no_export_meter_on_this"));
     }
     if (live.import_rates_count != null || live.export_rates_count != null) {
       statusLines.push(
-        `Rates loaded: import ${live.import_rates_count ?? 0} · export ${live.export_rates_count ?? 0}`
+        tl("common.rates_loaded_import_value_export_value2", { value: live.import_rates_count ?? 0, value2: live.export_rates_count ?? 0 })
       );
     }
-    if (live.tariff_type) statusLines.push(`Type: ${live.tariff_type} — daily schedule`);
+    if (live.tariff_type) statusLines.push(tl("eon_next.type_tariff_type_daily_schedule", { tariff_type: live.tariff_type }));
     if (live.agreement_valid_to) {
       const ends = new Date(live.agreement_valid_to);
       if (!Number.isNaN(ends.getTime())) {
         const label = ends.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" });
         statusLines.push(
           ends.getTime() < Date.now()
-            ? `Agreement ended ${label} — check your new E.ON tariff has been picked up`
-            : `Agreement until: ${label}`
+            ? tl("eon_next.agreement_ended_label_check_your_new", { label })
+            : tl("eon_next.agreement_until_label", { label })
         );
       }
     }
     if (live.saved_rates_hold) {
       statusLines.push(
-        "Rates saved until the agreement ends — Fox Plant won't contact E.ON again until then. If your tariff changes, paste a fresh sign-in token and press Save E.ON Next"
+        tl("eon_next.rates_saved_until_the_agreement_ends")
       );
     }
     if (live.using_saved_rates) {
-      statusLines.push("Last fetch attempt failed — still using the saved rates");
+      statusLines.push(tl("eon_next.last_fetch_attempt_failed_still_using"));
     }
     const rateBits = [];
     if (live.current_import_p_per_kwh != null) {
-      rateBits.push(`Import ${formatTariffMoney(live.current_import_p_per_kwh, currency)}/kWh`);
+      rateBits.push(tl("common.import_current_import_p_per_kwh", { current_import_p_per_kwh: formatTariffMoney(live.current_import_p_per_kwh, currency) }));
     }
     if (live.current_export_p_per_kwh != null) {
-      rateBits.push(`Export ${formatTariffMoney(live.current_export_p_per_kwh, currency)}/kWh`);
+      rateBits.push(tl("common.export_current_export_p_per_kwh", { current_export_p_per_kwh: formatTariffMoney(live.current_export_p_per_kwh, currency) }));
     }
     if (live.import_standing_p_per_day != null) {
-      rateBits.push(`Standing ${formatTariffMoney(live.import_standing_p_per_day, currency)}/day`);
+      rateBits.push(tl("common.standing_import_standing_p_per_day", { import_standing_p_per_day: formatTariffMoney(live.import_standing_p_per_day, currency) }));
     }
-    if (rateBits.length) statusLines.push(`Current: ${rateBits.join(" · ")}`);
-    statusLines.push(`Last fetch: ${live.last_fetch_at ? formatSolcastTimestamp(live.last_fetch_at) : "Never"}`);
-    if (live.last_error) statusLines.push(`Error: ${live.last_error}`);
-    const passwordPlaceholder = draft.password_set ? "••••••••  (leave blank to keep)" : "E.ON Next password";
+    if (rateBits.length) statusLines.push(tl("common.current_ratebits", { rateBits: rateBits.join(" · ") }));
+    statusLines.push(tl("common.last_fetch_value", { value: live.last_fetch_at ? formatSolcastTimestamp(live.last_fetch_at) : tl("common.never") }));
+    if (live.last_error) statusLines.push(tl("common.error_last_error", { last_error: live.last_error }));
+    const passwordPlaceholder = draft.password_set ? tl("common.leave_blank_to_keep") : tl("eon_next.e_on_next_password");
     const tokenPlaceholder = draft.refresh_token_set
-      ? "••••••••  (saved — paste a new one only if asked)"
-      : "Paste sign-in token";
+      ? tl("common.saved_paste_a_new_one_only")
+      : tl("common.paste_sign_in_token");
     const detailBlock = draft.enabled
-      ? `<div class="field"><label>Sign-In Token</label>
+      ? `<div class="field"><label>${tl("common.sign_in_token")}</label>
 <input type="password" autocomplete="off" data-field="octopus:refresh_token" value="${esc(String(draft.refresh_token || ""))}" placeholder="${esc(tokenPlaceholder)}" ${busy}>
-<p class="field-hint">E.ON Next has no API keys and blocks password sign-in from integrations, so Fox Plant keeps itself signed in with a token from your browser (one-off):</p>
+<p class="field-hint">${tl("eon_next.e_on_next_has_no_api")}</p>
 <ol class="field-hint" style="margin:4px 0 8px;padding-left:20px">
-<li>On a computer, sign in at <a class="field-link" href="https://www.eonnext.com/dashboard" target="_blank" rel="noopener noreferrer">eonnext.com</a>.</li>
-<li><button type="button" class="btn btn-secondary" style="padding:2px 8px;min-height:0" data-action="copy-eon-next-snippet" ${busy}>Copy Snippet</button>, press F12 → Console, paste it and press Enter (Chrome may ask you to type <code>allow pasting</code> first).</li>
-<li>It copies your token and signs that browser tab out locally — close the tab, then paste here and Save. Signing in again on the website later is fine.</li>
+<li>${tl("eon_next.on_a_computer_sign_in_at")}</li>
+<li><button type="button" class="btn btn-secondary" style="padding:2px 8px;min-height:0" data-action="copy-eon-next-snippet" ${busy}>${tl("common.copy_snippet")}</button>${tl("eon_next.press_f12_console_paste_it_and")}</li>
+<li>${tl("eon_next.it_copies_your_token_and_signs")}</li>
 </ol>
-<p class="field-hint">Fox Plant renews the token itself and survives restarts. If E.ON ever rejects it, the error below will ask for a fresh one.</p>
+<p class="field-hint">${tl("eon_next.fox_plant_renews_the_token_itself")}</p>
 </div>
-<details class="field" data-keep-open="octopus-email-login"${this._keepOpenAttr("octopus-email-login")}><summary class="field-hint">Older accounts: email and password</summary>
-<div class="field"><label>Email</label>
+<details class="field" data-keep-open="octopus-email-login"${this._keepOpenAttr("octopus-email-login")}><summary class="field-hint">${tl("eon_next.older_accounts_email_and_password")}</summary>
+<div class="field"><label>${tl("eon_next.email")}</label>
 <input type="email" autocomplete="off" data-field="octopus:email" value="${esc(String(draft.email || ""))}" placeholder="you@example.com" ${busy}>
 </div>
-<div class="field"><label>Password</label>
+<div class="field"><label>${tl("eon_next.password")}</label>
 <input type="password" autocomplete="off" data-field="octopus:password" value="${esc(String(draft.password || ""))}" placeholder="${esc(passwordPlaceholder)}" ${busy}>
-<p class="field-hint">Only for accounts not yet moved to E.ON's new sign-in. Moved accounts get "Invalid data (KT-CT-1138)" here — use the sign-in token instead.</p>
+<p class="field-hint">${tl("eon_next.only_for_accounts_not_yet_moved")}</p>
 </div>
 </details>
-<div class="field"><label>Account Number (Optional)</label>
-<input type="text" data-field="octopus:account_number" value="${esc(String(draft.account_number || ""))}" placeholder="Auto — every account on this login" ${busy}>
-<p class="field-hint">Leave blank to use every account on the login. E.ON can put an export meter on its own account.</p>
+<div class="field"><label>${tl("common.account_number_optional")}</label>
+<input type="text" data-field="octopus:account_number" value="${esc(String(draft.account_number || ""))}" placeholder="${tl("common.auto_every_account_on_this_login")}" ${busy}>
+<p class="field-hint">${tl("eon_next.leave_blank_to_use_every_account")}</p>
 </div>
-${importMeters.length > 1 ? `<div class="field"><label>Import MPAN</label><select data-field="octopus:import_mpan" ${busy}><option value="">Select meter…</option>${meterOptions(importMeters, draft.import_mpan)}</select></div>` : ""}
-${exportMeters.length > 0 && this._tariffDraft?.export_provider === "same" ? `<div class="field"><label>Export MPAN</label><select data-field="octopus:export_mpan" ${busy}><option value="">Auto</option>${meterOptions(exportMeters, draft.export_mpan)}</select></div>` : ""}
+${importMeters.length > 1 ? `<div class="field"><label>${tl("common.import_mpan")}</label><select data-field="octopus:import_mpan" ${busy}><option value="">${tl("common.select_meter")}</option>${meterOptions(importMeters, draft.import_mpan)}</select></div>` : ""}
+${exportMeters.length > 0 && this._tariffDraft?.export_provider === "same" ? `<div class="field"><label>${tl("common.export_mpan")}</label><select data-field="octopus:export_mpan" ${busy}><option value="">${tl("common.auto")}</option>${meterOptions(exportMeters, draft.export_mpan)}</select></div>` : ""}
 <div class="btn-row">
-<button type="button" class="btn btn-secondary" data-action="test-octopus" ${busy}>Test Connection</button>
-<button type="button" class="btn btn-secondary" data-action="fetch-octopus" ${busy}>Fetch Rates Now</button>
-<button type="button" class="btn btn-primary" data-action="save-octopus-settings" ${busy}>Save E.ON Next</button>
+<button type="button" class="btn btn-secondary" data-action="test-octopus" ${busy}>${tl("common.test_connection")}</button>
+<button type="button" class="btn btn-secondary" data-action="fetch-octopus" ${busy}>${tl("common.fetch_rates_now")}</button>
+<button type="button" class="btn btn-primary" data-action="save-octopus-settings" ${busy}>${tl("eon_next.save_e_on_next")}</button>
 </div>
 <p class="field-hint" style="margin:12px 0 0">${statusLines.map((l) => esc(l)).join("<br>")}</p>`
       : "";
     return `<div class="card">
 <p class="card-title">E.ON Next</p>
-<p class="field-hint" style="margin:0 0 12px">Native E.ON Next polling for fixed, flexible, Economy 7 and Next Drive time-of-use tariffs. Rates sync the 24-hour schedule on each hourly fetch, and SmartCharge plans against them. Octopus-only extras (Greener Nights, Energy Analysis) are not available.</p>
-<div class="toggle-row"><span><strong>Enable E.ON Next Tariff Link</strong></span>
+<p class="field-hint" style="margin:0 0 12px">${tl("eon_next.native_e_on_next_polling_for")}</p>
+<div class="toggle-row"><span>${tl("eon_next.enable_e_on_next_tariff_link")}</span>
 <input type="checkbox" data-field="octopus:enabled" ${draft.enabled ? "checked" : ""} ${busy}></div>
 ${detailBlock}
 </div>`;
@@ -26353,28 +26380,28 @@ ${detailBlock}
         ? "Open-Meteo"
         : source === "solcast"
           ? "Solcast"
-          : "Estimate from a previous day (no forecast reaches tomorrow)";
+          : tl("solar_forecast.estimate_from_a_previous_day_no");
     const solcastStatus = !solcastOn
-      ? "Off"
+      ? tl("common.off")
       : om.solcast_fresh
-        ? `Up to date · last fetch ${formatSolcastTimestamp(sc.cache_updated_at || sc.last_fetch_at)}`
-        : `Not updating · last fetch ${formatSolcastTimestamp(sc.cache_updated_at || sc.last_fetch_at)}${sc.last_error ? ` · ${sc.last_error}` : ""}`;
+        ? tl("solar_forecast.up_to_date_last_fetch_value", { value: formatSolcastTimestamp(sc.cache_updated_at || sc.last_fetch_at) })
+        : tl("solar_forecast.not_updating_last_fetch_value_value2", { value: formatSolcastTimestamp(sc.cache_updated_at || sc.last_fetch_at), value2: sc.last_error ? ` · ${sc.last_error}` : "" });
     const omStatus = !om.enabled
-      ? "Off"
+      ? tl("common.off")
       : om.last_error
-        ? `Error · ${om.last_error}`
-        : `Last fetch ${formatSolcastTimestamp(om.fetched_at)} · scored on ${om.scored_days ?? 0} days`;
+        ? tl("solar_forecast.error_last_error", { last_error: om.last_error })
+        : tl("solar_forecast.last_fetch_fetched_at_scored_on", { fetched_at: formatSolcastTimestamp(om.fetched_at), value: om.scored_days ?? 0 });
     const rows = [];
     if (solcastOn) {
       const fresh = om.solcast_fresh !== false;
-      const role = !om.enabled ? "Only source" : om.primary === "open_meteo" ? "Backup" : fresh ? "Preferred" : "Stale";
+      const role = !om.enabled ? tl("solar_forecast.only_source") : om.primary === "open_meteo" ? tl("solar_forecast.backup") : fresh ? tl("solar_forecast.preferred") : tl("solar_forecast.stale");
       rows.push(
         `<tr><td><strong>Solcast</strong></td><td>${fresh ? fmt(sc.forecast_today_kwh) : "—"}</td><td>${fresh ? fmt(sc.forecast_tomorrow_kwh) : "—"}</td><td>—</td><td>${esc(role)}</td></tr>`
       );
     }
     if (om.enabled) {
       rows.push(
-        `<tr><td><strong>Open-Meteo blend</strong></td><td>${fmt(om.blend_day_kwh?.[today])}</td><td>${fmt(om.blend_day_kwh?.[tomorrow])}</td><td>${fmt(om.blend_mae_kwh)}</td><td>${!solcastOn ? "Only source" : om.primary === "open_meteo" ? "Preferred" : om.solcast_fresh === false ? "In use" : "Backup"}</td></tr>`
+        `<tr><td>${tl("solar_forecast.open_meteo_blend")}</td><td>${fmt(om.blend_day_kwh?.[today])}</td><td>${fmt(om.blend_day_kwh?.[tomorrow])}</td><td>${fmt(om.blend_mae_kwh)}</td><td>${!solcastOn ? tl("solar_forecast.only_source") : om.primary === "open_meteo" ? tl("solar_forecast.preferred") : om.solcast_fresh === false ? tl("solar_forecast.in_use") : tl("solar_forecast.backup")}</td></tr>`
       );
       for (const m of om.models_detail ?? []) {
         const err = m.mae_kwh != null ? fmt(m.mae_kwh) : m.days ? `${m.days} d so far` : "—";
@@ -26385,16 +26412,16 @@ ${detailBlock}
     }
     const table = rows.length
       ? `<div class="octopus-greener-table-wrap"><table class="octopus-greener-table">
-<thead><tr><th>Forecast</th><th>Today</th><th>Tomorrow</th><th title="Average difference between the forecast made a day ahead and what the panels produced, over the last 30 days">Error</th><th>Share</th></tr></thead>
+<thead><tr><th>${tl("solar_forecast.forecast")}</th><th>${tl("common.today")}</th><th>${tl("solar_forecast.tomorrow")}</th><th title="${tl("solar_forecast.average_difference_between_the_forecast_made")}">${tl("solar_forecast.error")}</th><th>${tl("solar_forecast.share")}</th></tr></thead>
 <tbody>${rows.join("")}</tbody></table></div>`
-      : `<p class="field-hint">Turn on Solcast or Open-Meteo below.</p>`;
+      : `<p class="field-hint">${tl("solar_forecast.turn_on_solcast_or_open_meteo")}</p>`;
     const scoringHint = om.enabled
-      ? `<p class="field-hint" style="margin-top:8px">All figures in kWh. <strong>Error</strong> is how far each model's forecast, made a day ahead, was from what your panels actually produced, on average over the last 30 days. The blend gives more weight to the more accurate models; until a model has ${esc(String(om.min_scored_days ?? 7))} scored days the models share equally.</p>`
-      : `<p class="field-hint" style="margin-top:8px">All figures in kWh.</p>`;
+      ? `<p class="field-hint" style="margin-top:8px">${tl("solar_forecast.all_figures_in_kwh_error_is", { value: esc(String(om.min_scored_days ?? 7)) })}</p>`
+      : `<p class="field-hint" style="margin-top:8px">${tl("solar_forecast.all_figures_in_kwh")}</p>`;
     return `<div class="card">
-<p class="card-title">Forecast In Use</p>
+<p class="card-title">${tl("solar_forecast.forecast_in_use")}</p>
 <div class="entity-list">
-<div class="entity-row"><span class="entity-name">SmartCharge uses for tomorrow</span><span class="entity-value"><strong>${esc(inUse)}</strong></span></div>
+<div class="entity-row"><span class="entity-name">${tl("solar_forecast.smartcharge_uses_for_tomorrow")}</span><span class="entity-value"><strong>${esc(inUse)}</strong></span></div>
 <div class="entity-row"><span class="entity-name">Solcast</span><span class="entity-value">${esc(solcastStatus)}</span></div>
 <div class="entity-row"><span class="entity-name">Open-Meteo</span><span class="entity-value">${esc(omStatus)}</span></div>
 </div>
@@ -26407,10 +26434,10 @@ ${scoringHint}
   _renderSolcastRequestLog(live) {
     const log = Array.isArray(live?.request_log) ? [...live.request_log].reverse() : [];
     const refusals = live?.refused_count
-      ? `<p class="field-hint" style="margin-top:8px">${esc(String(live.refused_count))} refusal${live.refused_count === 1 ? "" : "s"} since the last successful download${live.refused_since ? ` (first ${esc(formatSolcastTimestamp(live.refused_since))})` : ""}.</p>`
+      ? `<p class="field-hint" style="margin-top:8px">${tln("solar_forecast.refusals_since_download", live.refused_count, { value2: live.refused_since ? ` (first ${esc(formatSolcastTimestamp(live.refused_since))})` : "" })}</p>`
       : "";
     if (!log.length) {
-      return `${refusals}<p class="field-hint" style="margin-top:8px">No Solcast requests recorded yet. Every request Fox Plant makes is listed here.</p>`;
+      return `${refusals}<p class="field-hint" style="margin-top:8px">${tl("solar_forecast.no_solcast_requests_recorded_yet_every")}</p>`;
     }
     const rows = log
       .map((e) => {
@@ -26423,11 +26450,11 @@ ${scoringHint}
         return `<tr><td style="white-space:nowrap">${esc(when)}</td><td>${esc(e.what || "—")}</td><td>${esc(e.trigger || "—")}</td><td style="${color ? `color:${color}` : ""}">${esc(String(e.result ?? "—"))}</td></tr>`;
       })
       .join("");
-    return `${refusals}<p class="card-title" style="margin-top:16px">Request Log</p>
+    return `${refusals}<p class="card-title" style="margin-top:16px">${tl("solar_forecast.request_log")}</p>
 <div class="octopus-greener-table-wrap"><table class="octopus-greener-table">
-<thead><tr><th>Time</th><th>Request</th><th>Started By</th><th>Result</th></tr></thead>
+<thead><tr><th>${tl("common.time")}</th><th>${tl("solar_forecast.request")}</th><th>${tl("solar_forecast.started_by")}</th><th>${tl("solar_forecast.result")}</th></tr></thead>
 <tbody>${rows}</tbody></table></div>
-<p class="field-hint" style="margin-top:6px">Every Solcast request goes through one place in Fox Plant, which records it here (last 30). Automatic requests are at least 10 minutes apart and stop for a day after a whole day of refusals.</p>`;
+<p class="field-hint" style="margin-top:6px">${tl("solar_forecast.every_solcast_request_goes_through_one")}</p>`;
   }
 
   _renderOpenMeteoCard() {
@@ -26436,35 +26463,35 @@ ${scoringHint}
     const live = this._plantState?.open_meteo ?? {};
     const dis = this._busy ? "disabled" : "";
     const loc = live.location
-      ? `${Number(live.location.latitude).toFixed(4)}, ${Number(live.location.longitude).toFixed(4)} (${live.location_source === "solcast" ? "Solcast site location" : "Home Assistant home location"})`
-      : "Not set";
+      ? `${Number(live.location.latitude).toFixed(4)}, ${Number(live.location.longitude).toFixed(4)} (${live.location_source === "solcast" ? tl("panel.solcast_site_location") : tl("panel.home_assistant_home_location")})`
+      : tl("common.not_set");
     const arrays = (live.arrays ?? [])
-      .map((a) => `${Number(a.kwp).toFixed(2)} kWp · ${a.tilt}° tilt · facing ${(a.azimuth + 180 + 360) % 360}°`)
+      .map((a) => tl("panel.kwp_kwp_tilt_tilt_facing_value", { kwp: Number(a.kwp).toFixed(2), tilt: a.tilt, value: (a.azimuth + 180 + 360) % 360 }))
       .join("<br>");
     const scoreById = Object.fromEntries((live.models_detail ?? []).map((m) => [m.id, m]));
     const models = (live.model_options ?? [])
       .map((opt) => {
         const s = scoreById[opt.id];
-        const note = s?.mae_kwh != null ? ` · day-ahead error ${Number(s.mae_kwh).toFixed(1)} kWh` : "";
+        const note = s?.mae_kwh != null ? ` ${tl("panel.day_ahead_error_mae_kwh_kwh", { mae_kwh: Number(s.mae_kwh).toFixed(1) })}` : "";
         return `<div class="toggle-row"><span>${esc(opt.label)}<span style="font-size:12px;color:var(--secondary-text-color)">${esc(note)}</span></span>
 <input type="checkbox" data-field="open-meteo:model:${esc(opt.id)}" ${d.models.includes(opt.id) ? "checked" : ""} ${dis}></div>`;
       })
       .join("");
     const options = d.enabled
-      ? `<div class="field" style="margin-top:12px"><label>Preferred forecast for SmartCharge</label>
+      ? `<div class="field" style="margin-top:12px"><label>${tl("panel.preferred_forecast_for_smartcharge")}</label>
 <select data-field="open-meteo:primary" ${dis}>
-<option value="solcast" ${d.primary === "solcast" ? "selected" : ""}>Solcast — Open-Meteo fills gaps and takes over when Solcast hasn't updated for 24 h</option>
-<option value="open_meteo" ${d.primary === "open_meteo" ? "selected" : ""}>Open-Meteo — Solcast only fills gaps</option>
+<option value="solcast" ${d.primary === "solcast" ? "selected" : ""}>${tl("panel.solcast_open_meteo_fills_gaps_and")}</option>
+<option value="open_meteo" ${d.primary === "open_meteo" ? "selected" : ""}>${tl("panel.open_meteo_solcast_only_fills_gaps")}</option>
 </select></div>
-<p class="card-title" style="margin-top:16px">Weather Models</p>
-<p class="field-hint" style="margin:0 0 6px">Fetched together in one request per hour. Keep several: the blend is steadier than any single model.</p>
+<p class="card-title" style="margin-top:16px">${tl("panel.weather_models")}</p>
+<p class="field-hint" style="margin:0 0 6px">${tl("panel.fetched_together_in_one_request_per")}</p>
 ${models}
-<p class="field-hint" style="margin-top:12px">Location: <strong>${esc(loc)}</strong><br>Arrays (from PV Configuration):<br>${arrays || "Enable a PV string in PV Configuration"}</p>`
+<p class="field-hint" style="margin-top:12px">${tl("panel.location_loc_arrays_from_pv_configuration", { loc: esc(loc), value: arrays || tl("panel.enable_a_pv_string_in_pv") })}</p>`
       : "";
     return `<div class="card">
 <p class="card-title">Open-Meteo</p>
-<p class="field-hint" style="margin:0 0 8px"><a class="field-link" href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a> is free for non-commercial use with no account or API key. Fox Plant sends it your location and panel tilt and direction, and turns its sunlight forecast into kWh using PV Configuration and your panels' measured output.</p>
-<div class="toggle-row"><span><strong>Use Open-Meteo</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Backup when Solcast fails, or your main forecast</span></span>
+<p class="field-hint" style="margin:0 0 8px">${tl("panel.open_meteo_is_free_for_non")}</p>
+<div class="toggle-row"><span>${tl("panel.use_open_meteo")}<br><span style="font-size:12px;color:var(--secondary-text-color)">${tl("panel.backup_when_solcast_fails_or_your")}</span></span>
 <input type="checkbox" data-field="open-meteo:enabled" ${d.enabled ? "checked" : ""} ${dis}></div>
 ${options}
 </div>`;
@@ -26479,157 +26506,157 @@ ${options}
     const coordDisplay =
       live.coordinates?.latitude != null && live.coordinates?.longitude != null
         ? `${Number(live.coordinates.latitude).toFixed(SOLCAST_COORD_DECIMALS)}, ${Number(live.coordinates.longitude).toFixed(SOLCAST_COORD_DECIMALS)}`
-        : "Not set";
+        : tl("common.not_set");
     const installDisplay = live.installation_date
       ? esc(String(live.installation_date))
-      : "Not set";
+      : tl("common.not_set");
     const installMax = solcastInstallationDateMax();
     const lastFetch = esc(formatSolcastTimestamp(live.cache_updated_at || live.last_fetch_at));
     const nextFetch = esc(formatSolcastNextFetch(live));
-    const lastErr = live.last_error ? esc(String(live.last_error)) : "None";
+    const lastErr = live.last_error ? esc(String(live.last_error)) : tl("common.none");
     const pvReqs = live.pv_requests ?? [];
     const pvReqLines = pvReqs.length
       ? pvReqs
           .map(
             (r) =>
-              `${esc(r.label)}: ${esc(String(r.capacity_kw))} kW · ${esc(String(r.tilt))}° tilt · ${esc(String(r.azimuth))}° az · loss ${esc(String(r.loss_factor))}`
+              tl("solar_forecast.label_capacity_kw_kw_tilt_tilt", { label: esc(r.label), capacity_kw: esc(String(r.capacity_kw)), tilt: esc(String(r.tilt)), azimuth: esc(String(r.azimuth)), loss_factor: esc(String(r.loss_factor)) })
           )
           .join("<br>")
-      : "Enable PV strings in PV Configuration to request rooftop forecasts.";
+      : tl("solar_forecast.enable_pv_strings_in_pv_configuration");
     const solcastLiveOn = solcastEnabledFromLive(live) && live.fetch_pv_forecast !== false;
     const pvStatus = live.pv_forecast_available
-      ? `${live.pv_forecast_periods ?? 0} forecast periods · ${live.pv_power_now_kw != null ? `${Number(live.pv_power_now_kw).toFixed(2)} kW now` : "power pending"}${live.forecast_persisted ? " · cached" : ""}`
+      ? tl("solar_forecast.value_forecast_periods_value2_value3", { value: live.pv_forecast_periods ?? 0, value2: live.pv_power_now_kw != null ? `${Number(live.pv_power_now_kw).toFixed(2)} kW now` : tl("solar_forecast.power_pending"), value3: live.forecast_persisted ? tl("solar_forecast.cached") : "" })
       : live.forecast_persisted
-        ? `${live.pv_forecast_periods ?? 0} cached periods — awaiting chart reload`
+        ? tl("solar_forecast.value_cached_periods_awaiting_chart_reload", { value: live.pv_forecast_periods ?? 0 })
         : solcastLiveOn
-          ? "Awaiting PV forecast fetch"
-          : "PV forecast off";
+          ? tl("solar_forecast.awaiting_pv_forecast_fetch")
+          : tl("solar_forecast.pv_forecast_off");
     const sched = live.poll_schedule;
     let scheduleHint = "";
     if (sched && draft.auto_update === "daylight") {
       const interval = sched.interval_minutes ?? "—";
       const hours = sched.window_hours ?? "—";
       const until = sched.poll_until ? new Date(sched.poll_until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—";
-      const inWin = sched.in_window ? "active now" : "outside window (before sunrise or within 1h of sunset)";
-      scheduleHint = `<p class="field-hint">Daylight schedule: <strong>${esc(String(hours))}</strong> h between sunrise and 1 h before sunset · about <strong>${esc(String(interval))}</strong> min between refreshes (spread across your ${esc(String(draft.api_limit))}/day API limit) · polls until <strong>${esc(until)}</strong> · ${esc(inWin)}</p>`;
+      const inWin = sched.in_window ? tl("solar_forecast.active_now") : tl("solar_forecast.outside_window_before_sunrise_or_within");
+      scheduleHint = `<p class="field-hint">${tl("solar_forecast.daylight_schedule_hours_h_between_sunrise", { hours: esc(String(hours)), interval: esc(String(interval)), api_limit: esc(String(draft.api_limit)), until: esc(until), inWin: esc(inWin) })}</p>`;
     } else if (sched && draft.auto_update === "all_day") {
-      scheduleHint = `<p class="field-hint">24 h mode: about <strong>${esc(String(sched.interval_minutes ?? "—"))}</strong> min between refreshes.</p>`;
+      scheduleHint = `<p class="field-hint">${tl("solar_forecast.x_24_h_mode_about_value_min", { value: esc(String(sched.interval_minutes ?? "—")) })}</p>`;
     }
-    return `<header class="header"><h1>Solar Forecast</h1><p>SmartCharge sizes the overnight grid charge from tomorrow's solar forecast. Use Solcast, Open-Meteo or both: Fox Plant compares them with what your panels actually produce and switches to Open-Meteo by itself when Solcast stops updating. Overview weather and StormSafe stay on Google Weather.</p></header>
+    return `<header class="header"><h1>${tl("common.solar_forecast")}</h1><p>${tl("solar_forecast.smartcharge_sizes_the_overnight_grid_charge")}</p></header>
 ${this._renderSolarForecastComparisonCard()}
 ${this._renderOpenMeteoCard()}
 <div class="card">
-<p class="card-title">Solcast · Auto Update</p>
-<p class="field-hint" style="margin:0 0 8px"><a class="field-link" href="${esc(SOLCAST_API_DOCS_URL)}" target="_blank" rel="noopener noreferrer">Solcast hobbyist API</a> (free account, 10 requests a day).</p>
-<div class="field"><label>Schedule</label>
+<p class="card-title">${tl("solar_forecast.solcast_auto_update")}</p>
+<p class="field-hint" style="margin:0 0 8px">${tl("solar_forecast.solcast_hobbyist_api_free_account_10", { solcast_api_docs_url: esc(SOLCAST_API_DOCS_URL) })}</p>
+<div class="field"><label>${tl("solar_forecast.schedule")}</label>
 <select data-field="solcast:auto_update" ${this._busy ? "disabled" : ""}>
-<option value="daylight" ${draft.auto_update === "daylight" ? "selected" : ""}>Automatic update of forecasts from sunrise to sunset</option>
-<option value="all_day" ${draft.auto_update === "all_day" ? "selected" : ""}>Automatic update over 24 hours</option>
+<option value="daylight" ${draft.auto_update === "daylight" ? "selected" : ""}>${tl("solar_forecast.automatic_update_of_forecasts_from_sunrise")}</option>
+<option value="all_day" ${draft.auto_update === "all_day" ? "selected" : ""}>${tl("solar_forecast.automatic_update_over_24_hours")}</option>
 </select></div>
 ${scheduleHint}
-<p class="field-hint">Each refresh uses <strong>1 request per unique tilt/azimuth group</strong>. In daylight mode, your ${esc(String(draft.api_limit))} daily calls are spread from <strong>sunrise</strong> until <strong>1 hour before sunset</strong> (from Home Assistant <code>sun.sun</code>).</p>
-<div class="toggle-row" style="margin-top:12px"><span><strong>Fetch PV forecast</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Uses hobbyist <code>rooftop_sites/{resource_id}/forecasts</code> (matched to your toolkit Home PV sites)</span></span>
+<p class="field-hint">${tl("solar_forecast.each_refresh_uses_1_request_per", { api_limit: esc(String(draft.api_limit)) })}</p>
+<div class="toggle-row" style="margin-top:12px"><span>${tl("solar_forecast.fetch_pv_forecast")}<br><span style="font-size:12px;color:var(--secondary-text-color)">${tl("solar_forecast.uses_hobbyist_rooftop_sites_resource_id")}</span></span>
 <input type="checkbox" data-field="solcast:fetch_pv_forecast" ${draft.fetch_pv_forecast ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 </div>
 ${this._renderSolcastApiCredentialsCard()}
 <div class="card">
-<p class="card-title">Rooftop Tilt &amp; Azimuth</p>
-<p class="field-hint" style="margin:0">Used for each enabled PV string by Solcast and Open-Meteo. Panel count, wattage, and efficiency are under <strong>Settings → PV Configuration</strong>. Saved together when you press <strong>Save</strong> below.</p>
+<p class="card-title">${tl("solar_forecast.rooftop_tilt_azimuth")}</p>
+<p class="field-hint" style="margin:0">${tl("solar_forecast.used_for_each_enabled_pv_string")}</p>
 ${this._renderPvTiltAzimuthFields("pv1", { allowWhenDisabled: true })}
 ${this._renderPvTiltAzimuthFields("pv2", { allowWhenDisabled: true })}
 </div>
 <div class="card">
-<p class="card-title">Solcast Site Location</p>
-<p class="field-hint">Hobbyist accounts may register <strong>two</strong> rooftop sites on <a class="field-link" href="${esc(SOLCAST_ACCOUNT_LOCATIONS_URL)}" target="_blank" rel="noopener noreferrer">Solcast → Locations</a>. Enter the <strong>latitude and longitude exactly as shown there</strong> for the site you use. Do <strong>not</strong> copy Home Assistant home coordinates — extra decimal places will not match Solcast and API calls can fail or return the wrong site.</p>
-<div class="field"><label>Latitude <span class="field-required">*</span></label>
+<p class="card-title">${tl("solar_forecast.solcast_site_location")}</p>
+<p class="field-hint">${tl("solar_forecast.hobbyist_accounts_may_register_two_rooftop", { solcast_account_locations_url: esc(SOLCAST_ACCOUNT_LOCATIONS_URL) })}</p>
+<div class="field"><label>${tl("solar_forecast.latitude")} <span class="field-required">*</span></label>
 <input type="number" step="0.0001" inputmode="decimal" data-field="solcast:latitude" value="${esc(String(draft.latitude))}" placeholder="e.g. -33.8568" ${this._busy ? "disabled" : ""} required></div>
-<div class="field"><label>Longitude <span class="field-required">*</span></label>
+<div class="field"><label>${tl("solar_forecast.longitude")} <span class="field-required">*</span></label>
 <input type="number" step="0.0001" inputmode="decimal" data-field="solcast:longitude" value="${esc(String(draft.longitude))}" placeholder="e.g. 151.2153" ${this._busy ? "disabled" : ""} required></div>
-<p class="field-hint">Saved as ${SOLCAST_COORD_DECIMALS} decimal places to match typical Solcast listings. Saved site: <strong>${esc(coordDisplay)}</strong>${coordConfigured ? "" : " — required when Solcast is enabled"}</p>
-<div class="field"><label>Installation date</label>
-<p class="field-hint">Same field as Solcast <strong>Add Home PV System</strong> (used for age derating on their site). Optional here — not sent to the rooftop API yet. Use your best estimate if unsure.</p>
+<p class="field-hint">${tl("solar_forecast.saved_as_solcast_coord_decimals_decimal", { solcast_coord_decimals: SOLCAST_COORD_DECIMALS, coordDisplay: esc(coordDisplay), value: coordConfigured ? "" : tl("solar_forecast.required_when_solcast_is_enabled") })}</p>
+<div class="field"><label>${tl("solar_forecast.installation_date")}</label>
+<p class="field-hint">${tl("solar_forecast.same_field_as_solcast_add_home")}</p>
 <input type="date" data-field="solcast:installation_date" value="${esc(String(draft.installation_date || ""))}" max="${esc(installMax)}" ${this._busy ? "disabled" : ""}></div>
-<p class="field-hint">Saved: <strong>${installDisplay}</strong></p>
-<div class="field"><label>Data period</label>
-<p class="field-hint">PT30M = 30-minute resolution (recommended for hobbyist quota).</p>
+<p class="field-hint">${tl("solar_forecast.saved_installdisplay", { installDisplay })}</p>
+<div class="field"><label>${tl("solar_forecast.data_period")}</label>
+<p class="field-hint">${tl("solar_forecast.pt30m_30_minute_resolution_recommended_for")}</p>
 <input type="text" data-field="solcast:period" value="${esc(String(draft.period))}" readonly></div>
 </div>
 <div class="card">
-<p class="card-title">Solcast Status</p>
+<p class="card-title">${tl("solar_forecast.solcast_status")}</p>
 <div class="entity-list">
-<div class="entity-row"><span class="entity-name">API used today</span><span class="entity-value">${esc(String(live.api_used_today ?? 0))} / ${esc(String(live.api_limit ?? draft.api_limit))}</span></div>
-<div class="entity-row"><span class="entity-name">Remaining today</span><span class="entity-value">${esc(String(live.api_remaining ?? "—"))}</span></div>
-<div class="entity-row"><span class="entity-name">Last fetch</span><span class="entity-value">${lastFetch}</span></div>
-<div class="entity-row"><span class="entity-name">Next fetch</span><span class="entity-value">${nextFetch}</span></div>
-<div class="entity-row"><span class="entity-name">Last error</span><span class="entity-value">${lastErr}</span></div>
-<div class="entity-row"><span class="entity-name">PV forecast</span><span class="entity-value">${esc(pvStatus)}</span></div>
-<div class="entity-row"><span class="entity-name">Installation date</span><span class="entity-value">${installDisplay}</span></div>
-<div class="entity-row"><span class="entity-name">Toolkit sites</span><span class="entity-value">${esc(
+<div class="entity-row"><span class="entity-name">${tl("solar_forecast.api_used_today")}</span><span class="entity-value">${esc(String(live.api_used_today ?? 0))} / ${esc(String(live.api_limit ?? draft.api_limit))}</span></div>
+<div class="entity-row"><span class="entity-name">${tl("solar_forecast.remaining_today")}</span><span class="entity-value">${esc(String(live.api_remaining ?? "—"))}</span></div>
+<div class="entity-row"><span class="entity-name">${tl("solar_forecast.last_fetch")}</span><span class="entity-value">${lastFetch}</span></div>
+<div class="entity-row"><span class="entity-name">${tl("solar_forecast.next_fetch")}</span><span class="entity-value">${nextFetch}</span></div>
+<div class="entity-row"><span class="entity-name">${tl("common.last_error")}</span><span class="entity-value">${lastErr}</span></div>
+<div class="entity-row"><span class="entity-name">${tl("solar_forecast.pv_forecast")}</span><span class="entity-value">${esc(pvStatus)}</span></div>
+<div class="entity-row"><span class="entity-name">${tl("solar_forecast.installation_date")}</span><span class="entity-value">${installDisplay}</span></div>
+<div class="entity-row"><span class="entity-name">${tl("solar_forecast.toolkit_sites")}</span><span class="entity-value">${esc(
       live.hobbyist_sites_resolved
         ? (live.rooftop_sites_meta ?? [])
             .map((s) => `${s.label}: ${s.name || s.resource_id}`)
-            .join(" · ") || "Linked"
-        : "Not linked — press Save"
+            .join(" · ") || tl("solar_forecast.linked")
+        : tl("solar_forecast.not_linked_press_save")
     )}</span></div>
 </div>
-<p class="field-hint" style="margin-top:8px"><strong>API groups</strong> (from PV config):<br>${pvReqLines}</p>
+<p class="field-hint" style="margin-top:8px">${tl("solar_forecast.api_groups_from_pv_config_pvreqlines", { pvReqLines })}</p>
 ${this._renderSolcastRequestLog(live)}
-<p class="field-hint">Diagnostic sensors expose <code>detailed_forecast</code> for automations — charts use plant state directly.</p>
+<p class="field-hint">${tl("solar_forecast.diagnostic_sensors_expose_detailed_forecast_for")}</p>
 </div>
 <div class="btn-row">
-<button type="button" class="btn btn-primary" data-action="save-solcast-settings" ${this._busy ? "disabled" : ""}>Save</button>
-<button type="button" class="btn btn-secondary" data-action="test-solcast" ${this._busy ? "disabled" : ""}>Test Connection</button>
-<p class="field-hint" style="margin-top:10px">Test lists your <strong>Home PV systems</strong> from the Solcast toolkit (does not use your daily forecast quota).</p>
+<button type="button" class="btn btn-primary" data-action="save-solcast-settings" ${this._busy ? "disabled" : ""}>${tl("common.save")}</button>
+<button type="button" class="btn btn-secondary" data-action="test-solcast" ${this._busy ? "disabled" : ""}>${tl("common.test_connection")}</button>
+<p class="field-hint" style="margin-top:10px">${tl("solar_forecast.test_lists_your_home_pv_systems")}</p>
 </div>`;
   }
 
   _renderSettingsGlow() {
     if (!this._glowDraft) this._initGlowDraft();
     const draft = this._glowDraft;
-    const pwPlaceholder = draft.password_set ? "••••••••  (leave blank to keep)" : "Bright app password";
+    const pwPlaceholder = draft.password_set ? tl("common.leave_blank_to_keep") : tl("glow.bright_app_password");
     const apiOn = Boolean(draft.api_enabled);
     const brightApiFields = apiOn
-      ? `<div class="field"><label>Bright username</label>
+      ? `<div class="field"><label>${tl("glow.bright_username")}</label>
 <input type="text" autocomplete="username" data-field="glow:username" value="${esc(String(draft.username || ""))}" ${this._busy ? "disabled" : ""}></div>
-<div class="field"><label>Bright password</label>
+<div class="field"><label>${tl("glow.bright_password")}</label>
 <input type="password" autocomplete="current-password" data-field="glow:password" value="${esc(String(draft.password || ""))}" placeholder="${esc(pwPlaceholder)}" ${this._busy ? "disabled" : ""}></div>
-<div class="field"><label>Import resource ID</label>
-<input type="text" data-field="glow:import_resource_id" value="${esc(String(draft.import_resource_id || ""))}" placeholder="Auto-discovered on test" ${this._busy ? "disabled" : ""}></div>
-<div class="field"><label>Export resource ID</label>
-<input type="text" data-field="glow:export_resource_id" value="${esc(String(draft.export_resource_id || ""))}" placeholder="Auto-discovered on test" ${this._busy ? "disabled" : ""}></div>`
+<div class="field"><label>${tl("glow.import_resource_id")}</label>
+<input type="text" data-field="glow:import_resource_id" value="${esc(String(draft.import_resource_id || ""))}" placeholder="${tl("glow.auto_discovered_on_test")}" ${this._busy ? "disabled" : ""}></div>
+<div class="field"><label>${tl("glow.export_resource_id")}</label>
+<input type="text" data-field="glow:export_resource_id" value="${esc(String(draft.export_resource_id || ""))}" placeholder="${tl("glow.auto_discovered_on_test")}" ${this._busy ? "disabled" : ""}></div>`
       : "";
-    return `<header class="header"><h1>Glow smart meter</h1><p>Optional Hildebrand Glow IHD for <strong>live grid import and export</strong> from your SMETS2 meter. PV production always comes from the Fox plant — Glow replaces only the grid-side readings.</p></header>
+    return `<header class="header"><h1>${tl("common.glow_smart_meter")}</h1><p>${tl("glow.optional_hildebrand_glow_ihd_for_live")}</p></header>
 <div class="card">
-<p class="card-title">Enable</p>
-<p class="field-hint">Requires a Glow IHD/CAD on your network with MQTT enabled by Hildebrand, or Bright API credentials. See the <a class="field-link" href="${esc(GLOW_DOCS_URL)}" target="_blank" rel="noopener noreferrer">Glowmarkt Bright API docs</a> and <a class="field-link" href="${esc(GLOW_MQTT_INTEGRATION_URL)}" target="_blank" rel="noopener noreferrer">MQTT topic reference</a>.</p>
-<div class="toggle-row"><span><strong>Enable Glow smart meter</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Uses utility-meter data for grid import and export (more accurate than inverter CTs)</span></span>
+<p class="card-title">${tl("common.enable")}</p>
+<p class="field-hint">${tl("glow.requires_a_glow_ihd_cad_on", { glow_docs_url: esc(GLOW_DOCS_URL), glow_mqtt_integration_url: esc(GLOW_MQTT_INTEGRATION_URL) })}</p>
+<div class="toggle-row"><span>${tl("glow.enable_glow_smart_meter")}<br><span style="font-size:12px;color:var(--secondary-text-color)">${tl("glow.uses_utility_meter_data_for_grid")}</span></span>
 <input type="checkbox" data-field="glow:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 </div>
 <div class="card">
-<p class="card-title">Live MQTT (recommended)</p>
-<p class="field-hint">Subscribe to local <code>glow/{MAC}/SENSOR/electricitymeter</code> broadcasts — updates every few seconds with live kW and cumulative kWh.</p>
-<div class="toggle-row"><span><strong>MQTT listener</strong></span>
+<p class="card-title">${tl("glow.live_mqtt_recommended")}</p>
+<p class="field-hint">${tl("glow.subscribe_to_local_glow_mac_sensor")}</p>
+<div class="toggle-row"><span>${tl("glow.mqtt_listener")}</span>
 <input type="checkbox" data-field="glow:mqtt_enabled" ${draft.mqtt_enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
-<div class="field"><label>Topic prefix</label>
+<div class="field"><label>${tl("glow.topic_prefix")}</label>
 <input type="text" data-field="glow:topic_prefix" value="${esc(String(draft.topic_prefix || "glow"))}" placeholder="glow" ${this._busy ? "disabled" : ""}></div>
-<div class="field"><label>Device ID</label>
-<p class="field-hint">Glow MAC without colons, or <code>+</code> for all devices on the broker.</p>
+<div class="field"><label>${tl("glow.device_id")}</label>
+<p class="field-hint">${tl("glow.glow_mac_without_colons_or_for")}</p>
 <input type="text" data-field="glow:device_id" value="${esc(String(draft.device_id || "+"))}" placeholder="+" ${this._busy ? "disabled" : ""}></div>
 </div>
 <div class="card">
-<p class="card-title">Bright API (optional)</p>
-<p class="field-hint">Cloud fallback for resource discovery and historical readings. Same credentials as the Bright mobile app.</p>
-<div class="toggle-row"><span><strong>API access</strong></span>
+<p class="card-title">${tl("glow.bright_api_optional")}</p>
+<p class="field-hint">${tl("glow.cloud_fallback_for_resource_discovery_and")}</p>
+<div class="toggle-row"><span>${tl("glow.api_access")}</span>
 <input type="checkbox" data-field="glow:api_enabled" ${draft.api_enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 ${brightApiFields}
 </div>
 <div class="card">
-<p class="card-title">Status</p>
+<p class="card-title">${tl("common.status")}</p>
 <div data-glow-live>${this._renderGlowStatusInnerHtml()}</div>
 </div>
 <div class="btn-row">
-<button type="button" class="btn btn-primary" data-action="save-glow-settings" ${this._busy ? "disabled" : ""}>Save</button>
-<button type="button" class="btn btn-secondary" data-action="test-glow" ${this._busy ? "disabled" : ""}>Test Bright API</button>
+<button type="button" class="btn btn-primary" data-action="save-glow-settings" ${this._busy ? "disabled" : ""}>${tl("common.save")}</button>
+<button type="button" class="btn btn-secondary" data-action="test-glow" ${this._busy ? "disabled" : ""}>${tl("glow.test_bright_api")}</button>
 </div>`;
   }
 
@@ -26639,38 +26666,38 @@ ${brightApiFields}
     const dbPath = this._plantState?.performance?.db_path;
     const weatherCfg = this._weatherConfigFromState();
     const weatherMapped = PERFORMANCE_WEATHER_ROLE_FIELDS.filter((r) => weatherCfg[r.key]).length;
-    return `<header class="header"><h1>Performance reporting</h1><p>Recorder-backed solar diagnostics, financial ledger, and payback tracking. Daily rows commit at midnight from 5-minute samples.</p></header>
+    return `<header class="header"><h1>${tl("performance.performance_reporting")}</h1><p>${tl("performance.recorder_backed_solar_diagnostics_financial_ledg")}</p></header>
 <div class="card">
-<p class="card-title">Enable</p>
-<div class="toggle-row"><span><strong>Performance reporting</strong><br><span style="font-size:12px;color:var(--secondary-text-color)">Creates diagnostic sensors and SQLite daily ledger</span></span>
+<p class="card-title">${tl("common.enable")}</p>
+<div class="toggle-row"><span>${tl("performance.performance_reporting_2")}<br><span style="font-size:12px;color:var(--secondary-text-color)">${tl("performance.creates_diagnostic_sensors_and_sqlite_daily")}</span></span>
 <input type="checkbox" data-field="performance:enabled" ${draft.enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 </div>
 <div class="card">
-<p class="card-title">Weather sensors</p>
-<p class="field-hint">Map your local station (Ecowitt GW2000A, etc.) under Settings → Weather. Wind and rain from a local PWS drive microclimate charts; Google Weather stays available as forecast fallback.</p>
-<p class="field-hint">${weatherMapped ? `${weatherMapped} local sensor(s) mapped.` : "No local sensors mapped yet."}</p>
-<button type="button" class="btn btn-secondary" data-action="settings-sub" data-sub="weather">Open Weather settings</button>
+<p class="card-title">${tl("performance.weather_sensors")}</p>
+<p class="field-hint">${tl("performance.map_your_local_station_ecowitt_gw2000a")}</p>
+<p class="field-hint">${weatherMapped ? tl("performance.weathermapped_local_sensor_s_mapped", { weatherMapped }) : tl("performance.no_local_sensors_mapped_yet")}</p>
+<button type="button" class="btn btn-secondary" data-action="settings-sub" data-sub="weather">${tl("performance.open_weather_settings")}</button>
 </div>
 <div class="card">
-<p class="card-title">Panel temperature</p>
-<p class="field-hint">Worked out from each array&rsquo;s panel datasheet values and mounting (Device &rarr; PV Configuration), its output, and the outdoor temperature and wind from your weather sensors.</p>
+<p class="card-title">${tl("performance.panel_temperature")}</p>
+<p class="field-hint">${tl("performance.worked_out_from_each_array_s")}</p>
 </div>
 <div class="card">
-<p class="card-title">Inverter &amp; payback</p>
-<div class="field"><label>Inverter AC rating (kW)</label>
-<p class="field-hint">Used for clipping. Left at 4.3, Fox Plant uses the rating in your inverter&rsquo;s model name (EVO 10-5-H &rarr; 5 kW).</p>
+<p class="card-title">${tl("performance.inverter_payback")}</p>
+<div class="field"><label>${tl("performance.inverter_ac_rating_kw")}</label>
+<p class="field-hint">${tl("performance.used_for_clipping_left_at_4")}</p>
 <input type="number" step="0.1" data-field="performance:inverter_ac_limit_kw" value="${esc(String(draft.inverter_ac_limit_kw))}" ${this._busy ? "disabled" : ""}></div>
-<div class="field"><label>System install cost (£)</label>
-<p class="field-hint">Total system cost for payback tracking (migrated from legacy PV string costs if set).</p>
+<div class="field"><label>${tl("performance.system_install_cost")}</label>
+<p class="field-hint">${tl("performance.total_system_cost_for_payback_tracking")}</p>
 <input type="number" step="1" min="0" data-field="performance:system_install_cost_gbp" value="${esc(String(draft.system_install_cost_gbp ?? ""))}" placeholder="e.g. 8500" ${this._busy ? "disabled" : ""}></div>
-<div class="field"><label>Battery round-trip efficiency</label>
+<div class="field"><label>${tl("performance.battery_round_trip_efficiency")}</label>
 <input type="number" step="0.01" min="0.5" max="1" data-field="performance:system_rte" value="${esc(String(draft.system_rte))}" ${this._busy ? "disabled" : ""}></div>
-<div class="field"><label>Degradation buffer (p/kWh)</label>
+<div class="field"><label>${tl("performance.degradation_buffer_p_kwh")}</label>
 <input type="number" step="0.1" min="0" data-field="performance:degradation_buffer_p_per_kwh" value="${esc(String(draft.degradation_buffer_p_per_kwh))}" ${this._busy ? "disabled" : ""}></div>
-${dbPath ? `<p class="field-hint">Ledger database: <code>${esc(String(dbPath))}</code></p>` : ""}
+${dbPath ? `<p class="field-hint">${tl("performance.ledger_database_dbpath", { dbPath: esc(String(dbPath)) })}</p>` : ""}
 </div>
 <div class="btn-row">
-<button type="button" class="btn btn-primary" data-action="save-performance-settings" ${this._busy ? "disabled" : ""}>Save</button>
+<button type="button" class="btn btn-primary" data-action="save-performance-settings" ${this._busy ? "disabled" : ""}>${tl("common.save")}</button>
 </div>`;
   }
 
@@ -26686,13 +26713,11 @@ ${dbPath ? `<p class="field-hint">Ledger database: <code>${esc(String(dbPath))}<
       const current = draft[role.key] || "";
       const suggestNote = suggested
         ? suggested === current
-          ? `<p class="field-hint">Detected: <code>${esc(suggested)}</code></p>`
-          : `<p class="field-hint">Suggested: <code>${esc(suggested)}</code>${
-              current ? "" : " — use Auto-detect or search below"
-            }</p>`
+          ? `<p class="field-hint">${tl("weather.detected_suggested", { suggested: esc(suggested) })}</p>`
+          : `<p class="field-hint">${tl("weather.suggested_suggested_value", { suggested: esc(suggested), value: current ? "" : tl("weather.use_auto_detect_or_search_below") })}</p>`
         : role.key === "visibility_entity_id"
-          ? `<p class="field-hint">Not found on typical Ecowitt stations.</p>`
-          : `<p class="field-hint">No automatic match — search Home Assistant entities below.</p>`;
+          ? `<p class="field-hint">${tl("weather.not_found_on_typical_ecowitt_stations")}</p>`
+          : `<p class="field-hint">${tl("weather.no_automatic_match_search_home_assistant")}</p>`;
       return `<div class="field">
 <label>${esc(role.label)}${role.required ? " *" : ""}</label>
 <p class="field-hint">${esc(role.hint)}</p>
@@ -26700,28 +26725,26 @@ ${suggestNote}
 <div class="tariff-entity-picker-host" data-weather-picker="${esc(role.key)}"></div>
 </div>`;
     }).join("");
-    return `<header class="header"><h1>Weather</h1><p>Map local weather station sensors for Performance microclimate (wind cooling, rain, dew). Forecast weather from StormSafe / Google remains available as a fallback.</p></header>
+    return `<header class="header"><h1>${tl("common.weather")}</h1><p>${tl("weather.map_local_weather_station_sensors_for")}</p></header>
 <div class="card">
-<p class="card-title">Local station</p>
-<p class="field-hint">${
-      station
-        ? `Detected station prefix: <strong>${esc(station)}</strong> (${Number(lw.mapped_count || 0)} candidate sensors).`
-        : "Looking for Ecowitt / GW2000A / WH90-style sensors. If nothing is detected, use the entity search on each row."
-    }</p>
+<p class="card-title">${tl("weather.local_station")}</p>
+<p class="field-hint">${station
+        ? tl("weather.detected_station_prefix_station_value_candidate", { station: esc(station), value: Number(lw.mapped_count || 0) })
+        : tl("weather.looking_for_ecowitt_gw2000a_wh90_style")}</p>
 <div class="btn-row" style="margin-top:8px">
-<button type="button" class="btn btn-secondary" data-action="weather-detect" ${this._busy ? "disabled" : ""}>Auto-detect &amp; fill empty</button>
-<button type="button" class="btn btn-secondary" data-action="weather-detect-overwrite" ${this._busy ? "disabled" : ""}>Auto-detect &amp; overwrite</button>
+<button type="button" class="btn btn-secondary" data-action="weather-detect" ${this._busy ? "disabled" : ""}>${tl("weather.auto_detect_fill_empty")}</button>
+<button type="button" class="btn btn-secondary" data-action="weather-detect-overwrite" ${this._busy ? "disabled" : ""}>${tl("weather.auto_detect_overwrite")}</button>
 </div>
 </div>
 <div class="card">
-<p class="card-title">Sensor mapping</p>
+<p class="card-title">${tl("weather.sensor_mapping")}</p>
 ${roleRows}
 </div>
 <div class="card">
-<p class="card-title">Forecast weather entity (fallback)</p>
-<p class="field-hint">Optional <code>weather.*</code> used when a mapped sensor is blank. Defaults to StormSafe / Google Weather.</p>
+<p class="card-title">${tl("weather.forecast_weather_entity_fallback")}</p>
+<p class="field-hint">${tl("weather.optional_weather_used_when_a_mapped")}</p>
 <select data-field="weather:weather_entity_id" ${this._busy ? "disabled" : ""}>
-<option value="">Use StormSafe / auto</option>
+<option value="">${tl("weather.use_stormsafe_auto")}</option>
 ${weatherOptions
   .map(
     (id) =>
@@ -26731,7 +26754,7 @@ ${weatherOptions
 </select>
 </div>
 <div class="btn-row">
-<button type="button" class="btn btn-primary" data-action="save-weather-settings" ${this._busy ? "disabled" : ""}>Save</button>
+<button type="button" class="btn btn-primary" data-action="save-weather-settings" ${this._busy ? "disabled" : ""}>${tl("common.save")}</button>
 </div>`;
   }
 
@@ -26789,7 +26812,7 @@ ${weatherOptions
     } catch (err) {
       console.error("FoxESS Plant panel render failed", err);
       const ver = panelVersionFromModuleUrl() || PANEL_VERSION;
-      this._root.innerHTML = `<div class="shell"><main class="main"><div class="main-inner"><p class="placeholder">Fox Plant panel error: ${esc(err?.message || String(err))}</p><p class="placeholder" style="margin-top:8px;font-size:12px;opacity:0.75">Panel JS ${esc(ver)} — update FoxESS Plant in HACS, restart Home Assistant, then call <code>foxess_plant.reload_panel</code> or hard-refresh the browser.</p></div></main></div>`;
+      this._root.innerHTML = `<div class="shell"><main class="main"><div class="main-inner"><p class="placeholder">${tl("panel.fox_plant_panel_error_value", { value: esc(err?.message || String(err)) })}</p><p class="placeholder" style="margin-top:8px;font-size:12px;opacity:0.75">${tl("panel.panel_js_ver_update_foxess_plant", { ver: esc(ver) })}</p></div></main></div>`;
     }
     this._restoreUiState(ui);
   }
@@ -26863,7 +26886,7 @@ ${weatherOptions
     if (!this._hass) {
       this._headerHasSubTabs = undefined;
     this._headerSubNavView = undefined;
-      this._root.innerHTML = renderPanelPlaceholderHtml("Loading Fox Plant…");
+      this._root.innerHTML = renderPanelPlaceholderHtml(tl("panel.loading_fox_plant"));
       return;
     }
     const plant = this._getPlant();
@@ -26872,7 +26895,7 @@ ${weatherOptions
     this._headerSubNavView = undefined;
       void this._recoverEmptyPanelConfig();
       this._root.innerHTML = renderPanelPlaceholderHtml(
-        "Add FoxESS Plant and select your inverter device."
+        tl("panel.add_foxess_plant_and_select_your")
       );
       return;
     }

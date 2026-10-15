@@ -1,17 +1,20 @@
 // Battery (BMS) fault decoding and raised/cleared history for the Alerts page.
-import { copyFileSync, mkdtempSync, readFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import assert from "node:assert/strict";
+import { i18nStubModule, i18nStubSource } from "./i18n_node_stub.mjs";
 
 const www = new URL("../custom_components/foxess_plant/www/", import.meta.url);
 const src = readFileSync(new URL("foxess-plant-panel.js", www), "utf8");
 
-// The guide is an ES module with a .js name: import a .mjs copy of it
+// The guide is an ES module with a .js name: import a .mjs copy of it (its labels from a Node stub)
 const tmp = mkdtempSync(join(tmpdir(), "fox-guide-"));
 copyFileSync(new URL("fox-alarm-guide.js", www), join(tmp, "fox-alarm-guide.mjs"));
-const { bmsFaultLabel } = await import(pathToFileURL(join(tmp, "fox-alarm-guide.mjs")).href);
+writeFileSync(join(tmp, "package.json"), '{"type": "module"}');
+writeFileSync(join(tmp, "fox-i18n.js"), i18nStubModule());
+const { alarmDisplayName, bmsFaultLabel } = await import(pathToFileURL(join(tmp, "fox-alarm-guide.mjs")).href);
 
 const grab = (name) => {
   const start = src.indexOf(`function ${name}(`);
@@ -35,8 +38,13 @@ const code = [
   .join("\n");
 const { bmsFaultNames, eventsFromNamedHistory, mergeStoredAlertEvents } = new Function(
   "bmsFaultLabel",
-  `${code}; return { bmsFaultNames, eventsFromNamedHistory, mergeStoredAlertEvents };`
+  `${i18nStubSource()}${code}; return { bmsFaultNames, eventsFromNamedHistory, mergeStoredAlertEvents };`
 )(bmsFaultLabel);
+
+// Names stay English inside (they're matched against the backend's alert log); shown names are labels
+assert.equal(alarmDisplayName("Battery BS1 E01: Communication fault with PCS (EXT COM)"), "Battery BS1 E01: Communication fault with PCS (EXT COM)");
+assert.equal(alarmDisplayName("Meter lost"), "Meter lost");
+assert.equal(alarmDisplayName("Some new fault"), "Some new fault");
 
 // Named from the EVO manual's BS1-BS6 table; unnamed bits keep the raw bit
 assert.deepEqual(bmsFaultNames(["0", "0", "0", "0", "0", "0"]), []);

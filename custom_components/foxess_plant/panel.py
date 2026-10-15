@@ -86,13 +86,29 @@ def _versioned_panel_bytes() -> bytes:
     return data
 
 
+# Labels: fox-i18n.js loads www/i18n/<lang>.json (revalidated on every load). Both are shared with the
+# alarm guide and the Fox Flow Scene card, so they're imported unpinned (one copy per page), but they're
+# part of the fingerprint so a label change still gives the panel a new URL and element tag.
+PANEL_LABEL_FILES = ("fox-i18n.js",)
+I18N_DIR = WWW_DIR / "i18n"
+
+
+def _labels_digest() -> bytes:
+    h = hashlib.sha256()
+    for name in PANEL_LABEL_FILES:
+        h.update(_module_hash(name).encode())
+    for path in sorted(I18N_DIR.glob("*.json")) if I18N_DIR.is_dir() else []:
+        h.update(path.name.encode() + path.read_bytes())
+    return h.digest()
+
+
 def _panel_js_fingerprint() -> str:
-    """Short hash of panel JS (and the modules it imports) so module_url changes whenever any of them do."""
+    """Short hash of panel JS (and the modules and labels it uses) so module_url changes whenever any of them do."""
     path = panel_js_path()
     if not path.is_file():
         _log_panel_js_missing_once()
         return "missing"
-    return hashlib.sha256(_versioned_panel_bytes()).hexdigest()[:12]
+    return hashlib.sha256(_versioned_panel_bytes() + _labels_digest()).hexdigest()[:12]
 
 
 def _panel_js_cache_name() -> str:

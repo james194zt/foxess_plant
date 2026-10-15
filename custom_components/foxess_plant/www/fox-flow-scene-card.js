@@ -5,6 +5,8 @@
  * Bootstrap (define + picker) runs first so the Add-card dialog never waits on
  * a 600-line module still parsing. Full scene logic attaches at file end.
  */
+
+import { stateWord, tl } from "./fox-i18n.js";
 const FoxFlowScene = {
   ready: false,
 
@@ -20,14 +22,14 @@ const FoxFlowScene = {
         { name: "show_weather", default: true, selector: { boolean: {} } },
       ],
       computeLabel: (schema) => {
-        if (schema.name === "plant_id") return "FoxESS Plant entry ID (optional)";
-        if (schema.name === "weather_entity") return "Weather entity (optional)";
-        if (schema.name === "show_weather") return "Show weather on scene";
+        if (schema.name === "plant_id") return tl("settings.foxess_plant_entry_id_optional");
+        if (schema.name === "weather_entity") return tl("settings.weather_entity_optional");
+        if (schema.name === "show_weather") return tl("settings.show_weather_on_scene");
         return undefined;
       },
       computeHelper: (schema) => {
         if (schema.name === "plant_id") {
-          return "Leave blank to auto-discover FoxESS entities from your installation.";
+          return tl("settings.leave_blank_to_auto_discover_foxess");
         }
         return undefined;
       },
@@ -35,7 +37,7 @@ const FoxFlowScene = {
   },
 
   setConfig(el, config) {
-    if (!config) throw new Error("Invalid configuration");
+    if (!config) throw new Error(tl("settings.invalid_configuration"));
     el._config = config;
     el._plantState = null;
     el._plantMap = null;
@@ -64,7 +66,7 @@ const FoxFlowScene = {
     if (!el.shadowRoot) return;
     if (!FoxFlowScene.ready || !el._hass) {
       el.shadowRoot.innerHTML =
-        '<style>:host{display:block}.p{padding:24px 16px;text-align:center;color:var(--secondary-text-color,#888);font-size:14px}</style><div class="p">Fox Flow Scene</div>';
+        `<style>:host{display:block}.p{padding:24px 16px;text-align:center;color:var(--secondary-text-color,#888);font-size:14px}</style><div class="p">${tl("common.fox_flow_scene")}</div>`;
       return;
     }
     FoxFlowScene.renderFull(el);
@@ -129,8 +131,8 @@ window.customCards = window.customCards || [];
 if (!window.customCards.some((card) => card.type === "fox-flow-scene-card")) {
   window.customCards.push({
     type: "fox-flow-scene-card",
-    name: "Fox Flow Scene",
-    description: "Live Fox ESS house energy flow scene (Fox Plant overview)",
+    name: tl("common.fox_flow_scene"),
+    description: tl("flow_card.live_fox_ess_house_energy_flow"),
     preview: false,
     documentationURL: "https://github.com/james194zt/foxess_plant",
     getEntitySuggestion: (hass, entityId) => {
@@ -586,9 +588,9 @@ FoxFlowScene.flowContext = function flowContext(el) {
     isNight,
     soc,
     gridExporting,
-    gridLabel: gridExporting ? "To Grid" : "On Grid",
+    gridLabel: gridExporting ? tl("common.to_grid") : tl("flow.on_grid"),
     gridPower: gridExporting ? flows.gridExportW : flows.gridImportW,
-    batteryStatus: String(flows.batteryStatus || "Idle").toUpperCase(),
+    batteryStatus: stateWord(flows.batteryStatus || "Idle").toUpperCase(),
     batteryPower: Math.abs(flows.batteryW),
     hubActive: lines.some((l) => l.id.includes("hub")),
     key: flowSceneStructureKey(lines, gridExporting, isNight, bgTheme, haUiDark),
@@ -637,7 +639,7 @@ ${pathsHtml}
 </svg>
 ${weather}
 <div class="fox-flow-badge fox-flow-badge-solar">
-<span class="fox-flow-badge-label">Solar</span>
+<span class="fox-flow-badge-label">${tl("common.solar")}</span>
 <span class="fox-flow-badge-value">${formatFoxPower(ctx.flows.pvW)}</span>
 </div>
 <div class="fox-flow-badge fox-flow-badge-grid">
@@ -649,7 +651,7 @@ ${weather}
 <span class="fox-flow-badge-value">${formatFoxPower(ctx.batteryPower)} | ${formatPercent(ctx.soc)}</span>
 </div>
 <div class="fox-flow-badge fox-flow-badge-home">
-<span class="fox-flow-badge-label">Home</span>
+<span class="fox-flow-badge-label">${tl("energy.home")}</span>
 <span class="fox-flow-badge-value">${formatFoxPower(ctx.flows.loadW)}</span>
 </div>
 </div>
@@ -660,7 +662,7 @@ ${weather}
 FoxFlowScene.renderFull = function renderFull(el) {
   if (!el.shadowRoot) return;
   if (!el._hass) {
-    el.shadowRoot.innerHTML = `<style>${CARD_STYLES}</style><div class="card"><p class="placeholder">Loading…</p></div>`;
+    el.shadowRoot.innerHTML = `<style>${CARD_STYLES}</style><div class="card"><p class="placeholder">${tl("common.loading")}</p></div>`;
     return;
   }
   const ctx = FoxFlowScene.flowContext(el);

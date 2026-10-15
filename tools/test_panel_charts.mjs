@@ -10,15 +10,17 @@ import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
+import { i18nStubSource } from "./i18n_node_stub.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const panelPath = path.resolve(here, "../custom_components/foxess_plant/www/foxess-plant-panel.js");
 const src = fs.readFileSync(panelPath, "utf8");
 
-// Strip the ES import and evaluate as a classic script in a stubbed browser-ish context.
+// Strip the ES imports and evaluate as a classic script in a stubbed browser-ish context.
 const code =
   src
-    .replace(/^import .*$/m, "const renderFoxAlarmDetailModal = () => '';")
+    .replace(/^import .* from "\.\/fox-alarm-guide\.js";$/m, "const renderFoxAlarmDetailModal = () => ''; const alarmDisplayName = (n) => n;")
+    .replace(/^import .* from "\.\/fox-i18n\.js";$/m, i18nStubSource())
     .replace(/import\.meta/g, "({ url: '' })") +
   `
 ;globalThis.__fp = { setChartPanelWidth, isNarrowChart, chartRenderWidth, statisticsChartLayout,

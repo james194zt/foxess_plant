@@ -1,6 +1,7 @@
 // Extract the warm-up tariff helpers from the panel and check them against real and edge-case maps.
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
+import { i18nStubSource } from "./i18n_node_stub.mjs";
 
 const src = readFileSync(new URL("../custom_components/foxess_plant/www/foxess-plant-panel.js", import.meta.url), "utf8");
 const grab = (name) => {
@@ -14,7 +15,7 @@ const grab = (name) => {
 };
 const code = ["tariffHourlyImport", "warmupWindowsFromTariff", "warmupCoversHour"].map(grab).join("\n");
 const { tariffHourlyImport, warmupWindowsFromTariff, warmupCoversHour } = new Function(
-  `${code}; return { tariffHourlyImport, warmupWindowsFromTariff, warmupCoversHour };`
+  `${i18nStubSource()}${code}; return { tariffHourlyImport, warmupWindowsFromTariff, warmupCoversHour };`
 )();
 
 const bands = (...p) => p.map((x) => ({ import_p_per_kwh: x }));

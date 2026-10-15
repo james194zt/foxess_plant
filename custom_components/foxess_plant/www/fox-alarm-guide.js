@@ -3,369 +3,371 @@
  * @module fox-alarm-guide
  */
 
+import { tl } from "./fox-i18n.js";
+
 /** @typedef {{ manualName: string, description: string, solutions: string[], bmsRelated?: boolean }} FoxAlarmGuideEntry */
 
 /** EVO manual alarm list — keyed by manual fault short name. */
 export const FOX_EVO_MANUAL_FAULTS = {
   "Grid Lost Fault": {
-    description: "Grid is lost.",
+    description: tl("alerts.grid_is_lost"),
     solutions: [
-      "System will reconnect if the utility is back to normal.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.system_will_reconnect_if_the_utility"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "Grid Volt Fault": {
-    description: "Grid voltage out of range.",
+    description: tl("alerts.grid_voltage_out_of_range"),
     solutions: [
-      "System will reconnect if the utility is back to normal.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.system_will_reconnect_if_the_utility"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "Grid Freq Fault": {
-    description: "Grid frequency out of range.",
+    description: tl("alerts.grid_frequency_out_of_range"),
     solutions: [
-      "System will reconnect if the utility is back to normal.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.system_will_reconnect_if_the_utility"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "10min Volt Fault": {
-    description: "The grid voltage is out of range for the last 10 minutes.",
+    description: tl("alerts.the_grid_voltage_is_out_of"),
     solutions: [
-      "System will reconnect if the utility is back to normal.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.system_will_reconnect_if_the_utility"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "SW Inv Cur Fault": {
-    description: "Output current high detected by software.",
+    description: tl("alerts.output_current_high_detected_by_software"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "DCI Fault": {
-    description: "DC component is out of limit in output current.",
+    description: tl("alerts.dc_component_is_out_of_limit"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "HW Inv Cur Fault": {
-    description: "Output current high detected by hardware.",
+    description: tl("alerts.output_current_high_detected_by_hardware"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "SW Bus Vol Fault": {
-    description: "Bus voltage out of range detected by software.",
+    description: tl("alerts.bus_voltage_out_of_range_detected"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "Bat Volt Fault": {
-    description: "Battery voltage fault.",
+    description: tl("alerts.battery_voltage_fault"),
     solutions: [
-      "Check if the battery input voltage is within the normal range.",
-      "Or seek help from us.",
+      tl("alerts.check_if_the_battery_input_voltage"),
+      tl("alerts.or_seek_help_from_us"),
     ],
     bmsRelated: true,
   },
   "SW Bat Cur Fault": {
-    description: "Battery current high detected by software.",
+    description: tl("alerts.battery_current_high_detected_by_software"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
     bmsRelated: true,
   },
   "Iso Fault": {
-    description: "The isolation has failed.",
+    description: tl("alerts.the_isolation_has_failed"),
     solutions: [
-      "Please check if the insulation of electric wires is damaged.",
-      "Wait for a while to check if back to normal.",
-      "Or seek for help from us.",
+      tl("alerts.please_check_if_the_insulation_of"),
+      tl("alerts.wait_for_a_while_to_check"),
+      tl("alerts.or_seek_for_help_from_us"),
     ],
   },
   "Res Cur Fault": {
-    description: "The residual current is high.",
+    description: tl("alerts.the_residual_current_is_high"),
     solutions: [
-      "Please check if the insulation of electric wires is damaged.",
-      "Wait for a while to check if back to normal.",
-      "Or seek for help from us.",
+      tl("alerts.please_check_if_the_insulation_of"),
+      tl("alerts.wait_for_a_while_to_check"),
+      tl("alerts.or_seek_for_help_from_us"),
     ],
   },
   "Pv Volt Fault": {
-    description: "PV voltage out of range.",
-    solutions: ["Please check the output voltage of PV panels.", "Or seek for help from us."],
+    description: tl("alerts.pv_voltage_out_of_range"),
+    solutions: [tl("alerts.please_check_the_output_voltage_of"), tl("alerts.or_seek_for_help_from_us")],
   },
   "SW Pv Cur Fault": {
-    description: "PV input current high detected by software.",
+    description: tl("alerts.pv_input_current_high_detected_by"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "Temp Fault": {
-    description: "The inverter temperature is high.",
+    description: tl("alerts.the_inverter_temperature_is_high"),
     solutions: [
-      "Please check the environment temperature.",
-      "Wait for a while to check if back to normal.",
-      "Or seek for help from us.",
+      tl("alerts.please_check_the_environment_temperature"),
+      tl("alerts.wait_for_a_while_to_check"),
+      tl("alerts.or_seek_for_help_from_us"),
     ],
   },
   "Ground Fault": {
-    description: "The ground connection has failed.",
+    description: tl("alerts.the_ground_connection_has_failed"),
     solutions: [
-      "Check the voltage of neutral and PE.",
-      "Check AC wiring.",
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.check_the_voltage_of_neutral_and"),
+      tl("alerts.check_ac_wiring"),
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "Over Load Fault": {
-    description: "Overload in on-grid mode.",
-    solutions: ["Please check if the load power exceeds the limit.", "Or seek for help from us."],
+    description: tl("alerts.overload_in_on_grid_mode"),
+    solutions: [tl("alerts.please_check_if_the_load_power"), tl("alerts.or_seek_for_help_from_us")],
   },
   "Eps Over Load": {
-    description: "Overload in off-grid mode.",
-    solutions: ["Please check if the EPS load power exceeds the limit.", "Or seek for help from us."],
+    description: tl("alerts.overload_in_off_grid_mode"),
+    solutions: [tl("alerts.please_check_if_the_eps_load"), tl("alerts.or_seek_for_help_from_us")],
   },
   "Bat Power Low": {
-    description: "The battery power is low.",
-    solutions: ["Wait for the battery to be recharged.", "Or seek for help from us."],
+    description: tl("alerts.the_battery_power_is_low"),
+    solutions: [tl("alerts.wait_for_the_battery_to_be"), tl("alerts.or_seek_for_help_from_us")],
     bmsRelated: true,
   },
   "HW Bus Vol Fault": {
-    description: "Bus voltage out of range detected by hardware.",
+    description: tl("alerts.bus_voltage_out_of_range_detected_2"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "HW Pv Cur Fault": {
-    description: "PV input current high detected by hardware.",
+    description: tl("alerts.pv_input_current_high_detected_by_2"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "HW Bat Cur Fault": {
-    description: "Battery current high detected by hardware.",
+    description: tl("alerts.battery_current_high_detected_by_hardware"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
     bmsRelated: true,
   },
   "SCI Fault": {
-    description: "The communication between master and manager has failed.",
+    description: tl("alerts.the_communication_between_master_and_manager"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "MDSP SPI Fault": {
-    description: "The communication between master and slave has failed.",
+    description: tl("alerts.the_communication_between_master_and_slave"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "MDSP Smpl Fault": {
-    description: "The master sample detection circuit has failed.",
+    description: tl("alerts.the_master_sample_detection_circuit_has"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "Res Cur HW Fault": {
-    description: "Residual current detection device has failed.",
+    description: tl("alerts.residual_current_detection_device_has_failed"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "Inv EEPROM Fault": {
-    description: "The inverter EEPROM is faulty.",
+    description: tl("alerts.the_inverter_eeprom_is_faulty"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "PvCon Dir Fault": {
-    description: "The PV connection is reversed.",
+    description: tl("alerts.the_pv_connection_is_reversed"),
     solutions: [
-      "Check if the positive pole and negative pole of PV are correctly connected.",
-      "Or seek help from us.",
+      tl("alerts.check_if_the_positive_pole_and"),
+      tl("alerts.or_seek_help_from_us"),
     ],
   },
   "Bat Relay Open": {
-    description: "The battery relay keeps open.",
+    description: tl("alerts.the_battery_relay_keeps_open"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
     bmsRelated: true,
   },
   "Bat Relay Short Circuit": {
-    description: "The battery relay keeps closed.",
+    description: tl("alerts.the_battery_relay_keeps_closed"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
     bmsRelated: true,
   },
   "Bat Buck Fault": {
-    description: "The battery buck circuit MOSFET has failed.",
+    description: tl("alerts.the_battery_buck_circuit_mosfet_has"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
     bmsRelated: true,
   },
   "Bat Boost Fault": {
-    description: "The battery boost circuit MOSFET has failed.",
+    description: tl("alerts.the_battery_boost_circuit_mosfet_has"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
     bmsRelated: true,
   },
   "Eps Relay Fault": {
-    description: "The EPS relay has failed.",
+    description: tl("alerts.the_eps_relay_has_failed"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "BatCon Dir Fault": {
-    description: "The battery connection is reversed.",
+    description: tl("alerts.the_battery_connection_is_reversed"),
     solutions: [
-      "Check if the positive pole and negative pole of battery are correctly connected.",
-      "Or seek help from us.",
+      tl("alerts.check_if_the_positive_pole_and_2"),
+      tl("alerts.or_seek_help_from_us"),
     ],
     bmsRelated: true,
   },
   "Main Relay Open": {
-    description: "The grid relay keeps open.",
+    description: tl("alerts.the_grid_relay_keeps_open"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "S1 Close Fault": {
-    description: "The grid relay S1 keeps closed.",
+    description: tl("alerts.the_grid_relay_s1_keeps_closed"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "S2 Close Fault": {
-    description: "The grid relay S2 keeps closed.",
+    description: tl("alerts.the_grid_relay_s2_keeps_closed"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "M1 Close Fault": {
-    description: "The grid relay M1 keeps closed.",
+    description: tl("alerts.the_grid_relay_m1_keeps_closed"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "M2 Close Fault": {
-    description: "The grid relay M2 keeps closed.",
+    description: tl("alerts.the_grid_relay_m2_keeps_closed"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "GridV Cons Fault": {
-    description: "Grid voltage sample values between master and slave are not consistent.",
+    description: tl("alerts.grid_voltage_sample_values_between_master"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "GridF Cons Fault": {
-    description: "Grid frequency sample values between master and slave are not consistent.",
+    description: tl("alerts.grid_frequency_sample_values_between_master"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "Dci Cons Fault": {
-    description: "DCI sample values between master and slave are not consistent.",
+    description: tl("alerts.dci_sample_values_between_master_and"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "Rc Cons Fault": {
-    description: "Residual current sample values between master and slave are not consistent.",
+    description: tl("alerts.residual_current_sample_values_between_master"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "RDSP SPI Fault": {
-    description: "The communication between master and slave has failed.",
+    description: tl("alerts.the_communication_between_master_and_slave"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "RDSP Smpl Fault": {
-    description: "The slave sample detection circuit has failed.",
+    description: tl("alerts.the_slave_sample_detection_circuit_has"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "ARM EEPROM Fault": {
-    description: "The manager EEPROM is faulty.",
+    description: tl("alerts.the_manager_eeprom_is_faulty"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "Meter Lost Fault": {
-    description: "Communication between the meter and inverter is interrupted.",
+    description: tl("alerts.communication_between_the_meter_and_inverter"),
     solutions: [
-      "Check if the communication cable between meter and inverter is correctly and well connected.",
+      tl("alerts.check_if_the_communication_cable_between"),
     ],
   },
   "DC arc fault": {
-    description: "DC arc fault detected (requires arc-fault detection hardware).",
+    description: tl("alerts.dc_arc_fault_detected_requires_arc"),
     solutions: [
-      "Disconnect PV, grid and battery, then reconnect.",
-      "Inspect PV wiring and connectors for damage or loose contacts.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.disconnect_pv_grid_and_battery_then"),
+      tl("alerts.inspect_pv_wiring_and_connectors_for"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   Islanding: {
-    description: "Islanding condition detected.",
+    description: tl("alerts.islanding_condition_detected"),
     solutions: [
-      "System will reconnect if the utility is back to normal.",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.system_will_reconnect_if_the_utility"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
   },
   "External fan fault": {
-    description: "External cooling fan fault.",
+    description: tl("alerts.external_cooling_fan_fault"),
     solutions: [
-      "Check that the inverter ventilation path is clear.",
-      "Wait for a while to check if back to normal.",
-      "Or seek for help from us.",
+      tl("alerts.check_that_the_inverter_ventilation_path"),
+      tl("alerts.wait_for_a_while_to_check"),
+      tl("alerts.or_seek_for_help_from_us"),
     ],
   },
   "BMS lost": {
-    description: "Communication between the inverter and BMS is lost.",
+    description: tl("alerts.communication_between_the_inverter_and_bms"),
     solutions: [
-      "Check BMS communication cables and battery connections.",
-      "Review active BMS fault states below (BS1–BS6).",
-      "Or seek help from us, if not go back to normal state.",
+      tl("alerts.check_bms_communication_cables_and_battery"),
+      tl("alerts.review_active_bms_fault_states_below"),
+      tl("alerts.or_seek_help_from_us_if"),
     ],
     bmsRelated: true,
   },
@@ -373,41 +375,41 @@ export const FOX_EVO_MANUAL_FAULTS = {
 
 /** Modbus / Fox app alarm label → EVO manual fault key. */
 export const FOX_ALARM_TO_MANUAL = {
-  "PV Over-voltage": "Pv Volt Fault",
-  "DC arc fault": "DC arc fault",
-  "String reverse connection": "PvCon Dir Fault",
-  "Grid power outage": "Grid Lost Fault",
-  "Abnormal grid voltage": "Grid Volt Fault",
-  "Abnormal grid frequency": "Grid Freq Fault",
-  "Output overcurrent": "SW Inv Cur Fault",
-  "Output DC component too large": "DCI Fault",
-  "Residual current": "Res Cur Fault",
-  "Grounding fault": "Ground Fault",
-  "Low insulation resistance": "Iso Fault",
-  "Inverter overtemperature": "Temp Fault",
-  "Energy storage equipment abnormal": "Bat Volt Fault",
-  Islanding: "Islanding",
-  "Off-grid output overload": "Eps Over Load",
-  "External fan fault": "External fan fault",
-  "Energy storage reverse connection": "BatCon Dir Fault",
-  "Meter lost": "Meter Lost Fault",
-  "BMS lost": "BMS lost",
-  "Grid Lost Fault": "Grid Lost Fault",
-  "Grid Voltage Fault": "Grid Volt Fault",
-  "Grid Frequency Fault": "Grid Freq Fault",
-  "Output Over-current Fault": "SW Inv Cur Fault",
-  "Output DC Over-current Fault": "DCI Fault",
-  "Residual Current Consistency Fault": "Res Cur Fault",
-  "Ground Connection Fault": "Ground Fault",
-  "Low Insulation Resistante Fault": "Iso Fault",
-  "Inverter Over-temperature Fault": "Temp Fault",
-  "Energy Storage Equipment Abnormal Fault": "Bat Volt Fault",
-  "Isolated Island Fault": "Islanding",
-  "Off-grid Output Overload Fault": "Eps Over Load",
-  "External Fan Fault": "External fan fault",
-  "Energy Storage Reverse Connection Fault": "BatCon Dir Fault",
-  "Meter Lost Fault": "Meter Lost Fault",
-  "BMS Lost Fault": "BMS lost",
+  "PV Over-voltage": tl("alerts.pv_volt_fault"),
+  "DC arc fault": tl("alerts.dc_arc_fault"),
+  "String reverse connection": tl("alerts.pvcon_dir_fault"),
+  "Grid power outage": tl("alerts.grid_lost_fault"),
+  "Abnormal grid voltage": tl("alerts.grid_volt_fault"),
+  "Abnormal grid frequency": tl("alerts.grid_freq_fault"),
+  "Output overcurrent": tl("alerts.sw_inv_cur_fault"),
+  "Output DC component too large": tl("alerts.dci_fault"),
+  "Residual current": tl("alerts.res_cur_fault"),
+  "Grounding fault": tl("alerts.ground_fault"),
+  "Low insulation resistance": tl("alerts.iso_fault"),
+  "Inverter overtemperature": tl("alerts.temp_fault"),
+  "Energy storage equipment abnormal": tl("alerts.bat_volt_fault"),
+  Islanding: tl("alerts.islanding"),
+  "Off-grid output overload": tl("alerts.eps_over_load"),
+  "External fan fault": tl("alerts.external_fan_fault"),
+  "Energy storage reverse connection": tl("alerts.batcon_dir_fault"),
+  "Meter lost": tl("alerts.meter_lost_fault"),
+  "BMS lost": tl("alerts.bms_lost"),
+  "Grid Lost Fault": tl("alerts.grid_lost_fault"),
+  "Grid Voltage Fault": tl("alerts.grid_volt_fault"),
+  "Grid Frequency Fault": tl("alerts.grid_freq_fault"),
+  "Output Over-current Fault": tl("alerts.sw_inv_cur_fault"),
+  "Output DC Over-current Fault": tl("alerts.dci_fault"),
+  "Residual Current Consistency Fault": tl("alerts.res_cur_fault"),
+  "Ground Connection Fault": tl("alerts.ground_fault"),
+  "Low Insulation Resistante Fault": tl("alerts.iso_fault"),
+  "Inverter Over-temperature Fault": tl("alerts.temp_fault"),
+  "Energy Storage Equipment Abnormal Fault": tl("alerts.bat_volt_fault"),
+  "Isolated Island Fault": tl("alerts.islanding"),
+  "Off-grid Output Overload Fault": tl("alerts.eps_over_load"),
+  "External Fan Fault": tl("alerts.external_fan_fault"),
+  "Energy Storage Reverse Connection Fault": tl("alerts.batcon_dir_fault"),
+  "Meter Lost Fault": tl("alerts.meter_lost_fault"),
+  "BMS Lost Fault": tl("alerts.bms_lost"),
 };
 
 /** BMS fault bitfields BS1–BS6 (EVO user manual p. 58–59). Index = bit 0–7. */
@@ -474,10 +476,101 @@ const FOX_BMS_E_CODES = ["E01", "E02", "E04", "E08", "E10", "E20", "E40", "E80"]
  * @param {number} index BS register 1-6 (37626-37631)
  * @param {number} bit 0-15
  */
+
+/**
+ * The name shown for an alarm. Alarm names stay English inside — they come from foxess_modbus and from
+ * the integration's alert log, and raised / cleared events are matched by name — so the known ones are
+ * only translated here, where they are shown. Unknown names are returned unchanged.
+ */
+export function alarmDisplayName(name) {
+  const text = String(name ?? "");
+  const bms = /^Battery BS(\d+) (E\d+): (.+)$/.exec(text);
+  if (bms) {
+    const label = bmsBitDisplayName(bms[3]);
+    return label === bms[3] ? text : tl("alarm_bms.fault_name", { index: bms[1], code: bms[2], label });
+  }
+  const labels = {
+    "PV Over-voltage": tl("alarm_name.pv_over_voltage"),
+    "DC arc fault": tl("alarm_name.dc_arc_fault"),
+    "String reverse connection": tl("alarm_name.string_reverse_connection"),
+    "Grid power outage": tl("alarm_name.grid_power_outage"),
+    "Abnormal grid voltage": tl("alarm_name.abnormal_grid_voltage"),
+    "Abnormal grid frequency": tl("alarm_name.abnormal_grid_frequency"),
+    "Output overcurrent": tl("alarm_name.output_overcurrent"),
+    "Output DC component too large": tl("alarm_name.output_dc_component_too_large"),
+    "Residual current": tl("alarm_name.residual_current"),
+    "Grounding fault": tl("alarm_name.grounding_fault"),
+    "Low insulation resistance": tl("alarm_name.low_insulation_resistance"),
+    "Inverter overtemperature": tl("alarm_name.inverter_overtemperature"),
+    "Energy storage equipment abnormal": tl("alarm_name.energy_storage_equipment_abnormal"),
+    "Islanding": tl("alarm_name.islanding"),
+    "Off-grid output overload": tl("alarm_name.off_grid_output_overload"),
+    "External fan fault": tl("alarm_name.external_fan_fault"),
+    "Energy storage reverse connection": tl("alarm_name.energy_storage_reverse_connection"),
+    "Meter lost": tl("alarm_name.meter_lost"),
+    "BMS lost": tl("alarm_name.bms_lost"),
+    "Grid Lost Fault": tl("alarm_name.grid_lost_fault"),
+    "Grid Voltage Fault": tl("alarm_name.grid_voltage_fault"),
+    "Grid Frequency Fault": tl("alarm_name.grid_frequency_fault"),
+    "Output Over-current Fault": tl("alarm_name.output_over_current_fault"),
+    "Output DC Over-current Fault": tl("alarm_name.output_dc_over_current_fault"),
+    "Residual Current Consistency Fault": tl("alarm_name.residual_current_consistency_fault"),
+    "Ground Connection Fault": tl("alarm_name.ground_connection_fault"),
+    "Low Insulation Resistante Fault": tl("alarm_name.low_insulation_resistante_fault"),
+    "Inverter Over-temperature Fault": tl("alarm_name.inverter_over_temperature_fault"),
+    "Energy Storage Equipment Abnormal Fault": tl("alarm_name.energy_storage_equipment_abnormal_fault"),
+    "Isolated Island Fault": tl("alarm_name.isolated_island_fault"),
+    "Off-grid Output Overload Fault": tl("alarm_name.off_grid_output_overload_fault"),
+    "External Fan Fault": tl("alarm_name.external_fan_fault_2"),
+    "Energy Storage Reverse Connection Fault": tl("alarm_name.energy_storage_reverse_connection_fault"),
+    "Meter Lost Fault": tl("alarm_name.meter_lost_fault"),
+    "BMS Lost Fault": tl("alarm_name.bms_lost_fault"),
+    "Inverter not responding (Modbus)": tl("alarm_name.inverter_not_responding_modbus"),
+  };
+  return labels[text] ?? text;
+}
+
+/** The shown text of one BMS fault bit (FOX_BMS_FAULT_BITS stays English, like the backend's table). */
+export function bmsBitDisplayName(label) {
+  const labels = {
+    "Communication fault with PCS (EXT COM)": tl("alarm_bms.communication_fault_with_pcs_ext_com"),
+    "Internal communication fault (INT COM)": tl("alarm_bms.internal_communication_fault_int_com"),
+    "Over voltage fault (OV)": tl("alarm_bms.over_voltage_fault_ov"),
+    "Under voltage fault (UV)": tl("alarm_bms.under_voltage_fault_uv"),
+    "Charge over current (OCC)": tl("alarm_bms.charge_over_current_occ"),
+    "Discharge over current (OCD)": tl("alarm_bms.discharge_over_current_ocd"),
+    "Over temperature fault (OT)": tl("alarm_bms.over_temperature_fault_ot"),
+    "Under temperature (UT)": tl("alarm_bms.under_temperature_ut"),
+    "Cell imbalance alarm (CB)": tl("alarm_bms.cell_imbalance_alarm_cb"),
+    "Hardware Protect": tl("alarm_bms.hardware_protect"),
+    "BMS Other Fault": tl("alarm_bms.bms_other_fault"),
+    "Voltage Sensor Fault": tl("alarm_bms.voltage_sensor_fault"),
+    "Temperature Sensor Fault": tl("alarm_bms.temperature_sensor_fault"),
+    "Current Sensor Fault": tl("alarm_bms.current_sensor_fault"),
+    "Relay Fault": tl("alarm_bms.relay_fault"),
+    "Inconsistent cell capacity fault (BMS_Typc_Unmatch)": tl("alarm_bms.inconsistent_cell_capacity_fault_bms_typc_unmatc"),
+    "Unanswered charging request (BMS_MR_Unmatch)": tl("alarm_bms.unanswered_charging_request_bms_mr_unmatch"),
+    "Pre-charge fault": tl("alarm_bms.pre_charge_fault"),
+    "Relay drive circuit failure (Actor_Fault)": tl("alarm_bms.relay_drive_circuit_failure_actor_fault"),
+    "SOH_LOW": tl("alarm_bms.soh_low"),
+    "Single cell 0V fault (SUV)": tl("alarm_bms.single_cell_0v_fault_suv"),
+    "Extreme overvoltage fault (CellVolt R&H Invalid)": tl("alarm_bms.extreme_overvoltage_fault_cellvolt_r_h_invalid"),
+    "Cell Temperature High Invalid": tl("alarm_bms.cell_temperature_high_invalid"),
+    "Balance Temperature High": tl("alarm_bms.balance_temperature_high"),
+    "Precharge resistor overtemperature (PreChg_Restemperature High)": tl("alarm_bms.precharge_resistor_overtemperature_prechg_restem"),
+    "Hardware overcurrent fault (short_current)": tl("alarm_bms.hardware_overcurrent_fault_short_current"),
+    "AFE Communication Fault": tl("alarm_bms.afe_communication_fault"),
+    "AFE Fault (AFE UT/OT/UV/OV)": tl("alarm_bms.afe_fault_afe_ut_ot_uv_ov"),
+    "IVU Communication fault": tl("alarm_bms.ivu_communication_fault"),
+    "Module addressing fault": tl("alarm_bms.module_addressing_fault"),
+  };
+  return labels[label] ?? label;
+}
+
 export function bmsFaultLabel(index, bit) {
   const label = FOX_BMS_FAULT_BITS[index - 1]?.[bit];
-  if (label) return `Battery BS${index} ${FOX_BMS_E_CODES[bit]}: ${label}`;
-  return `Battery BS${index} bit ${bit} (0x${(1 << bit).toString(16).padStart(4, "0")})`;
+  if (label) return tl("alerts.battery_bs_index_value_label", { index, value: FOX_BMS_E_CODES[bit], label });
+  return tl("alerts.battery_bs_index_bit_bit_0x", { index, bit, value: (1 << bit).toString(16).padStart(4, "0") });
 }
 
 /**
@@ -486,9 +579,9 @@ export function bmsFaultLabel(index, bit) {
  * the manual's real guidance — so we show it inline instead of telling the user to find the PDF.
  */
 const FOX_MANUAL_GENERIC_SOLUTIONS = [
-  "Record the fault and the time it occurred (shown above) before doing anything further.",
-  "Check the inverter is in a clean, dry, well-ventilated place within its temperature range, and that cabling and connections are undamaged and secure.",
-  "Contact FoxESS customer service — with your model and serial number — if the condition persists.",
+  tl("alerts.record_the_fault_and_the_time"),
+  tl("alerts.check_the_inverter_is_in_a"),
+  tl("alerts.contact_foxess_customer_service_with_your"),
 ];
 
 /**
@@ -498,17 +591,17 @@ const FOX_MANUAL_GENERIC_SOLUTIONS = [
  */
 export const FOX_BMS_FAULT_DESCRIPTIONS = {
   "Over voltage fault (OV)":
-    "A battery voltage rose above the safe limit, so the battery protected itself by pausing.",
+    tl("alerts.a_battery_voltage_rose_above_the"),
   "Under voltage fault (UV)":
-    "A battery voltage dropped below the safe limit, so the battery protected itself by pausing.",
+    tl("alerts.a_battery_voltage_dropped_below_the"),
   "Charge over current (OCC)":
-    "The battery was being charged faster than is safe, so it slowed or stopped charging to protect itself.",
+    tl("alerts.the_battery_was_being_charged_faster"),
   "Discharge over current (OCD)":
-    "The battery was being drained faster than is safe, so it slowed or stopped discharging to protect itself.",
+    tl("alerts.the_battery_was_being_drained_faster"),
   "Over temperature fault (OT)":
-    "The battery got too warm, so it paused charging and discharging until it cools back into its safe range.",
+    tl("alerts.the_battery_got_too_warm_so"),
   "Under temperature (UT)":
-    "The battery got too cold, so it paused charging (and possibly discharging) until it warms into its safe range.",
+    tl("alerts.the_battery_got_too_cold_so"),
 };
 
 const FOX_BMS_LABEL_RE = /^Battery (BS[1-6])\s*(?:E[0-9A-Fa-f]{2}:)?\s*(.*)$/;
@@ -525,12 +618,12 @@ function bmsGuideEntry(alarmName) {
   const [, bs, faultName] = m;
   const description =
     FOX_BMS_FAULT_DESCRIPTIONS[faultName] ||
-    `The battery reported a protection fault (${faultName}).`;
+    tl("alerts.the_battery_reported_a_protection_fault", { faultName });
   return {
     manualName: `${faultName || alarmName} — battery ${bs}`,
     description,
     solutions: [
-      "This is a safety cut-out from the battery itself. If a recovery time is shown above, it cleared on its own once things returned to normal — usually nothing to do.",
+      tl("alerts.this_is_a_safety_cut_out"),
       ...FOX_MANUAL_GENERIC_SOLUTIONS,
     ],
     bmsRelated: true,
@@ -556,7 +649,7 @@ export function foxAlarmGuideEntry(alarmName) {
   if (bms) return bms;
   return {
     manualName: alarmName,
-    description: "This warning doesn't have a specific entry in the inverter's fault guide.",
+    description: tl("alerts.this_warning_doesn_t_have_a"),
     solutions: FOX_MANUAL_GENERIC_SOLUTIONS,
     bmsRelated: /bms|battery|energy storage/i.test(alarmName),
   };
@@ -605,30 +698,30 @@ export function renderFoxAlarmDetailBody(alarmName, ctx) {
         ? faults
             .map(
               (f) =>
-                `<tr><td>${esc(f.register)}</td><td>${esc(f.code)}</td><td>${esc(f.label)}</td></tr>`
+                `<tr><td>${esc(f.register)}</td><td>${esc(f.code)}</td><td>${esc(bmsBitDisplayName(f.label))}</td></tr>`
             )
             .join("")
-        : `<tr><td colspan="3">${esc("No active BMS fault bits reported on registers 37626–37631.")}</td></tr>`;
+        : `<tr><td colspan="3">${esc(tl("alerts.no_active_bms_fault_bits_reported"))}</td></tr>`;
 
     bmsHtml = `<section class="fox-alarm-detail-section">
-<h3 class="fox-alarm-detail-subtitle">BMS status</h3>
+<h3 class="fox-alarm-detail-subtitle">${tl("alerts.bms_status")}</h3>
 <dl class="fox-alarm-detail-meta">
-${bmsOnline ? `<div><dt>BMS online</dt><dd>${esc(bmsOnline.state === "on" ? "Online" : "Offline")}</dd></div>` : ""}
-${batStatus ? `<div><dt>Battery status</dt><dd>${esc(batStatus.state)}</dd></div>` : ""}
+${bmsOnline ? `<div><dt>${tl("settings.bms_online")}</dt><dd>${esc(bmsOnline.state === "on" ? tl("alerts.online") : tl("alerts.offline"))}</dd></div>` : ""}
+${batStatus ? `<div><dt>${tl("alerts.battery_status")}</dt><dd>${esc(batStatus.state)}</dd></div>` : ""}
 </dl>
-<h4 class="fox-alarm-detail-bits-title">Decoded BMS faults (BS1–BS6)</h4>
-<div class="fox-alarm-detail-table-wrap"><table class="fox-alarm-detail-table"><thead><tr><th>Register</th><th>Code</th><th>Fault</th></tr></thead><tbody>${rows}</tbody></table></div>
-<p class="fox-alarm-detail-note">${esc("Example from manual: BS1 E03 = EXT COM + INT COM (bits b0 and b1).")}</p>
+<h4 class="fox-alarm-detail-bits-title">${tl("alerts.decoded_bms_faults_bs1_bs6")}</h4>
+<div class="fox-alarm-detail-table-wrap"><table class="fox-alarm-detail-table"><thead><tr><th>${tl("alerts.register")}</th><th>${tl("alerts.code")}</th><th>${tl("alerts.fault")}</th></tr></thead><tbody>${rows}</tbody></table></div>
+<p class="fox-alarm-detail-note">${esc(tl("alerts.example_from_manual_bs1_e03_ext"))}</p>
 </section>`;
   }
 
   return `<div class="fox-alarm-detail-body">
-<p class="fox-alarm-detail-manual"><span class="fox-alarm-detail-label">Reported as</span> ${esc(guide.manualName)}</p>
+<p class="fox-alarm-detail-manual"><span class="fox-alarm-detail-label">${tl("alerts.reported_as")}</span> ${esc(guide.manualName)}</p>
 <p class="fox-alarm-detail-desc">${esc(guide.description)}</p>
-<h3 class="fox-alarm-detail-subtitle">Suggested actions</h3>
+<h3 class="fox-alarm-detail-subtitle">${tl("alerts.suggested_actions")}</h3>
 <ul class="fox-alarm-detail-solutions">${solutions}</ul>
 ${bmsHtml}
-<p class="fox-alarm-detail-source">Guidance based on the FoxESS EVO user manual.</p>
+<p class="fox-alarm-detail-source">${tl("alerts.guidance_based_on_the_foxess_evo")}</p>
 </div>`;
 }
 
@@ -637,11 +730,11 @@ export function renderFoxAlarmDetailModal(alarmName, ctx) {
   const { esc } = ctx;
   return `<div class="fox-help-modal-backdrop" data-fox-alarm-detail-modal="1" data-action="device-alarm-detail-backdrop">
 <div class="fox-help-modal fox-alarm-detail-modal" data-action="device-alarm-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="fox-alarm-detail-title">
-<button type="button" class="fox-help-modal-close" data-action="device-alarm-detail-close" aria-label="Close">×</button>
-<h2 id="fox-alarm-detail-title" class="fox-help-modal-title">${esc(alarmName)}</h2>
+<button type="button" class="fox-help-modal-close" data-action="device-alarm-detail-close" aria-label="${tl("energy.close")}">×</button>
+<h2 id="fox-alarm-detail-title" class="fox-help-modal-title">${esc(alarmDisplayName(alarmName))}</h2>
 ${renderFoxAlarmDetailBody(alarmName, ctx)}
 <div class="fox-help-modal-footer">
-<button type="button" class="fox-help-modal-ok" data-action="device-alarm-detail-close">Close</button>
+<button type="button" class="fox-help-modal-ok" data-action="device-alarm-detail-close">${tl("energy.close")}</button>
 </div>
 </div>
 </div>`;

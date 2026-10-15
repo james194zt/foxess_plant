@@ -2,7 +2,7 @@
 
 Central **plant controller** for FoxESS inverters running [foxess_modbus](https://github.com/nathanmarlor/foxess_modbus). Owns charge-period policy, work mode / SOC limits, drift detection, tariff-aware automation, and a full **Fox Plant** sidebar panel — **does not** talk Modbus itself.
 
-Current release: **v0.9.523**
+Current release: **v0.9.524**
 
 ## Screenshots
 
@@ -57,6 +57,20 @@ Manual install: copy `custom_components/foxess_plant` to `config/custom_componen
 | **Energy Analysis** | Supply / usage balance, costs, and forecast accuracy |
 | **Reports** | Energy Report; Octopus Energy Analysis; Performance (if enabled); SmartCharge Analysis (if SmartCharge is on) |
 | **Settings** | Fox API, Solcast, Glow meter, Tariff, Weather, Performance |
+
+### Languages
+
+Every label in the panel, the alarm guide and the Fox Flow Scene card comes from a language file: `custom_components/foxess_plant/www/i18n/en.json` (flat keys such as `"smart_charge.save_smartcharge": "Save SmartCharge"`). The panel follows Home Assistant's language (Profile → Language).
+
+To add a language:
+
+1. Copy `en.json` to the language's code, e.g. `de.json` (or `de-at.json` for a regional variant — `de-at` falls back to `de`, then English).
+2. Translate the values; keep the keys. You don't need every label: anything missing shows in English.
+3. Keep `{placeholders}` (e.g. `{count}`, `{kwh}`) exactly as written — the panel fills them in. Keys ending `.one` / `.other` are the singular and plural forms.
+4. Some labels contain HTML (`<strong>…</strong>`, links) — keep the tags.
+5. Reload the panel (a full browser refresh). No restart is needed for label changes.
+
+Product names (Solcast, Octopus, StormSafe, SmartCharge…) and the work-mode values the inverter uses (e.g. *Self Use* in schedules) stay as they are. Text sent by the integration itself — SmartCharge plan reasons, error messages from suppliers — is still English for now.
 
 ## Features
 
