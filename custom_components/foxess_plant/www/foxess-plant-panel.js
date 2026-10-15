@@ -472,7 +472,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.525";
+const PANEL_VERSION = "0.9.526";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -2189,15 +2189,15 @@ ${titleHtml}
   const omErrStat = omErr != null
     ? `<div class="forecast-accuracy-stat ${omErr >= 0 ? "forecast-accuracy-stat--high" : "forecast-accuracy-stat--low"}"><label>${tl("solar_forecast.open_meteo_variance")}</label><strong>${esc(formatForecastSignedKwh(omErr))}</strong></div>`
     : "";
-  // Solcast with no forecast for the day (e.g. refused by its API): show a dash, not "0 kWh" and a false variance
+  // Solcast off or with no forecast for the day (e.g. refused by its API): leave its column out, like Open-Meteo
   const solcastHas = hasForecastValues(report.intraday?.predicted_power_kw);
   return `<div class="card forecast-accuracy-card${compact ? " forecast-accuracy-card--compact" : ""}" style="${margin}" data-forecast-accuracy="1">
 ${titleHtml}
 <p class="forecast-accuracy-sub">${compact ? tl("solar_forecast.forecasts_compared_with_measured_solar_output") : tl("solar_forecast.measured_production_vs_solcast_and_open")}</p>
 <div class="forecast-accuracy-stats">
 <div class="forecast-accuracy-col"><div class="forecast-accuracy-stat"><label>${tl("solar_forecast.actual")}</label><strong>${esc(actual)}</strong></div></div>
-<div class="forecast-accuracy-col"><div class="forecast-accuracy-stat"><label>Solcast</label><strong>${esc(solcastHas ? predicted : "—")}</strong></div>
-${solcastHas ? `<div class="forecast-accuracy-stat ${errCls}"><label>${tl("solar_forecast.solcast_variance")}</label><strong>${esc(errText)}</strong></div>` : ""}</div>
+${solcastHas ? `<div class="forecast-accuracy-col"><div class="forecast-accuracy-stat"><label>Solcast</label><strong>${esc(predicted)}</strong></div>
+<div class="forecast-accuracy-stat ${errCls}"><label>${tl("solar_forecast.solcast_variance")}</label><strong>${esc(errText)}</strong></div></div>` : ""}
 ${omStat ? `<div class="forecast-accuracy-col">${omStat}
 ${omErrStat}</div>` : ""}
 </div>
