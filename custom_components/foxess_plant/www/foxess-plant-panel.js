@@ -472,7 +472,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.524";
+const PANEL_VERSION = "0.9.525";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -2195,11 +2195,11 @@ ${titleHtml}
 ${titleHtml}
 <p class="forecast-accuracy-sub">${compact ? tl("solar_forecast.forecasts_compared_with_measured_solar_output") : tl("solar_forecast.measured_production_vs_solcast_and_open")}</p>
 <div class="forecast-accuracy-stats">
-<div class="forecast-accuracy-stat"><label>${tl("solar_forecast.actual")}</label><strong>${esc(actual)}</strong></div>
-<div class="forecast-accuracy-stat"><label>Solcast</label><strong>${esc(solcastHas ? predicted : "—")}</strong></div>
-${omStat}
-${solcastHas ? `<div class="forecast-accuracy-stat ${errCls}"><label>${tl("solar_forecast.solcast_variance")}</label><strong>${esc(errText)}</strong></div>` : ""}
-${omErrStat}
+<div class="forecast-accuracy-col"><div class="forecast-accuracy-stat"><label>${tl("solar_forecast.actual")}</label><strong>${esc(actual)}</strong></div></div>
+<div class="forecast-accuracy-col"><div class="forecast-accuracy-stat"><label>Solcast</label><strong>${esc(solcastHas ? predicted : "—")}</strong></div>
+${solcastHas ? `<div class="forecast-accuracy-stat ${errCls}"><label>${tl("solar_forecast.solcast_variance")}</label><strong>${esc(errText)}</strong></div>` : ""}</div>
+${omStat ? `<div class="forecast-accuracy-col">${omStat}
+${omErrStat}</div>` : ""}
 </div>
 ${revisionShift}${revisionHint}
 ${chart}
@@ -13029,6 +13029,7 @@ const STYLES = `
 .forecast-accuracy-stats {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px 12px; margin-bottom: 6px;
 }
+.forecast-accuracy-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .forecast-accuracy-stat label {
   display: block; font-size: 11px; color: var(--secondary-text-color); margin-bottom: 4px;
 }
