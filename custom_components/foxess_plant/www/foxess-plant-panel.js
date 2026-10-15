@@ -472,7 +472,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.526";
+const PANEL_VERSION = "0.9.527";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -9001,15 +9001,23 @@ function smartChargeTimelineHourMarks(slots) {
 
 function smartChargeTimelineSocLine(slots) {
   /** Predicted SOC across the plan (0–100%), aligned to the slot segments. */
+  // Drawn in roughly pixel units (about 10 px a slot, 36 px tall like the CSS box): a 0–1 × 0–100
+  // box stretched to ~1000×36 px made steep stretches render as jagged steps.
+  const SLOT_W = 10;
+  const H = 36;
+  const PAD = 3; // keeps the stroke at 0 % / 100 % inside the box
+  const y = (pct) => (PAD + ((100 - Math.min(100, Math.max(0, pct))) / 100) * (H - 2 * PAD)).toFixed(2);
   const points = [];
   slots.forEach((s, i) => {
     const a = Number(s.soc_start_pct);
     const b = Number(s.soc_end_pct);
-    if (i === 0 && Number.isFinite(a)) points.push(`0,${(100 - a).toFixed(1)}`);
-    if (Number.isFinite(b)) points.push(`${i + 1},${(100 - b).toFixed(1)}`);
+    if (i === 0 && Number.isFinite(a)) points.push([0, y(a)]);
+    if (Number.isFinite(b)) points.push([(i + 1) * SLOT_W, y(b)]);
   });
   if (points.length < 2) return "";
-  return `<svg class="sc-timeline-soc" viewBox="0 0 ${slots.length} 100" preserveAspectRatio="none" aria-hidden="true"><polyline points="${points.join(" ")}" vector-effect="non-scaling-stroke"/></svg>`;
+  const line = points.map(([px, py]) => `${px},${py}`).join(" ");
+  const area = `${points[0][0]},${H} ${line} ${points[points.length - 1][0]},${H}`;
+  return `<svg class="sc-timeline-soc" viewBox="0 0 ${slots.length * SLOT_W} ${H}" preserveAspectRatio="none" aria-hidden="true"><polygon class="sc-timeline-soc-area" points="${area}"/><polyline points="${line}" vector-effect="non-scaling-stroke"/></svg>`;
 }
 
 function renderSmartChargePlanTimeline(dailyPlan, currentSlot) {
@@ -15652,7 +15660,11 @@ details.fox-report-details[open] > summary.fox-report-details-title {
   margin-bottom: 4px;
   min-width: min(100%, calc(var(--sc-slot-count, 24) * 6px));
 }
-.sc-timeline-soc polyline { fill: none; stroke: var(--fp-accent, #03a9f4); stroke-width: 2; }
+.sc-timeline-soc polyline {
+  fill: none; stroke: var(--fp-accent, #03a9f4); stroke-width: 2;
+  stroke-linejoin: round; stroke-linecap: round; shape-rendering: geometricPrecision;
+}
+.sc-timeline-soc-area { fill: var(--fp-accent, #03a9f4); fill-opacity: 0.1; stroke: none; }
 .sc-legend-line { display: inline-block; width: 14px; height: 2px; background: var(--fp-accent, #03a9f4); vertical-align: middle; margin-right: 4px; }
 .sc-legend-dot--est { opacity: 0.45; background: color-mix(in srgb, var(--secondary-text-color) 35%, transparent); }
 .sc-timeline-seg--tip-active { box-shadow: 0 0 0 2px var(--fp-accent); z-index: 2; }
