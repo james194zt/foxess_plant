@@ -922,6 +922,8 @@ class GlowConfig:
     last_mqtt_at: str | None = None
     last_api_at: str | None = None
     mqtt_connected: bool = False
+    grid_import_from_glow: bool = False
+    grid_export_from_glow: bool = False
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> GlowConfig:
@@ -952,6 +954,8 @@ class GlowConfig:
             last_mqtt_at=str(raw["last_mqtt_at"]) if raw.get("last_mqtt_at") else None,
             last_api_at=str(raw["last_api_at"]) if raw.get("last_api_at") else None,
             mqtt_connected=bool(raw.get("mqtt_connected", False)),
+            grid_import_from_glow=bool(raw.get("grid_import_from_glow", False)),
+            grid_export_from_glow=bool(raw.get("grid_export_from_glow", False)),
         )
 
     def credentials_configured(self) -> bool:
@@ -975,6 +979,8 @@ class GlowConfig:
             "last_api_at": self.last_api_at,
             "mqtt_connected": self.mqtt_connected,
             "token_exp": self.token_exp,
+            "grid_import_from_glow": self.grid_import_from_glow,
+            "grid_export_from_glow": self.grid_export_from_glow,
         }
         if include_secrets:
             out["username"] = self.username

@@ -523,6 +523,9 @@ DEFAULT_GLOW = {
     "last_mqtt_at": None,
     "last_api_at": None,
     "mqtt_connected": False,
+    # Live grid power from the Glow meter instead of the inverter CT (each direction separately).
+    "grid_import_from_glow": False,
+    "grid_export_from_glow": False,
 }
 
 DEFAULT_SOLCAST = {

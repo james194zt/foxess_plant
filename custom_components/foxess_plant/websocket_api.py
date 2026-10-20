@@ -164,6 +164,8 @@ GLOW_SCHEMA = vol.Schema(
         vol.Optional("device_id", default="+"): str,
         vol.Optional("import_resource_id"): vol.Any(str, None),
         vol.Optional("export_resource_id"): vol.Any(str, None),
+        vol.Optional("grid_import_from_glow"): cv.boolean,
+        vol.Optional("grid_export_from_glow"): cv.boolean,
         vol.Optional("fetch_now", default=True): cv.boolean,
     }
 )

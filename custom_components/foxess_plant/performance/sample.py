@@ -303,19 +303,27 @@ def step_panel_thermal(coordinator: Any) -> None:
     coordinator._panel_temp_still_air_c = still_air
 
 
+def _grid_power_kw(coordinator: Any) -> tuple[float | None, float | None]:
+    """Grid import/export kW: inverter CT, or the Glow meter per direction when its option is on."""
+    from ..glow_grid import glow_net_power_kw, pick_grid_power_kw
+
+    glow_cfg = coordinator.plant.glow
+    import_kw, export_kw, _sources = pick_grid_power_kw(
+        ct_import_kw=_entity_power_kw(coordinator, "grid_import"),
+        ct_export_kw=_entity_power_kw(coordinator, "grid_export"),
+        glow_net_kw=glow_net_power_kw(coordinator._glow_live) if glow_cfg.enabled else None,
+        import_from_glow=glow_cfg.grid_import_from_glow,
+        export_from_glow=glow_cfg.grid_export_from_glow,
+    )
+    return import_kw, export_kw
+
+
 def collect_performance_sample(coordinator: Any) -> PerformanceSample:
     from .weather import read_weather_metrics
 
     pv_kw = _pv_power_kw(coordinator)
 
-    import_kw = None
-    export_kw = None
-    glow = coordinator._glow_live or {}
-    if glow.get("import_kw") is not None:
-        import_kw = abs(float(glow["import_kw"]))
-    if import_kw is None:
-        import_kw = _entity_power_kw(coordinator, "grid_import")
-    export_kw = _entity_power_kw(coordinator, "grid_export")
+    import_kw, export_kw = _grid_power_kw(coordinator)
 
     net_grid = None
     if import_kw is not None or export_kw is not None:

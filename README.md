@@ -170,6 +170,7 @@ Optional Solcast pre-check can prefer PV top-up over grid import when forecast s
 - MQTT (`glow/{MAC}/SENSOR/electricitymeter`) and/or Bright API
 - Live grid import for Energy Analysis
 - Optional SmartCharge live import-rate double-check
+- **Grid Power Source**: switch **Use Glow for Grid Import** and/or **Use Glow for Grid Export** to take live grid power (flow scene, flow card, performance net grid) from the meter instead of the inverter CT. Inverter CTs can read wrongly at a few hundred watts: on one EVO the CT counted 0.6 kWh of "export" in a morning, including at night with no PV, while the meter recorded 3 Wh. Home is corrected by the same amount so the flows still add up. Each direction goes back to the CT if the meter hasn't reported for 2 minutes.
 - Configure under **Settings → Glow meter**
 
 ### Fox Cloud & Battery Warmup

@@ -8,6 +8,8 @@ from typing import Any
 from homeassistant.util import dt as dt_util
 
 GLOW_ERROR_POWER_KW = -8388.608
+# The IHD publishes about every 10 s; older than this and the live power is no longer trusted.
+GLOW_POWER_MAX_AGE_S = 120
 
 
 def normalize_glow_device_id(device_id: str | None) -> str:
@@ -88,6 +90,54 @@ def apply_glow_grid_overlay(
                 1,
             )
     return out
+
+
+def glow_net_power_kw(
+    glow_live: dict[str, Any] | None,
+    *,
+    now: datetime | None = None,
+    max_age_s: float = GLOW_POWER_MAX_AGE_S,
+) -> float | None:
+    """Fresh Glow meter power in kW (import positive, export negative), else None."""
+    live = glow_live if isinstance(glow_live, dict) else {}
+    power = _float(live.get("import_kw"))
+    raw_ts = live.get("timestamp")
+    if power is None or not raw_ts:
+        return None
+    ts = dt_util.parse_datetime(str(raw_ts))
+    if ts is None:
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=dt_util.UTC)
+    age = ((now or dt_util.utcnow()) - ts).total_seconds()
+    if age > max_age_s:
+        return None
+    return power
+
+
+def pick_grid_power_kw(
+    *,
+    ct_import_kw: float | None,
+    ct_export_kw: float | None,
+    glow_net_kw: float | None,
+    import_from_glow: bool,
+    export_from_glow: bool,
+) -> tuple[float | None, float | None, dict[str, str]]:
+    """Grid import/export kW, each from Glow or the inverter CT as configured.
+
+    Glow wins a direction only when its option is on and the reading is fresh; otherwise that
+    direction falls back to the inverter CT, so a dropped meter feed never blanks the grid.
+    """
+    import_kw, export_kw = ct_import_kw, ct_export_kw
+    sources = {"import": "inverter", "export": "inverter"}
+    if glow_net_kw is not None:
+        if import_from_glow:
+            import_kw = max(0.0, glow_net_kw)
+            sources["import"] = "glow"
+        if export_from_glow:
+            export_kw = max(0.0, -glow_net_kw)
+            sources["export"] = "glow"
+    return import_kw, export_kw, sources
 
 
 def glow_status_dict(config: Any, live: dict[str, Any] | None) -> dict[str, Any]:

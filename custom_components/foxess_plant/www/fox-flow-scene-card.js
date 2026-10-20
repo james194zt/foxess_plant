@@ -330,6 +330,25 @@ function statePowerWatts(hass, entityId) {
   return n * 1000;
 }
 
+// Live Glow meter power older than this falls back to the inverter CT (the IHD publishes ~every 10 s).
+const GLOW_POWER_MAX_AGE_MS = 120_000;
+
+// Swap grid import and/or export for the Glow meter reading (Fox Plant Glow Settings options). Home is
+// inverter output plus net grid, so it moves by the same correction to keep the picture balanced.
+function applyGlowGridPower(hass, glow, flows) {
+  if (!glow?.enabled || !(glow.grid_import_from_glow || glow.grid_export_from_glow)) return flows;
+  const st = glow.power_entity_id ? hass?.states?.[glow.power_entity_id] : null;
+  if (!st || st.state === "unavailable" || st.state === "unknown") return flows;
+  const age = Date.now() - new Date(st.last_updated).getTime();
+  if (!Number.isFinite(age) || age > GLOW_POWER_MAX_AGE_MS) return flows;
+  const netW = statePowerWatts(hass, glow.power_entity_id);
+  const ctNetW = flows.gridImportW - flows.gridExportW;
+  const gridImportW = glow.grid_import_from_glow ? Math.max(0, netW) : flows.gridImportW;
+  const gridExportW = glow.grid_export_from_glow ? Math.max(0, -netW) : flows.gridExportW;
+  const loadW = Math.max(0, flows.loadW - ctNetW + (gridImportW - gridExportW));
+  return { ...flows, gridImportW, gridExportW, loadW };
+}
+
 function readEnergyFlows(hass, entityMap) {
   const pvW = statePowerWatts(hass, entityMap.pv_power);
   const loadW = Math.abs(statePowerWatts(hass, entityMap.load_power));
@@ -570,7 +589,7 @@ FoxFlowScene.refreshPlantState = async function refreshPlantState(el) {
 FoxFlowScene.flowContext = function flowContext(el) {
   const hass = el._hass;
   const entityMap = resolveEntityMap(hass, el._config.entities, el._plantMap || {});
-  const flows = readEnergyFlows(hass, entityMap);
+  const flows = applyGlowGridPower(hass, el._plantState?.glow, readEnergyFlows(hass, entityMap));
   const lines = computeFlowLines(flows);
   const activeIds = new Set(lines.map((l) => l.id));
   const bgTheme = resolveFlowSceneBgTheme(hass, el._plantState);

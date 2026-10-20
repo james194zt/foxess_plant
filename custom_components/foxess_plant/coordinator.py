@@ -4080,7 +4080,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _glow_state(self) -> dict[str, Any]:
         from .glow_grid import glow_status_dict
 
-        return glow_status_dict(self.plant.glow, self._glow_live)
+        status = glow_status_dict(self.plant.glow, self._glow_live)
+        # The panel and flow card read this entity live when grid power comes from Glow.
+        power_sensor = self._glow_sensors.get("import_power")
+        status["power_entity_id"] = getattr(power_sensor, "entity_id", None)
+        return status
 
     def register_glow_sensor(self, kind: str, sensor: Any) -> None:
         self._glow_sensors[kind] = sensor

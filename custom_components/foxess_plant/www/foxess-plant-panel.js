@@ -12042,7 +12042,7 @@ function readEnergyFlows(hass, plant, plantState) {
     batteryStatus = hass.states[statusEntity].state;
   } else if (batteryW > 50) batteryStatus = "Discharging";
   else if (batteryW < -50) batteryStatus = "Charging";
-  return {
+  return applyGlowGridPower(hass, plantState?.glow, {
     pvW: Math.max(0, pvW),
     loadW,
     gridImportW: Math.max(0, gridImportW),
@@ -12050,7 +12050,26 @@ function readEnergyFlows(hass, plant, plantState) {
     batteryW,
     batterySoc: stateNumber(hass, map.battery_soc),
     batteryStatus,
-  };
+  });
+}
+
+// Live Glow meter power older than this falls back to the inverter CT (the IHD publishes ~every 10 s).
+const GLOW_POWER_MAX_AGE_MS = 120_000;
+
+// Swap grid import and/or export for the Glow meter reading (Glow Settings options). Home is
+// inverter output plus net grid, so it moves by the same correction to keep the picture balanced.
+function applyGlowGridPower(hass, glow, flows) {
+  if (!glow?.enabled || !(glow.grid_import_from_glow || glow.grid_export_from_glow)) return flows;
+  const st = glow.power_entity_id ? hass?.states?.[glow.power_entity_id] : null;
+  if (!st || st.state === "unavailable" || st.state === "unknown") return flows;
+  const age = Date.now() - new Date(st.last_updated).getTime();
+  if (!Number.isFinite(age) || age > GLOW_POWER_MAX_AGE_MS) return flows;
+  const netW = statePowerWatts(hass, glow.power_entity_id);
+  const ctNetW = flows.gridImportW - flows.gridExportW;
+  const gridImportW = glow.grid_import_from_glow ? Math.max(0, netW) : flows.gridImportW;
+  const gridExportW = glow.grid_export_from_glow ? Math.max(0, -netW) : flows.gridExportW;
+  const loadW = Math.max(0, flows.loadW - ctNetW + (gridImportW - gridExportW));
+  return { ...flows, gridImportW, gridExportW, loadW };
 }
 
 function sunPrevNext(hass, key) {
@@ -18411,6 +18430,8 @@ ${tl("panel.panel_update_pending_browser_jsver_ha", { jsVer: esc(jsVer), regVer:
       device_id: g.device_id || "+",
       import_resource_id: g.import_resource_id || "",
       export_resource_id: g.export_resource_id || "",
+      grid_import_from_glow: Boolean(g.grid_import_from_glow),
+      grid_export_from_glow: Boolean(g.grid_export_from_glow),
     };
   }
 
@@ -18434,6 +18455,8 @@ ${tl("panel.panel_update_pending_browser_jsver_ha", { jsVer: esc(jsVer), regVer:
     if (g.device_id) d.device_id = g.device_id;
     if (g.import_resource_id) d.import_resource_id = g.import_resource_id;
     if (g.export_resource_id) d.export_resource_id = g.export_resource_id;
+    d.grid_import_from_glow = Boolean(g.grid_import_from_glow);
+    d.grid_export_from_glow = Boolean(g.grid_export_from_glow);
     this._glowFormDirty = false;
   }
 
@@ -18447,6 +18470,8 @@ ${tl("panel.panel_update_pending_browser_jsver_ha", { jsVer: esc(jsVer), regVer:
       api_enabled: Boolean(d.api_enabled),
       topic_prefix: String(d.topic_prefix || "glow").trim() || "glow",
       device_id: String(d.device_id || "+").trim() || "+",
+      grid_import_from_glow: Boolean(d.grid_import_from_glow),
+      grid_export_from_glow: Boolean(d.grid_export_from_glow),
     };
     const user = String(d.username || "").trim();
     if (user) payload.username = user;
@@ -18466,6 +18491,8 @@ ${tl("panel.panel_update_pending_browser_jsver_ha", { jsVer: esc(jsVer), regVer:
       ["glow:enabled", "enabled"],
       ["glow:mqtt_enabled", "mqtt_enabled"],
       ["glow:api_enabled", "api_enabled"],
+      ["glow:grid_import_from_glow", "grid_import_from_glow"],
+      ["glow:grid_export_from_glow", "grid_export_from_glow"],
     ]) {
       const el = root.querySelector(`[data-field="${field}"]`);
       if (el) this._glowDraft[key] = el.checked;
@@ -26772,6 +26799,14 @@ ${this._renderSolcastRequestLog(live)}
 <div class="toggle-row"><span>${tl("glow.api_access")}</span>
 <input type="checkbox" data-field="glow:api_enabled" ${draft.api_enabled ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 ${brightApiFields}
+</div>
+<div class="card">
+<p class="card-title">${tl("glow.grid_power_source")}</p>
+<p class="field-hint">${tl("glow.grid_power_source_hint")}</p>
+<div class="toggle-row"><span>${tl("glow.grid_import_from_glow")}</span>
+<input type="checkbox" data-field="glow:grid_import_from_glow" ${draft.grid_import_from_glow ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
+<div class="toggle-row"><span>${tl("glow.grid_export_from_glow")}</span>
+<input type="checkbox" data-field="glow:grid_export_from_glow" ${draft.grid_export_from_glow ? "checked" : ""} ${this._busy ? "disabled" : ""}></div>
 </div>
 <div class="card">
 <p class="card-title">${tl("common.status")}</p>
