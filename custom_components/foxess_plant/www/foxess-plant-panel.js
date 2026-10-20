@@ -472,14 +472,15 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.534";
+/** The release version lives only in manifest.json: HA serves this file as foxess-plant-panel.v<version>.<hash>.js
+ *  (panel.py) and the panel reads it from there (panelVersionFromModuleUrl). "dev" = loaded some other way. */
+const PANEL_VERSION_UNKNOWN = "dev";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
 const DEVICE_NEW_MAIN_WIDTH_EXTRA_PX = 296;
 /** Max wait for recorder/history websocket round-trips (prevents infinite loading spinners). */
 const HA_WS_TIMEOUT_MS = 90000;
-const PANEL_BUILD_FALLBACK = PANEL_VERSION;
 const PANEL_SYNC_STORAGE_KEY = "foxess_plant_panel_sync_build";
 
 /** MDI menu — opens Home Assistant sidebar via hass-toggle-menu. */
@@ -522,7 +523,7 @@ function panelBuildHashFromModuleUrl() {
  * kept running the old panel code.
  */
 function panelElementTag() {
-  const ver = String(panelVersionFromModuleUrl() || PANEL_VERSION).replace(/\./g, "_");
+  const ver = String(panelVersionFromModuleUrl() || PANEL_VERSION_UNKNOWN).replace(/\./g, "_");
   const hash = panelBuildHashFromModuleUrl();
   return hash ? `foxess-plant-panel-${ver}-${hash}` : `foxess-plant-panel-${ver}`;
 }
@@ -16352,7 +16353,7 @@ class FoxessPlantPanel extends HTMLElement {
   }
 
   _panelBuild() {
-    const jsVer = panelVersionFromModuleUrl() || PANEL_VERSION;
+    const jsVer = panelVersionFromModuleUrl() || PANEL_VERSION_UNKNOWN;
     const regBuild = this._panel?.config?.panel_js_build || "—";
     const regVer = String(regBuild).split("-")[0] || "—";
     const diskVer = this._plantState?.panel_runtime?.manifest_version || "—";
@@ -16378,7 +16379,8 @@ class FoxessPlantPanel extends HTMLElement {
   _panelIsStale() {
     const runtime = this._plantState?.panel_runtime;
     if (!runtime?.js_build) return false;
-    const jsVer = panelVersionFromModuleUrl() || PANEL_VERSION;
+    // Only a version read from the served file name can be compared (a directly loaded file has none)
+    const jsVer = panelVersionFromModuleUrl();
     const regBuild = this._panel?.config?.panel_js_build;
     const diskVer = runtime.manifest_version;
     const staleReg = Boolean(regBuild && runtime.js_build && regBuild !== runtime.js_build);
@@ -16389,7 +16391,7 @@ class FoxessPlantPanel extends HTMLElement {
   _renderPanelStaleBanner() {
     if (!this._panelStale) return "";
     const runtime = this._plantState?.panel_runtime ?? {};
-    const jsVer = panelVersionFromModuleUrl() || PANEL_VERSION;
+    const jsVer = panelVersionFromModuleUrl() || PANEL_VERSION_UNKNOWN;
     const regVer = String(this._panel?.config?.panel_js_build || "—").split("-")[0];
     return `<div class="banner warn panel-stale-banner" role="status">
 ${tl("panel.panel_update_pending_browser_jsver_ha", { jsVer: esc(jsVer), regVer: esc(regVer), value: esc(runtime.manifest_version || "—") })}
@@ -26932,7 +26934,7 @@ ${weatherOptions
       this._renderPanel();
     } catch (err) {
       console.error("FoxESS Plant panel render failed", err);
-      const ver = panelVersionFromModuleUrl() || PANEL_VERSION;
+      const ver = panelVersionFromModuleUrl() || PANEL_VERSION_UNKNOWN;
       this._root.innerHTML = `<div class="shell"><main class="main"><div class="main-inner"><p class="placeholder">${tl("panel.fox_plant_panel_error_value", { value: esc(err?.message || String(err)) })}</p><p class="placeholder" style="margin-top:8px;font-size:12px;opacity:0.75">${tl("panel.panel_js_ver_update_foxess_plant", { ver: esc(ver) })}</p></div></main></div>`;
     }
     this._restoreUiState(ui);
