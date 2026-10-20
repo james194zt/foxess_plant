@@ -54,6 +54,20 @@ def test_old_max_green_becomes_max_profit_with_the_tick_box():
     assert SmartChargeConfig.from_dict({}, []).prefer_greener_charging is False
 
 
+def test_migration_is_saved_so_a_later_section_save_cannot_lose_it():
+    from custom_components.foxess_plant.models import migrated_entry_data
+
+    data = {"device_id": "d", "inverter_target": "EVO-10", "pv_config": {},
+            "smart_charge": {"operating_mode": "max_green", "carbon_postcode": "ST4", "enabled": True}}
+    out = migrated_entry_data(data)
+    assert out["pv_config"]["postcode_area"] == "ST4"
+    assert out["smart_charge"]["operating_mode"] == "max_profit"
+    assert out["smart_charge"]["prefer_greener_charging"] is True
+    assert out["smart_charge"]["enabled"] is True and "carbon_postcode" not in out["smart_charge"]
+    # Already migrated: nothing to save
+    assert migrated_entry_data(out) is None
+
+
 def test_0_9_538_carbon_postcode_moves_to_pv_config():
     data = {"device_id": "d", "inverter_target": "EVO-10", "smart_charge": {"carbon_postcode": "ST4"}, "pv_config": {}}
     assert PlantConfig.from_entry_data(data).pv_config.postcode_area == "ST4"

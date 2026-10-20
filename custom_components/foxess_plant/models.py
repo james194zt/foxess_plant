@@ -352,6 +352,23 @@ def _outward_postcode(raw: Any) -> str | None:
     return outward_postcode(raw)
 
 
+def migrated_entry_data(data: dict[str, Any]) -> dict[str, Any] | None:
+    """Entry data with moved/renamed settings written in their new place, or None when nothing needs it.
+
+    Loading already upgrades them, but only in memory: the next save of one section then writes the new
+    format and the old copy is gone (0.9.539 lost smart_charge.carbon_postcode that way). Setup saves this.
+    """
+    sc = data.get("smart_charge") or {}
+    if "carbon_postcode" not in sc and sc.get("operating_mode") != "max_green":
+        return None
+    from .const import DEFAULT_SMART_CHARGE
+
+    out = dict(data)
+    out["pv_config"] = PvSystemConfig.from_dict(_pv_config_with_postcode(data)).to_dict()
+    out["smart_charge"] = SmartChargeConfig.from_dict(sc, DEFAULT_SMART_CHARGE["charge_periods"]).to_dict()
+    return out
+
+
 def _pv_config_with_postcode(data: dict[str, Any]) -> dict[str, Any]:
     """PV config, carrying over 0.9.538's smart_charge.carbon_postcode until the PV config has its own."""
     from .const import DEFAULT_PV_CONFIG

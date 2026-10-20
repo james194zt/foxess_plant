@@ -719,6 +719,58 @@ TIE_P = 0.05
 STICKY_P_PER_KWH = 2.0
 
 
+def _best_charge_run(
+    slots: list[Slot],
+    soc0_kwh: float,
+    params: PlanParams,
+    charge: list[float],
+    discharge: list[float],
+    result: SimResult,
+    floors: list[float],
+    chargeable: list[bool],
+    topup: list[bool],
+    max_import: float,
+) -> list[int] | None:
+    """Best run of 2+ consecutive equal-price half-hours charged at full rate that pays as a whole.
+
+    Only used when no single half-hour move clears the minimum saving. Returns the slot indexes, or None.
+    """
+
+    def open_slot(k: int) -> bool:
+        s = slots[k]
+        return (
+            s.price_known
+            and charge[k] == 0
+            and discharge[k] == 0
+            and (chargeable[k] or topup[k])
+            and (s.import_p < max_import or s.import_p < 0)
+        )
+
+    best: tuple[float, list[int]] | None = None
+    for i in range(len(slots)):
+        if not open_slot(i):
+            continue
+        price = round(slots[i].import_p, 2)
+        run = [i]
+        trial = list(charge)
+        trial[i] = params.charge_kw * slots[i].hours
+        for k in range(i + 1, len(slots)):
+            if not open_slot(k) or round(slots[k].import_p, 2) != price:
+                break
+            run.append(k)
+            trial[k] = params.charge_kw * slots[k].hours
+            res = simulate(slots, soc0_kwh, params, trial, discharge, floors)
+            moved = sum(res.charged) - sum(result.charged)
+            if moved <= 0.01:
+                continue
+            saving = result.cost_p - res.cost_p
+            if saving < params.min_saving_p_per_kwh * moved:
+                continue
+            if best is None or saving > best[0] + TIE_P:
+                best = (saving, list(run))
+    return best[1] if best else None
+
+
 def _adjacent(amounts: list[float], i: int) -> bool:
     return (i > 0 and amounts[i - 1] > 0) or (i + 1 < len(amounts) and amounts[i + 1] > 0)
 
@@ -822,12 +874,20 @@ def optimise(
                         if best is None or score > best[0] + TIE_P:
                             best = (score, "d", i, size)
             if best is None:
-                break
-            _saving, kind, i, size = best
-            if kind == "c":
-                charge[i] += size
+                # No single half-hour pays on its own, but a longer charge might: when the battery starts below
+                # its reserve floors, the first kWh only refills them (20 Oct 2026: 16% SOC, one half-hour saved
+                # 0.45p/kWh, under the 1p minimum, while two hours saved 31p, so nothing was planned at all).
+                run = _best_charge_run(slots, soc0_kwh, params, charge, discharge, result, floors, chargeable, topup, max_import)
+                if run is None:
+                    break
+                for j in run:
+                    charge[j] = params.charge_kw * slots[j].hours
             else:
-                discharge[i] += size
+                _saving, kind, i, size = best
+                if kind == "c":
+                    charge[i] += size
+                else:
+                    discharge[i] += size
             result = simulate(slots, soc0_kwh, params, charge, discharge, floors)
             # Trim requested energy down to what the battery actually accepted.
             charge = [

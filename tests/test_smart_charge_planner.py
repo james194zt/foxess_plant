@@ -560,6 +560,43 @@ class ParamsTests(unittest.TestCase):
             self.assertAlmostEqual(p.floor_kwh, 1.0)
 
 
+class BelowFloorTests(unittest.TestCase):
+    """20 Oct 2026: battery at 16%, below the plan's reserve floors. The first half-hour of charge only refilled
+    the floors (0.45p/kWh saved, under the 1p minimum), so the one-slot-at-a-time optimiser planned nothing,
+    although charging the cheap band saved ~31p."""
+
+    @staticmethod
+    def eon_tou(t: datetime) -> float:
+        if 2 <= t.hour < 5:
+            return 18.05
+        if 16 <= t.hour < 23:
+            return 45.25
+        return 24.65
+
+    def test_charges_when_only_a_longer_run_pays(self) -> None:
+        now = local(2026, 10, 20, 21, 40)
+        rows = agile_rows(local(2026, 10, 20, 21, 30), 52, self.eon_tou)
+        slots = planner.build_timeline(now=now, tz=TZ, import_rows=rows,
+                                       forecast_rows=solar_rows(local(2026, 10, 21, 0), 2.3),
+                                       load_profile=flat_profile(0.35))
+        p = params(capacity_kwh=9.04, floor_kwh=1.85, cap_kwh=9.04, charge_kw=3.6, discharge_kw=3.6,
+                   round_trip_efficiency=0.806, topup_below_kwh=2.71)
+        soc0 = 9.04 * 0.16
+        # The trap: one cheap half-hour on its own doesn't clear the minimum saving
+        floors = planner.slot_floors(slots, p)
+        base = planner.simulate(slots, soc0, p, [0.0] * len(slots), [0.0] * len(slots), floors)
+        first = next(i for i, s in enumerate(slots) if s.import_p == 18.05)
+        one = [0.0] * len(slots)
+        one[first] = 1.8
+        single = planner.simulate(slots, soc0, p, one, [0.0] * len(slots), floors)
+        self.assertLess(base.cost_p - single.cost_p, p.min_saving_p_per_kwh * 1.8)
+        # ...but the plan still charges the night band
+        plan, _ = planner.build_plan(slots, soc0, p, tz=TZ, now=now)
+        first_night = [e for e in charge_slots(plan)
+                       if planner.parse_iso(e["start_utc"]).astimezone(TZ).date() == local(2026, 10, 21, 0).date()]
+        self.assertGreaterEqual(len(first_night), 3, first_night)
+
+
 class CarbonTests(unittest.TestCase):
     """Max Green: the carbon penalty must move a charge to the greener part of an equal-price window."""
 

@@ -79,6 +79,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             model="Plant Controller",
         )
 
+    # Save settings that moved between sections before anything can re-save one section without them
+    from .models import migrated_entry_data
+
+    migrated = migrated_entry_data(dict(entry.data))
+    if migrated is not None:
+        hass.config_entries.async_update_entry(entry, data=migrated)
+        _LOGGER.info("FoxESS Plant: moved settings to their new place (postcode area, Prefer Greener Charging)")
+
     coordinator = FoxessPlantCoordinator(hass, entry)
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {"coordinator": coordinator}
