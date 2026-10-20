@@ -347,14 +347,17 @@ def resolve_entity_id(
     if not matches:
         return mapped
 
-    def rank(entity_id: str) -> tuple[int, int, str]:
+    def rank(entity_id: str) -> tuple[int, int, int, str]:
         on_device = 0
         if device_id:
             entity_reg = er.async_get(hass)
             entry = entity_reg.async_get(entity_id)
             on_device = 0 if entry and entry.device_id == device_id else 1
         modbus = 0 if _integration_domain(hass, entity_id) == MODBUS_DOMAIN else 1
-        return (on_device, modbus, entity_id)
+        # Installer rows are formatted for the read-only sensors; some settings also have a writable number /
+        # select with the same suffix but another unit (e.g. Peak Shaving Export Limit in W, the sensor in kW)
+        sensor = 0 if key not in INSTALLER_ENTITY_SUFFIXES or entity_id.startswith("sensor.") else 1
+        return (on_device, modbus, sensor, entity_id)
 
     matches.sort(key=rank)
     return matches[0]
