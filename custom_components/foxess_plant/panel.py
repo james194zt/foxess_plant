@@ -212,27 +212,30 @@ def build_panel_config(hass: HomeAssistant) -> dict[str, Any]:
                 "entity_map": plant.entity_map,
             }
         )
+    # Build, URL and element name come from the cached disk info: working them out reads the panel JS
+    disk = get_panel_disk_info(hass)
     return {
         "plants": plants,
         "brand_domain": DOMAIN,
         "modbus_brand_domain": MODBUS_DOMAIN,
         "brand_icon_static": PANEL_BRAND_ICON_STATIC,
-        "panel_js_build": _panel_js_build(),
-        "panel_js_module_url": _panel_js_module_url(),
+        "panel_js_build": disk["js_build"],
+        "panel_js_module_url": disk["module_url"],
         "flow_paths_ver": PANEL_FLOW_PATHS_VER,
-        "panel_element": _panel_component_name(),
+        "panel_element": disk["element"],
     }
 
 
 def _build_frontend_panel_config(hass: HomeAssistant) -> dict[str, Any]:
     """Wrap plant config in the structure HA custom panels expect."""
+    config = build_panel_config(hass)
     return {
-        **build_panel_config(hass),
+        **config,
         "_panel_custom": {
-            "name": _panel_component_name(),
+            "name": config["panel_element"],
             "embed_iframe": False,
             "trust_external": False,
-            "module_url": _panel_js_module_url(),
+            "module_url": config["panel_js_module_url"],
         },
     }
 
@@ -301,9 +304,9 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         "if the browser still shows an old build, restart HA or call foxess_plant.reload_panel",
         "re-registered" if existed else "registered",
         PANEL_URL_PATH,
-        _panel_component_name(),
+        config["panel_element"],
         build,
-        _panel_js_module_url(),
+        config["panel_js_module_url"],
     )
     hass.data[_REGISTERED_BUILD_KEY] = build
 

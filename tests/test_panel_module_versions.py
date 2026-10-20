@@ -33,3 +33,21 @@ def test_panel_fingerprint_follows_the_imported_module(monkeypatch) -> None:
     before = panel._panel_js_fingerprint()
     monkeypatch.setattr(panel, "_module_hash", lambda name: "changed00000")
     assert panel._panel_js_fingerprint() != before
+
+
+def test_panel_config_reads_nothing_from_disk_in_the_event_loop(monkeypatch) -> None:
+    # HA flagged "blocking call to read_bytes" x8 at startup: the config re-read the panel JS for its fingerprint
+    class FakeHass:
+        data = {}
+
+    hass = FakeHass()
+    hass.data[panel._PANEL_DISK_INFO_KEY] = panel._compute_panel_disk_info()  # done in the executor for real
+
+    def no_disk(*_args, **_kwargs):
+        raise AssertionError("disk read in the event loop")
+
+    monkeypatch.setattr(panel.Path, "read_bytes", no_disk)
+    monkeypatch.setattr(panel.Path, "open", no_disk)
+    config = panel._build_frontend_panel_config(hass)
+    assert config["_panel_custom"]["module_url"] == hass.data[panel._PANEL_DISK_INFO_KEY]["module_url"]
+    assert config["_panel_custom"]["name"] == hass.data[panel._PANEL_DISK_INFO_KEY]["element"]
