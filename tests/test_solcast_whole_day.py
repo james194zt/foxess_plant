@@ -38,3 +38,19 @@ def test_rows_smartcharge_estimated_are_left_out() -> None:
 def test_nothing_for_today_leaves_the_poll_figures_alone() -> None:
     tomorrow = dt_util.start_of_local_day() + timedelta(days=1, hours=8)
     assert whole_day_forecast_metrics(_rows(tomorrow, 4, 1.0)) == {}
+
+
+def test_days_the_rows_dont_reach_are_unknown_not_zero() -> None:
+    # Stale data from two days ago (Solcast unreachable): today and tomorrow aren't in it
+    old = dt_util.start_of_local_day() - timedelta(days=2, hours=-8)
+    metrics = compute_forecast_metrics(None, _rows(old, 8, 1.0))
+    assert metrics["forecast_today_kwh"] is None
+    assert metrics["forecast_tomorrow_kwh"] is None
+    assert metrics["forecast_remaining_today_kwh"] is None
+
+
+def test_covered_days_still_add_up() -> None:
+    tomorrow = dt_util.start_of_local_day() + timedelta(days=1, hours=8)
+    metrics = compute_forecast_metrics(None, _rows(tomorrow, 4, 1.0))
+    assert metrics["forecast_tomorrow_kwh"] == 2.0
+    assert metrics["forecast_today_kwh"] is None

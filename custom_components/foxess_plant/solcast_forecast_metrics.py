@@ -180,9 +180,11 @@ def compute_forecast_metrics(
     next_hour_start_utc = dt_util.as_utc(next_hour_start)
     next_hour_end_utc = dt_util.as_utc(next_hour_end)
 
-    forecast_today = _sum_kwh(intervals, day=today)
-    forecast_tomorrow = _sum_kwh(intervals, day=tomorrow)
-    forecast_remaining = _sum_kwh(intervals, day=today, after=now)
+    # A day the rows don't reach is unknown, not 0 kWh (stale data during an outage showed "tomorrow 0.0")
+    covered = {_local_date(iv.start) for iv in intervals}
+    forecast_today = _sum_kwh(intervals, day=today) if today in covered else None
+    forecast_tomorrow = _sum_kwh(intervals, day=tomorrow) if tomorrow in covered else None
+    forecast_remaining = _sum_kwh(intervals, day=today, after=now) if today in covered else None
     this_hour_wh = (
         _sum_kwh(intervals, window_start=hour_start_utc, window_end=hour_end_utc) * 1000.0
     )
@@ -213,9 +215,9 @@ def compute_forecast_metrics(
     ]
 
     return {
-        "forecast_today_kwh": round(forecast_today, 2),
-        "forecast_tomorrow_kwh": round(forecast_tomorrow, 2),
-        "forecast_remaining_today_kwh": round(forecast_remaining, 2),
+        "forecast_today_kwh": round(forecast_today, 2) if forecast_today is not None else None,
+        "forecast_tomorrow_kwh": round(forecast_tomorrow, 2) if forecast_tomorrow is not None else None,
+        "forecast_remaining_today_kwh": round(forecast_remaining, 2) if forecast_remaining is not None else None,
         "forecast_this_hour_wh": round(this_hour_wh, 0),
         "forecast_next_hour_wh": round(next_hour_wh, 0),
         "forecast_next_x_hours_kwh": round(next_x_kwh, 2),
