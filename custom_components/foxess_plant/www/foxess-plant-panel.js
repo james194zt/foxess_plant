@@ -25040,7 +25040,8 @@ ${profitHint}`;
     const minRateRow = exportFlat
       ? `<p class="field-hint">${tl("smart_charge.export_is_a_fixed_export_max", { export_max_p: esc(fmtP(profile.export_max_p)) })}</p>`
       : `<div class="field"><label>${tl("smart_charge.min_export_rate_p_kwh")}</label>
-<input type="number" min="0" max="100" step="0.5" data-field="smart-charge:${keys.minP}" value="${esc(String(draft[keys.minP] ?? keys.minDef))}" ${busy}></div>`;
+<input type="number" min="0" max="100" step="0.5" data-field="smart-charge:${keys.minP}" value="${esc(String(draft[keys.minP] ?? keys.minDef))}" ${busy}>
+<p class="field-hint">${tl("smart_charge.min_export_price_hint")}</p></div>`;
     return `<div class="toggle-row"><span>${tl("smart_charge.allow_forced_battery_export")}</span>
 <input type="checkbox" data-field="smart-charge:export_enabled" ${draft.export_enabled ? "checked" : ""} ${busy}></div>
 <p class="field-hint">${tl("smart_charge.smartcharge_may_empty_the_battery_to")}</p>
@@ -25062,7 +25063,8 @@ ${minRateRow}
 <p class="field-hint">${tl("smart_charge.adds_up_to_10p_kwh_weight")}</p></div>`;
     } else if (mode === "max_safety") {
       body += `<div class="field"><label>${tl("smart_charge.safety_reserve_multiplier")}</label>
-<input type="number" min="1" max="5" step="0.05" data-field="smart-charge:safety_reserve_multiplier" value="${esc(String(draft.safety_reserve_multiplier ?? 1.5))}" ${busy}></div>`;
+<input type="number" min="1" max="5" step="0.05" data-field="smart-charge:safety_reserve_multiplier" value="${esc(String(draft.safety_reserve_multiplier ?? 1.5))}" ${busy}>
+<p class="field-hint">${tl("smart_charge.safety_reserve_multiplier_hint")}</p></div>`;
     }
     const profile = this._plantState?.smart_charge?.tariff_profile || null;
     if (profile && profile.import_known && !profile.import_varies) {
@@ -25254,7 +25256,8 @@ ${draft.enabled ? `<details class="sc-section-details" data-sc-section="energy"$
 <input type="number" min="0.1" max="50" step="0.1" data-field="smart-charge:max_charge_kw" value="${esc(String(draft.max_charge_kw ?? 3))}" ${busy}>
 <p class="field-hint">${tl("smart_charge.used_to_size_how_many_half")}</p></div>
 <div class="field"><label>${tl("smart_charge.max_discharge_export_power_kw")}</label>
-<input type="number" min="0.1" max="50" step="0.1" data-field="smart-charge:max_discharge_kw" value="${draft.max_discharge_kw != null ? esc(String(draft.max_discharge_kw)) : ""}" placeholder="${tl("smart_charge.same_as_charge")}" ${busy}></div>
+<input type="number" min="0.1" max="50" step="0.1" data-field="smart-charge:max_discharge_kw" value="${draft.max_discharge_kw != null ? esc(String(draft.max_discharge_kw)) : ""}" placeholder="${tl("smart_charge.same_as_charge")}" ${busy}>
+<p class="field-hint">${tl("smart_charge.max_discharge_hint")}</p></div>
 <div class="field"><label>${tl("smart_charge.solar_safety_margin_max_safety_mode")}</label>
 <input type="number" min="1" max="3" step="0.05" data-field="smart-charge:solar_safety_margin" value="${esc(String(draft.solar_safety_margin ?? 1.15))}" ${busy}>
 <p class="field-hint">${tl("smart_charge.forecast_pv_is_divided_by_this")}</p></div>
@@ -25276,6 +25279,7 @@ ${(() => {
 </details>
 <details class="sc-section-details" data-sc-section="reserve"${this._smartChargeSectionOpenAttr("reserve", draft)}>
 <summary>${tl("smart_charge.outage_reserve_house_load")}</summary>
+<p class="field-hint">${tl("smart_charge.outage_reserve_hint")}</p>
 <div class="field"><label>${tl("smart_charge.load_history_days")}</label>
 <input type="number" min="1" max="60" step="1" data-field="smart-charge:load_history_days" value="${esc(String(draft.load_history_days ?? 14))}" ${busy}>
 <p class="field-hint">${tl("smart_charge.half_hourly_house_load_is_predicted")}</p></div>
@@ -25283,11 +25287,14 @@ ${(() => {
 <input type="number" min="0.1" max="50" step="0.1" data-field="smart-charge:house_load_kw_fallback" value="${esc(String(draft.house_load_kw_fallback ?? 1))}" ${busy}>
 <p class="field-hint">${tl("smart_charge.flat_average_load_used_until_load")}</p></div>
 <div class="field"><label>${tl("smart_charge.reserve_load_override_kw_optional")}</label>
-<input type="number" min="0" max="50" step="0.1" data-field="smart-charge:outage_reserve_load_kw" value="${draft.outage_reserve_load_kw != null ? esc(String(draft.outage_reserve_load_kw)) : ""}" placeholder="${tl("smart_charge.use_average_load")}" ${busy}></div>
+<input type="number" min="0" max="50" step="0.1" data-field="smart-charge:outage_reserve_load_kw" value="${draft.outage_reserve_load_kw != null ? esc(String(draft.outage_reserve_load_kw)) : ""}" placeholder="${tl("smart_charge.use_average_load")}" ${busy}>
+<p class="field-hint">${tl("smart_charge.outage_load_hint")}</p></div>
 <div class="field"><label>${tl("smart_charge.vulnerable_hours_reserve")}</label>
-<input type="number" min="0" max="24" step="0.5" data-field="smart-charge:outage_reserve_hours" value="${esc(String(draft.outage_reserve_hours ?? 3))}" ${busy}></div>
+<input type="number" min="0" max="24" step="0.5" data-field="smart-charge:outage_reserve_hours" value="${esc(String(draft.outage_reserve_hours ?? 3))}" ${busy}>
+<p class="field-hint">${tl("smart_charge.outage_hours_hint")}</p></div>
 <div class="field"><label>${tl("smart_charge.reserve_safety_margin")}</label>
-<input type="number" min="1" max="5" step="0.05" data-field="smart-charge:outage_reserve_margin" value="${esc(String(draft.outage_reserve_margin ?? 1.2))}" ${busy}></div>
+<input type="number" min="1" max="5" step="0.05" data-field="smart-charge:outage_reserve_margin" value="${esc(String(draft.outage_reserve_margin ?? 1.2))}" ${busy}>
+<p class="field-hint">${tl("smart_charge.outage_margin_hint")}</p></div>
 </details>
 <details class="sc-section-details" data-sc-section="agile"${this._smartChargeSectionOpenAttr("agile", draft)}>
 <summary>${tl("smart_charge.rates_re_planning")}</summary>
@@ -25311,7 +25318,8 @@ ${draft.meter_rate_verify_enabled !== false ? `<div class="field"><label>${tl("s
 <input type="number" min="0" max="20" step="0.05" data-field="smart-charge:meter_rate_tolerance_p_per_kwh" value="${esc(String(draft.meter_rate_tolerance_p_per_kwh ?? 0.5))}" ${busy}>
 <p class="field-hint">${tl("smart_charge.e_g_api_0_037p_and")}</p></div>
 <div class="field"><label>${tl("smart_charge.recheck_after_mismatch_minutes")}</label>
-<input type="number" min="1" max="30" step="1" data-field="smart-charge:meter_rate_recheck_minutes" value="${esc(String(draft.meter_rate_recheck_minutes ?? 5))}" ${busy}></div>` : ""}
+<input type="number" min="1" max="30" step="1" data-field="smart-charge:meter_rate_recheck_minutes" value="${esc(String(draft.meter_rate_recheck_minutes ?? 5))}" ${busy}>
+<p class="field-hint">${tl("smart_charge.recheck_hint")}</p></div>` : ""}
 </details>
 ${this._renderSmartChargeGridBehaviourInfo()}` : ""}
 <div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-smart-charge" ${busy || (draft.enabled && socValidation.errors.length) ? "disabled" : ""}>${tl("smart_charge.save_smartcharge")}</button></div>
