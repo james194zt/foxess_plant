@@ -13,8 +13,10 @@ positive-price half-hour recorded by the rate check that runs while grid chargin
   new value is positive) — a quiet revision is exactly what a dispute needs.
 - ``actions``: what Fox Plant did and when (the Force Charge slot written to the inverter, SmartCharge's
   negative-price decision).
-- ``meter``: the smart meter's own live rate read during the half-hour (Glow), if configured.
-- ``import_kwh``: grid import measured by the inverter's lifetime counter across the half-hour.
+- ``import_kwh``: grid import across the half-hour, per source: ``smart_meter`` (the meter's own import
+  register via Glow — the reading the bill is based on) and ``inverter`` (its lifetime grid counter).
+  The meter's PRICE is deliberately not recorded: on Agile the meter isn't sent the half-hourly prices, so
+  the rate Glow / an IHD reads from it isn't the real price.
 
 Stored in .storage (survives restarts); the newest MAX_RECORDS half-hours are kept.
 """
@@ -119,9 +121,8 @@ class PlungeEvidenceLog:
                         "revisions": [],
                     },
                     "actions": [],
-                    "meter": [],
-                    "import_kwh": None,
-                    "import_counter": {},
+                    "import_kwh": {},
+                    "import_counters": {},
                 }
                 changed += 1
                 continue
@@ -174,14 +175,8 @@ class PlungeEvidenceLog:
 
     # --- What happened during the half-hour -------------------------------------------------------------
 
-    async def async_note_half_hour(
-        self,
-        now: datetime,
-        *,
-        meter: dict[str, Any] | None,
-        import_counter_kwh: float | None,
-    ) -> None:
-        """At each half-hour boundary: meter rate + counter for the slot starting, counter for the one ending."""
+    async def async_note_half_hour(self, now: datetime, *, counters: dict[str, float | None]) -> None:
+        """At each half-hour boundary: import counters (per source) for the half-hour starting and ending."""
         await self.async_load()
         now = dt_util.as_utc(now)
         at = now.isoformat()
@@ -190,19 +185,21 @@ class PlungeEvidenceLog:
             start, end = _utc(record["slot_start"]), _utc(record.get("slot_end"))
             if start is None or end is None:
                 continue
-            counter = record.setdefault("import_counter", {})
-            if start <= now < end:
-                if meter and len(record.setdefault("meter", [])) < 3:
-                    record["meter"].append({"at": at, **meter})
+            readings = record.setdefault("import_counters", {})
+            results = record.get("import_kwh")
+            if not isinstance(results, dict):
+                results = record["import_kwh"] = {}
+            for source, value in counters.items():
+                if value is None:
+                    continue
+                reading = readings.setdefault(source, {})
+                if start <= now < end and "start_kwh" not in reading:
+                    reading.update(start_kwh=value, start_at=at)
                     changed = True
-                if import_counter_kwh is not None and "start_kwh" not in counter:
-                    counter.update(start_kwh=import_counter_kwh, start_at=at)
-                    changed = True
-            elif end <= now < end + timedelta(minutes=30) and "end_kwh" not in counter:
-                if import_counter_kwh is not None and "start_kwh" in counter:
-                    counter.update(end_kwh=import_counter_kwh, end_at=at)
-                    delta = import_counter_kwh - float(counter["start_kwh"])
-                    record["import_kwh"] = round(delta, 3) if delta >= 0 else None
+                elif end <= now < end + timedelta(minutes=30) and "start_kwh" in reading and "end_kwh" not in reading:
+                    reading.update(end_kwh=value, end_at=at)
+                    delta = value - float(reading["start_kwh"])
+                    results[source] = round(delta, 3) if delta >= 0 else None
                     changed = True
         if changed:
             await self._async_save()
@@ -229,8 +226,8 @@ CSV_COLUMNS = (
     "api_confirmations",
     "api_revisions",
     "fox_plant_actions",
-    "meter_rate_p",
-    "grid_import_kwh",
+    "grid_import_kwh_smart_meter",
+    "grid_import_kwh_inverter",
 )
 
 
@@ -247,9 +244,7 @@ def to_csv(records: list[dict[str, Any]]) -> str:
             f"{rev.get('seen_at')}: {(rev.get('row') or {}).get('value_inc_vat')}p" for rev in api.get("revisions") or []
         )
         actions = "; ".join(f"{a.get('at')}: {a.get('what')}" for a in r.get("actions") or [])
-        meter = "; ".join(
-            f"{m.get('at')}: {m.get('meter_p_per_kwh')}p" for m in r.get("meter") or [] if m.get("meter_p_per_kwh") is not None
-        )
+        imported = r.get("import_kwh") if isinstance(r.get("import_kwh"), dict) else {}
         writer.writerow(
             [
                 r.get("kind") or "negative",
@@ -267,8 +262,8 @@ def to_csv(records: list[dict[str, Any]]) -> str:
                 api.get("confirmations"),
                 revisions,
                 actions,
-                meter,
-                r.get("import_kwh"),
+                imported.get("smart_meter"),
+                imported.get("inverter"),
             ]
         )
     return out.getvalue()

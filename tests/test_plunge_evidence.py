@@ -72,18 +72,27 @@ async def test_actions_attach_only_to_negative_half_hours_they_cover(hass, hass_
 
 
 @pytest.mark.asyncio
-async def test_meter_rate_and_grid_import_across_the_half_hour(hass, hass_storage) -> None:
+async def test_grid_import_across_the_half_hour_from_meter_and_inverter(hass, hass_storage) -> None:
     log = PlungeEvidenceLog(hass, "e1")
     await log.async_note_rates([NEG], REQUEST, seen_at=T0)
-    meter = {"meter_p_per_kwh": -2.1, "api_p_per_kwh": -2.1, "entity_id": "sensor.glow_import_rate"}
 
-    await log.async_note_half_hour(datetime(2026, 10, 20, 13, 0, 5, tzinfo=timezone.utc), meter=meter, import_counter_kwh=1000.0)
-    await log.async_note_half_hour(datetime(2026, 10, 20, 13, 3, 5, tzinfo=timezone.utc), meter=meter, import_counter_kwh=1000.3)
-    await log.async_note_half_hour(datetime(2026, 10, 20, 13, 30, 5, tzinfo=timezone.utc), meter=None, import_counter_kwh=1001.8)
+    at_start = datetime(2026, 10, 20, 13, 0, 5, tzinfo=timezone.utc)
+    at_end = datetime(2026, 10, 20, 13, 30, 5, tzinfo=timezone.utc)
+    await log.async_note_half_hour(at_start, counters={"smart_meter": 5000.125, "inverter": 1000.0})
+    await log.async_note_half_hour(at_end, counters={"smart_meter": 5001.950, "inverter": 1001.8})
 
     record = log.records[KEY]
-    assert record["import_kwh"] == 1.8  # from the reading at the start, not the follow-up
-    assert [m["meter_p_per_kwh"] for m in record["meter"]] == [-2.1, -2.1]
+    assert record["import_kwh"] == {"smart_meter": 1.825, "inverter": 1.8}
+    assert "meter" not in record  # the meter's price is never recorded (wrong on Agile)
+
+
+@pytest.mark.asyncio
+async def test_a_missing_source_doesnt_block_the_other(hass, hass_storage) -> None:
+    log = PlungeEvidenceLog(hass, "e1")
+    await log.async_note_rates([NEG], REQUEST, seen_at=T0)
+    await log.async_note_half_hour(datetime(2026, 10, 20, 13, 0, 5, tzinfo=timezone.utc), counters={"smart_meter": None, "inverter": 10.0})
+    await log.async_note_half_hour(datetime(2026, 10, 20, 13, 30, 5, tzinfo=timezone.utc), counters={"smart_meter": None, "inverter": 11.5})
+    assert log.records[KEY]["import_kwh"] == {"inverter": 1.5}
 
 
 @pytest.mark.asyncio

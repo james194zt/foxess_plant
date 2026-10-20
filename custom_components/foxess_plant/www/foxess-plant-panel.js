@@ -472,7 +472,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.531";
+const PANEL_VERSION = "0.9.532";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -3511,10 +3511,12 @@ function renderPlungeEvidence(evidence) {
         })}</span>`
       ),
       ...(r.actions || []).map((a) => tl("smart_charge.plunge_action", { at: esc(when(a.at)), what: esc(a.what || "") })),
-      ...(r.meter || [])
-        .filter((m) => m.meter_p_per_kwh != null)
-        .map((m) => tl("smart_charge.plunge_meter", { at: esc(time(m.at)), value: esc(String(m.meter_p_per_kwh)) })),
-      r.import_kwh != null ? tl("smart_charge.plunge_import", { value: esc(Number(r.import_kwh).toFixed(2)) }) : "",
+      r.import_kwh?.smart_meter != null
+        ? tl("smart_charge.plunge_import_meter", { value: esc(Number(r.import_kwh.smart_meter).toFixed(3)) })
+        : "",
+      r.import_kwh?.inverter != null
+        ? tl("smart_charge.plunge_import_inverter", { value: esc(Number(r.import_kwh.inverter).toFixed(2)) })
+        : "",
     ].filter(Boolean);
     const status = revisions.length
       ? `<span class="fox-sc-howused-status" style="background:var(--error-color,#db4437)">${tl("smart_charge.plunge_revised")}</span>`

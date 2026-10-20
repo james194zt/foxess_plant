@@ -1048,12 +1048,6 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._sync_octopus_current_rates_from_cache()  # current_* follows the half-hour without a fetch
         await self._async_apply_zero_export()
         await self._async_note_plunge_half_hour(dt_util.utcnow())
-        # The meter's live rate can lag the boundary: read it again a few minutes in
-        async_call_later(self.hass, 180, self._plunge_meter_followup_callback)
-
-    @callback
-    def _plunge_meter_followup_callback(self, now) -> None:
-        self.hass.async_create_task(self._async_note_plunge_half_hour(now))
 
     # --- Plunge evidence (plunge_evidence.py) -------------------------------------------------------------
 
@@ -1083,20 +1077,20 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.exception("Plunge evidence: recording an action failed")
 
     async def _async_note_plunge_half_hour(self, now: datetime) -> None:
+        """Grid import counters at the half-hour boundary: the smart meter's own register (via Glow — its
+        usage readings are real meter readings; its PRICE isn't used, it's wrong on Agile) and the inverter's."""
         try:
-            meter = None
-            if self.plant.smart_charge.meter_rate_verify_enabled:
-                result = self._verify_meter_rate_before_charge().to_dict()
-                if result.get("meter_p_per_kwh") is not None:
-                    meter = {
-                        "meter_p_per_kwh": result.get("meter_p_per_kwh"),
-                        "api_p_per_kwh": result.get("api_p_per_kwh"),
-                        "entity_id": result.get("entity_id"),
-                    }
-            counter = self._entity_float("grid_consumption_energy_total")
-            if counter is not None and self._entity_unit("grid_consumption_energy_total").lower() == "wh":
-                counter /= 1000.0
-            await self._plunge_log().async_note_half_hour(now, meter=meter, import_counter_kwh=counter)
+            inverter = self._entity_float("grid_consumption_energy_total")
+            if inverter is not None and self._entity_unit("grid_consumption_energy_total").lower() == "wh":
+                inverter /= 1000.0
+            meter = (getattr(self, "_glow_live", None) or {}).get("import_kwh_cumulative")
+            await self._plunge_log().async_note_half_hour(
+                now,
+                counters={
+                    "smart_meter": float(meter) if meter is not None else None,
+                    "inverter": inverter,
+                },
+            )
         except Exception:  # noqa: BLE001
             _LOGGER.exception("Plunge evidence: half-hour reading failed")
 
@@ -1125,8 +1119,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         used (beyond the meter-check tolerance) or no longer lists it, take Octopus's rate and re-plan at once.
 
         At the real price the planner stops the charge unless it's still worth it. Every answer goes into the
-        rate evidence. A failed request doesn't stop the charge (it isn't evidence the price is wrong; the
-        meter-rate check inside the window still runs).
+        rate evidence. A failed request doesn't stop the charge: it isn't evidence the price is wrong, and the
+        rates we're charging on came from the same API at the last successful fetch. (There's no meter-price
+        fallback on Agile: the meter isn't sent half-hourly prices, so its rate isn't the real price.)
         """
         from homeassistant.util import dt as dt_util
 
@@ -3110,6 +3105,22 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         from .smart_charge.meter_rate_verify import verify_meter_import_rate
 
         cfg = self.plant.smart_charge
+        if self._octopus_agile_active():
+            # Agile / Tracker: the meter is never sent the half-hourly prices, so the rate an IHD / Glow reads
+            # from it isn't the real price (Octopus disables the IHD's cost display on Agile). Comparing it with
+            # the API only blocked good charges, so it isn't used; the 5-minute API rate check covers this.
+            from .smart_charge.meter_rate_verify import MeterRateVerifyResult
+
+            return MeterRateVerifyResult(
+                status="skipped",
+                api_p_per_kwh=self._octopus_cache.get("current_import_p_per_kwh"),
+                meter_p_per_kwh=None,
+                delta_p=None,
+                tolerance_p=float(getattr(cfg, "meter_rate_tolerance_p_per_kwh", 0.5) or 0.5),
+                entity_id=getattr(cfg, "meter_rate_entity_id", None),
+                detail="Not used on Agile / Tracker: the meter's own rate isn't the half-hourly price",
+                blocks_arm=False,
+            )
         meter_raw, meter_unit, entity_id = self._read_meter_import_rate_sensor()
         api_p = self._octopus_cache.get("current_import_p_per_kwh")
         if api_p is None:
