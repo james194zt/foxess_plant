@@ -22,7 +22,6 @@ MAX_HORIZON = timedelta(hours=48)
 
 MODE_MAX_SAFETY = "max_safety"
 MODE_MAX_PROFIT = "max_profit"
-MODE_MAX_GREEN = "max_green"
 
 ACTION_CHARGE = "charge"
 ACTION_EXPORT = "export"
@@ -441,19 +440,20 @@ def params_from_config(
     if mode == MODE_MAX_PROFIT:
         min_export_p = _cfg(config, "min_export_p_profit", 12.0)
         fraction = _cfg(config, "exportable_fraction_profit", 1.0)
-        pv_scale, load_scale, carbon_w = 1.0, 1.0, 0.0
-    elif mode == MODE_MAX_GREEN:
-        export_on = export_on and bool(getattr(config, "export_enabled_green", False))
-        min_export_p = _cfg(config, "min_export_p_green", 25.0)
-        fraction = _cfg(config, "exportable_fraction_green", 0.15)
         pv_scale, load_scale = 1.0, 1.0
-        carbon_w = max(0.0, min(1.0, _cfg(config, "green_carbon_weight", 0.5)))
     else:
         export_on = export_on and bool(getattr(config, "export_enabled_safety", True))
         min_export_p = _cfg(config, "min_export_p_safety", 20.0)
         fraction = _cfg(config, "exportable_fraction_safety", 0.35)
         pv_scale = 1.0 / max(1.0, _cfg(config, "solar_safety_margin", 1.15))
-        load_scale, carbon_w = 1.1, 0.0
+        load_scale = 1.1
+    # Prefer Greener Charging (any mode): a notional penalty on high-carbon import, so equal-price charging
+    # moves to greener half-hours. Usually no effect on time-of-use tariffs.
+    carbon_w = (
+        max(0.0, min(1.0, _cfg(config, "green_carbon_weight", 0.5)))
+        if getattr(config, "prefer_greener_charging", False)
+        else 0.0
+    )
 
     cap_kwh = capacity_kwh * cap_pct / 100.0
     return PlanParams(

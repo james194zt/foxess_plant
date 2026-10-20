@@ -1,5 +1,5 @@
-"""SmartCharge settings reach the planner as entered: a real 0 isn't swapped for the default, the carbon
-postcode keeps only the area, and Max Green gets a carbon forecast on any supplier."""
+"""SmartCharge settings reach the planner as entered: a real 0 isn't swapped for the default, the site
+postcode keeps only the area, and Prefer Greener Charging gets a carbon forecast on any supplier."""
 
 import dataclasses
 from datetime import timedelta
@@ -10,7 +10,7 @@ from homeassistant.util import dt as dt_util
 
 from custom_components.foxess_plant import carbon_intensity_neso
 from custom_components.foxess_plant.coordinator import FoxessPlantCoordinator
-from custom_components.foxess_plant.models import SmartChargeConfig
+from custom_components.foxess_plant.models import PlantConfig, PvSystemConfig, SmartChargeConfig
 
 # Fields where 0 isn't a valid setting (the save schema's minimum is above 0, or it's clamped up on purpose)
 CLAMPED_ABOVE_ZERO = {"max_charge_kw", "load_history_days", "max_target_soc"}
@@ -40,14 +40,34 @@ def test_missing_and_blank_still_use_defaults():
     ("typed", "stored"),
     [("SW1A 1AA", "SW1A"), ("sw1a1aa", "SW1A"), ("M1 1AE", "M1"), ("sw1a", "SW1A"), (" ", None), (None, None)],
 )
-def test_carbon_postcode_keeps_only_the_area(typed, stored):
-    assert SmartChargeConfig.from_dict({"carbon_postcode": typed}, []).carbon_postcode == stored
+def test_postcode_area_keeps_only_the_area(typed, stored):
+    assert PvSystemConfig.from_dict({"postcode_area": typed}).postcode_area == stored
+    assert PvSystemConfig.from_dict({"postcode_area": typed}).to_dict()["postcode_area"] == stored
 
 
-def _fake(mode="max_green", octopus=None, postcode=None):
+def test_old_max_green_becomes_max_profit_with_the_tick_box():
+    cfg = SmartChargeConfig.from_dict({"operating_mode": "max_green"}, [])
+    assert cfg.operating_mode == "max_profit" and cfg.prefer_greener_charging is True
+    # Once saved, the tick-box is stored on its own and wins
+    cfg = SmartChargeConfig.from_dict({"operating_mode": "max_safety", "prefer_greener_charging": False}, [])
+    assert cfg.operating_mode == "max_safety" and cfg.prefer_greener_charging is False
+    assert SmartChargeConfig.from_dict({}, []).prefer_greener_charging is False
+
+
+def test_0_9_538_carbon_postcode_moves_to_pv_config():
+    data = {"device_id": "d", "inverter_target": "EVO-10", "smart_charge": {"carbon_postcode": "ST4"}, "pv_config": {}}
+    assert PlantConfig.from_entry_data(data).pv_config.postcode_area == "ST4"
+    data["pv_config"] = {"postcode_area": "M1"}  # the PV config's own value wins
+    assert PlantConfig.from_entry_data(data).pv_config.postcode_area == "M1"
+
+
+def _fake(prefer=True, octopus=None, postcode=None):
     fake = SimpleNamespace(
         hass=None,
-        plant=SimpleNamespace(smart_charge=SimpleNamespace(operating_mode=mode, carbon_postcode=postcode)),
+        plant=SimpleNamespace(
+            smart_charge=SimpleNamespace(prefer_greener_charging=prefer),
+            pv_config=SimpleNamespace(postcode_area=postcode),
+        ),
         _octopus_greener_cache={"carbon_periods": octopus or []},
         _neso_carbon=[],
         _neso_carbon_tried_at=None,
@@ -85,7 +105,7 @@ def neso(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_max_green_without_octopus_uses_national_forecast(neso):
+async def test_greener_charging_without_octopus_uses_national_forecast(neso):
     fake = _fake()
     periods = await FoxessPlantCoordinator._async_smart_charge_carbon_periods(fake)
     assert len(periods) >= 90 and neso.calls == [""]  # "" = national
@@ -97,9 +117,8 @@ async def test_max_green_without_octopus_uses_national_forecast(neso):
 
 
 @pytest.mark.asyncio
-async def test_other_modes_never_ask(neso):
-    for mode in ("max_safety", "max_profit"):
-        assert await FoxessPlantCoordinator._async_smart_charge_carbon_periods(_fake(mode)) == []
+async def test_without_the_tick_box_never_asks(neso):
+    assert await FoxessPlantCoordinator._async_smart_charge_carbon_periods(_fake(prefer=False)) == []
     assert neso.calls == []
 
 
@@ -125,6 +144,6 @@ async def test_failed_fetch_is_reported_and_not_retried_within_the_hour(neso):
 async def test_postcode_change_refetches_regionally(neso):
     fake = _fake()
     await FoxessPlantCoordinator._async_smart_charge_carbon_periods(fake)
-    fake.plant.smart_charge.carbon_postcode = "SW1A"
+    fake.plant.pv_config.postcode_area = "SW1A"
     await FoxessPlantCoordinator._async_smart_charge_carbon_periods(fake)
     assert neso.calls == ["", "SW1A"]

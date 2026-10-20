@@ -32,10 +32,8 @@ class ExportModeTests(unittest.TestCase):
             operating_mode=mode,
             min_export_p_profit=10.0,
             min_export_p_safety=18.0,
-            min_export_p_green=22.0,
             exportable_fraction_profit=1.0,
             exportable_fraction_safety=0.4,
-            exportable_fraction_green=0.1,
             export_min_soc=40.0,
             **extra,
         )
@@ -50,9 +48,9 @@ class ExportModeTests(unittest.TestCase):
         self.assertAlmostEqual(profit.max_export_kwh, 6.0)
         self.assertAlmostEqual(safety.max_export_kwh, 2.4)
 
-    def test_green_export_disabled_by_default(self) -> None:
-        green = self._params(reserve.OPERATING_MODE_MAX_GREEN, export_enabled=True, export_enabled_green=False)
-        self.assertFalse(green.export_allowed)
+    def test_safety_export_needs_its_own_switch_too(self) -> None:
+        safety = self._params(reserve.OPERATING_MODE_MAX_SAFETY, export_enabled=True, export_enabled_safety=False)
+        self.assertFalse(safety.export_allowed)
 
 
 class ExportFloorTests(unittest.TestCase):

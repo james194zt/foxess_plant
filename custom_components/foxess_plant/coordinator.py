@@ -2971,13 +2971,11 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         from .carbon_intensity_neso import carbon_covers_horizon, fetch_neso_regional_carbon, union_carbon_periods
 
-        from .smart_charge.reserve import OPERATING_MODE_MAX_GREEN
-
         octopus, _greener = self._smart_charge_greener_inputs()
-        # Only Max Green uses carbon in the plan, so the other modes never ask NESO
-        if carbon_covers_horizon(octopus) or self.plant.smart_charge.operating_mode != OPERATING_MODE_MAX_GREEN:
+        # Only Prefer Greener Charging uses carbon in the plan; without it NESO is never asked
+        if carbon_covers_horizon(octopus) or not self.plant.smart_charge.prefer_greener_charging:
             return octopus
-        postcode = self.plant.smart_charge.carbon_postcode
+        postcode = self.plant.pv_config.postcode_area
         now = dt_util.utcnow()
         stale = self._neso_carbon_tried_at is None or now - self._neso_carbon_tried_at >= timedelta(hours=1)
         if stale or postcode != self._neso_carbon_postcode:
@@ -2996,7 +2994,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return union_carbon_periods(self._neso_carbon, octopus)
 
     def _smart_charge_carbon_status(self) -> dict[str, Any]:
-        """Where Max Green's carbon forecast comes from, for the panel."""
+        """Where Prefer Greener Charging's carbon forecast comes from, for the panel."""
         from .carbon_intensity_neso import carbon_covers_horizon, carbon_coverage_end_ms
 
         octopus, _greener = self._smart_charge_greener_inputs()
@@ -3009,7 +3007,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         end_ms = carbon_coverage_end_ms(periods)
         return {
             "source": source,
-            "postcode": self.plant.smart_charge.carbon_postcode,
+            "postcode": self.plant.pv_config.postcode_area,
             "half_hours": sum(1 for r in periods if r.get("low_carbon_score") is not None),
             "until": datetime.fromtimestamp(end_ms / 1000, tz=timezone.utc).isoformat() if end_ms else None,
             "fetched_at": self._neso_carbon_fetched_at.isoformat() if self._neso_carbon_fetched_at else None,
@@ -5433,6 +5431,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Persist PV1/PV2 physical configuration from the panel."""
         from .solcast_pv import build_rooftop_pv_requests
 
+        if "postcode_area" not in pv_config:
+            # A save without it (an older panel tab) mustn't wipe it
+            pv_config = {**pv_config, "postcode_area": self.plant.pv_config.postcode_area}
         cfg = PvSystemConfig.from_dict(pv_config)
         if self.plant.solcast.installation_date:
             from .pv_efficiency import sync_pv_efficiency_from_install

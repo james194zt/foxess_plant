@@ -551,11 +551,13 @@ class ParamsTests(unittest.TestCase):
         self.assertAlmostEqual(p.pv_scale, 0.8)
         self.assertAlmostEqual(p.export_floor_kwh, 4.0)
         self.assertAlmostEqual(p.discharge_kw, 3.6)
-        cfg.operating_mode = "max_green"
-        p = planner.params_from_config(cfg, capacity_kwh=10.0, reserve_kwh=0.5, inverter_min_soc_pct=10)
-        self.assertFalse(p.export_allowed)
-        self.assertAlmostEqual(p.floor_kwh, 1.0)
-        self.assertGreater(p.carbon_weight_p, 0)
+        self.assertEqual(p.carbon_weight_p, 0)  # Prefer Greener Charging off
+        # Prefer Greener Charging works in any mode
+        for mode in ("max_safety", "max_profit"):
+            cfg.operating_mode, cfg.prefer_greener_charging = mode, True
+            p = planner.params_from_config(cfg, capacity_kwh=10.0, reserve_kwh=0.5, inverter_min_soc_pct=10)
+            self.assertAlmostEqual(p.carbon_weight_p, 0.5)
+            self.assertAlmostEqual(p.floor_kwh, 1.0)
 
 
 class CarbonTests(unittest.TestCase):

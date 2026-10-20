@@ -4,19 +4,17 @@ from __future__ import annotations
 
 OPERATING_MODE_MAX_PROFIT = "max_profit"
 OPERATING_MODE_MAX_SAFETY = "max_safety"
+# Former third mode: stored settings with it load as Max Profit + Prefer Greener Charging (models.py)
 OPERATING_MODE_MAX_GREEN = "max_green"
 OPERATING_MODES = (
     OPERATING_MODE_MAX_PROFIT,
     OPERATING_MODE_MAX_SAFETY,
-    OPERATING_MODE_MAX_GREEN,
 )
 
 
 def mode_reserve_multiplier(operating_mode: str, *, safety_reserve_multiplier: float) -> float:
     if operating_mode == OPERATING_MODE_MAX_SAFETY:
         return max(1.0, safety_reserve_multiplier)
-    if operating_mode == OPERATING_MODE_MAX_GREEN:
-        return 1.1
     return 1.0
 
 

@@ -432,17 +432,15 @@ DEFAULT_SMART_CHARGE = {
     "outage_reserve_hours": 3.0,
     "outage_reserve_margin": 1.2,
     "safety_reserve_multiplier": 1.5,
+    "prefer_greener_charging": False,
     "green_carbon_weight": 0.5,
     "export_enabled": True,
     "export_enabled_safety": True,
-    "export_enabled_green": False,
     "min_export_kwh": 0.5,
     "min_export_p_profit": 12.0,
     "min_export_p_safety": 20.0,
-    "min_export_p_green": 25.0,
     "exportable_fraction_profit": 1.0,
     "exportable_fraction_safety": 0.35,
-    "exportable_fraction_green": 0.15,
     "spread_optimizer_enabled": True,
     "min_spread_profit_p_per_kwh": 3.0,
     "peak_import_avoid_start": "16:00",
@@ -552,6 +550,7 @@ DEFAULT_SOLCAST = {
 
 DEFAULT_PV_CONFIG = {
     "annual_degradation_pct": 2.0,
+    "postcode_area": None,
     "pv1": DEFAULT_PV_STRING,
     "pv2": {
         "enabled": False,

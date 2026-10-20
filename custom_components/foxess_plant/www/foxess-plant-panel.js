@@ -1037,8 +1037,10 @@ function normalizePvConfig(raw) {
   let annualDegradation = parseFloat(src.annual_degradation_pct);
   if (!Number.isFinite(annualDegradation)) annualDegradation = DEFAULT_PV_CONFIG.annual_degradation_pct;
   annualDegradation = Math.max(0, Math.min(10, annualDegradation));
+  const postcode = String(src.postcode_area ?? "").trim().toUpperCase();
   return {
     annual_degradation_pct: annualDegradation,
+    postcode_area: postcode || null,
     pv1: normalizePvString(src.pv1, DEFAULT_PV_CONFIG.pv1),
     pv2: normalizePvString(src.pv2, DEFAULT_PV_CONFIG.pv2),
   };
@@ -8926,11 +8928,6 @@ const SMART_CHARGE_MODE_META = {
     hint: tl("smart_charge.lowest_cost_charge_cheap_export_at"),
     accent: "var(--fp-amber, #f9a825)",
   },
-  max_green: {
-    title: tl("smart_charge.max_green_2"),
-    hint: tl("smart_charge.cost_plus_carbon_prefers_low_carbon"),
-    accent: "var(--fp-green, #4caf50)",
-  },
 };
 
 function smartChargeModeIconHtml(mode) {
@@ -12246,7 +12243,6 @@ const SMART_CHARGE_MODE_ICON_VER = 3;
 const SMART_CHARGE_MODE_ICONS = {
   max_safety: `/foxess_plant_panel/smart-charge-max-safety.png?v=${SMART_CHARGE_MODE_ICON_VER}`,
   max_profit: `/foxess_plant_panel/smart-charge-max-profit.png?v=${SMART_CHARGE_MODE_ICON_VER}`,
-  max_green: `/foxess_plant_panel/smart-charge-max-green.png?v=${SMART_CHARGE_MODE_ICON_VER}`,
 };
 const OCTOPUS_GREENER_CARD_TITLE = tl("octopus.octopus_green_nights_24h_forecast");
 const OCTOPUS_UPCOMING_WEEK_CARD_TITLE = tl("octopus.octopus_greener_nights_week_ahead");
@@ -17182,18 +17178,13 @@ ${tl("panel.panel_update_pending_browser_jsver_ha", { jsVer: esc(jsVer), regVer:
       outage_reserve_hours: sc.outage_reserve_hours ?? 3,
       outage_reserve_margin: sc.outage_reserve_margin ?? 1.2,
       safety_reserve_multiplier: sc.safety_reserve_multiplier ?? 1.5,
-      green_carbon_weight: sc.green_carbon_weight ?? 0.5,
-      carbon_postcode: sc.carbon_postcode || "",
       export_enabled: sc.export_enabled !== false,
       export_enabled_safety: sc.export_enabled_safety !== false,
-      export_enabled_green: Boolean(sc.export_enabled_green),
       min_export_kwh: sc.min_export_kwh ?? 0.5,
       min_export_p_profit: sc.min_export_p_profit ?? 12,
       min_export_p_safety: sc.min_export_p_safety ?? 20,
-      min_export_p_green: sc.min_export_p_green ?? 25,
       exportable_fraction_profit: sc.exportable_fraction_profit ?? 1,
       exportable_fraction_safety: sc.exportable_fraction_safety ?? 0.35,
-      exportable_fraction_green: sc.exportable_fraction_green ?? 0.15,
       spread_optimizer_enabled: sc.spread_optimizer_enabled !== false,
       min_spread_profit_p_per_kwh: sc.min_spread_profit_p_per_kwh ?? 3,
       peak_import_avoid_start: sc.peak_import_avoid_start ?? "16:00",
@@ -17206,6 +17197,7 @@ ${tl("panel.panel_update_pending_browser_jsver_ha", { jsVer: esc(jsVer), regVer:
       meter_rate_verify_enabled: sc.meter_rate_verify_enabled !== false,
       charge_on_inverter: sc.charge_on_inverter !== false,
       zero_export_negative_price: sc.zero_export_negative_price === true,
+      prefer_greener_charging: sc.prefer_greener_charging === true,
       meter_rate_entity_id: sc.meter_rate_entity_id || "",
       max_charge_kw: sc.max_charge_kw ?? 3,
       max_discharge_kw: sc.max_discharge_kw ?? null,
@@ -17404,18 +17396,13 @@ ${tl("panel.panel_update_pending_browser_jsver_ha", { jsVer: esc(jsVer), regVer:
         outage_reserve_hours: numOr(d.outage_reserve_hours, 3),
         outage_reserve_margin: numOr(d.outage_reserve_margin, 1.2),
         safety_reserve_multiplier: numOr(d.safety_reserve_multiplier, 1.5),
-        green_carbon_weight: numOr(d.green_carbon_weight, 0.5),
-        carbon_postcode: String(d.carbon_postcode || "").trim() || null,
         export_enabled: Boolean(d.export_enabled),
         export_enabled_safety: Boolean(d.export_enabled_safety),
-        export_enabled_green: Boolean(d.export_enabled_green),
         min_export_kwh: numOr(d.min_export_kwh, 0.5),
         min_export_p_profit: numOr(d.min_export_p_profit, 12),
         min_export_p_safety: numOr(d.min_export_p_safety, 20),
-        min_export_p_green: numOr(d.min_export_p_green, 25),
         exportable_fraction_profit: numOr(d.exportable_fraction_profit, 1),
         exportable_fraction_safety: numOr(d.exportable_fraction_safety, 0.35),
-        exportable_fraction_green: numOr(d.exportable_fraction_green, 0.15),
         spread_optimizer_enabled: Boolean(d.spread_optimizer_enabled),
         min_spread_profit_p_per_kwh: numOr(d.min_spread_profit_p_per_kwh, 3),
         peak_import_avoid_start: String(d.peak_import_avoid_start || "16:00"),
@@ -17428,6 +17415,7 @@ ${tl("panel.panel_update_pending_browser_jsver_ha", { jsVer: esc(jsVer), regVer:
         meter_rate_verify_enabled: Boolean(d.meter_rate_verify_enabled),
         charge_on_inverter: d.charge_on_inverter !== false,
         zero_export_negative_price: d.zero_export_negative_price === true,
+        prefer_greener_charging: d.prefer_greener_charging === true,
         meter_rate_entity_id: String(d.meter_rate_entity_id || "").trim() || null,
         meter_rate_tolerance_p_per_kwh: numOr(d.meter_rate_tolerance_p_per_kwh, 0.5),
         max_charge_kw: numOr(d.max_charge_kw, 3),
@@ -20315,12 +20303,13 @@ ${tl("panel.panel_update_pending_browser_jsver_ha", { jsVer: esc(jsVer), regVer:
         this._smartChargeDraft.zero_export_negative_price = el.checked;
         return;
       }
-      if (field === "meter_rate_entity_id") {
-        this._smartChargeDraft.meter_rate_entity_id = el.value || "";
+      if (field === "prefer_greener_charging") {
+        this._smartChargeDraft.prefer_greener_charging = el.checked;
+        this._scheduleRender();
         return;
       }
-      if (field === "carbon_postcode") {
-        this._smartChargeDraft.carbon_postcode = el.value || "";
+      if (field === "meter_rate_entity_id") {
+        this._smartChargeDraft.meter_rate_entity_id = el.value || "";
         return;
       }
       if (field === "meter_rate_tolerance_p_per_kwh") {
@@ -20387,10 +20376,6 @@ ${tl("panel.panel_update_pending_browser_jsver_ha", { jsVer: esc(jsVer), regVer:
         this._smartChargeDraft.safety_reserve_multiplier = Math.max(1, Math.min(5, numOr(el.value, 1.5)));
         return;
       }
-      if (field === "green_carbon_weight") {
-        this._smartChargeDraft.green_carbon_weight = Math.max(0, Math.min(1, numOr(el.value, 0.5)));
-        return;
-      }
       if (field === "export_enabled") {
         this._smartChargeDraft.export_enabled = el.checked;
         this._scheduleRender();
@@ -20398,11 +20383,6 @@ ${tl("panel.panel_update_pending_browser_jsver_ha", { jsVer: esc(jsVer), regVer:
       }
       if (field === "export_enabled_safety") {
         this._smartChargeDraft.export_enabled_safety = el.checked;
-        this._scheduleRender();
-        return;
-      }
-      if (field === "export_enabled_green") {
-        this._smartChargeDraft.export_enabled_green = el.checked;
         this._scheduleRender();
         return;
       }
@@ -20418,20 +20398,12 @@ ${tl("panel.panel_update_pending_browser_jsver_ha", { jsVer: esc(jsVer), regVer:
         this._smartChargeDraft.min_export_p_safety = Math.max(0, numOr(el.value, 20));
         return;
       }
-      if (field === "min_export_p_green") {
-        this._smartChargeDraft.min_export_p_green = Math.max(0, numOr(el.value, 25));
-        return;
-      }
       if (field === "exportable_fraction_profit") {
         this._smartChargeDraft.exportable_fraction_profit = Math.max(0.05, Math.min(1, numOr(el.value, 1)));
         return;
       }
       if (field === "exportable_fraction_safety") {
         this._smartChargeDraft.exportable_fraction_safety = Math.max(0.05, Math.min(1, numOr(el.value, 0.35)));
-        return;
-      }
-      if (field === "exportable_fraction_green") {
-        this._smartChargeDraft.exportable_fraction_green = Math.max(0.05, Math.min(1, numOr(el.value, 0.15)));
         return;
       }
       if (field === "spread_optimizer_enabled") {
@@ -20632,6 +20604,10 @@ ${tl("panel.panel_update_pending_browser_jsver_ha", { jsVer: esc(jsVer), regVer:
     }
     if (kind === "pv-meta" && this._pvDraft) {
       const field = parts[1];
+      if (field === "postcode_area") {
+        this._pvDraft.postcode_area = el.value || "";
+        return;
+      }
       if (field === "annual_degradation_pct") {
         const raw = String(el.value).trim();
         if (raw === "") return;
@@ -25004,21 +24980,12 @@ ${controlSection}`;
     // Max Profit only earns anything when import varies or forced export pays (after battery losses)
     const profile = this._plantState?.smart_charge?.tariff_profile || null;
     const profitUseless = profile?.max_profit_useful === false;
-    // Max Green needs a carbon forecast: hidden once fetching one has failed (unless it's the saved mode)
-    const carbon = this._plantState?.smart_charge?.carbon || null;
-    const greenUseless = Boolean(carbon?.tried && !carbon?.source);
-    const modes = ["max_safety", "max_profit", "max_green"].filter(
-      (mode) =>
-        (mode !== "max_profit" || !profitUseless || draft.operating_mode === "max_profit") &&
-        (mode !== "max_green" || !greenUseless || draft.operating_mode === "max_green")
+    const modes = ["max_safety", "max_profit"].filter(
+      (mode) => mode !== "max_profit" || !profitUseless || draft.operating_mode === "max_profit"
     );
     const profitHint = profitUseless
       ? `<p class="field-hint">${tl("smart_charge.max_profit_is_value_on_your", { value: draft.operating_mode === "max_profit" ? tl("smart_charge.not_useful") : "hidden" })}</p>`
       : "";
-    const greenHint =
-      greenUseless && draft.operating_mode !== "max_green"
-        ? `<p class="field-hint">${tl("smart_charge.max_green_hidden_no_carbon")}</p>`
-        : "";
     const cards = modes
       .map((mode) => {
         const meta = SMART_CHARGE_MODE_META[mode];
@@ -25031,10 +24998,10 @@ ${controlSection}`;
       .join("");
     return `<p class="card-title" style="margin-top:14px">${tl("smart_charge.operating_mode")}</p>
 <div class="mode-grid">${cards}</div>
-${profitHint}${greenHint}`;
+${profitHint}`;
   }
 
-  /** Max Green: where the carbon forecast comes from (plant_state.smart_charge.carbon). */
+  /** Prefer Greener Charging: where the carbon forecast comes from (plant_state.smart_charge.carbon). */
   _renderSmartChargeCarbonStatus() {
     const c = this._plantState?.smart_charge?.carbon || {};
     let text;
@@ -25069,12 +25036,10 @@ ${profitHint}${greenHint}`;
     }
     const keys = {
       max_profit: { minP: "min_export_p_profit", minDef: 12, frac: "exportable_fraction_profit", fracDef: 1, allow: null },
-      max_green: { minP: "min_export_p_green", minDef: 25, frac: "exportable_fraction_green", fracDef: 0.15, allow: "export_enabled_green" },
       max_safety: { minP: "min_export_p_safety", minDef: 20, frac: "exportable_fraction_safety", fracDef: 0.35, allow: "export_enabled_safety" },
     }[mode] || null;
     if (!keys) return "";
-    const allowLabel =
-      mode === "max_green" ? tl("smart_charge.allow_forced_export_in_green_mode") : tl("smart_charge.allow_forced_export_in_safety_mode");
+    const allowLabel = tl("smart_charge.allow_forced_export_in_safety_mode");
     const allowRow = keys.allow
       ? `<div class="toggle-row"><span><strong>${allowLabel}</strong></span>
 <input type="checkbox" data-field="smart-charge:${keys.allow}" ${draft[keys.allow] ? "checked" : ""} ${busy}></div>`
@@ -25100,15 +25065,7 @@ ${minRateRow}
     const meta = SMART_CHARGE_MODE_META[mode] || SMART_CHARGE_MODE_META.max_safety;
     const busy = this._busy ? "disabled" : "";
     let body = this._renderSmartChargeExportFields(draft, mode, busy);
-    if (mode === "max_green") {
-      body += `${this._renderSmartChargeCarbonStatus()}
-<div class="field"><label>${tl("smart_charge.carbon_weight_0_1")}</label>
-<input type="number" min="0" max="1" step="0.05" data-field="smart-charge:green_carbon_weight" value="${esc(String(draft.green_carbon_weight ?? 0.5))}" ${busy}>
-<p class="field-hint">${tl("smart_charge.adds_up_to_10p_kwh_weight")}</p></div>
-<div class="field"><label>${tl("smart_charge.carbon_postcode")}</label>
-<input type="text" maxlength="8" autocomplete="off" data-field="smart-charge:carbon_postcode" value="${esc(String(draft.carbon_postcode || ""))}" placeholder="${tl("smart_charge.carbon_postcode_placeholder")}" ${busy}>
-<p class="field-hint">${tl("smart_charge.carbon_postcode_hint")}</p></div>`;
-    } else if (mode === "max_safety") {
+    if (mode === "max_safety") {
       body += `<div class="field"><label>${tl("smart_charge.safety_reserve_multiplier")}</label>
 <input type="number" min="1" max="5" step="0.05" data-field="smart-charge:safety_reserve_multiplier" value="${esc(String(draft.safety_reserve_multiplier ?? 1.5))}" ${busy}>
 <p class="field-hint">${tl("smart_charge.safety_reserve_multiplier_hint")}</p></div>`;
@@ -25356,6 +25313,9 @@ ${(() => {
 <div class="toggle-row"><span>${tl("smart_charge.zero_export_negative_price")}<br><span style="font-size:12px;color:var(--secondary-text-color)">${tl("smart_charge.zero_export_negative_price_hint")}</span></span>
 <input type="checkbox" data-field="smart-charge:zero_export_negative_price" ${draft.zero_export_negative_price ? "checked" : ""} ${busy}></div>
 ${this._renderZeroExportStatus()}
+<div class="toggle-row"><span>${tl("smart_charge.prefer_greener_charging")}<br><span style="font-size:12px;color:var(--secondary-text-color)">${tl("smart_charge.prefer_greener_charging_hint")}</span></span>
+<input type="checkbox" data-field="smart-charge:prefer_greener_charging" ${draft.prefer_greener_charging ? "checked" : ""} ${busy}></div>
+${draft.prefer_greener_charging ? this._renderSmartChargeCarbonStatus() : ""}
 <div class="toggle-row"><span>${tl("smart_charge.glow_smart_meter_rate_check")}<br><span style="font-size:12px;color:var(--secondary-text-color)">${tl("smart_charge.double_check_live_meter_import_rate")}${octopusTariffEnabled(this._plantState) ? ` ${tl("smart_charge.meter_check_not_on_agile")}` : ""}</span></span>
 <input type="checkbox" data-field="smart-charge:meter_rate_verify_enabled" ${draft.meter_rate_verify_enabled !== false ? "checked" : ""} ${busy}></div>
 ${draft.meter_rate_verify_enabled !== false ? `<div class="field"><label>${tl("smart_charge.import_rate_sensor_glow_ihd")}</label>
@@ -25557,6 +25517,9 @@ ${installHint}
 <div class="field" style="margin-top:12px"><label>${tl("pv.annual_degradation")}</label>
 <p class="field-hint">${tl("pv.solcast_style_performance_loss_per_year")}</p>
 <input type="number" min="0" max="10" step="0.1" data-field="pv-meta:annual_degradation_pct" value="${esc(String(annualRate))}" ${this._busy || !installDate ? "disabled" : ""} aria-label="${tl("pv.annual_degradation_percent")}"></div>
+<div class="field"><label>${tl("pv.postcode_area")}</label>
+<input type="text" maxlength="8" autocomplete="off" data-field="pv-meta:postcode_area" value="${esc(String(this._pvDraft.postcode_area || ""))}" placeholder="${tl("pv.postcode_area_placeholder")}" ${this._busy ? "disabled" : ""}>
+<p class="field-hint">${tl("pv.postcode_area_hint")}</p></div>
 </section>
 ${this._renderPvStringBlock("pv1")}
 ${this._renderPvStringBlock("pv2")}

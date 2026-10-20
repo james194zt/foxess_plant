@@ -133,6 +133,7 @@ PV_CONFIG_SCHEMA = vol.Schema(
         vol.Optional("annual_degradation_pct", default=2.0): vol.All(
             vol.Coerce(float), vol.Range(min=0, max=10)
         ),
+        vol.Optional("postcode_area"): vol.Any(None, vol.All(cv.string, vol.Length(max=10))),
         vol.Required("pv1"): PV_STRING_SCHEMA,
         vol.Required("pv2"): PV_STRING_SCHEMA,
     }
@@ -1117,10 +1118,9 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             vol.Optional("green_carbon_weight", default=0.5): vol.All(
                 vol.Coerce(float), vol.Range(min=0, max=1.0)
             ),
-            vol.Optional("carbon_postcode"): vol.Any(None, vol.All(cv.string, vol.Length(max=10))),
+            vol.Optional("prefer_greener_charging"): cv.boolean,
             vol.Optional("export_enabled", default=True): cv.boolean,
             vol.Optional("export_enabled_safety", default=True): cv.boolean,
-            vol.Optional("export_enabled_green", default=False): cv.boolean,
             vol.Optional("min_export_kwh", default=0.5): vol.All(vol.Coerce(float), vol.Range(min=0.1, max=50)),
             vol.Optional("min_export_p_profit", default=12.0): vol.All(
                 vol.Coerce(float), vol.Range(min=0, max=100)
@@ -1128,16 +1128,10 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             vol.Optional("min_export_p_safety", default=20.0): vol.All(
                 vol.Coerce(float), vol.Range(min=0, max=100)
             ),
-            vol.Optional("min_export_p_green", default=25.0): vol.All(
-                vol.Coerce(float), vol.Range(min=0, max=100)
-            ),
             vol.Optional("exportable_fraction_profit", default=1.0): vol.All(
                 vol.Coerce(float), vol.Range(min=0.05, max=1.0)
             ),
             vol.Optional("exportable_fraction_safety", default=0.35): vol.All(
-                vol.Coerce(float), vol.Range(min=0.05, max=1.0)
-            ),
-            vol.Optional("exportable_fraction_green", default=0.15): vol.All(
                 vol.Coerce(float), vol.Range(min=0.05, max=1.0)
             ),
             vol.Optional("spread_optimizer_enabled", default=True): cv.boolean,

@@ -352,6 +352,17 @@ def _outward_postcode(raw: Any) -> str | None:
     return outward_postcode(raw)
 
 
+def _pv_config_with_postcode(data: dict[str, Any]) -> dict[str, Any]:
+    """PV config, carrying over 0.9.538's smart_charge.carbon_postcode until the PV config has its own."""
+    from .const import DEFAULT_PV_CONFIG
+
+    pv = dict(data.get("pv_config") or DEFAULT_PV_CONFIG)
+    legacy = (data.get("smart_charge") or {}).get("carbon_postcode")
+    if not pv.get("postcode_area") and legacy:
+        pv["postcode_area"] = legacy
+    return pv
+
+
 def _num(data: dict[str, Any], key: str, default: float) -> float:
     """Stored number, or the default when missing/blank. A real 0 stays 0 (``x or default`` turned it into the default)."""
     value = data.get(key)
@@ -384,19 +395,17 @@ class SmartChargeConfig:
     outage_reserve_hours: float = 3.0
     outage_reserve_margin: float = 1.2
     safety_reserve_multiplier: float = 1.5
+    # Prefer Greener Charging (any mode): carbon counts against grid import in the plan. Weight isn't shown in
+    # the panel (kept for stored settings). The regional forecast uses PV config's postcode_area.
+    prefer_greener_charging: bool = False
     green_carbon_weight: float = 0.5
-    # Max Green: postcode area (outward code, e.g. "SW1A") for the regional NESO carbon forecast; None = national
-    carbon_postcode: str | None = None
     export_enabled: bool = True
     export_enabled_safety: bool = True
-    export_enabled_green: bool = False
     min_export_kwh: float = 0.5
     min_export_p_profit: float = 12.0
     min_export_p_safety: float = 20.0
-    min_export_p_green: float = 25.0
     exportable_fraction_profit: float = 1.0
     exportable_fraction_safety: float = 0.35
-    exportable_fraction_green: float = 0.15
     spread_optimizer_enabled: bool = True
     min_spread_profit_p_per_kwh: float = 3.0
     peak_import_avoid_start: str = "16:00"
@@ -426,12 +435,21 @@ class SmartChargeConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any], default_periods: list[dict[str, Any]]) -> SmartChargeConfig:
-        from .smart_charge.reserve import OPERATING_MODE_MAX_SAFETY, OPERATING_MODES
+        from .smart_charge.reserve import (
+            OPERATING_MODE_MAX_GREEN,
+            OPERATING_MODE_MAX_PROFIT,
+            OPERATING_MODE_MAX_SAFETY,
+            OPERATING_MODES,
+        )
 
         periods_raw = data.get("charge_periods") or default_periods
         target_max = data.get("target_max_soc")
         reserve_load = data.get("outage_reserve_load_kw")
         mode = str(data.get("operating_mode", OPERATING_MODE_MAX_SAFETY) or OPERATING_MODE_MAX_SAFETY)
+        # Max Green was a mode until 0.9.539; it's now Max Profit + the Prefer Greener Charging tick-box
+        was_green = mode == OPERATING_MODE_MAX_GREEN
+        if was_green:
+            mode = OPERATING_MODE_MAX_PROFIT
         if mode not in OPERATING_MODES:
             mode = OPERATING_MODE_MAX_SAFETY
         max_soc = data.get("max_target_soc")
@@ -458,18 +476,15 @@ class SmartChargeConfig:
             outage_reserve_hours=_num(data, "outage_reserve_hours", 3.0),
             outage_reserve_margin=_num(data, "outage_reserve_margin", 1.2),
             safety_reserve_multiplier=_num(data, "safety_reserve_multiplier", 1.5),
+            prefer_greener_charging=bool(data.get("prefer_greener_charging", was_green)),
             green_carbon_weight=_num(data, "green_carbon_weight", 0.5),
-            carbon_postcode=_outward_postcode(data.get("carbon_postcode")),
             export_enabled=bool(data.get("export_enabled", True)),
             export_enabled_safety=bool(data.get("export_enabled_safety", True)),
-            export_enabled_green=bool(data.get("export_enabled_green", False)),
             min_export_kwh=_num(data, "min_export_kwh", 0.5),
             min_export_p_profit=_num(data, "min_export_p_profit", 12.0),
             min_export_p_safety=_num(data, "min_export_p_safety", 20.0),
-            min_export_p_green=_num(data, "min_export_p_green", 25.0),
             exportable_fraction_profit=_num(data, "exportable_fraction_profit", 1.0),
             exportable_fraction_safety=_num(data, "exportable_fraction_safety", 0.35),
-            exportable_fraction_green=_num(data, "exportable_fraction_green", 0.15),
             spread_optimizer_enabled=bool(data.get("spread_optimizer_enabled", True)),
             min_spread_profit_p_per_kwh=_num(data, "min_spread_profit_p_per_kwh", 3.0),
             peak_import_avoid_start=str(data.get("peak_import_avoid_start", "16:00") or "16:00"),
@@ -525,18 +540,15 @@ class SmartChargeConfig:
             "outage_reserve_hours": round(self.outage_reserve_hours, 1),
             "outage_reserve_margin": round(self.outage_reserve_margin, 2),
             "safety_reserve_multiplier": round(self.safety_reserve_multiplier, 2),
+            "prefer_greener_charging": self.prefer_greener_charging,
             "green_carbon_weight": round(self.green_carbon_weight, 2),
-            "carbon_postcode": self.carbon_postcode,
             "export_enabled": self.export_enabled,
             "export_enabled_safety": self.export_enabled_safety,
-            "export_enabled_green": self.export_enabled_green,
             "min_export_kwh": round(self.min_export_kwh, 2),
             "min_export_p_profit": round(self.min_export_p_profit, 2),
             "min_export_p_safety": round(self.min_export_p_safety, 2),
-            "min_export_p_green": round(self.min_export_p_green, 2),
             "exportable_fraction_profit": round(self.exportable_fraction_profit, 2),
             "exportable_fraction_safety": round(self.exportable_fraction_safety, 2),
-            "exportable_fraction_green": round(self.exportable_fraction_green, 2),
             "spread_optimizer_enabled": self.spread_optimizer_enabled,
             "min_spread_profit_p_per_kwh": round(self.min_spread_profit_p_per_kwh, 2),
             "peak_import_avoid_start": self.peak_import_avoid_start,
@@ -1456,6 +1468,8 @@ class PvSystemConfig:
     """PV1 / PV2 configuration for the plant."""
 
     annual_degradation_pct: float = 2.0
+    # Site postcode area (outward code, e.g. "ST4"): only the area is kept. Used for the regional carbon forecast.
+    postcode_area: str | None = None
     pv1: PvStringConfig = field(default_factory=PvStringConfig)
     pv2: PvStringConfig = field(
         default_factory=lambda: PvStringConfig(enabled=False, panel_count=1)
@@ -1476,6 +1490,7 @@ class PvSystemConfig:
         annual_degradation_pct = max(0.0, min(10.0, annual_degradation_pct))
         return cls(
             annual_degradation_pct=annual_degradation_pct,
+            postcode_area=_outward_postcode(data.get("postcode_area")),
             pv1=PvStringConfig.from_dict(data.get("pv1", {}), defaults=pv1_defaults),
             pv2=PvStringConfig.from_dict(data.get("pv2", {}), defaults=pv2_defaults),
         )
@@ -1483,6 +1498,7 @@ class PvSystemConfig:
     def to_dict(self) -> dict[str, Any]:
         return {
             "annual_degradation_pct": round(self.annual_degradation_pct, 2),
+            "postcode_area": self.postcode_area,
             "pv1": self.pv1.to_dict(),
             "pv2": self.pv2.to_dict(),
         }
@@ -1562,7 +1578,7 @@ class PlantConfig:
                 TariffConfig.from_dict(data.get("tariff", DEFAULT_TARIFF)).currency,
             ),
             panel_display=PanelDisplayConfig.from_dict(data.get("panel_display", DEFAULT_PANEL_DISPLAY)),
-            pv_config=PvSystemConfig.from_dict(data.get("pv_config", DEFAULT_PV_CONFIG)),
+            pv_config=PvSystemConfig.from_dict(_pv_config_with_postcode(data)),
             solcast=SolcastConfig.from_dict(data.get("solcast", DEFAULT_SOLCAST)),
             open_meteo=OpenMeteoConfig.from_dict(data.get("open_meteo")),
             glow=GlowConfig.from_dict(data.get("glow", DEFAULT_GLOW)),
