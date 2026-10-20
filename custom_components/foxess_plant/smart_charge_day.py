@@ -202,14 +202,16 @@ def _summary(slots: list[dict[str, Any]]) -> dict[str, Any]:
     planned_charge = total([p for p in plans if p.get("action") in CHARGE_ACTIONS], "planned_import_kwh")
     planned_export = total([p for p in plans if p.get("action") in EXPORT_ACTIONS], "planned_export_kwh")
     socs = [a[k] for a in actuals for k in ("soc_start_pct", "soc_end_pct") if a.get(k) is not None]
-    # What the actual grid charge cost, where the plan knew the price of that half-hour
+    # What the actual grid charge cost. Only when every charge half-hour has a known price: the audit
+    # fallback has none, and a partial sum (e.g. £0.00 from two stray half-hours) would be wrong.
     cost_p = 0.0
-    costed = False
-    for s in slots:
-        a, p = s["actual"], s["plan"]
-        if a and p and a.get("grid_charge_kwh") and p.get("import_p_per_kwh") is not None:
-            cost_p += float(a["grid_charge_kwh"]) * float(p["import_p_per_kwh"])
-            costed = True
+    charge_slots = [s for s in slots if s["actual"] and s["actual"].get("action") == "charge"]
+    costed = bool(charge_slots) and all(
+        s["plan"] and s["plan"].get("import_p_per_kwh") is not None for s in charge_slots
+    )
+    if costed:
+        for s in charge_slots:
+            cost_p += float(s["actual"]["grid_charge_kwh"]) * float(s["plan"]["import_p_per_kwh"])
     return {
         "planned_charge_kwh": planned_charge,
         "actual_charge_kwh": total([a for a in actuals if a.get("action") == "charge"], "grid_charge_kwh"),

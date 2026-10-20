@@ -82,8 +82,18 @@ def test_planned_vs_actual():
     s = out["summary"]
     assert s["actual_charge_kwh"] == pytest.approx(3.3)
     assert s["planned_charge_kwh"] == pytest.approx(5.4)
-    assert s["charge_cost_p"] == pytest.approx(1.7 * 18.05, abs=0.1)  # only 03:00 has a known price
+    # 02:00 charged on an audit-only plan (no price), so no partial cost is shown
+    assert s["charge_cost_p"] is None
     assert s["soc_min_pct"] == 15.0 and s["soc_max_pct"] == 52.0
+
+
+def test_charge_cost_when_every_charge_half_hour_has_a_price():
+    day, now = date(2026, 10, 21), local(21, 6, 0)
+    stored = [{"start_utc": utc_key(local(21, h, m)), "action": "charge", "planned_import_kwh": 1.8,
+               "import_p_per_kwh": 18.05} for h, m in ((2, 0), (2, 30))]
+    kwh = _kwh({"02:00": {"battery_charge": 1.7, "grid_import": 1.8}, "02:30": {"battery_charge": 1.6, "grid_import": 1.7}})
+    out = build_day(day=day, now=now, plan_rows=stored, audit_events=[], soc_points=[], kwh_in=kwh)
+    assert out["summary"]["charge_cost_p"] == pytest.approx((1.7 + 1.6) * 18.05, abs=0.1)
 
 
 def test_no_history_at_all_is_empty_not_an_error():
