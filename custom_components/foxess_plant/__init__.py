@@ -101,6 +101,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await coordinator.async_update_tariff_sensors(record_history=False)
     except Exception:
         _LOGGER.exception("FoxESS Plant tariff sensor sync failed during setup")
+    # Zero export: half-hourly check, and put a saved export limit back if HA restarted mid-slot
+    coordinator._setup_zero_export_timer()
+    await coordinator._async_apply_zero_export()
     register_services(hass)
 
     try:

@@ -403,6 +403,8 @@ class SmartChargeConfig:
     # EVO: run planned grid charges as a Force Charge slot on the inverter's own scheduler (added shortly
     # before the window, removed after it) instead of holding Remote Control on from Home Assistant.
     charge_on_inverter: bool = True
+    # Set the inverter's Export Power Limit to 0 W while the export price is negative (zero_export.py)
+    zero_export_negative_price: bool = False
     charge_periods: list[ChargePeriodConfig] = field(default_factory=list)
 
     @classmethod
@@ -485,6 +487,7 @@ class SmartChargeConfig:
                 0.0, min(100.0, float(data.get("peak_min_soc", 20.0) or 0.0))
             ),
             charge_on_inverter=bool(data.get("charge_on_inverter", True)),
+            zero_export_negative_price=bool(data.get("zero_export_negative_price", False)),
             charge_periods=[ChargePeriodConfig.from_dict(p) for p in periods_raw],
         )
 
@@ -540,6 +543,7 @@ class SmartChargeConfig:
             "min_saving_p_per_kwh": round(self.min_saving_p_per_kwh, 2),
             "peak_min_soc": round(self.peak_min_soc, 1),
             "charge_on_inverter": self.charge_on_inverter,
+            "zero_export_negative_price": self.zero_export_negative_price,
             "charge_periods": [p.to_dict() for p in self.charge_periods],
         }
 

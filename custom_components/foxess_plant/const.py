@@ -422,6 +422,7 @@ DEFAULT_SMART_CHARGE = {
     "operating_mode": "max_safety",
     "agile_poll_interval_minutes": 15,
     "negative_import_interrupt": True,
+    "zero_export_negative_price": False,
     "price_drop_interrupt_p_per_kwh": 2.0,
     "daily_plan_time": "16:00",
     "daily_plan_horizon_hours": 24,

@@ -2,7 +2,7 @@
 
 Central **plant controller** for FoxESS inverters running [foxess_modbus](https://github.com/nathanmarlor/foxess_modbus). Owns charge-period policy, work mode / SOC limits, drift detection, tariff-aware automation, and a full **Fox Plant** sidebar panel — **does not** talk Modbus itself.
 
-Current release: **v0.9.529**
+Current release: **v0.9.530**
 
 ## Screenshots
 
@@ -110,6 +110,7 @@ Cost-optimised grid charging and export using your **tariff**, the **Solcast** P
 - Operating modes: **Max safety** (pessimistic solar, larger reserve), **Max profit** (lowest cost), **Max green** (cost plus carbon weighting)
 - Settings include max charge / discharge power (kW), minimum saving per kWh, load history days, outage reserve, and export floor
 - Optional **Glow / smart-meter import rate check** before arming: compares the live meter rate with the API within a tolerance, and rechecks after a mismatch
+- Optional **Stop Exporting At Negative Export Prices** (off by default): while the export price is below 0p, Fox Plant sets the inverter's **Export Power Limit** to 0 W. The inverter stays in Self Use, so solar still runs the house and charges the battery; it just doesn't feed the grid. The limit you had is saved first and written back when the price goes positive, and also after a restart, when the option is turned off, or on Release Control. It's checked every half-hour, never second by second, because the inverter probably keeps this setting in flash memory. A failed write is retried every 2 minutes, with a notification after 3 failures. Needs an inverter with a writable Export Power Limit (EVO with the fork's 0.1.0 or later; KH / H3 Smart in foxess_modbus).
 - Configure under **Device → SmartCharge**. StormSafe still overrides when severe weather is active.
 
 ### Octopus Energy tariffs

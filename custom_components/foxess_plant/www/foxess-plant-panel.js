@@ -472,7 +472,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.529";
+const PANEL_VERSION = "0.9.530";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -17115,6 +17115,7 @@ ${tl("panel.panel_update_pending_browser_jsver_ha", { jsVer: esc(jsVer), regVer:
       export_min_soc: sc.export_min_soc ?? 40,
       meter_rate_verify_enabled: sc.meter_rate_verify_enabled !== false,
       charge_on_inverter: sc.charge_on_inverter !== false,
+      zero_export_negative_price: sc.zero_export_negative_price === true,
       meter_rate_entity_id: sc.meter_rate_entity_id || "",
       max_charge_kw: sc.max_charge_kw ?? 3,
       max_discharge_kw: sc.max_discharge_kw ?? null,
@@ -17335,6 +17336,7 @@ ${tl("panel.panel_update_pending_browser_jsver_ha", { jsVer: esc(jsVer), regVer:
         export_min_soc: Number(d.export_min_soc) || 40,
         meter_rate_verify_enabled: Boolean(d.meter_rate_verify_enabled),
         charge_on_inverter: d.charge_on_inverter !== false,
+        zero_export_negative_price: d.zero_export_negative_price === true,
         meter_rate_entity_id: String(d.meter_rate_entity_id || "").trim() || null,
         meter_rate_tolerance_p_per_kwh: Number(d.meter_rate_tolerance_p_per_kwh) || 0.5,
         max_charge_kw: Number(d.max_charge_kw) || 3,
@@ -20192,6 +20194,10 @@ ${tl("panel.panel_update_pending_browser_jsver_ha", { jsVer: esc(jsVer), regVer:
       }
       if (field === "charge_on_inverter") {
         this._smartChargeDraft.charge_on_inverter = el.checked;
+        return;
+      }
+      if (field === "zero_export_negative_price") {
+        this._smartChargeDraft.zero_export_negative_price = el.checked;
         return;
       }
       if (field === "meter_rate_entity_id") {
@@ -25185,6 +25191,9 @@ ${(() => {
 <p class="field-hint">${tl("smart_charge.value_the_plan_always_runs_to", { value: this._plantState?.smart_charge?.tariff_profile?.import_varies === false ? tl("smart_charge.forces_a_fresh_rate_fetch_and") : tl("smart_charge.forces_a_fresh_octopus_fetch_and") })}</p></div>
 <div class="toggle-row"><span>${tl("smart_charge.charge_and_export_from_the_inverter")}<br><span style="font-size:12px;color:var(--secondary-text-color)">${tl("smart_charge.put_each_planned_grid_charge_force")}</span></span>
 <input type="checkbox" data-field="smart-charge:charge_on_inverter" ${draft.charge_on_inverter !== false ? "checked" : ""} ${busy}></div>
+<div class="toggle-row"><span>${tl("smart_charge.zero_export_negative_price")}<br><span style="font-size:12px;color:var(--secondary-text-color)">${tl("smart_charge.zero_export_negative_price_hint")}</span></span>
+<input type="checkbox" data-field="smart-charge:zero_export_negative_price" ${draft.zero_export_negative_price ? "checked" : ""} ${busy}></div>
+${this._renderZeroExportStatus()}
 <div class="toggle-row"><span>${tl("smart_charge.glow_smart_meter_rate_check")}<br><span style="font-size:12px;color:var(--secondary-text-color)">${tl("smart_charge.double_check_live_meter_import_rate")}</span></span>
 <input type="checkbox" data-field="smart-charge:meter_rate_verify_enabled" ${draft.meter_rate_verify_enabled !== false ? "checked" : ""} ${busy}></div>
 ${draft.meter_rate_verify_enabled !== false ? `<div class="field"><label>${tl("smart_charge.import_rate_sensor_glow_ihd")}</label>
@@ -25199,6 +25208,26 @@ ${draft.meter_rate_verify_enabled !== false ? `<div class="field"><label>${tl("s
 ${this._renderSmartChargeGridBehaviourInfo()}` : ""}
 <div class="btn-row"><button type="button" class="btn btn-primary" data-action="save-smart-charge" ${busy || (draft.enabled && socValidation.errors.length) ? "disabled" : ""}>${tl("smart_charge.save_smartcharge")}</button></div>
 </div></div>`;
+  }
+
+  /** Live line under the Zero Export toggle (plant_state.zero_export from zero_export.py). */
+  _renderZeroExportStatus() {
+    const z = this._plantState?.zero_export;
+    if (!z || (!z.enabled && !z.active)) return ""; // still shown while a limit waits to be put back
+    let text;
+    if (z.last_error) {
+      text = tl("smart_charge.zero_export_status_error", { error: esc(z.last_error) });
+    } else if (z.active) {
+      text = tl("smart_charge.zero_export_status_active", {
+        since: esc(formatSolcastTimestamp(z.since)),
+        original: esc(String(Math.round(Number(z.original_w) || 0))),
+      });
+    } else if (!z.entity_id) {
+      text = tl("smart_charge.zero_export_status_no_control");
+    } else {
+      text = tl("smart_charge.zero_export_status_idle");
+    }
+    return `<p class="field-hint">${text}</p>`;
   }
 
   _renderSettingsStorm() {

@@ -12,6 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.event import (
+    async_call_later,
     async_track_point_in_time,
     async_track_state_change_event,
     async_track_time_change,
@@ -848,6 +849,25 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Called from sensor platform setup."""
         self._tariff_rate_sensors[kind] = sensor
 
+    def _current_export_rate(self) -> tuple[float | None, int | None]:
+        """Export price now (p/kWh) and its band index, from whichever source prices export."""
+        from homeassistant.util import dt as dt_util
+
+        from .octopus_tariff import rate_at
+        from .tariff_rates import TARIFF_SOURCE_SCHEDULE, scheduled_rates_at
+
+        # Export priced apart from import (a sensor or another supplier): its own current rate
+        override = self._export_override_rows()
+        if override:
+            return rate_at(dt_util.utcnow(), override), None
+        if self._octopus_agile_active():
+            return self._octopus_cache.get("current_export_p_per_kwh"), None
+        tariff = self.plant.tariff
+        if tariff.export_source == TARIFF_SOURCE_SCHEDULE:
+            scheduled = scheduled_rates_at(tariff)
+            return float(scheduled.get("export_p_per_kwh") or 0), scheduled.get("band_index")
+        return None, None
+
     async def async_update_tariff_sensors(self, *, record_history: bool = True) -> None:
         """Push current tariff rates to plugin sensors (schedule boundaries / save)."""
         from .tariff_rates import (
@@ -869,26 +889,13 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self._octopus_cache.get("current_import_p_per_kwh"),
                 None,
             )
-            export_p = self._octopus_cache.get("current_export_p_per_kwh")
-            updates["export"] = (export_p, None) if export_p is not None else (None, None)
         elif tariff.import_source == TARIFF_SOURCE_SCHEDULE:
             updates["import"] = (float(scheduled.get("import_p_per_kwh") or 0), band_index)
         else:
             updates["import"] = (None, None)
 
-        if not agile:
-            if tariff.export_source == TARIFF_SOURCE_SCHEDULE:
-                updates["export"] = (float(scheduled.get("export_p_per_kwh") or 0), band_index)
-            else:
-                updates["export"] = (None, None)
-        # Export priced apart from import (a sensor or another supplier): its own current rate
-        override = self._export_override_rows()
-        if override:
-            from homeassistant.util import dt as dt_util
-
-            from .octopus_tariff import rate_at
-
-            updates["export"] = (rate_at(dt_util.utcnow(), override), None)
+        export_p, export_band = self._current_export_rate()
+        updates["export"] = (export_p, export_band)
 
         if tariff.standing_source == TARIFF_SOURCE_PLUGIN:
             # Prefer live Octopus standing when native rates are loaded (Agile included).
@@ -981,6 +988,69 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except Exception as err:
             _LOGGER.warning("Smart charge evaluation failed: %s", err)
         await self.async_request_refresh()
+
+    # --- Zero export (zero_export.py) -----------------------------------------------------------------
+
+    def _zero_export_controller(self):
+        from .zero_export import ZeroExportController
+
+        if getattr(self, "_zero_export", None) is None:
+            self._zero_export = ZeroExportController(self.hass, self.config_entry.entry_id)
+        return self._zero_export
+
+    def _zero_export_enabled(self) -> bool:
+        # A SmartCharge setting (shown only while SmartCharge is on); Release Control hands everything back
+        sc = self.plant.smart_charge
+        return bool(sc.enabled and sc.zero_export_negative_price and self.plant.control_active)
+
+    async def _async_apply_zero_export(self) -> None:
+        """Export limit 0 W while the export price is negative, back to the saved value otherwise."""
+        from .zero_export import RETRY_SECONDS
+
+        if getattr(self, "_unsub_zero_export_retry", None):
+            self._unsub_zero_export_retry()
+            self._unsub_zero_export_retry = None
+        price, _band = self._current_export_rate()
+        try:
+            ok = await self._zero_export_controller().async_apply(
+                enabled=self._zero_export_enabled(), price_p=price, device_id=self.plant.device_id
+            )
+        except Exception:  # noqa: BLE001 — never let this break the tariff update that called it
+            _LOGGER.exception("Zero export check failed")
+            ok = False
+        if not ok:
+            self._unsub_zero_export_retry = async_call_later(
+                self.hass, RETRY_SECONDS, self._zero_export_retry_callback
+            )
+
+    @callback
+    def _zero_export_retry_callback(self, _now) -> None:
+        self._unsub_zero_export_retry = None
+        self.hass.async_create_task(self._async_apply_zero_export())
+
+    def _setup_zero_export_timer(self) -> None:
+        """Every half-hour boundary (+5 s): export prices change on half-hours even when import is hourly."""
+        if getattr(self, "_unsub_zero_export_timer", None):
+            return
+        self._unsub_zero_export_timer = async_track_time_change(
+            self.hass, self._zero_export_timer_callback, minute=(0, 30), second=5
+        )
+
+    @callback
+    def _zero_export_timer_callback(self, _now) -> None:
+        self.hass.async_create_task(self._async_zero_export_tick())
+
+    async def _async_zero_export_tick(self) -> None:
+        if self._octopus_native_active():
+            self._sync_octopus_current_rates_from_cache()  # current_* follows the half-hour without a fetch
+        await self._async_apply_zero_export()
+
+    def _zero_export_status(self) -> dict[str, Any]:
+        enabled = self._zero_export_enabled()
+        ctrl = getattr(self, "_zero_export", None)
+        if ctrl is None:
+            return {"enabled": enabled, "active": False}
+        return ctrl.status(enabled=enabled)
 
     @callback
     def _tariff_schedule_callback(self, _now) -> None:
@@ -3789,6 +3859,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "alert_log": self._alert_log_state(),
             "identity": self._read_identity(),
             "installer_settings": self._read_installer_settings(),
+            "zero_export": self._zero_export_status(),
         }
 
     def _read_analytics(self) -> dict[str, Any]:
@@ -5474,6 +5545,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             await self._evaluate_smart_charge()
         except Exception as err:
             _LOGGER.warning("Smart charge evaluation failed after save: %s", err)
+        await self._async_apply_zero_export()  # turning it off puts the export limit back straight away
         await self.async_request_refresh()
 
     async def _async_refresh_octopus(self, *, force: bool = False, user: bool = False) -> None:
@@ -6859,6 +6931,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._storm_slots_until = None
         self.plant.control_active = False
         await self._persist()
+        await self._async_apply_zero_export()  # hand the export limit back as it was
         await self.async_request_refresh()
 
     async def async_check_drift(self) -> None:
@@ -6929,6 +7002,10 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if getattr(self, "_unsub_tariff_schedule", None):
             self._unsub_tariff_schedule()
             self._unsub_tariff_schedule = None
+        for attr in ("_unsub_zero_export_timer", "_unsub_zero_export_retry"):
+            if getattr(self, attr, None):
+                getattr(self, attr)()
+                setattr(self, attr, None)
         if getattr(self, "_unsub_octopus", None):
             self._unsub_octopus()
             self._unsub_octopus = None

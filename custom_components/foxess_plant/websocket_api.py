@@ -1177,6 +1177,7 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
                 vol.Coerce(float), vol.Range(min=0, max=100)
             ),
             vol.Optional("charge_on_inverter", default=True): cv.boolean,
+            vol.Optional("zero_export_negative_price", default=False): cv.boolean,
             vol.Required("charge_periods"): [PERIOD_SCHEMA],
         }
     )
@@ -1244,6 +1245,7 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
                 "min_saving_p_per_kwh",
                 "peak_min_soc",
                 "charge_on_inverter",
+                "zero_export_negative_price",
                 "charge_periods",
             )
             if key in msg
