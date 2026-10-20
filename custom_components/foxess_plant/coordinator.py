@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -146,6 +146,13 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._smart_charge_load_profile_at: datetime | None = None
         self._smart_charge_capacity_kwh: float | None = None
         self._smart_charge_capacity_at: datetime | None = None
+        # Max Green carbon forecast from NESO (public, no key) for users without Octopus carbon data.
+        # Refetchable, so not persisted: a restart just fetches again on the next plan.
+        self._neso_carbon: list[dict[str, Any]] = []
+        self._neso_carbon_tried_at: datetime | None = None
+        self._neso_carbon_fetched_at: datetime | None = None
+        self._neso_carbon_error: str | None = None
+        self._neso_carbon_postcode: str | None = None
         self._unsub_smart_charge_meter_recheck: callable | None = None
         self._storm_forecast_active = False
         self._storm_forecast_detail = {}
@@ -2958,6 +2965,58 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         greener = cache.get("greener_nights") if isinstance(cache.get("greener_nights"), list) else []
         return carbon, greener
 
+    async def _async_smart_charge_carbon_periods(self) -> list[dict[str, Any]]:
+        """Carbon forecast for the plan: Octopus's when it covers the next day, else NESO's (any supplier)."""
+        from homeassistant.util import dt as dt_util
+
+        from .carbon_intensity_neso import carbon_covers_horizon, fetch_neso_regional_carbon, union_carbon_periods
+
+        from .smart_charge.reserve import OPERATING_MODE_MAX_GREEN
+
+        octopus, _greener = self._smart_charge_greener_inputs()
+        # Only Max Green uses carbon in the plan, so the other modes never ask NESO
+        if carbon_covers_horizon(octopus) or self.plant.smart_charge.operating_mode != OPERATING_MODE_MAX_GREEN:
+            return octopus
+        postcode = self.plant.smart_charge.carbon_postcode
+        now = dt_util.utcnow()
+        stale = self._neso_carbon_tried_at is None or now - self._neso_carbon_tried_at >= timedelta(hours=1)
+        if stale or postcode != self._neso_carbon_postcode:
+            # The try time moves even when the request fails, so a dead API is asked at most hourly
+            self._neso_carbon_tried_at = now
+            self._neso_carbon_postcode = postcode
+            try:
+                periods = await fetch_neso_regional_carbon(self.hass, postcode or "", hours=48)
+            except Exception as err:  # noqa: BLE001 — never let carbon data stop a plan
+                periods = []
+                _LOGGER.warning("SmartCharge carbon forecast fetch failed: %s", err)
+            if periods:
+                self._neso_carbon, self._neso_carbon_fetched_at, self._neso_carbon_error = periods, now, None
+            else:
+                self._neso_carbon_error = "No answer from the carbon intensity service"
+        return union_carbon_periods(self._neso_carbon, octopus)
+
+    def _smart_charge_carbon_status(self) -> dict[str, Any]:
+        """Where Max Green's carbon forecast comes from, for the panel."""
+        from .carbon_intensity_neso import carbon_covers_horizon, carbon_coverage_end_ms
+
+        octopus, _greener = self._smart_charge_greener_inputs()
+        if carbon_covers_horizon(octopus):
+            periods, source = octopus, "octopus"
+        else:
+            periods = self._neso_carbon
+            regional = any(str(r.get("source")) == "neso" for r in periods)
+            source = ("neso_regional" if regional else "neso_national") if periods else None
+        end_ms = carbon_coverage_end_ms(periods)
+        return {
+            "source": source,
+            "postcode": self.plant.smart_charge.carbon_postcode,
+            "half_hours": sum(1 for r in periods if r.get("low_carbon_score") is not None),
+            "until": datetime.fromtimestamp(end_ms / 1000, tz=timezone.utc).isoformat() if end_ms else None,
+            "fetched_at": self._neso_carbon_fetched_at.isoformat() if self._neso_carbon_fetched_at else None,
+            "tried": self._neso_carbon_tried_at is not None,
+            "error": None if periods else self._neso_carbon_error,
+        }
+
     async def _clear_smart_charge_export_before_higher_priority(self) -> None:
         if self._smart_charge_discharge_armed:
             await self._disarm_smart_charge_export()
@@ -3451,7 +3510,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         forecast_rows = self._smart_charge_forecast_rows()
         import_rows, export_rows = self._smart_charge_rate_rows()
         soc_pct, capacity_kwh, kwh_remaining = self._smart_charge_battery_metrics()
-        carbon_periods, _greener = self._smart_charge_greener_inputs()
+        carbon_periods = await self._async_smart_charge_carbon_periods()
         load_profile = await self._async_smart_charge_load_profile()
         efficiency, efficiency_source = self._round_trip_efficiency()
         capacity_source = "nominal"
@@ -4025,6 +4084,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "daily_plan_actions": compact_plan(self._smart_charge_daily_plan),
                 "plan_meta": self._smart_charge_plan_meta,
                 "tariff_profile": self._smart_charge_tariff_profile(),
+                "carbon": self._smart_charge_carbon_status(),
             },
             "tariff_modes": sorted(self.plant.tariff_modes.keys()),
             "storm_prep": self._storm_prep_state(),

@@ -345,6 +345,21 @@ class ForecastPrepConfig:
         }
 
 
+def _outward_postcode(raw: Any) -> str | None:
+    """Only the postcode area (outward code) is kept: enough for the regional carbon forecast, not an address."""
+    from .carbon_intensity_neso import outward_postcode
+
+    return outward_postcode(raw)
+
+
+def _num(data: dict[str, Any], key: str, default: float) -> float:
+    """Stored number, or the default when missing/blank. A real 0 stays 0 (``x or default`` turned it into the default)."""
+    value = data.get(key)
+    if value is None or value == "":
+        return float(default)
+    return float(value)
+
+
 @dataclass
 class SmartChargeConfig:
     """Solcast + tariff aware grid charging."""
@@ -370,6 +385,8 @@ class SmartChargeConfig:
     outage_reserve_margin: float = 1.2
     safety_reserve_multiplier: float = 1.5
     green_carbon_weight: float = 0.5
+    # Max Green: postcode area (outward code, e.g. "SW1A") for the regional NESO carbon forecast; None = national
+    carbon_postcode: str | None = None
     export_enabled: bool = True
     export_enabled_safety: bool = True
     export_enabled_green: bool = False
@@ -422,66 +439,61 @@ class SmartChargeConfig:
             max_soc = data.get("target_soc", 100.0)
         return cls(
             enabled=bool(data.get("enabled", False)),
-            target_soc=float(data.get("target_soc", 100.0) or 100.0),
+            target_soc=_num(data, "target_soc", 100.0),
             target_max_soc=float(target_max) if target_max is not None else None,
             max_target_soc=float(max_soc or 100.0),
-            min_deficit_kwh=float(data.get("min_deficit_kwh", 0.5) or 0.5),
-            solar_safety_margin=float(data.get("solar_safety_margin", 1.15) or 1.15),
-            round_trip_efficiency=float(data.get("round_trip_efficiency", 0.9) or 0.9),
-            min_arbitrage_p_per_kwh=float(data.get("min_arbitrage_p_per_kwh", 0.5) or 0.5),
+            min_deficit_kwh=_num(data, "min_deficit_kwh", 0.5),
+            solar_safety_margin=_num(data, "solar_safety_margin", 1.15),
+            round_trip_efficiency=_num(data, "round_trip_efficiency", 0.9),
+            min_arbitrage_p_per_kwh=_num(data, "min_arbitrage_p_per_kwh", 0.5),
             operating_mode=mode,
-            agile_poll_interval_minutes=int(data.get("agile_poll_interval_minutes", 15) or 15),
+            agile_poll_interval_minutes=int(_num(data, "agile_poll_interval_minutes", 15)),
             negative_import_interrupt=bool(data.get("negative_import_interrupt", True)),
-            price_drop_interrupt_p_per_kwh=float(
-                data.get("price_drop_interrupt_p_per_kwh", 2.0) or 2.0
-            ),
+            price_drop_interrupt_p_per_kwh=_num(data, "price_drop_interrupt_p_per_kwh", 2.0),
             daily_plan_time=str(data.get("daily_plan_time", "16:00") or "16:00"),
-            daily_plan_horizon_hours=int(data.get("daily_plan_horizon_hours", 24) or 24),
-            house_load_kw_fallback=float(data.get("house_load_kw_fallback", 1.0) or 1.0),
-            dark_hours_estimate=float(data.get("dark_hours_estimate", 8.0) or 8.0),
+            daily_plan_horizon_hours=int(_num(data, "daily_plan_horizon_hours", 24)),
+            house_load_kw_fallback=_num(data, "house_load_kw_fallback", 1.0),
+            dark_hours_estimate=_num(data, "dark_hours_estimate", 8.0),
             outage_reserve_load_kw=float(reserve_load) if reserve_load is not None else None,
-            outage_reserve_hours=float(data.get("outage_reserve_hours", 3.0) or 3.0),
-            outage_reserve_margin=float(data.get("outage_reserve_margin", 1.2) or 1.2),
-            safety_reserve_multiplier=float(data.get("safety_reserve_multiplier", 1.5) or 1.5),
-            green_carbon_weight=float(data.get("green_carbon_weight", 0.5) or 0.5),
+            outage_reserve_hours=_num(data, "outage_reserve_hours", 3.0),
+            outage_reserve_margin=_num(data, "outage_reserve_margin", 1.2),
+            safety_reserve_multiplier=_num(data, "safety_reserve_multiplier", 1.5),
+            green_carbon_weight=_num(data, "green_carbon_weight", 0.5),
+            carbon_postcode=_outward_postcode(data.get("carbon_postcode")),
             export_enabled=bool(data.get("export_enabled", True)),
             export_enabled_safety=bool(data.get("export_enabled_safety", True)),
             export_enabled_green=bool(data.get("export_enabled_green", False)),
-            min_export_kwh=float(data.get("min_export_kwh", 0.5) or 0.5),
-            min_export_p_profit=float(data.get("min_export_p_profit", 12.0) or 12.0),
-            min_export_p_safety=float(data.get("min_export_p_safety", 20.0) or 20.0),
-            min_export_p_green=float(data.get("min_export_p_green", 25.0) or 25.0),
-            exportable_fraction_profit=float(data.get("exportable_fraction_profit", 1.0) or 1.0),
-            exportable_fraction_safety=float(data.get("exportable_fraction_safety", 0.35) or 0.35),
-            exportable_fraction_green=float(data.get("exportable_fraction_green", 0.15) or 0.15),
+            min_export_kwh=_num(data, "min_export_kwh", 0.5),
+            min_export_p_profit=_num(data, "min_export_p_profit", 12.0),
+            min_export_p_safety=_num(data, "min_export_p_safety", 20.0),
+            min_export_p_green=_num(data, "min_export_p_green", 25.0),
+            exportable_fraction_profit=_num(data, "exportable_fraction_profit", 1.0),
+            exportable_fraction_safety=_num(data, "exportable_fraction_safety", 0.35),
+            exportable_fraction_green=_num(data, "exportable_fraction_green", 0.15),
             spread_optimizer_enabled=bool(data.get("spread_optimizer_enabled", True)),
-            min_spread_profit_p_per_kwh=float(data.get("min_spread_profit_p_per_kwh", 3.0) or 3.0),
+            min_spread_profit_p_per_kwh=_num(data, "min_spread_profit_p_per_kwh", 3.0),
             peak_import_avoid_start=str(data.get("peak_import_avoid_start", "16:00") or "16:00"),
             peak_import_avoid_end=str(data.get("peak_import_avoid_end", "19:00") or "19:00"),
             winter_fill_enabled=bool(data.get("winter_fill_enabled", True)),
-            green_export_spread_multiplier=float(
-                data.get("green_export_spread_multiplier", 2.0) or 2.0
-            ),
-            cheap_import_p_per_kwh=float(data.get("cheap_import_p_per_kwh", 8.0) or 8.0),
-            peak_import_penalty_p_per_kwh=float(data.get("peak_import_penalty_p_per_kwh", 5.0) or 5.0),
-            export_min_soc=float(data.get("export_min_soc", 40.0) or 40.0),
+            green_export_spread_multiplier=_num(data, "green_export_spread_multiplier", 2.0),
+            cheap_import_p_per_kwh=_num(data, "cheap_import_p_per_kwh", 8.0),
+            peak_import_penalty_p_per_kwh=_num(data, "peak_import_penalty_p_per_kwh", 5.0),
+            export_min_soc=_num(data, "export_min_soc", 40.0),
             meter_rate_verify_enabled=bool(data.get("meter_rate_verify_enabled", True)),
             meter_rate_entity_id=(
                 str(data["meter_rate_entity_id"]).strip()
                 if data.get("meter_rate_entity_id")
                 else None
             ),
-            meter_rate_tolerance_p_per_kwh=float(
-                data.get("meter_rate_tolerance_p_per_kwh", 0.5) or 0.5
-            ),
-            meter_rate_recheck_minutes=int(data.get("meter_rate_recheck_minutes", 5) or 5),
-            max_charge_kw=max(0.1, float(data.get("max_charge_kw", 3.0) or 3.0)),
+            meter_rate_tolerance_p_per_kwh=_num(data, "meter_rate_tolerance_p_per_kwh", 0.5),
+            meter_rate_recheck_minutes=int(_num(data, "meter_rate_recheck_minutes", 5)),
+            max_charge_kw=max(0.1, _num(data, "max_charge_kw", 3.0)),
             max_discharge_kw=(
                 max(0.1, float(data["max_discharge_kw"]))
                 if data.get("max_discharge_kw") not in (None, "", 0)
                 else None
             ),
-            load_history_days=max(1, min(60, int(data.get("load_history_days", 14) or 14))),
+            load_history_days=max(1, min(60, int(_num(data, "load_history_days", 14)))),
             min_saving_p_per_kwh=max(0.0, float(data.get("min_saving_p_per_kwh", 1.0) or 0.0)),
             peak_min_soc=max(
                 0.0, min(100.0, float(data.get("peak_min_soc", 20.0) or 0.0))
@@ -514,6 +526,7 @@ class SmartChargeConfig:
             "outage_reserve_margin": round(self.outage_reserve_margin, 2),
             "safety_reserve_multiplier": round(self.safety_reserve_multiplier, 2),
             "green_carbon_weight": round(self.green_carbon_weight, 2),
+            "carbon_postcode": self.carbon_postcode,
             "export_enabled": self.export_enabled,
             "export_enabled_safety": self.export_enabled_safety,
             "export_enabled_green": self.export_enabled_green,

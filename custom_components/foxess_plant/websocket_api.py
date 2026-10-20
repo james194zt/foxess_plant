@@ -1117,6 +1117,7 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             vol.Optional("green_carbon_weight", default=0.5): vol.All(
                 vol.Coerce(float), vol.Range(min=0, max=1.0)
             ),
+            vol.Optional("carbon_postcode"): vol.Any(None, vol.All(cv.string, vol.Length(max=10))),
             vol.Optional("export_enabled", default=True): cv.boolean,
             vol.Optional("export_enabled_safety", default=True): cv.boolean,
             vol.Optional("export_enabled_green", default=False): cv.boolean,
@@ -1197,64 +1198,8 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
         if coordinator is None:
             connection.send_error(msg["id"], err_code, err_msg)
             return
-        payload = {
-            key: msg[key]
-            for key in (
-                "enabled",
-                "target_soc",
-                "target_max_soc",
-                "max_target_soc",
-                "min_deficit_kwh",
-                "solar_safety_margin",
-                "round_trip_efficiency",
-                "min_arbitrage_p_per_kwh",
-                "operating_mode",
-                "agile_poll_interval_minutes",
-                "negative_import_interrupt",
-                "price_drop_interrupt_p_per_kwh",
-                "daily_plan_time",
-                "daily_plan_horizon_hours",
-                "house_load_kw_fallback",
-                "dark_hours_estimate",
-                "outage_reserve_load_kw",
-                "outage_reserve_hours",
-                "outage_reserve_margin",
-                "safety_reserve_multiplier",
-                "green_carbon_weight",
-                "export_enabled",
-                "export_enabled_safety",
-                "export_enabled_green",
-                "min_export_kwh",
-                "min_export_p_profit",
-                "min_export_p_safety",
-                "min_export_p_green",
-                "exportable_fraction_profit",
-                "exportable_fraction_safety",
-                "exportable_fraction_green",
-                "spread_optimizer_enabled",
-                "min_spread_profit_p_per_kwh",
-                "peak_import_avoid_start",
-                "peak_import_avoid_end",
-                "winter_fill_enabled",
-                "green_export_spread_multiplier",
-                "cheap_import_p_per_kwh",
-                "peak_import_penalty_p_per_kwh",
-                "export_min_soc",
-                "meter_rate_verify_enabled",
-                "meter_rate_entity_id",
-                "meter_rate_tolerance_p_per_kwh",
-                "meter_rate_recheck_minutes",
-                "max_charge_kw",
-                "max_discharge_kw",
-                "load_history_days",
-                "min_saving_p_per_kwh",
-                "peak_min_soc",
-                "charge_on_inverter",
-                "zero_export_negative_price",
-                "charge_periods",
-            )
-            if key in msg
-        }
+        # Every setting the schema accepted (a hand-kept key list here silently dropped new settings)
+        payload = {key: value for key, value in msg.items() if key not in ("id", "type", "plant_id")}
         await coordinator.async_save_smart_charge(smart_charge=payload)
         connection.send_result(msg["id"], coordinator.get_plant_state())
 

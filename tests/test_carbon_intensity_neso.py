@@ -71,6 +71,11 @@ class TestCarbonIntensityNeso(unittest.TestCase):
     def test_outward_postcode(self):
         self.assertEqual(ci.outward_postcode("SW1A 1AA"), "SW1A")
         self.assertEqual(ci.outward_postcode("rg10 9nn"), "RG10")
+        # An outward code on its own is kept whole (was cut to "S" / "R")
+        self.assertEqual(ci.outward_postcode("SW1A"), "SW1A")
+        self.assertEqual(ci.outward_postcode("rg10"), "RG10")
+        self.assertEqual(ci.outward_postcode("M1"), "M1")
+        self.assertEqual(ci.outward_postcode("M1 1AE"), "M1")
 
     def test_union_prefers_later_duplicate(self):
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)

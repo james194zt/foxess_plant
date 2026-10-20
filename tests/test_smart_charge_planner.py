@@ -558,6 +558,39 @@ class ParamsTests(unittest.TestCase):
         self.assertGreater(p.carbon_weight_p, 0)
 
 
+class CarbonTests(unittest.TestCase):
+    """Max Green: the carbon penalty must move a charge to the greener part of an equal-price window."""
+
+    def _plan(self, carbon_weight_p: float):
+        now = local(2026, 1, 10, 20, 0)
+        rows = agile_rows(local(2026, 1, 10, 20, 0), 30, overnight_cheap)
+        # Cheap band 00:00–05:00: dirty grid until 02:30 (score 1), green after (score 10)
+        carbon = []
+        t = local(2026, 1, 11, 0, 0)
+        while t < local(2026, 1, 11, 5, 0):
+            start_ms = int(t.timestamp() * 1000)
+            carbon.append({"start_ms": start_ms, "end_ms": start_ms + 1_800_000,
+                           "low_carbon_score": 1 if t < local(2026, 1, 11, 2, 30) else 10})
+            t += timedelta(minutes=30)
+        slots = planner.build_timeline(now=now, tz=TZ, import_rows=rows, forecast_rows=[],
+                                       load_profile=flat_profile(0.4), carbon_periods=carbon)
+        plan, _ = planner.build_plan(slots, 2.0, params(carbon_weight_p=carbon_weight_p), tz=TZ, now=now)
+        return [planner.parse_iso(e["start_utc"]).astimezone(TZ) for e in charge_slots(plan)]
+
+    def test_carbon_weight_moves_charge_to_green_slots(self) -> None:
+        night_start, green_from, night_end = local(2026, 1, 11, 0, 0), local(2026, 1, 11, 2, 30), local(2026, 1, 11, 5, 0)
+
+        def split(times):
+            night = [t for t in times if night_start <= t < night_end]
+            return sum(t < green_from for t in night), sum(t >= green_from for t in night)
+
+        cost_dirty, cost_green = split(self._plan(0.0))
+        green_dirty, green_green = split(self._plan(0.5))
+        self.assertEqual(green_green, 5)  # every green half-hour (02:30–05:00) is used first
+        self.assertLess(green_dirty, cost_dirty)  # and fewer dirty ones than cost-only planning
+        self.assertGreater(cost_dirty, 0)
+
+
 class LoadProfileTests(unittest.TestCase):
     def _points(self, days: int, kwh_fn) -> list[dict]:
         start = datetime(2026, 1, 1, tzinfo=UTC)

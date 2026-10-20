@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import timedelta
 from typing import Any
 
@@ -18,8 +19,9 @@ def outward_postcode(postcode: str | None) -> str | None:
     raw = str(postcode or "").strip().upper().replace(" ", "")
     if len(raw) < 2:
         return None
-    # UK outward is all but last 3 inward characters.
-    if len(raw) > 3:
+    # A full postcode ends in the inward code (digit + two letters): drop it. An outward code on its own
+    # (SW1A, M1, EH1) is kept whole — cutting 3 characters regardless turned "SW1A" into "S".
+    if len(raw) >= 5 and re.fullmatch(r"\d[A-Z]{2}", raw[-3:]):
         return raw[:-3]
     return raw
 
@@ -240,7 +242,8 @@ async def fetch_neso_regional_carbon(
             for row in national:
                 row["source"] = "neso-national"
             periods = union_carbon_periods(periods, national)
-            _LOGGER.info(
+            # Info only when a regional forecast was asked for and fell back; national-by-choice is routine
+            (_LOGGER.info if outward else _LOGGER.debug)(
                 "NESO national carbon fallback loaded %s half-hours (postcode %s)",
                 len(national),
                 outward or "—",
