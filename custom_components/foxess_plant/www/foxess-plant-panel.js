@@ -472,7 +472,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.533";
+const PANEL_VERSION = "0.9.534";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -3439,7 +3439,7 @@ function renderSmartChargeSavingsChart(systemDaily) {
   return `${legend}<svg class="fox-sc-analysis-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${tl("smart_charge.daily_savings_from_solar_and_battery")}"><line x1="${padL}" y1="${(padT + chartH).toFixed(1)}" x2="${W - padR}" y2="${(padT + chartH).toFixed(1)}" stroke="var(--divider-color,#333)" stroke-opacity="0.3"/>${parts}</svg>`;
 }
 
-function renderSmartChargeAnalysisPage(report, { loading = false } = {}) {
+function renderSmartChargeAnalysisPage(report, { loading = false, octopus = false } = {}) {
   if (loading && !report) {
     return `<div data-smart-charge-analysis-main="1"><header class="header"><h1>${tl("common.smartcharge_analysis")}</h1></header><p class="chart-loading">${tl("smart_charge.loading_smartcharge_analysis")}</p></div>`;
   }
@@ -3476,7 +3476,7 @@ ${renderSmartChargeSessionsTable(report.sessions)}
 <summary class="fox-report-details-title">${tl("smart_charge.hems_audit_trail")}</summary>
 ${renderSmartChargeHemsAuditTable(report.hems_audit)}
 </details>
-${renderPlungeEvidence(report.plunge_evidence)}
+${octopus ? renderPlungeEvidence(report.plunge_evidence) : ""}
 </div>`;
 }
 
@@ -23359,6 +23359,8 @@ ${this._renderReportsDateNav()}
 </div>`;
     const body = renderSmartChargeAnalysisPage(this._smartChargeAnalysis, {
       loading: this._smartChargeAnalysisLoading && !this._smartChargeAnalysis,
+      // Octopus-only: the rate evidence comes from the native Octopus API
+      octopus: octopusApiActive(this._plantState),
     });
     if (body.includes("data-smart-charge-analysis-main")) {
       return body.replace(
@@ -25265,13 +25267,13 @@ ${(() => {
 <p class="field-hint">${tl("smart_charge.smartcharge_always_also_wakes_on_every")}</p></div>
 <div class="field"><label>${tl("smart_charge.daily_plan_time_uk_local")}</label>
 <input type="time" data-field="smart-charge:daily_plan_time" value="${esc(String(draft.daily_plan_time ?? "16:00"))}" ${busy}>
-<p class="field-hint">${tl("smart_charge.value_the_plan_always_runs_to", { value: this._plantState?.smart_charge?.tariff_profile?.import_varies === false ? tl("smart_charge.forces_a_fresh_rate_fetch_and") : tl("smart_charge.forces_a_fresh_octopus_fetch_and") })}</p></div>
+<p class="field-hint">${tl("smart_charge.value_the_plan_always_runs_to", { value: octopusTariffEnabled(this._plantState) && this._plantState?.smart_charge?.tariff_profile?.import_varies !== false ? tl("smart_charge.forces_a_fresh_octopus_fetch_and") : tl("smart_charge.forces_a_fresh_rate_fetch_and") })}</p></div>
 <div class="toggle-row"><span>${tl("smart_charge.charge_and_export_from_the_inverter")}<br><span style="font-size:12px;color:var(--secondary-text-color)">${tl("smart_charge.put_each_planned_grid_charge_force")}</span></span>
 <input type="checkbox" data-field="smart-charge:charge_on_inverter" ${draft.charge_on_inverter !== false ? "checked" : ""} ${busy}></div>
 <div class="toggle-row"><span>${tl("smart_charge.zero_export_negative_price")}<br><span style="font-size:12px;color:var(--secondary-text-color)">${tl("smart_charge.zero_export_negative_price_hint")}</span></span>
 <input type="checkbox" data-field="smart-charge:zero_export_negative_price" ${draft.zero_export_negative_price ? "checked" : ""} ${busy}></div>
 ${this._renderZeroExportStatus()}
-<div class="toggle-row"><span>${tl("smart_charge.glow_smart_meter_rate_check")}<br><span style="font-size:12px;color:var(--secondary-text-color)">${tl("smart_charge.double_check_live_meter_import_rate")}</span></span>
+<div class="toggle-row"><span>${tl("smart_charge.glow_smart_meter_rate_check")}<br><span style="font-size:12px;color:var(--secondary-text-color)">${tl("smart_charge.double_check_live_meter_import_rate")}${octopusTariffEnabled(this._plantState) ? ` ${tl("smart_charge.meter_check_not_on_agile")}` : ""}</span></span>
 <input type="checkbox" data-field="smart-charge:meter_rate_verify_enabled" ${draft.meter_rate_verify_enabled !== false ? "checked" : ""} ${busy}></div>
 ${draft.meter_rate_verify_enabled !== false ? `<div class="field"><label>${tl("smart_charge.import_rate_sensor_glow_ihd")}</label>
 <input type="text" data-field="smart-charge:meter_rate_entity_id" value="${esc(String(draft.meter_rate_entity_id || ""))}" placeholder="sensor.…_import_unit_rate" ${busy}>

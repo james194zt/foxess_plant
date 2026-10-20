@@ -934,8 +934,9 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
                 period=str(msg.get("period") or "week"),
                 offset=int(msg.get("offset") or 0),
             )
-            # Every recorded negative-price half-hour (not just this period): it's evidence for the supplier
-            analysis["plunge_evidence"] = await coordinator.async_plunge_evidence()
+            # Every recorded half-hour (not just this period): evidence for Octopus. Octopus-only (native API)
+            if coordinator.plant.tariff.dynamic.native_octopus():
+                analysis["plunge_evidence"] = await coordinator.async_plunge_evidence()
         except Exception as err:
             _LOGGER.exception("fetch_smart_charge_analysis failed")
             connection.send_error(
