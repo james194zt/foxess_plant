@@ -2,7 +2,7 @@
 
 Central **plant controller** for FoxESS inverters running [foxess_modbus](https://github.com/nathanmarlor/foxess_modbus). Owns charge-period policy, work mode / SOC limits, drift detection, tariff-aware automation, and a full **Fox Plant** sidebar panel — **does not** talk Modbus itself.
 
-Current release: **v0.9.530**
+Current release: **v0.9.531**
 
 ## Screenshots
 
@@ -111,6 +111,8 @@ Cost-optimised grid charging and export using your **tariff**, the **Solcast** P
 - Settings include max charge / discharge power (kW), minimum saving per kWh, load history days, outage reserve, and export floor
 - Optional **Glow / smart-meter import rate check** before arming: compares the live meter rate with the API within a tolerance, and rechecks after a mismatch
 - Optional **Stop Exporting At Negative Export Prices** (off by default): while the export price is below 0p, Fox Plant sets the inverter's **Export Power Limit** to 0 W. The inverter stays in Self Use, so solar still runs the house and charges the battery; it just doesn't feed the grid. The limit you had is saved first and written back when the price goes positive, and also after a restart, when the option is turned off, or on Release Control. It's checked every half-hour, never second by second, because the inverter probably keeps this setting in flash memory. A failed write is retried every 2 minutes, with a notification after 3 failures. Needs an inverter with a writable Export Power Limit (EVO with the fork's 0.1.0 or later; KH / H3 Smart in foxess_modbus).
+- **Octopus rate evidence** (native Octopus API): for every half-hour the API shows as negative, and every half-hour SmartCharge charges from the grid in, Fox Plant keeps the exact rate row Octopus returned, with the request URL (your API key is never in it), when it was fetched and Octopus's own server time; every later fetch that confirms or changes it; what Fox Plant did (the Force Charge slot written to the inverter, SmartCharge's decision); the smart meter's live rate during the half-hour; and the grid import measured across it. It's kept in `.storage`, survives restarts, and is under **Reports → SmartCharge → Octopus Rate Evidence** with **Download CSV / JSON** to send to Octopus if a bill doesn't match.
+- **Rate check while charging:** whenever SmartCharge charges from the grid (at any price, not just negative), Fox Plant asks Octopus about the current half-hour every 5 minutes. If the API's rate differs from the one the plan used by more than the meter-check tolerance (0.5p by default), or Octopus no longer lists the half-hour, Octopus's rate replaces the saved one and SmartCharge re-plans at once on the real price, which stops a charge that isn't worth it (e.g. planned at 6p, really 20p). Each check is recorded in the evidence. A request that fails is recorded and the charge carries on: a failed request isn't evidence the price changed, and the smart-meter rate check still runs.
 - Configure under **Device → SmartCharge**. StormSafe still overrides when severe weather is active.
 
 ### Octopus Energy tariffs

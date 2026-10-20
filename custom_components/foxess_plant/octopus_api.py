@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlencode
 
@@ -59,6 +60,11 @@ class OctopusApiClient:
         self._base_url = base_url.rstrip("/")
         self._session = async_get_clientsession(hass)
         self._products_cache: list[dict[str, Any]] | None = None
+        # Evidence of what the API answered (plunge_evidence.py): request URL (the API key is sent as Basic
+        # auth, never in the URL), when we asked, HTTP status and Octopus's own Date header
+        self._last_meta: dict[str, Any] = {}
+        self._first_page_meta: dict[str, Any] = {}
+        self.rates_meta: dict[str, dict[str, Any]] = {}
 
     async def _request(
         self,
@@ -82,6 +88,12 @@ class OctopusApiClient:
                     timeout=aiohttp.ClientTimeout(total=45),
                 ) as resp:
                     body = await resp.text()
+                    self._last_meta = {
+                        "url": url,
+                        "requested_at": datetime.now(timezone.utc).isoformat(),
+                        "http_status": resp.status,
+                        "server_date": resp.headers.get("Date"),
+                    }
                     if resp.status == 401:
                         raise OctopusApiError("Invalid Octopus API key")
                     if resp.status == 404:
@@ -120,6 +132,7 @@ class OctopusApiClient:
         while next_url:
             if first:
                 payload = await self._request(next_url, params=params)
+                self._first_page_meta = dict(self._last_meta)
                 first = False
             else:
                 if next_url.startswith("http"):
@@ -194,7 +207,16 @@ class OctopusApiClient:
         if period_to:
             params["period_to"] = period_to
         path = f"/products/{product_code}/electricity-tariffs/{tariff_code}/standard-unit-rates/"
-        return await self._paginate(path, params=params or None)
+        self._first_page_meta = {}
+        rows = await self._paginate(path, params=params or None)
+        # The first page's request: later pages only follow its "next" link
+        self.rates_meta[tariff_code] = {
+            **self._first_page_meta,
+            "product_code": product_code,
+            "tariff_code": tariff_code,
+            "rows": len(rows),
+        }
+        return rows
 
     async def get_standing_charges(
         self,

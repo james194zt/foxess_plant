@@ -1041,9 +1041,172 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.hass.async_create_task(self._async_zero_export_tick())
 
     async def _async_zero_export_tick(self) -> None:
+        """Half-hour boundary: zero export, and the plunge evidence readings (meter rate, import counter)."""
+        from homeassistant.util import dt as dt_util
+
         if self._octopus_native_active():
             self._sync_octopus_current_rates_from_cache()  # current_* follows the half-hour without a fetch
         await self._async_apply_zero_export()
+        await self._async_note_plunge_half_hour(dt_util.utcnow())
+        # The meter's live rate can lag the boundary: read it again a few minutes in
+        async_call_later(self.hass, 180, self._plunge_meter_followup_callback)
+
+    @callback
+    def _plunge_meter_followup_callback(self, now) -> None:
+        self.hass.async_create_task(self._async_note_plunge_half_hour(now))
+
+    # --- Plunge evidence (plunge_evidence.py) -------------------------------------------------------------
+
+    def _plunge_log(self):
+        from .plunge_evidence import PlungeEvidenceLog
+
+        if getattr(self, "_plunge_evidence", None) is None:
+            self._plunge_evidence = PlungeEvidenceLog(self.hass, self.config_entry.entry_id)
+        return self._plunge_evidence
+
+    async def _async_note_plunge_rates(
+        self, rows: list[dict[str, Any]], request: dict[str, Any] | None, *, track_all: bool = False
+    ) -> None:
+        try:
+            await self._plunge_log().async_note_rates(rows, request, track_all=track_all)
+        except Exception:  # noqa: BLE001 — evidence must never break the tariff fetch
+            _LOGGER.exception("Plunge evidence: recording rates failed")
+
+    async def _async_note_plunge_action(
+        self, window: dict[str, Any], what: str, *, details: dict[str, Any] | None = None
+    ) -> None:
+        try:
+            await self._plunge_log().async_note_action(
+                window.get("start_utc"), window.get("end_utc"), what, details=details
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Plunge evidence: recording an action failed")
+
+    async def _async_note_plunge_half_hour(self, now: datetime) -> None:
+        try:
+            meter = None
+            if self.plant.smart_charge.meter_rate_verify_enabled:
+                result = self._verify_meter_rate_before_charge().to_dict()
+                if result.get("meter_p_per_kwh") is not None:
+                    meter = {
+                        "meter_p_per_kwh": result.get("meter_p_per_kwh"),
+                        "api_p_per_kwh": result.get("api_p_per_kwh"),
+                        "entity_id": result.get("entity_id"),
+                    }
+            counter = self._entity_float("grid_consumption_energy_total")
+            if counter is not None and self._entity_unit("grid_consumption_energy_total").lower() == "wh":
+                counter /= 1000.0
+            await self._plunge_log().async_note_half_hour(now, meter=meter, import_counter_kwh=counter)
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Plunge evidence: half-hour reading failed")
+
+    # --- Rate check: re-ask Octopus every 5 minutes while grid charging ----------------------------------
+
+    def _setup_plunge_watch_timer(self) -> None:
+        if getattr(self, "_unsub_plunge_watch", None):
+            return
+        self._unsub_plunge_watch = async_track_time_interval(
+            self.hass, self._plunge_watch_callback, timedelta(minutes=5)
+        )
+
+    @callback
+    def _plunge_watch_callback(self, _now) -> None:
+        self.hass.async_create_task(self._async_plunge_watch())
+
+    def _grid_charging_now(self) -> bool:
+        """SmartCharge is charging from the grid on rates from the native Octopus API (any price)."""
+        if not self.plant.tariff.dynamic.native_octopus() or not self._octopus_native_active():
+            return False
+        decision = self._smart_charge_decision if isinstance(self._smart_charge_decision, dict) else {}
+        return decision.get("action") in ("arbitrage", "grid_charge")
+
+    async def _async_plunge_watch(self) -> None:
+        """Ask Octopus about the current half-hour while grid charging; if it contradicts the price the plan
+        used (beyond the meter-check tolerance) or no longer lists it, take Octopus's rate and re-plan at once.
+
+        At the real price the planner stops the charge unless it's still worth it. Every answer goes into the
+        rate evidence. A failed request doesn't stop the charge (it isn't evidence the price is wrong; the
+        meter-rate check inside the window still runs).
+        """
+        from homeassistant.util import dt as dt_util
+
+        from .octopus_api import OctopusApiClient, OctopusApiError
+        from .octopus_tariff import rate_at
+
+        if not self._grid_charging_now() or self._octopus_rate_limited():
+            return
+        cache = self._octopus_cache
+        product, tariff = cache.get("import_product_code"), cache.get("import_tariff_code")
+        dyn = self.plant.tariff.dynamic
+        if not product or not tariff or not dyn.api_key_configured():
+            return
+        now = dt_util.utcnow()
+        slot_start = now.replace(minute=0 if now.minute < 30 else 30, second=0, microsecond=0)
+        window = {"start_utc": slot_start.isoformat(), "end_utc": (slot_start + timedelta(minutes=30)).isoformat()}
+        client = OctopusApiClient(self.hass, api_key=str(dyn.api_key))
+        try:
+            rows = await client.get_unit_rates(
+                product,
+                tariff,
+                period_from=slot_start.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                period_to=(slot_start + timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            )
+        except OctopusApiError as err:
+            self._note_octopus_rate_limit(str(err))
+            _LOGGER.warning("Rate check: Octopus didn't answer (%s); charge carries on", err)
+            await self._async_note_plunge_action(window, f"Rate check failed: Octopus didn't answer ({err})")
+            return
+        meta = dict(client.rates_meta.get(tariff) or {})
+        meta["mpan"] = (cache.get("import_meter") or {}).get("mpan")
+        meta["purpose"] = "rate check (every 5 min while grid charging)"
+        await self._async_note_plunge_rates(rows, meta, track_all=True)
+        decision = self._smart_charge_decision if isinstance(self._smart_charge_decision, dict) else {}
+        planned = (decision.get("windows") or [{}])[0]
+        await self._async_note_plunge_action(
+            window,
+            f"SmartCharge charging from the grid ({planned.get('start')}-{planned.get('end')})",
+            details={"reason": decision.get("reason")},
+        )
+
+        believed = rate_at(now, cache.get("import_rates") or [])
+        fresh = rate_at(now, rows)
+        tolerance = float(getattr(self.plant.smart_charge, "meter_rate_tolerance_p_per_kwh", 0.5) or 0.5)
+        if fresh is not None and believed is not None and abs(float(fresh) - float(believed)) <= tolerance:
+            return
+        # Octopus contradicts the price we're charging on (or no longer lists it): use what it says and re-plan
+        by_start = {str(r.get("valid_from")): r for r in cache.get("import_rates") or []}
+        if not rows:
+            # No rate for now at all: drop ours too (an unpublished price is never scheduled)
+            by_start = {k: r for k, r in by_start.items() if rate_at(now, [r]) is None}
+        for row in rows:
+            by_start[str(row.get("valid_from"))] = row
+        cache["import_rates"] = sorted(by_start.values(), key=lambda r: str(r.get("valid_from")))
+        self._sync_octopus_current_rates_from_cache()
+        shown = f"{float(fresh):.2f}p" if fresh is not None else "no rate"
+        had = f"{float(believed):.2f}p" if believed is not None else "no rate"
+        _LOGGER.warning(
+            "Rate check: Octopus says %s for this half-hour but SmartCharge was charging on %s — re-planning",
+            shown,
+            had,
+        )
+        await self._async_note_plunge_action(
+            window,
+            f"Rate check: Octopus says {shown} for this half-hour, SmartCharge was charging on {had} — "
+            "re-planned on Octopus's rate",
+        )
+        try:
+            await self._evaluate_smart_charge()
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning("Smart charge re-plan after a plunge check failed: %s", err)
+        await self.async_request_refresh()
+
+    async def async_plunge_evidence(self) -> dict[str, Any]:
+        from .plunge_evidence import to_csv
+
+        log = self._plunge_log()
+        await log.async_load()
+        records = log.newest_first()
+        return {"records": records, "csv": to_csv(records)}
 
     def _zero_export_status(self) -> dict[str, Any]:
         enabled = self._zero_export_enabled()
@@ -1611,9 +1774,9 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """SmartCharge grid charges run as just-in-time Force Charge slots on the inverter."""
         return bool(self.plant.smart_charge.charge_on_inverter and self.inverter_runs_schedule())
 
-    async def _set_jit_slots(self, slots: list[Any]) -> None:
+    async def _set_jit_slots(self, slots: list[Any]) -> bool:
         """Replace SmartCharge's just-in-time slots (see _set_extra_slots)."""
-        await self._set_extra_slots(jit=slots)
+        return await self._set_extra_slots(jit=slots)
 
     async def _set_extra_slots(self, *, storm: list[Any] | None = None, jit: list[Any] | None = None) -> bool:
         """Replace StormSafe and/or SmartCharge slots and re-write the inverter schedule if they changed.
@@ -1866,7 +2029,14 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             else:
                 self._clear_smart_charge_meter_recheck()
 
-        await self._set_jit_slots([*slots, *export_slots])
+        written = await self._set_jit_slots([*slots, *export_slots])
+        if written and slots and window and self.inverter_runs_schedule():
+            # Plunge evidence: when the charge went onto the inverter (only attaches to negative half-hours)
+            await self._async_note_plunge_action(
+                window,
+                "Force Charge slot on the inverter: "
+                + ", ".join(f"{s.start}-{s.end} to {s.fd_soc}% at {s.fd_pwr} W" for s in slots),
+            )
         # A finished export (cut-off reached) needs no wake-up for its window
         done = bool(export_key) and export_key == getattr(self, "_export_done_window", None)
         self._schedule_jit_recheck(
@@ -3373,6 +3543,18 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 payload_plunge_override(decision),
                 plunge_signature(decision),
             )
+            windows = getattr(decision, "windows", None)
+            if windows is None and isinstance(decision, dict):
+                windows = decision.get("windows")
+            if windows:
+                w = windows[0]
+                self.hass.async_create_task(
+                    self._async_note_plunge_action(
+                        w,
+                        f"SmartCharge decided to charge at the negative price {w.get('start')}-{w.get('end')}",
+                        details={"reason": reason},
+                    )
+                )
 
         pairs = getattr(decision, "spread_pairs", None)
         if pairs is None and isinstance(decision, dict):
@@ -5585,6 +5767,8 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._octopus_cache = snapshot.to_cache_dict()
             self._octopus_cache["import_rates"] = snapshot.import_rates
             self._octopus_cache["export_rates"] = snapshot.export_rates
+            # Plunge evidence: what Octopus said about every negative half-hour, verbatim, with the request
+            await self._async_note_plunge_rates(snapshot.import_rates, snapshot.import_rates_meta)
             try:
                 from .octopus_tariff import enrich_export_meters_via_graphql
 
@@ -7002,7 +7186,7 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if getattr(self, "_unsub_tariff_schedule", None):
             self._unsub_tariff_schedule()
             self._unsub_tariff_schedule = None
-        for attr in ("_unsub_zero_export_timer", "_unsub_zero_export_retry"):
+        for attr in ("_unsub_zero_export_timer", "_unsub_zero_export_retry", "_unsub_plunge_watch"):
             if getattr(self, attr, None):
                 getattr(self, attr)()
                 setattr(self, attr, None)

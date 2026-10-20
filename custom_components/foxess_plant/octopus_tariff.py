@@ -62,6 +62,9 @@ class OctopusTariffSnapshot:
     current_export_p_per_kwh: float | None = None
     last_fetch_at: str | None = None
     last_error: str | None = None
+    # The unit-rates requests behind import_rates / export_rates (OctopusApiClient.rates_meta)
+    import_rates_meta: dict[str, Any] | None = None
+    export_rates_meta: dict[str, Any] | None = None
 
     def to_cache_dict(self) -> dict[str, Any]:
         return {
@@ -81,6 +84,8 @@ class OctopusTariffSnapshot:
             "current_export_p_per_kwh": self.current_export_p_per_kwh,
             "last_fetch_at": self.last_fetch_at,
             "last_error": self.last_error,
+            "import_rates_meta": self.import_rates_meta,
+            "export_rates_meta": self.export_rates_meta,
         }
 
 
@@ -688,8 +693,20 @@ async def fetch_octopus_tariff_snapshot(
         schedule=schedule,
         last_fetch_at=now.isoformat(),
         last_error=export_warning,
+        import_rates_meta=_rates_meta(client, import_meter),
+        export_rates_meta=_rates_meta(client, export_meter) if export_rates else None,
     )
     return snapshot
+
+
+def _rates_meta(client: Any, meter: OctopusMeterSummary | None) -> dict[str, Any] | None:
+    if meter is None or not meter.tariff_code:
+        return None
+    meta = dict((getattr(client, "rates_meta", None) or {}).get(meter.tariff_code) or {})
+    if not meta:
+        return None
+    meta["mpan"] = meter.mpan
+    return meta
 
 
 async def test_octopus_connection(

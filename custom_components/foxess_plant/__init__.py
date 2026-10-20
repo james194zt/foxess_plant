@@ -104,6 +104,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Zero export: half-hourly check, and put a saved export limit back if HA restarted mid-slot
     coordinator._setup_zero_export_timer()
     await coordinator._async_apply_zero_export()
+    # Octopus plunges: re-check the API every 5 minutes while a negative-price charge runs
+    coordinator._setup_plunge_watch_timer()
     register_services(hass)
 
     try:

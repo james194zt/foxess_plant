@@ -472,7 +472,7 @@ const FOX_FLOW_PATHS = {
 const FOX_FLOW_HUB_SPOKES = new Set(["solar-aio", "aio-hub", "hub-aio", "hub-home", "grid-hub", "hub-grid"]);
 
 const FLOW_PATHS_VER = "flow-comet-v3";
-const PANEL_VERSION = "0.9.530";
+const PANEL_VERSION = "0.9.531";
 /** Bump when Device Analysis DOM/CSS layout changes (forces full re-render). */
 const DEVICE_NEW_ANALYSIS_LAYOUT_VER = "11";
 /** Extra .main max-width on Device view ≈ sidebar column (280px) + layout gap (16px). */
@@ -3476,7 +3476,66 @@ ${renderSmartChargeSessionsTable(report.sessions)}
 <summary class="fox-report-details-title">${tl("smart_charge.hems_audit_trail")}</summary>
 ${renderSmartChargeHemsAuditTable(report.hems_audit)}
 </details>
+${renderPlungeEvidence(report.plunge_evidence)}
 </div>`;
+}
+
+/** Negative-price half-hours: what the supplier's API said, verbatim, and what Fox Plant did (plunge_evidence.py). */
+function renderPlungeEvidence(evidence) {
+  const records = Array.isArray(evidence?.records) ? evidence.records : [];
+  const when = (iso) => {
+    const d = iso ? new Date(iso) : null;
+    return d && !Number.isNaN(d.getTime())
+      ? d.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+      : "—";
+  };
+  const time = (iso) => {
+    const d = iso ? new Date(iso) : null;
+    return d && !Number.isNaN(d.getTime()) ? d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "—";
+  };
+  const items = records.slice(0, 60).map((r) => {
+    const api = r.api || {};
+    const first = api.first || {};
+    const row = first.row || {};
+    const revisions = Array.isArray(api.revisions) ? api.revisions : [];
+    const lines = [
+      tl("smart_charge.plunge_api_said", {
+        value: esc(String(row.value_inc_vat)),
+        seen: esc(when(first.seen_at)),
+        count: esc(String(api.confirmations ?? 1)),
+      }),
+      ...revisions.map((rev) =>
+        `<span style="color:var(--error-color,#db4437)">${tl("smart_charge.plunge_api_changed", {
+          value: esc(String(rev.row?.value_inc_vat)),
+          seen: esc(when(rev.seen_at)),
+        })}</span>`
+      ),
+      ...(r.actions || []).map((a) => tl("smart_charge.plunge_action", { at: esc(when(a.at)), what: esc(a.what || "") })),
+      ...(r.meter || [])
+        .filter((m) => m.meter_p_per_kwh != null)
+        .map((m) => tl("smart_charge.plunge_meter", { at: esc(time(m.at)), value: esc(String(m.meter_p_per_kwh)) })),
+      r.import_kwh != null ? tl("smart_charge.plunge_import", { value: esc(Number(r.import_kwh).toFixed(2)) }) : "",
+    ].filter(Boolean);
+    const status = revisions.length
+      ? `<span class="fox-sc-howused-status" style="background:var(--error-color,#db4437)">${tl("smart_charge.plunge_revised")}</span>`
+      : r.kind === "charge"
+        ? `<span class="fox-sc-howused-status" style="background:#2e7d32">${tl("smart_charge.plunge_charge")}</span>`
+        : `<span class="fox-sc-howused-status" style="background:#894bfc">${tl("smart_charge.plunge_negative")}</span>`;
+    return `<li class="fox-sc-hems-item"><div class="fox-sc-howused-row">
+<div class="fox-sc-howused-main">${status}<span class="fox-sc-howused-day">${esc(when(r.slot_start))}–${esc(time(r.slot_end))}</span></div>
+<div class="fox-sc-howused-detail">${lines.map((l) => `<div>${l}</div>`).join("")}</div>
+<div class="fox-sc-howused-saved"></div></div></li>`;
+  });
+  const body = records.length
+    ? `<ul class="fox-sc-howused-list">${items.join("")}</ul>
+<div class="btn-row"><button type="button" class="btn" data-action="download-plunge-evidence-csv">${tl("smart_charge.plunge_download_csv")}</button>
+<button type="button" class="btn" data-action="download-plunge-evidence-json">${tl("smart_charge.plunge_download_json")}</button></div>`
+    : `<p class="octopus-greener-empty">${tl("smart_charge.plunge_none_yet")}</p>`;
+  return `<details class="card fox-report-details">
+<summary class="fox-report-details-title">${tl("smart_charge.plunge_evidence_title")}</summary>
+<p class="field-hint">${tl("smart_charge.plunge_evidence_hint")}</p>
+${body}
+</details>`;
 }
 
 function performanceDayLabel(offset = 0) {
@@ -19705,6 +19764,22 @@ ${tl("panel.panel_update_pending_browser_jsver_ha", { jsVer: esc(jsVer), regVer:
     }
     if (action === "save-smart-charge") {
       await this._saveSmartChargeSettings();
+      return;
+    }
+    if (action === "download-plunge-evidence-csv" || action === "download-plunge-evidence-json") {
+      const evidence = this._smartChargeAnalysis?.plunge_evidence;
+      if (!evidence) return;
+      const csv = action.endsWith("csv");
+      const blob = csv
+        ? new Blob([evidence.csv || ""], { type: "text/csv" })
+        : new Blob([JSON.stringify(evidence.records || [], null, 2)], { type: "application/json" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `plunge-evidence-${new Date().toISOString().slice(0, 10)}.${csv ? "csv" : "json"}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
       return;
     }
     if (action === "save-storm-prep") {
