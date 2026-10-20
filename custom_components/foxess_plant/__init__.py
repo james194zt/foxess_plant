@@ -82,6 +82,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = FoxessPlantCoordinator(hass, entry)
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {"coordinator": coordinator}
+    # The plant state includes the panel build info; read it off the event loop before the first refresh
+    from .panel import async_prime_panel_disk_info
+
+    await async_prime_panel_disk_info(hass)
     try:
         await coordinator.async_config_entry_first_refresh()
     except Exception:

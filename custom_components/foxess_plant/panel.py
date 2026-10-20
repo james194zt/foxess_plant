@@ -167,11 +167,16 @@ def get_panel_disk_info(hass: HomeAssistant | None = None) -> dict[str, str]:
         cached = hass.data.get(_PANEL_DISK_INFO_KEY)
         if isinstance(cached, dict):
             return dict(cached)
-    # Fallback only if asked before registration (rare); computes from disk once and caches it.
-    info = _compute_panel_disk_info()
-    if hass is not None:
-        hass.data[_PANEL_DISK_INFO_KEY] = info
-    return info
+    # Not read yet: say so rather than reading disk here (this runs in the event loop — computing it here was
+    # the startup "blocking call to read_bytes" x8, via the coordinator's first refresh). The panel treats a
+    # missing js_build as "can't tell"; async_prime_panel_disk_info / async_register_panel fill the cache.
+    return {}
+
+
+async def async_prime_panel_disk_info(hass: HomeAssistant) -> None:
+    """Read the panel build info in the executor before anything in the event loop asks for it."""
+    if not isinstance(hass.data.get(_PANEL_DISK_INFO_KEY), dict):
+        hass.data[_PANEL_DISK_INFO_KEY] = await hass.async_add_executor_job(_compute_panel_disk_info)
 
 
 def _prepare_panel_assets() -> dict[str, str]:
@@ -219,10 +224,10 @@ def build_panel_config(hass: HomeAssistant) -> dict[str, Any]:
         "brand_domain": DOMAIN,
         "modbus_brand_domain": MODBUS_DOMAIN,
         "brand_icon_static": PANEL_BRAND_ICON_STATIC,
-        "panel_js_build": disk["js_build"],
-        "panel_js_module_url": disk["module_url"],
+        "panel_js_build": disk.get("js_build", ""),
+        "panel_js_module_url": disk.get("module_url", ""),
         "flow_paths_ver": PANEL_FLOW_PATHS_VER,
-        "panel_element": disk["element"],
+        "panel_element": disk.get("element", ""),
     }
 
 

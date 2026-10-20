@@ -35,6 +35,21 @@ def test_panel_fingerprint_follows_the_imported_module(monkeypatch) -> None:
     assert panel._panel_js_fingerprint() != before
 
 
+def test_plant_state_before_registration_reads_nothing_from_disk(monkeypatch) -> None:
+    # The real startup warning: the coordinator's first refresh asked for the panel info before the panel was
+    # registered, and the fallback hashed the JS in the event loop (seen on HA 2026.9.4 with 0.9.532)
+    class FakeHass:
+        data = {}
+
+    def no_disk(*_args, **_kwargs):
+        raise AssertionError("disk read in the event loop")
+
+    monkeypatch.setattr(panel.Path, "read_bytes", no_disk)
+    monkeypatch.setattr(panel.Path, "open", no_disk)
+    monkeypatch.setattr(panel.Path, "glob", no_disk)
+    assert panel.get_panel_disk_info(FakeHass()) == {}
+
+
 def test_panel_config_reads_nothing_from_disk_in_the_event_loop(monkeypatch) -> None:
     # HA flagged "blocking call to read_bytes" x8 at startup: the config re-read the panel JS for its fingerprint
     class FakeHass:
