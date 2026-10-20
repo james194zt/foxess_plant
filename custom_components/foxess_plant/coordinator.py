@@ -6,6 +6,7 @@ import asyncio
 import logging
 import time
 from datetime import date, datetime, timedelta, timezone
+from functools import partial
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -80,6 +81,9 @@ from .models import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# How long the per-half-hour plan history (planned vs actual day chart) is kept
+PLAN_SLOT_KEEP_DAYS = 120
 
 UPDATE_INTERVAL = timedelta(seconds=30)
 # Fox Cloud reports a warm-up save once the inverter has it (a minute or two): re-check after these many
@@ -3553,6 +3557,25 @@ class FoxessPlantCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             meta.get("saving_p") or 0.0,
         )
         self._audit_smart_charge_daily_plan()
+        await self._async_store_plan_slots(plan, now, built_at=meta.get("built_at"))
+
+    async def _async_store_plan_slots(self, plan: list[dict[str, Any]], now: datetime, *, built_at: str | None) -> None:
+        """Keep the plan for half-hours that haven't started, for the planned-vs-actual day chart."""
+        from .smart_charge_day import plan_slot_rows
+
+        store = getattr(self, "_performance_store", None)
+        if store is None:
+            return
+        rows = plan_slot_rows(plan, now, built_at=built_at)
+        if not rows:
+            return
+        purge_before = (now - timedelta(days=PLAN_SLOT_KEEP_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        try:
+            await self.hass.async_add_executor_job(
+                partial(store.upsert_plan_slots, rows, purge_before=purge_before)
+            )
+        except Exception as err:  # noqa: BLE001 — the chart history is a nice-to-have, never block planning
+            _LOGGER.debug("SmartCharge plan history write failed: %s", err)
 
     @staticmethod
     def _forecast_source_tomorrow(rows: list[dict[str, Any]]) -> str | None:

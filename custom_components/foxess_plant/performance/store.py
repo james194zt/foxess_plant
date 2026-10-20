@@ -66,7 +66,37 @@ CREATE TABLE IF NOT EXISTS day_state (
     date TEXT NOT NULL,
     acc_json TEXT NOT NULL
 );
+
+-- SmartCharge plan per half-hour as it stood when the half-hour began (each replan overwrites only
+-- half-hours that haven't started), so a past day can be shown as planned vs actual.
+CREATE TABLE IF NOT EXISTS plan_slots (
+    start_utc TEXT PRIMARY KEY,
+    end_utc TEXT,
+    action TEXT,
+    reason TEXT,
+    planned_import_kwh REAL,
+    planned_export_kwh REAL,
+    soc_start_pct REAL,
+    soc_end_pct REAL,
+    import_p_per_kwh REAL,
+    export_p_per_kwh REAL,
+    built_at TEXT
+);
 """
+
+PLAN_SLOT_COLUMNS = (
+    "start_utc",
+    "end_utc",
+    "action",
+    "reason",
+    "planned_import_kwh",
+    "planned_export_kwh",
+    "soc_start_pct",
+    "soc_end_pct",
+    "import_p_per_kwh",
+    "export_p_per_kwh",
+    "built_at",
+)
 
 
 class PerformanceStore:
@@ -382,6 +412,26 @@ class PerformanceStore:
         conn = self.connect()
         conn.execute("DELETE FROM intraday_samples WHERE ts < ?", (cutoff_ts,))
         conn.commit()
+
+    def upsert_plan_slots(self, rows: list[dict[str, Any]], *, purge_before: str | None = None) -> None:
+        """Write the plan for half-hours that haven't started yet (callers pass only those)."""
+        conn = self.connect()
+        placeholders = ",".join("?" for _ in PLAN_SLOT_COLUMNS)
+        conn.executemany(
+            f"INSERT OR REPLACE INTO plan_slots ({','.join(PLAN_SLOT_COLUMNS)}) VALUES ({placeholders})",
+            [tuple(row.get(col) for col in PLAN_SLOT_COLUMNS) for row in rows],
+        )
+        if purge_before:
+            conn.execute("DELETE FROM plan_slots WHERE start_utc < ?", (purge_before,))
+        conn.commit()
+
+    def list_plan_slots_between(self, start_utc: str, end_utc: str) -> list[dict[str, Any]]:
+        conn = self.connect()
+        rows = conn.execute(
+            "SELECT * FROM plan_slots WHERE start_utc >= ? AND start_utc < ? ORDER BY start_utc ASC",
+            (start_utc, end_utc),
+        ).fetchall()
+        return [dict(row) for row in rows]
 
     def log_event(self, *, ts: str, event_type: str, payload_json: str | None = None) -> None:
         conn = self.connect()

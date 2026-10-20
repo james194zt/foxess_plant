@@ -52,7 +52,7 @@ Manual install: copy `custom_components/foxess_plant` to `config/custom_componen
 |-----|----------------|
 | **Overview** | Live hub-and-spoke energy diagram, weather, daily production / consumption, StormSafe & SmartCharge status |
 | **Device** | Analysis, Realtime curves, Alerts, PV Configuration, Quick Settings, **StormSafe**, **SmartCharge**, **Warmup** |
-| **Energy Analysis** | Supply / usage balance, costs, and forecast accuracy |
+| **Energy Analysis** | Supply / usage balance, costs, and forecast accuracy; **SmartCharge Plan** card in the Day view (when SmartCharge is on): planned vs actual per half-hour with planned and actual battery SoC. Today shows what happened so far plus the plan ahead (to the end of tomorrow) and tomorrow's solar forecast; past days show planned vs actual charging, charge cost and battery range. The same card for today sits on the Overview above Battery SoC |
 | **Reports** | Energy Report; Octopus Energy Analysis; Performance (if enabled); SmartCharge Analysis (if SmartCharge is on) |
 | **Settings** | Fox API, Solcast, Glow meter, Tariff, Weather, Performance |
 

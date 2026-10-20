@@ -54,6 +54,7 @@ WS_TYPE_FETCH_OCTOPUS = "foxess_plant/fetch_octopus"
 WS_TYPE_FETCH_OCTOPUS_ANALYSIS = "foxess_plant/fetch_octopus_analysis"
 WS_TYPE_APPLY_OCTOPUS_SCHEDULE = "foxess_plant/apply_octopus_schedule"
 WS_TYPE_FETCH_SMART_CHARGE_ANALYSIS = "foxess_plant/fetch_smart_charge_analysis"
+WS_TYPE_SMART_CHARGE_DAY = "foxess_plant/smart_charge_day"
 WS_TYPE_FETCH_PERFORMANCE_DAY = "foxess_plant/fetch_performance_day"
 WS_TYPE_FETCH_PERFORMANCE_REPORT = "foxess_plant/fetch_performance_report"
 WS_TYPE_UPDATE_PERFORMANCE = "foxess_plant/update_performance"
@@ -908,6 +909,41 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
             msg["id"],
             {"tariff": tariff, "plant_state": coordinator.get_plant_state()},
         )
+
+    @websocket_api.websocket_command(
+        {
+            vol.Required("type"): WS_TYPE_SMART_CHARGE_DAY,
+            vol.Optional("plant_id"): str,
+            vol.Required("date"): vol.Match(r"^\d{4}-\d{2}-\d{2}$"),
+        }
+    )
+    @websocket_api.require_admin
+    @websocket_api.async_response
+    async def ws_smart_charge_day(
+        hass: HomeAssistant,
+        connection: websocket_api.ActiveConnection,
+        msg: dict[str, Any],
+    ) -> None:
+        """One local day of SmartCharge: planned vs actual per half-hour (Energy Analysis / Overview card)."""
+        from datetime import date as date_cls
+
+        from .smart_charge_day import async_build_smart_charge_day
+
+        coordinator, err_code, err_msg = _get_coordinator(hass, msg.get("plant_id"))
+        if coordinator is None:
+            connection.send_error(msg["id"], err_code, err_msg)
+            return
+        if not coordinator.plant.smart_charge.enabled:
+            connection.send_error(msg["id"], "smart_charge_disabled", "SmartCharge is turned off")
+            return
+        try:
+            day = date_cls.fromisoformat(msg["date"])
+            result = await async_build_smart_charge_day(hass, coordinator, day)
+        except Exception as err:
+            _LOGGER.exception("smart_charge_day failed")
+            connection.send_error(msg["id"], "smart_charge_day_failed", f"{type(err).__name__}: {err}")
+            return
+        connection.send_result(msg["id"], result)
 
     @websocket_api.websocket_command(
         {
@@ -1820,6 +1856,7 @@ def async_register_ws_handlers(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_fetch_octopus_analysis)
     websocket_api.async_register_command(hass, ws_apply_octopus_schedule)
     websocket_api.async_register_command(hass, ws_fetch_smart_charge_analysis)
+    websocket_api.async_register_command(hass, ws_smart_charge_day)
     websocket_api.async_register_command(hass, ws_fetch_performance_day)
     websocket_api.async_register_command(hass, ws_fetch_performance_report)
     websocket_api.async_register_command(hass, ws_update_performance)

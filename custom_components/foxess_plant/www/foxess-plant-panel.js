@@ -9125,6 +9125,192 @@ ${smartChargeTimelineSocLine(slots)}
 </div>`;
 }
 
+// ---------------------------------------------------------------------------
+// SmartCharge day card (Energy Analysis day view + Overview): plan vs actual per half-hour
+// ---------------------------------------------------------------------------
+
+/** Local YYYY-MM-DD for a Date. */
+function localDateIso(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * Half-hours to draw: the day from the backend (plan + actual), with today's not-yet-started half-hours
+ * taken from the live plan, then the live plan's half-hours after midnight (today only, to end of tomorrow).
+ */
+function smartChargeDayRows(dayPayload, dailyPlan, { isToday, nowMs = Date.now() } = {}) {
+  const rows = (dayPayload?.slots || []).map((s) => ({ ...s, ms: Date.parse(s.start_utc) }));
+  if (!isToday) return rows;
+  const live = new Map();
+  for (const p of dailyPlan || []) {
+    const ms = Date.parse(p.start_utc);
+    if (Number.isFinite(ms)) live.set(ms, p);
+  }
+  for (const r of rows) {
+    const p = live.get(r.ms);
+    if (p && r.ms + 1800000 > nowMs) r.plan = p;
+  }
+  const lastMs = rows.length ? rows[rows.length - 1].ms : -Infinity;
+  for (const [ms, p] of [...live.entries()].sort((a, b) => a[0] - b[0])) {
+    if (ms > lastMs) rows.push({ start: p.start, end: p.end, start_utc: p.start_utc, ms, plan: p, actual: null });
+  }
+  return rows;
+}
+
+function smartChargeDaySocSvg(rows, nowIndex) {
+  // Same px-unit drawing as the plan timeline (a stretched 0–1 box renders steep lines as steps)
+  const SLOT_W = 10;
+  const H = 56;
+  const PAD = 3;
+  const y = (pct) => (PAD + ((100 - Math.min(100, Math.max(0, pct))) / 100) * (H - 2 * PAD)).toFixed(2);
+  const line = (key) => {
+    const runs = [];
+    let cur = [];
+    rows.forEach((r, i) => {
+      const src = r[key];
+      const a = Number(src?.soc_start_pct);
+      const b = Number(src?.soc_end_pct);
+      if (!src || !Number.isFinite(b)) {
+        if (cur.length > 1) runs.push(cur);
+        cur = [];
+        return;
+      }
+      if (!cur.length && Number.isFinite(a)) cur.push([i * SLOT_W, y(a)]);
+      cur.push([(i + 1) * SLOT_W, y(b)]);
+    });
+    if (cur.length > 1) runs.push(cur);
+    return runs.map((pts) => pts.map(([px, py]) => `${px},${py}`).join(" "));
+  };
+  const plan = line("plan")
+    .map((pts) => `<polyline class="sc-day-soc-plan" points="${pts}" vector-effect="non-scaling-stroke"/>`)
+    .join("");
+  const actual = line("actual")
+    .map((pts) => `<polyline class="sc-day-soc-actual" points="${pts}" vector-effect="non-scaling-stroke"/>`)
+    .join("");
+  const now =
+    nowIndex != null
+      ? `<line class="sc-day-now" x1="${nowIndex * SLOT_W}" x2="${nowIndex * SLOT_W}" y1="0" y2="${H}" vector-effect="non-scaling-stroke"/>`
+      : "";
+  return `<svg class="sc-day-soc" viewBox="0 0 ${rows.length * SLOT_W} ${H}" preserveAspectRatio="none" aria-hidden="true">${now}${plan}${actual}</svg>`;
+}
+
+function smartChargeDaySegment(row, which, isNow) {
+  const src = row[which];
+  const tone = src ? smartChargePlanActionTone(src.action) : "none";
+  const est = which === "plan" && src?.price_known === false ? " sc-timeline-seg--est" : "";
+  const kwh = (v) => (v != null && Number.isFinite(Number(v)) ? Number(v).toFixed(2) : null);
+  const p = row.plan;
+  const a = row.actual;
+  const parts = [];
+  if (p) parts.push(tl("sc_day.tip_plan", { action: smartChargePlanActionLabel(p.action) }));
+  if (a) parts.push(tl("sc_day.tip_actual", { action: smartChargePlanActionLabel(a.action) }));
+  const title = `${row.start}-${row.end}${parts.length ? ` · ${parts.join(" · ")}` : ""}`;
+  const price = (v) => (v != null && Number.isFinite(Number(v)) ? `${Number(v).toFixed(1)}p` : "—");
+  const detail = [];
+  if (kwh(p?.planned_import_kwh) && smartChargePlanActionTone(p.action) === "charge") {
+    detail.push(tl("sc_day.tip_planned_kwh", { kwh: kwh(p.planned_import_kwh) }));
+  }
+  if (kwh(a?.grid_charge_kwh) && a.action === "charge") detail.push(tl("sc_day.tip_charged_kwh", { kwh: kwh(a.grid_charge_kwh) }));
+  if (kwh(a?.battery_export_kwh) && a.action === "export") detail.push(tl("sc_day.tip_exported_kwh", { kwh: kwh(a.battery_export_kwh) }));
+  const soc = (s) =>
+    s && Number.isFinite(Number(s.soc_start_pct)) && Number.isFinite(Number(s.soc_end_pct))
+      ? `${Number(s.soc_start_pct).toFixed(0)}→${Number(s.soc_end_pct).toFixed(0)}%`
+      : null;
+  if (soc(a)) detail.push(tl("sc_day.tip_soc", { soc: soc(a) }));
+  if (soc(p)) detail.push(tl("sc_day.tip_planned_soc", { soc: soc(p) }));
+  const detailText = detail.join(" · ");
+  return `<div class="sc-timeline-seg sc-timeline-seg--${tone}${est}${isNow ? " sc-timeline-seg--now" : ""}" data-tip-title="${esc(title)}" data-tip-import="${esc(price(p?.import_p_per_kwh))}" data-tip-export="${esc(price(p?.export_p_per_kwh))}" data-tip-detail="${esc(detailText)}" aria-label="${esc(`${title}${detailText ? `, ${detailText}` : ""}`)}"></div>`;
+}
+
+function renderSmartChargeDayChart(rows, { nowMs = Date.now(), isToday = false } = {}) {
+  if (!rows.length) return `<p class="sc-empty-hint">${tl("sc_day.no_data")}</p>`;
+  const nowIndex = isToday ? rows.findIndex((r) => r.ms <= nowMs && nowMs < r.ms + 1800000) : -1;
+  const segs = (which) => rows.map((r, i) => smartChargeDaySegment(r, which, i === nowIndex)).join("");
+  const marks = smartChargeTimelineHourMarks(rows);
+  const byIndex = new Map(marks.map((m) => [m.index, m.label]));
+  const hours = rows
+    .map((_, i) =>
+      byIndex.has(i)
+        ? `<span class="sc-timeline-hour sc-timeline-hour--label">${esc(byIndex.get(i))}</span>`
+        : `<span class="sc-timeline-hour" aria-hidden="true"></span>`
+    )
+    .join("");
+  const nowAt = nowIndex >= 0 ? nowIndex + (nowMs - rows[nowIndex].ms) / 1800000 : null;
+  return `<div class="sc-timeline-wrap sc-day-chart" data-sc-timeline>
+<div class="sc-timeline-scroll" style="--sc-slot-count:${rows.length}">
+${smartChargeDaySocSvg(rows, nowAt)}
+<p class="sc-day-row-label">${tl("sc_day.plan_row")}</p>
+<div class="sc-timeline" role="img" aria-label="${esc(tl("sc_day.plan_row"))}">${segs("plan")}</div>
+<p class="sc-day-row-label">${tl("sc_day.actual_row")}</p>
+<div class="sc-timeline sc-timeline--actual" role="img" aria-label="${esc(tl("sc_day.actual_row"))}">${segs("actual")}</div>
+<div class="sc-timeline-hours" aria-hidden="true">${hours}</div>
+</div>
+<div class="sc-timeline-float-tip" hidden role="tooltip"></div>
+<div class="sc-timeline-legend sc-day-legend">
+<span>${tl("smart_charge.charge")}</span>
+<span>${tl("smart_charge.export")}</span>
+<span>${tl("smart_charge.self_use")}</span>
+<span><i class="sc-legend-line"></i>${tl("sc_day.actual_soc")}</span>
+<span><i class="sc-legend-line sc-legend-line--dashed"></i>${tl("sc_day.planned_soc")}</span>
+</div>
+</div>`;
+}
+
+/**
+ * The card. ``state`` = {data, loading, error}; today adds the live plan, decision and tomorrow's solar.
+ * ``compact`` = Overview (no date in the title).
+ */
+function renderSmartChargeDayCard(state, plantState, { isToday, dateLabel, compact = false } = {}) {
+  const sc = plantState?.smart_charge || {};
+  const data = state?.data;
+  const head = `<div class="sc-day-head"><p class="card-title" style="margin:0">${tl("sc_day.title")}</p>
+<button type="button" class="sc-day-details" data-action="nav" data-view="device_new" data-device-sub="smart">${tl("panel.details")}</button></div>
+${compact ? "" : `<p class="field-hint" style="margin:2px 0 8px">${esc(isToday ? tl("common.today") : dateLabel || "")}</p>`}`;
+  if (state?.error) return `<div class="card sc-day-card">${head}<p class="placeholder">${esc(state.error)}</p></div>`;
+  if (!data) return `<div class="card sc-day-card">${head}<p class="chart-loading">${tl("sc_day.loading")}</p></div>`;
+  const rows = smartChargeDayRows(data, sc.daily_plan, { isToday });
+  const s = data.summary || {};
+  const meta = sc.plan_meta || {};
+  const decision = sc.decision || {};
+  const kwh = (v) => (v != null && Number.isFinite(Number(v)) ? `${Number(v).toFixed(1)} kWh` : "—");
+  const tiles = [];
+  if (isToday) {
+    const src = meta.tomorrow_pv_source === "open_meteo" ? "Open-Meteo" : meta.tomorrow_pv_source === "solcast" ? "Solcast" : "";
+    tiles.push({
+      label: tl("sc_day.solar_tomorrow"),
+      value: meta.tomorrow_pv_known === false ? tl("smart_charge.awaiting_forecast") : kwh(meta.tomorrow_pv_kwh),
+      note: src ? (meta.tomorrow_pv_estimated ? tl("sc_day.estimated") : src) : "",
+    });
+    tiles.push({ label: tl("sc_day.planned_grid_charge"), value: kwh(meta.grid_charge_kwh) });
+    tiles.push({ label: tl("sc_day.charged_so_far"), value: kwh(s.actual_charge_kwh ?? 0) });
+    if (meta.saving_p != null) tiles.push({ label: tl("smart_charge.plan_saving"), value: `£${(Number(meta.saving_p) / 100).toFixed(2)}` });
+  } else {
+    if (s.planned_charge_kwh != null) tiles.push({ label: tl("sc_day.planned_grid_charge"), value: kwh(s.planned_charge_kwh) });
+    tiles.push({ label: tl("sc_day.charged"), value: kwh(s.actual_charge_kwh ?? 0) });
+    if (s.charge_cost_p != null) tiles.push({ label: tl("sc_day.charge_cost"), value: `£${(Number(s.charge_cost_p) / 100).toFixed(2)}` });
+    if (s.soc_min_pct != null && s.soc_max_pct != null) {
+      tiles.push({ label: tl("sc_day.battery_range"), value: `${Number(s.soc_min_pct).toFixed(0)}–${Number(s.soc_max_pct).toFixed(0)}%` });
+    }
+    if (s.actual_export_kwh) tiles.push({ label: tl("sc_day.exported"), value: kwh(s.actual_export_kwh) });
+  }
+  const tileHtml = `<div class="sc-stat-grid">${tiles
+    .map(
+      (t) =>
+        `<div class="sc-stat-tile"><span class="sc-stat-label">${esc(t.label)}</span><strong class="sc-stat-value">${esc(t.value)}</strong>${t.note ? `<span class="sc-stat-note">${esc(t.note)}</span>` : ""}</div>`
+    )
+    .join("")}</div>`;
+  const status = isToday && decision.reason ? `<p class="sc-status-reason" style="margin:0 0 10px">${esc(decision.reason)}</p>` : "";
+  // Today always has the live plan ahead, so the notes are only about past days' history
+  const note = isToday
+    ? ""
+    : data.plan_source == null
+      ? `<p class="field-hint">${tl("sc_day.no_plan_recorded")}</p>`
+      : data.plan_source !== "stored"
+        ? `<p class="field-hint">${tl("sc_day.planned_soc_not_recorded")}</p>`
+        : "";
+  return `<div class="card sc-day-card">${head}${status}${tileHtml}${renderSmartChargeDayChart(rows, { isToday })}${note}</div>`;
+}
+
 function smartChargeLiveStatusPresentation(live, decision) {
   const action = decision?.action;
   const reason = decision?.reason;
@@ -15749,7 +15935,34 @@ details.fox-report-details[open] > summary.fox-report-details-title {
   stroke-linejoin: round; stroke-linecap: round; shape-rendering: geometricPrecision;
 }
 .sc-timeline-soc-area { fill: var(--fp-accent, #03a9f4); fill-opacity: 0.1; stroke: none; }
+/* SoC line, bar rows and hour labels share one width so the line sits over its half-hours. With
+   min(100%, …) the line stayed at screen width while the bars (4px + 1px gap each) grew and scrolled. */
+.sc-timeline-scroll > svg,
+.sc-timeline-scroll > .sc-timeline,
+.sc-timeline-scroll > .sc-timeline-hours {
+  width: max(100%, calc(var(--sc-slot-count, 24) * 5px));
+  min-width: 0;
+}
 .sc-legend-line { display: inline-block; width: 14px; height: 2px; background: var(--fp-accent, #03a9f4); vertical-align: middle; margin-right: 4px; }
+.sc-legend-line--dashed { background: repeating-linear-gradient(90deg, var(--fp-accent, #03a9f4) 0 4px, transparent 4px 7px); }
+.sc-day-card { margin-top: 14px; }
+.sc-day-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sc-day-details {
+  border: 0; background: none; padding: 4px 0; cursor: pointer; font: inherit; font-size: 13px;
+  color: var(--fp-accent);
+}
+.sc-stat-note { display: block; margin-top: 2px; font-size: 11px; color: var(--secondary-text-color); }
+.sc-day-soc { display: block; height: 56px; margin-bottom: 2px; }
+.sc-day-soc polyline { fill: none; stroke: var(--fp-accent, #03a9f4); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.sc-day-soc .sc-day-soc-plan { stroke-dasharray: 4 3; opacity: 0.8; }
+.sc-day-now { stroke: var(--primary-text-color); stroke-width: 1; stroke-dasharray: 2 2; opacity: 0.6; }
+.sc-day-row-label { margin: 4px 0 2px; font-size: 11px; color: var(--secondary-text-color); }
+.sc-day-chart .sc-timeline { height: 18px; }
+.sc-day-row-label { position: sticky; left: 0; width: max-content; }
+.sc-timeline-seg--none { background: transparent; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--divider-color, #5f6368) 70%, transparent); }
+.sc-day-chart .sc-timeline-seg--idle { background: color-mix(in srgb, var(--secondary-text-color, #9e9e9e) 35%, transparent); }
+.sc-day-legend .sc-legend-dot--idle { background: color-mix(in srgb, var(--secondary-text-color, #9e9e9e) 45%, transparent); }
+.sc-day-chart .sc-timeline-hours > .sc-timeline-hour--label:first-child { transform: none; }
 .sc-legend-dot--est { opacity: 0.45; background: color-mix(in srgb, var(--secondary-text-color) 35%, transparent); }
 .sc-timeline-seg--tip-active { box-shadow: 0 0 0 2px var(--fp-accent); z-index: 2; }
 .sc-timeline-float-tip {
@@ -21490,10 +21703,17 @@ ${pathsHtml}
     const octopusRewardsCard = octopusTariffEnabled(this._plantState)
       ? renderOctopusRewardsCard(greenerPayload, { compact: true })
       : "";
+    const scDayCard = this._smartChargeDayEnabled()
+      ? renderSmartChargeDayCard(this._smartChargeDayState(localDateIso(new Date())), this._plantState, {
+          isToday: true,
+          compact: true,
+        })
+      : "";
     return `${forecastCard}<div class="card statistics-card" style="margin-top:14px">
 <p class="card-title">${tl("common.statistics")}</p>
 ${this._renderStatisticsChartBody()}
 </div>
+${scDayCard}
 <div class="card soc-chart-card" style="margin-top:14px">
 <p class="card-title">${tl("common.battery_soc")}</p>
 ${this._renderBatterySocChartBody(plant)}
@@ -21639,6 +21859,7 @@ ${this._renderImpactPanel()}`;
     }
     this._patchOverviewHourlyWeatherSlot(mainEl);
     mainEl.querySelector(".overview-after-hero").innerHTML = this._renderOverviewAfterHero(plant);
+    bindSmartChargeTimelineTips(mainEl.querySelector(".overview-after-hero"));
 
     const sceneSlot = mainEl.querySelector(".overview-hero-scene-slot");
     if (rebuildFlow || !sceneSlot?.querySelector(".fox-flow-stage")) {
@@ -24125,6 +24346,16 @@ ${this._renderEnergyBalanceCard(a, { inBand: true })}
       this._forecastAccuracyAnalysisSlotCache = forecastKey;
     }
 
+    const scDayKey = this._scDaySlotKey();
+    if (scDayKey !== this._scDaySlotCache) {
+      const scDaySlot = root.querySelector("[data-energy-analysis-sc-day]");
+      if (scDaySlot) {
+        scDaySlot.innerHTML = this._renderEnergyAnalysisSmartChargeDay();
+        bindSmartChargeTimelineTips(scDaySlot);
+      }
+      this._scDaySlotCache = scDayKey;
+    }
+
     let chartUpdated = false;
     const chartKey = this._energyAnalysisChartSlotKey();
     if (chartKey !== this._energyAnalysisChartSlotCache) {
@@ -24191,6 +24422,71 @@ ${body}
     if (modal) shell.appendChild(modal);
   }
 
+  _smartChargeDayEnabled() {
+    return Boolean(this._plantState?.smart_charge?.enabled);
+  }
+
+  /** SmartCharge day card data: fetched when the date changes, and every 5 minutes for today. */
+  _smartChargeDayState(dateIso) {
+    const st = this._scDay;
+    const isToday = dateIso === localDateIso(new Date());
+    const same = st && st.date === dateIso;
+    const fresh = same && (st.data || st.error) && (!isToday || Date.now() - (st.at || 0) < 300000);
+    if (!fresh && !(same && st.loading)) void this._loadSmartChargeDay(dateIso);
+    return same ? st : { date: dateIso, loading: true };
+  }
+
+  async _loadSmartChargeDay(dateIso) {
+    const plant = this._getPlant();
+    if (!plant || !this._hass?.connection) return;
+    const prev = this._scDay?.date === dateIso ? this._scDay : null;
+    this._scDay = { date: dateIso, data: prev?.data || null, error: null, loading: true, at: prev?.at || 0 };
+    try {
+      const data = await this._hass.connection.sendMessagePromise({
+        type: "foxess_plant/smart_charge_day",
+        plant_id: plant.entry_id,
+        date: dateIso,
+      });
+      if (this._scDay?.date !== dateIso) return;
+      this._scDay = { date: dateIso, data, error: null, loading: false, at: Date.now() };
+    } catch (err) {
+      if (this._scDay?.date !== dateIso) return;
+      // Keep showing the last good data on a failed refresh
+      this._scDay = {
+        date: dateIso,
+        data: prev?.data || null,
+        error: prev?.data ? null : String(err?.message || err),
+        loading: false,
+        at: Date.now(),
+      };
+    }
+    this._scDaySlotCache = undefined;
+    this._scheduleRender();
+  }
+
+  _energyAnalysisSmartChargeDate() {
+    const { start } = energyPeriodBounds("day", this._energyPeriodOffset);
+    return { start, dateIso: localDateIso(start), isToday: (Number(this._energyPeriodOffset) || 0) === 0 };
+  }
+
+  _renderEnergyAnalysisSmartChargeDay() {
+    if (this._energyPeriod !== "day" || !this._smartChargeDayEnabled()) return "";
+    const { start, dateIso, isToday } = this._energyAnalysisSmartChargeDate();
+    return renderSmartChargeDayCard(this._smartChargeDayState(dateIso), this._plantState, {
+      isToday,
+      dateLabel: formatEnergyDateLabel(start),
+    });
+  }
+
+  _scDaySlotKey() {
+    if (this._energyPeriod !== "day" || !this._smartChargeDayEnabled()) return "off";
+    const { dateIso } = this._energyAnalysisSmartChargeDate();
+    const st = this._scDay?.date === dateIso ? this._scDay : null;
+    const sc = this._plantState?.smart_charge || {};
+    // The minute moves the "now" marker on today's chart
+    return [dateIso, st?.at || 0, st?.error || "", sc.plan_meta?.built_at || "", sc.decision?.reason || "", Math.floor(Date.now() / 60000)].join("|");
+  }
+
   _renderEnergyAnalysis(plant) {
     const a = this._energyAnalyticsForView(plant);
     const title = energyBreakdownTitle(this._energyPeriod, this._energyPeriodOffset);
@@ -24202,6 +24498,7 @@ ${body}
     this._energyAnalysisChartSlotCache = this._energyAnalysisChartSlotKey();
     this._energyAnalysisToolbarCache = this._energyAnalysisToolbarKey();
     this._forecastAccuracyAnalysisSlotCache = this._forecastAccuracyAnalysisSlotKey();
+    this._scDaySlotCache = this._scDaySlotKey();
     const greenerPayload = octopusGreenerPayload(this._plantState);
     const octopusGreenerCard =
       octopusTariffEnabled(this._plantState) &&
@@ -24242,6 +24539,7 @@ ${this._renderEnergyDateNav()}
 <div class="fox-analysis-panel-card" data-energy-analysis-supply="1">${renderFoxSupplyUsagePanel(a)}</div>
 <div class="fox-analysis-panel-card" data-energy-analysis-summary="1">${summaryCard}</div>
 </div>
+<div data-energy-analysis-sc-day="1">${this._renderEnergyAnalysisSmartChargeDay()}</div>
 ${octopusGreenerCard}
 ${octopusUpcomingWeekCard}
 ${forecastCard}
@@ -27157,6 +27455,9 @@ ${weatherOptions
     if (this._isSmartChargeView()) {
       this._bindSmartChargeDetailsOpen();
       bindSmartChargeTimelineTips(this._root);
+    }
+    if (this._view === "overview" || this._view === "energy_analysis") {
+      bindSmartChargeTimelineTips(this._root); // SmartCharge Plan card
     }
     if (
       (this._view === "overview" ||
