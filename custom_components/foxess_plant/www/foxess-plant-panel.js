@@ -10486,7 +10486,7 @@ function statisticsTooltipRowsHtml(seriesMeta, t, hiddenGroups) {
 
 function dailyMaxInRange(points, dayStartMs, dayEndMs) {
   let max = 0;
-  for (const p of points) {
+  for (const p of points || []) {
     if (p.t >= dayStartMs && p.t <= dayEndMs) max = Math.max(max, p.v);
   }
   return max;
@@ -11316,14 +11316,8 @@ async function fetchFoxMirroredBarChart(hass, plant, plantState, period, offset 
 
 async function fetchOverviewDailyEnergy(hass, plant, plantState) {
   const map = resolveEntityMap(hass, plant, plantState);
-  const ent = {
-    pv: map.solar_energy_today,
-    load: map.load_energy_today,
-    discharge: map.battery_discharge_today,
-    charge: map.battery_charge_today,
-    grid: map.grid_consumption_energy_today,
-  };
-  const ids = [ent.pv, ent.load, ent.discharge, ent.charge, ent.grid].filter(Boolean);
+  const ent = resolveEnergyHistoryEntities(map);
+  const ids = [ent.pv, ent.feedIn, ent.load, ent.discharge, ent.charge, ent.grid].filter(Boolean);
   const labels = buildLastNDays(OVERVIEW_DAILY_DAYS);
   if (!ids.length) {
     return { error: tl("energy.daily_energy_sensors_not_found_reload") };
@@ -11333,6 +11327,7 @@ async function fetchOverviewDailyEnergy(hass, plant, plantState) {
   const hist = await fetchHistoryDuring(hass, ids, rangeStart, now);
   const points = {
     pv: historyToPoints(historyRowsForEntity(hist, ent.pv)),
+    feedIn: historyToPoints(historyRowsForEntity(hist, ent.feedIn)),
     load: historyToPoints(historyRowsForEntity(hist, ent.load)),
     discharge: historyToPoints(historyRowsForEntity(hist, ent.discharge)),
     charge: historyToPoints(historyRowsForEntity(hist, ent.charge)),
