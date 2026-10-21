@@ -434,6 +434,7 @@
   "energy.energy_supply_and_usage_chart": "Energy supply and usage chart",
   "energy.from_grid": "From grid",
   "energy.from_pv_battery": "From PV & Battery",
+  "energy.grid_to_house": "Grid → House",
   "energy.home": "Home",
   "energy.live_energy_flow": "Live energy flow",
   "energy.load_consumption": "Load Consumption",

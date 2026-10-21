@@ -6760,11 +6760,11 @@ function foxAnalysisTopCardsData(a) {
       total: loadTotal,
       segments: [
         { value: loadFromPvBattery, color: FOX_ANALYSIS_SPLIT_COLORS.selfSufficiency, label: tl("common.self_sufficiency") },
-        { value: loadFromGrid, color: FOX_ANALYSIS_SPLIT_COLORS.gridPurchase, label: tl("panel.grid_purchase") },
+        { value: loadFromGrid, color: FOX_ANALYSIS_SPLIT_COLORS.gridPurchase, label: tl("energy.grid_to_house") },
       ],
       rows: [
         { label: tl("common.self_sufficiency"), value: loadFromPvBattery, pct: selfSufficiency, color: FOX_ANALYSIS_SPLIT_COLORS.selfSufficiency },
-        { label: tl("panel.grid_purchase"), value: loadFromGrid, pct: Math.max(0, 100 - selfSufficiency), color: FOX_ANALYSIS_SPLIT_COLORS.gridPurchase },
+        { label: tl("energy.grid_to_house"), value: loadFromGrid, pct: Math.max(0, 100 - selfSufficiency), color: FOX_ANALYSIS_SPLIT_COLORS.gridPurchase },
       ],
     },
   };
@@ -6892,7 +6892,7 @@ function buildEnergyBreakdownLoadRow(a) {
     totalKwh: loadTotal,
     metrics: [
       { label: tl("energy.from_pv_battery"), value: loadFromPvBattery, color: FOX_ENERGY.load },
-      { label: tl("common.from_grid"), value: loadFromGrid, color: "var(--primary-text-color)" },
+      { label: tl("energy.grid_to_house"), value: loadFromGrid, color: "var(--primary-text-color)" },
     ],
     segments: [
       { value: loadFromPvBattery, color: FOX_ENERGY.load },
@@ -7060,7 +7060,7 @@ function renderEnergyReportDetailsTable(rows) {
 <th>${tl("reports.export_to_grid")}</th>
 <th>${tl("reports.to_load_battery_self_consumption")}</th>
 <th>${tl("common.total")}</th>
-<th>${tl("common.from_grid")}</th>
+<th>${tl("energy.grid_to_house")}</th>
 <th>${tl("reports.from_pv_and_battery_self_sufficiency")}</th>
 <th>${tl("common.total")}</th>
 </tr>
