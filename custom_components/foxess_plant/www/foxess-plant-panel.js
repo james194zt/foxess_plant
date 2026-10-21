@@ -22151,12 +22151,17 @@ ${chart}
       if (!this._plantState) await this._refreshPlantState();
       const overview = await fetchOverviewDailyEnergy(this._hass, plant, this._plantState);
       this._overviewDaily = overview;
-      this._analysisTariffDaily = await fetchAnalysisTariffIntraday(
-        this._hass,
-        plant,
-        this._plantState,
-        overview
-      );
+      try {
+        this._analysisTariffDaily = await fetchAnalysisTariffIntraday(
+          this._hass,
+          plant,
+          this._plantState,
+          overview
+        );
+      } catch (err) {
+        // A tariff failure must not throw away the energy history that just loaded (cards + Balance sparklines).
+        this._analysisTariffDaily = { configured: false, error: err?.message };
+      }
     } catch (err) {
       this._overviewDaily = {
         error:
@@ -23785,7 +23790,10 @@ ${renderOverviewBalanceMetric(tl("energy.battery_discharge"), a.battery_discharg
     if (this._overviewDailyLoading && !this._plantState?.analytics) return "loading";
     const a = readLiveAnalytics(this._hass, plant, this._plantState, this._overviewDaily);
     const d = this._overviewDaily;
+    // The Balance sparklines show a placeholder while loading: the key must change when loading ends, even if
+    // the spark series come back empty, or the placeholder stays until some other figure moves.
     return [
+      this._overviewDailyLoading ? "loading" : "loaded",
       a.load_consumption_kwh_today,
       a.load_from_grid_kwh_today,
       a.pv_production_kwh_today,
