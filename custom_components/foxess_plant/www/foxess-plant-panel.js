@@ -6725,13 +6725,22 @@ ${renderFoxAnalysisProporBar(segments, t, ' data-energy-split-bar="1"')}
 </div>`;
 }
 
+/** The house's share of grid import: load_from_grid_kwh_today is ALL import (billing uses it), including what
+ * charged the battery, so on a SmartCharge night it is bigger than the whole house load. */
+function loadFromGridToHouse(a) {
+  const load = Number(a.load_consumption_kwh_today ?? 0) || 0;
+  const fromPvBattery = Number(a.load_from_pv_battery_kwh_today ?? 0) || 0;
+  const imported = Number(a.load_from_grid_kwh_today ?? 0) || 0;
+  return Math.min(imported, Math.max(0, load - fromPvBattery));
+}
+
 function foxAnalysisTopCardsData(a) {
   const pvTotal = Number(a.pv_production_kwh_today ?? 0) || 0;
   const pvToLoadBattery = Number(a.pv_to_load_battery_kwh_today ?? 0) || 0;
   const pvToGrid = Number(a.pv_to_grid_kwh_today ?? 0) || 0;
   const loadTotal = Number(a.load_consumption_kwh_today ?? 0) || 0;
   const loadFromPvBattery = Number(a.load_from_pv_battery_kwh_today ?? 0) || 0;
-  const loadFromGrid = Number(a.load_from_grid_kwh_today ?? 0) || 0;
+  const loadFromGrid = loadFromGridToHouse(a);
   const selfConsumption = Number(a.self_consumption_percent_today ?? 0) || 0;
   const selfSufficiency = Number(a.self_sufficiency_percent_today ?? 0) || 0;
   return {
@@ -6876,7 +6885,7 @@ function buildEnergyBreakdownPvRow(a) {
 function buildEnergyBreakdownLoadRow(a) {
   const loadTotal = Number(a.load_consumption_kwh_today ?? 0) || 0;
   const loadFromPvBattery = Number(a.load_from_pv_battery_kwh_today ?? 0) || 0;
-  const loadFromGrid = Number(a.load_from_grid_kwh_today ?? 0) || 0;
+  const loadFromGrid = loadFromGridToHouse(a);
   const selfSufficiency = Number(a.self_sufficiency_percent_today ?? 0) || 0;
   return renderEnergyBreakdownRow({
     heading: tl("energy.load_consumption"),
@@ -6939,7 +6948,9 @@ function energyReportDetailMetricsFromBreakdown(b) {
     pvExport: b.pv_to_grid_kwh,
     pvSelf: b.pv_to_load_battery_kwh,
     pvTotal: b.pv_production_kwh,
-    loadGrid: b.load_from_grid_kwh,
+    loadGrid: roundEnergyKwh(
+      Math.min(b.load_from_grid_kwh, Math.max(0, b.load_consumption_kwh - b.load_from_pv_battery_kwh))
+    ),
     loadSelf: b.load_from_pv_battery_kwh,
     loadTotal: b.load_consumption_kwh,
   };
@@ -8175,17 +8186,41 @@ function applyPvTodayFallback(states, overviewDaily) {
   return out;
 }
 
+/**
+ * The house's consumption (same rule as analytics.house_load_kwh). The inverter's load counter already IS the
+ * house load; adding battery charge and grid import to it double-counted (21 kWh shown at 05:30 on 21 Oct 2026
+ * for a real 2.0). Without that counter: what came in (PV, grid, battery) minus what went out.
+ */
+function houseLoadKwh({ inverterLoad = 0, pv = 0, fromGrid = 0, toGrid = 0, charge = 0, discharge = 0 }) {
+  if (inverterLoad > 0) return inverterLoad;
+  return Math.max(0, pv + fromGrid + discharge - toGrid - charge);
+}
+
+/** House load met by solar or the battery (same rule as analytics.load_from_pv_battery_kwh): grid import that
+ * charged the battery isn't house load. */
+function loadFromPvBatteryKwh({ load = 0, fromGrid = 0, pv = 0, toGrid = 0, charge = 0 }) {
+  const gridToBattery = Math.max(0, charge - Math.max(0, pv - toGrid));
+  const gridToHouse = Math.max(0, fromGrid - gridToBattery);
+  return Math.max(0, load - gridToHouse);
+}
+
 function computeAnalyticsFromStates(states) {
   let pv = analyticsFloat(states, "solar_energy_today");
   let toGrid = analyticsFloat(states, "feed_in_energy_today");
   if (pv > 0 && toGrid > pv) toGrid = pv;
   const toLoadBattery = Math.max(0, pv - toGrid);
-  const baseLoad = analyticsFloat(states, "load_energy_today");
   const batteryDischarge = analyticsFloat(states, "battery_discharge_today");
   const batteryCharge = analyticsFloat(states, "battery_charge_today");
   const fromGrid = analyticsFloat(states, "grid_consumption_energy_today");
-  const loadConsumption = baseLoad - batteryDischarge + batteryCharge + fromGrid;
-  const fromPvBattery = Math.max(0, loadConsumption - fromGrid);
+  const loadConsumption = houseLoadKwh({
+    inverterLoad: analyticsFloat(states, "load_energy_today"),
+    pv,
+    fromGrid,
+    toGrid,
+    charge: batteryCharge,
+    discharge: batteryDischarge,
+  });
+  const fromPvBattery = loadFromPvBatteryKwh({ load: loadConsumption, fromGrid, pv, toGrid, charge: batteryCharge });
   const selfConsumption = pv > 0 ? Math.min(100, Math.max(0, (toLoadBattery / pv) * 100)) : 0;
   const selfSufficiency =
     loadConsumption > 0 ? Math.min(100, Math.max(0, (fromPvBattery / loadConsumption) * 100)) : 0;
@@ -10014,12 +10049,15 @@ function energyBreakdownTitle(period, offset = 0, now = new Date()) {
 }
 
 function dailyLoadKwhFromPoints(points, dayStartMs, dayEndMs) {
-  const load =
-    dailyMaxInRange(points.load, dayStartMs, dayEndMs) -
-    dailyMaxInRange(points.discharge, dayStartMs, dayEndMs) +
-    dailyMaxInRange(points.charge, dayStartMs, dayEndMs) +
-    dailyMaxInRange(points.grid, dayStartMs, dayEndMs);
-  return Math.max(0, load);
+  const pv = dailyMaxInRange(points.pv, dayStartMs, dayEndMs);
+  return houseLoadKwh({
+    inverterLoad: dailyMaxInRange(points.load, dayStartMs, dayEndMs),
+    pv,
+    fromGrid: dailyMaxInRange(points.grid, dayStartMs, dayEndMs),
+    toGrid: Math.min(pv, dailyMaxInRange(points.feedIn, dayStartMs, dayEndMs)),
+    charge: dailyMaxInRange(points.charge, dayStartMs, dayEndMs),
+    discharge: dailyMaxInRange(points.discharge, dayStartMs, dayEndMs),
+  });
 }
 
 function computeEnergyBreakdown(points, dayLabels) {
@@ -10040,7 +10078,13 @@ function computeEnergyBreakdown(points, dayLabels) {
     batteryDischarge += dailyMaxInRange(points.discharge, ds, de);
   }
   const pvToLoadBattery = Math.max(0, pvTotal - pvToGrid);
-  const loadFromPvBattery = Math.max(0, loadTotal - loadFromGrid);
+  const loadFromPvBattery = loadFromPvBatteryKwh({
+    load: loadTotal,
+    fromGrid: loadFromGrid,
+    pv: pvTotal,
+    toGrid: pvToGrid,
+    charge: batteryCharge,
+  });
   const selfConsumption = pvTotal > 0 ? Math.min(100, (pvToLoadBattery / pvTotal) * 100) : 0;
   const selfSufficiency = loadTotal > 0 ? Math.min(100, (loadFromPvBattery / loadTotal) * 100) : 0;
   return {
@@ -11091,12 +11135,7 @@ function dailyProductionKwh(points, dayStartMs, dayEndMs) {
 }
 
 function dailyConsumptionKwh(points, dayStartMs, dayEndMs) {
-  const load =
-    dailyMaxInRange(points.load, dayStartMs, dayEndMs) -
-    dailyMaxInRange(points.discharge, dayStartMs, dayEndMs) +
-    dailyMaxInRange(points.charge, dayStartMs, dayEndMs) +
-    dailyMaxInRange(points.grid, dayStartMs, dayEndMs);
-  return Math.round(Math.max(0, load) * 100) / 100;
+  return Math.round(dailyLoadKwhFromPoints(points, dayStartMs, dayEndMs) * 100) / 100;
 }
 
 function renderOverviewDailySparklineSvg(values, labels, accentColor) {
@@ -11376,6 +11415,8 @@ function buildIntradayConsumptionSpark(points, startMs, endMs) {
     discharge: sortCumulativeHistoryPts(points.discharge, endMs),
     charge: sortCumulativeHistoryPts(points.charge, endMs),
     grid: sortCumulativeHistoryPts(points.grid, endMs),
+    pv: sortCumulativeHistoryPts(points.pv, endMs),
+    feedIn: sortCumulativeHistoryPts(points.feedIn, endMs),
   };
   const out = [];
   for (let t = startMs; t <= endMs; t += ANALYSIS_SPARK_SAMPLE_MS) {
@@ -11383,10 +11424,13 @@ function buildIntradayConsumptionSpark(points, startMs, endMs) {
     if (sorted.load.length) {
       v = cumulativeValueAt(sorted.load, t);
     } else {
-      v =
-        -cumulativeValueAt(sorted.discharge, t) +
-        cumulativeValueAt(sorted.charge, t) +
-        cumulativeValueAt(sorted.grid, t);
+      v = houseLoadKwh({
+        pv: cumulativeValueAt(sorted.pv, t),
+        fromGrid: cumulativeValueAt(sorted.grid, t),
+        toGrid: cumulativeValueAt(sorted.feedIn, t),
+        charge: cumulativeValueAt(sorted.charge, t),
+        discharge: cumulativeValueAt(sorted.discharge, t),
+      });
     }
     out.push(roundEnergyKwh(Math.max(0, v)));
   }
