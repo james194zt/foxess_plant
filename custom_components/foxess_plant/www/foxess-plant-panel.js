@@ -15656,8 +15656,8 @@ details.fox-report-details[open] > summary.fox-report-details-title {
 .tariff-band-rate-row .tariff-band-work-mode,
 .tariff-band-rate-row .tariff-band-force { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; white-space: nowrap; font-size: 13px; color: var(--secondary-text-color); }
 .tariff-band-rate-row .tariff-band-work-mode select { flex: 1; min-width: 0; }
-.tariff-schedule-card.tariff-schedule-locked .tariff-band-picker,
-.tariff-schedule-card.tariff-schedule-locked .tariff-hour-grid { opacity: 0.72; pointer-events: none; }
+.tariff-schedule-card.tariff-schedule-locked .tariff-band-picker { opacity: 0.72; pointer-events: none; }
+.tariff-schedule-card.tariff-schedule-locked .tariff-hour-grid { opacity: 0.72; }
 .tariff-schedule-card.tariff-schedule-locked .tariff-hour-block { cursor: default; transform: none; }
 .tariff-schedule-card.tariff-schedule-locked .tariff-band-chip[data-action="tariff-pick-band"] { cursor: default; }
 .tariff-schedule-card.tariff-schedule-locked .tariff-band-rate-row input[type="number"]:disabled { opacity: 0.55; cursor: not-allowed; }
@@ -19856,7 +19856,7 @@ ${tl("panel.panel_update_pending_browser_jsver_ha", { jsVer: esc(jsVer), regVer:
       return;
     }
     if (action === "tariff-hour") {
-      if (!this._tariffDraft?.schedule || this._busy) return;
+      if (!this._tariffDraft?.schedule || this._busy || btn.getAttribute("aria-disabled") === "true") return;
       const hour = parseInt(btn.dataset.hour, 10);
       const band = this._tariffActiveBand ?? 0;
       if (Number.isFinite(hour) && hour >= 0 && hour <= 23) {
@@ -25973,7 +25973,17 @@ ${standingManualBlock}
     const hourBlocks = schedule.hours
       .map((bandIdx, hour) => {
         const color = TARIFF_BAND_COLORS[bandIdx] ?? TARIFF_BAND_COLORS[0];
-        return `<button type="button" class="tariff-hour-block" style="background:${color}" title="${String(hour).padStart(2, "0")}:00–${String((hour + 1) % 24).padStart(2, "0")}:00 · ${esc(TARIFF_BAND_LABELS[bandIdx] || tl("tariff.band_a"))}" data-action="tariff-hour" data-hour="${hour}" ${scheduleRatesDisabled ? "disabled" : ""} aria-label="${tl("tariff.hour_hour", { hour })}"></button>`;
+        const band = schedule.bands[bandIdx] ?? {};
+        const importP = showImport && band.import_p_per_kwh > 0 ? band.import_p_per_kwh : null;
+        const exportP = exportFrom ? exportByHour?.[hour] : band.export_p_per_kwh > 0 ? band.export_p_per_kwh : null;
+        const tip = [
+          `${String(hour).padStart(2, "0")}:00–${String((hour + 1) % 24).padStart(2, "0")}:00`,
+          TARIFF_BAND_LABELS[bandIdx] || tl("tariff.band_a"),
+          importP != null ? tl("tariff.import_import_p_per_kwh_kwh", { import_p_per_kwh: `${minorToMajor(Number(importP), currency)} ${currency}` }) : "",
+          exportP != null ? tl("tariff.export_export_p_per_kwh_kwh", { export_p_per_kwh: `${minorToMajor(Number(exportP), currency)} ${currency}` }) : "",
+        ].filter(Boolean).join(" · ");
+        // Locked (supplier-synced) hours stay hoverable for the tooltip: aria-disabled, not disabled + pointer-events
+        return `<button type="button" class="tariff-hour-block" style="background:${color}" title="${esc(tip)}" data-action="tariff-hour" data-hour="${hour}" ${scheduleRatesDisabled ? 'aria-disabled="true"' : ""} aria-label="${tl("tariff.hour_hour", { hour })}"></button>`;
       })
       .join("");
     const hourLabels = schedule.hours
